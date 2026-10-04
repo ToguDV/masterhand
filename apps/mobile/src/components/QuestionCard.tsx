@@ -1,11 +1,22 @@
 import { useState } from "react"
-import { Pressable, StyleSheet, Switch, Text, TextInput, View, type StyleProp, type ViewStyle } from "react-native"
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native"
 import {
   defaultAnswer,
   describeFormAnswer,
   fieldLabel,
   formIsQuestion,
   formToolCallID,
+  formatAnswerValue,
   isFieldVisible,
   toFormAnswer,
   validateForm,
@@ -20,8 +31,9 @@ import { statusColor } from "./tools/theme"
 
 /**
  * Inline card for the agent's `question` tool (React Native mirror of the web
- * `QuestionCard`). Pending forms render their fields; settled forms collapse
- * into a read-only summary.
+ * `QuestionCard`). Pending forms show one question at a time behind a top
+ * index (plus a final Submit step); settled forms collapse into a read-only
+ * summary.
  */
 export function QuestionCard({
   part,
@@ -63,11 +75,32 @@ function QuestionForm({
 }) {
   const [answer, setAnswer] = useState<FormAnswer>(() => defaultAnswer(form))
   const [submitted, setSubmitted] = useState(false)
+  // `null` selects the final Submit step; a string selects that field's step.
+  const [active, setActive] = useState<string | null>(() => firstFieldKey(form))
+
   const errors = validateForm(form, answer)
   const valid = Object.keys(errors).length === 0
+  const fields = form.fields.filter((field) => isFieldVisible(field, answer))
+  // Conditional fields appear/disappear as answers change; keep a valid step.
+  // `null` is a valid step (the final Submit), so only fall back when a
+  // selected *field* is no longer visible.
+  const currentKey = active === null || fields.some((field) => field.key === active) ? active : fields[0]?.key ?? null
+  const current = fields.find((field) => field.key === currentKey) ?? null
+  const step = fields.findIndex((field) => field.key === currentKey)
+  const multi = fields.length > 1
 
   function update(key: string, value: FormValue): void {
     setAnswer((previous) => ({ ...previous, [key]: value }))
+  }
+
+  function submit(): void {
+    setSubmitted(true)
+    if (valid) {
+      onRespond(form, toFormAnswer(form, answer))
+      return
+    }
+    const firstInvalid = fields.find((field) => errors[field.key])
+    if (firstInvalid) setActive(firstInvalid.key)
   }
 
   return (
@@ -80,36 +113,146 @@ function QuestionForm({
         </Text>
       </View>
 
+      {multi ? (
+        <QuestionIndex
+          fields={fields}
+          active={currentKey}
+          errors={submitted ? errors : {}}
+          onSelect={setActive}
+        />
+      ) : null}
+
       <View style={styles.formBody}>
-        {form.fields
-          .filter((field) => isFieldVisible(field, answer))
-          .map((field) => (
-            <Field
-              key={field.key}
-              field={field}
-              value={answer[field.key]}
-              error={submitted ? errors[field.key] : undefined}
-              onChange={(value) => update(field.key, value)}
-            />
-          ))}
+        {current ? (
+          <Field
+            field={current}
+            value={answer[current.key]}
+            error={submitted ? errors[current.key] : undefined}
+            onChange={(value) => update(current.key, value)}
+          />
+        ) : (
+          <ReviewStep form={form} answer={answer} errors={submitted ? errors : {}} />
+        )}
 
         <Text style={styles.waitingHint}>The agent is waiting for this answer.</Text>
         <View style={styles.actions}>
-          <Pressable onPress={() => onCancel(form)} disabled={busy} style={styles.dismiss}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onCancel(form)}
+            disabled={busy}
+            style={styles.dismiss}
+          >
             <Text style={styles.dismissText}>Dismiss</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              setSubmitted(true)
-              if (valid) onRespond(form, toFormAnswer(form, answer))
-            }}
-            disabled={busy}
-            style={[styles.answerButton, busy && styles.disabled]}
-          >
-            <Text style={styles.answerText}>{busy ? "Sending…" : "Answer"}</Text>
-          </Pressable>
+          {multi && current ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActive(step >= 0 && step < fields.length - 1 ? fields[step + 1]!.key : null)}
+              disabled={busy}
+              style={[styles.nextButton, busy && styles.disabled]}
+            >
+              <Text style={styles.nextText}>Next</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={submit}
+              disabled={busy}
+              style={[styles.answerButton, busy && styles.disabled]}
+            >
+              <Text style={styles.answerText}>{busy ? "Sending…" : "Submit"}</Text>
+            </Pressable>
+          )}
         </View>
       </View>
+    </View>
+  )
+}
+
+/** The first visible field's key, or `null` when the form has none. */
+function firstFieldKey(form: FormInfo): string | null {
+  const initial = defaultAnswer(form)
+  const field = form.fields.find((candidate) => isFieldVisible(candidate, initial))
+  return field ? field.key : null
+}
+
+/** Top index: one tab per question plus the final Submit step. */
+function QuestionIndex({
+  fields,
+  active,
+  errors,
+  onSelect,
+}: {
+  fields: FormField[]
+  active: string | null
+  errors: Record<string, string>
+  onSelect: (key: string | null) => void
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      accessibilityRole="tablist"
+      contentContainerStyle={styles.index}
+    >
+      {fields.map((field) => {
+        const selected = active === field.key
+        return (
+          <Pressable
+            key={field.key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            onPress={() => onSelect(field.key)}
+            style={styles.tab}
+          >
+            <Text style={[styles.tabText, selected && styles.tabTextActive]}>
+              {errors[field.key] ? "● " : ""}
+              {fieldLabel(field)}
+            </Text>
+            <View style={[styles.tabUnderline, selected && styles.tabUnderlineActive]} />
+          </Pressable>
+        )
+      })}
+      <Pressable
+        accessibilityRole="tab"
+        accessibilityState={{ selected: active === null }}
+        onPress={() => onSelect(null)}
+        style={styles.tab}
+      >
+        <Text style={[styles.tabText, active === null && styles.tabTextActive]}>Submit</Text>
+        <View style={[styles.tabUnderline, active === null && styles.tabUnderlineActive]} />
+      </Pressable>
+    </ScrollView>
+  )
+}
+
+/** Final step: a compact review of every visible answer. */
+function ReviewStep({
+  form,
+  answer,
+  errors,
+}: {
+  form: FormInfo
+  answer: FormAnswer
+  errors: Record<string, string>
+}) {
+  const rows = form.fields
+    .filter((field) => isFieldVisible(field, answer))
+    .map((field) => ({ key: field.key, label: fieldLabel(field), value: formatAnswerValue(answer[field.key]) }))
+  return (
+    <View style={styles.review}>
+      <Text style={styles.reviewTitle}>Review your answers</Text>
+      {rows.map((row) => (
+        <View key={row.key} style={styles.answerRow}>
+          <Text style={styles.answerKey} numberOfLines={1}>
+            {row.label}
+          </Text>
+          <Text style={styles.answerValue}>{row.value}</Text>
+        </View>
+      ))}
+      {Object.keys(errors).length > 0 ? (
+        <Text style={styles.error}>Some answers need attention. Use the index above to fix them.</Text>
+      ) : null}
     </View>
   )
 }
@@ -458,6 +601,53 @@ const styles = StyleSheet.create({
   formBody: {
     gap: 14,
     padding: 10,
+  },
+  index: {
+    alignItems: "stretch",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(99, 102, 241, 0.2)",
+    paddingHorizontal: 8,
+  },
+  tab: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+  },
+  tabText: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  tabTextActive: {
+    color: "#fafafa",
+    fontWeight: "600",
+  },
+  tabUnderline: {
+    height: 2,
+    marginTop: 6,
+    borderRadius: 1,
+    backgroundColor: "transparent",
+  },
+  tabUnderlineActive: {
+    backgroundColor: "#818cf8",
+  },
+  nextButton: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#3f3f46",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  nextText: {
+    color: "#e4e4e7",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  review: {
+    gap: 8,
+  },
+  reviewTitle: {
+    color: "#e4e4e7",
+    fontSize: 13,
+    fontWeight: "600",
   },
   waitingHint: {
     color: "rgba(165, 180, 252, 0.6)",

@@ -5,6 +5,7 @@ import {
   fieldLabel,
   formIsQuestion,
   formToolCallID,
+  formatAnswerValue,
   isFieldVisible,
   toFormAnswer,
   validateForm,
@@ -18,8 +19,9 @@ import { StatusDot } from "./tools/StatusDot"
 
 /**
  * Inline card for the agent's `question` tool. While the form is pending it
- * renders the fields and replies with the typed answer; once answered (here or
- * on another device) it collapses into a read-only summary.
+ * shows one question at a time behind a top index (plus a final Submit step),
+ * so multi-question forms never dump every field at once. Once answered (here
+ * or on another device) it collapses into a read-only summary.
  */
 export function QuestionCard({
   part,
@@ -61,11 +63,32 @@ function QuestionForm({
 }) {
   const [answer, setAnswer] = useState<FormAnswer>(() => defaultAnswer(form))
   const [submitted, setSubmitted] = useState(false)
+  // `null` selects the final Submit step; a string selects that field's step.
+  const [active, setActive] = useState<string | null>(() => firstFieldKey(form))
+
   const errors = validateForm(form, answer)
   const valid = Object.keys(errors).length === 0
+  const fields = form.fields.filter((field) => isFieldVisible(field, answer))
+  // Conditional fields appear/disappear as answers change; keep a valid step.
+  // `null` is a valid step (the final Submit), so only fall back when a
+  // selected *field* is no longer visible.
+  const currentKey = active === null || fields.some((field) => field.key === active) ? active : fields[0]?.key ?? null
+  const current = fields.find((field) => field.key === currentKey) ?? null
+  const step = fields.findIndex((field) => field.key === currentKey)
+  const multi = fields.length > 1
 
   function update(key: string, value: FormValue): void {
     setAnswer((previous) => ({ ...previous, [key]: value }))
+  }
+
+  function submit(): void {
+    setSubmitted(true)
+    if (valid) {
+      onRespond(form, toFormAnswer(form, answer))
+      return
+    }
+    const firstInvalid = fields.find((field) => errors[field.key])
+    if (firstInvalid) setActive(firstInvalid.key)
   }
 
   return (
@@ -86,25 +109,32 @@ function QuestionForm({
         </span>
       </div>
 
+      {multi && (
+        <QuestionIndex
+          fields={fields}
+          active={currentKey}
+          errors={submitted ? errors : {}}
+          onSelect={setActive}
+        />
+      )}
+
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          setSubmitted(true)
-          if (valid) onRespond(form, toFormAnswer(form, answer))
+          submit()
         }}
         className="space-y-4 px-3 py-3"
       >
-        {form.fields
-          .filter((field) => isFieldVisible(field, answer))
-          .map((field) => (
-            <Field
-              key={field.key}
-              field={field}
-              value={answer[field.key]}
-              error={submitted ? errors[field.key] : undefined}
-              onChange={(value) => update(field.key, value)}
-            />
-          ))}
+        {current ? (
+          <Field
+            field={current}
+            value={answer[current.key]}
+            error={submitted ? errors[current.key] : undefined}
+            onChange={(value) => update(current.key, value)}
+          />
+        ) : (
+          <ReviewStep form={form} answer={answer} errors={submitted ? errors : {}} />
+        )}
 
         <div className="flex items-center gap-2 pt-0.5">
           <span className="flex-1 text-[11px] text-indigo-300/60">The agent is waiting for this answer.</span>
@@ -116,15 +146,125 @@ function QuestionForm({
           >
             Dismiss
           </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {busy ? "Sending…" : "Answer"}
-          </button>
+          {multi && current ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setActive(step >= 0 && step < fields.length - 1 ? fields[step + 1]!.key : null)}
+              className="rounded-lg border border-zinc-700 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              Next
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {busy ? "Sending…" : "Submit"}
+            </button>
+          )}
         </div>
       </form>
+    </div>
+  )
+}
+
+/** The first visible field's key, or `null` when the form has none. */
+function firstFieldKey(form: FormInfo): string | null {
+  const initial = defaultAnswer(form)
+  const field = form.fields.find((candidate) => isFieldVisible(candidate, initial))
+  return field ? field.key : null
+}
+
+/** Top index: one tab per question plus the final Submit step. */
+function QuestionIndex({
+  fields,
+  active,
+  errors,
+  onSelect,
+}: {
+  fields: FormField[]
+  active: string | null
+  errors: Record<string, string>
+  onSelect: (key: string | null) => void
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Questions"
+      className="flex items-center gap-0.5 overflow-x-auto border-b border-indigo-500/20 px-2"
+    >
+      {fields.map((field) => {
+        const selected = active === field.key
+        return (
+          <button
+            key={field.key}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onSelect(field.key)}
+            className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1.5 text-xs transition-colors ${
+              selected
+                ? "border-indigo-400 font-medium text-zinc-100"
+                : "border-transparent text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            {errors[field.key] && (
+              <span className="mr-1 text-red-400" aria-hidden="true">
+                ●
+              </span>
+            )}
+            {fieldLabel(field)}
+          </button>
+        )
+      })}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === null}
+        onClick={() => onSelect(null)}
+        className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1.5 text-xs transition-colors ${
+          active === null
+            ? "border-indigo-400 font-medium text-zinc-100"
+            : "border-transparent text-zinc-500 hover:text-zinc-300"
+        }`}
+      >
+        Submit
+      </button>
+    </div>
+  )
+}
+
+/** Final step: a compact review of every visible answer. */
+function ReviewStep({
+  form,
+  answer,
+  errors,
+}: {
+  form: FormInfo
+  answer: FormAnswer
+  errors: Record<string, string>
+}) {
+  const rows = form.fields
+    .filter((field) => isFieldVisible(field, answer))
+    .map((field) => ({ key: field.key, label: fieldLabel(field), value: formatAnswerValue(answer[field.key]) }))
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-zinc-200">Review your answers</p>
+      <dl className="space-y-1">
+        {rows.map((row) => (
+          <div key={row.key} className="flex gap-2 text-xs">
+            <dt className="w-28 shrink-0 truncate text-zinc-500" title={row.label}>
+              {row.label}
+            </dt>
+            <dd className="min-w-0 flex-1 break-words text-zinc-300">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {Object.keys(errors).length > 0 && (
+        <p className="text-xs text-red-400">Some answers need attention. Use the index above to fix them.</p>
+      )}
     </div>
   )
 }

@@ -535,7 +535,7 @@ describe("App — permissions and events", () => {
 
     expect(await screen.findByTestId("question-card")).toBeOnTheScreen()
     await fireEvent.press(screen.getByText("Red"))
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
 
     await waitFor(() => expect(client.api.respondForm).toHaveBeenCalledWith("ses_1", "frm_1", { q0: "Red" }))
     expect(await screen.findByTestId("question-answered")).toBeOnTheScreen()
@@ -575,7 +575,7 @@ describe("App — permissions and events", () => {
       streamOptions().onEvent({ type: "form.created", data: { form: questionForm } })
     })
     await fireEvent.press(await screen.findByText("Red"))
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
 
     expect(await screen.findByText(/Could not answer the question/)).toBeOnTheScreen()
   })

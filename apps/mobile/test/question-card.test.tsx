@@ -56,8 +56,55 @@ describe("QuestionCard", () => {
     expect(screen.getByText(/Database/)).toBeOnTheScreen()
     expect(screen.getByText("Relational")).toBeOnTheScreen()
     await fireEvent.press(screen.getByText("Postgres"))
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { db: "pg" })
+  })
+
+  it("shows one question at a time behind the top index", async () => {
+    const onRespond = jest.fn()
+    const info = form([
+      {
+        key: "q0",
+        type: "string",
+        title: "Drink",
+        options: [{ label: "Coffee", value: "coffee" }],
+      },
+      {
+        key: "q1",
+        type: "string",
+        title: "Language",
+        options: [{ label: "TypeScript", value: "ts" }],
+      },
+    ])
+    await render(
+      <QuestionCard
+        part={questionPart()}
+        forms={[info]}
+        answeredForms={[]}
+        busyFormID={null}
+        onRespond={onRespond}
+        onCancel={jest.fn()}
+      />,
+    )
+
+    // Only the first question is rendered; the index lists them all plus Submit.
+    expect(screen.getByText("Coffee")).toBeOnTheScreen()
+    expect(screen.queryByText("TypeScript")).toBeNull()
+    expect(screen.getByRole("tab", { name: "Language" })).toBeOnTheScreen()
+    expect(screen.getByRole("tab", { name: "Submit" })).toBeOnTheScreen()
+
+    // Jump straight back to the second question from the index.
+    await fireEvent.press(screen.getByRole("tab", { name: "Language" }))
+    expect(screen.getByText("TypeScript")).toBeOnTheScreen()
+    expect(screen.queryByText("Coffee")).toBeNull()
+
+    // Answer both, then confirm from the final Submit step.
+    await fireEvent.press(screen.getByText("TypeScript"))
+    await fireEvent.press(screen.getByRole("tab", { name: "Drink" }))
+    await fireEvent.press(screen.getByText("Coffee"))
+    await fireEvent.press(screen.getByRole("tab", { name: "Submit" }))
+    await fireEvent.press(screen.getByRole("button", { name: "Submit" }))
+    expect(onRespond).toHaveBeenCalledWith(info, { q0: "coffee", q1: "ts" })
   })
 
   it("blocks submit until required fields are answered", async () => {
@@ -74,12 +121,12 @@ describe("QuestionCard", () => {
       />,
     )
 
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).not.toHaveBeenCalled()
     expect(screen.getByText("This field is required")).toBeOnTheScreen()
 
     await fireEvent.changeText(screen.getByPlaceholderText("Your name"), "Ada")
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { name: "Ada" })
   })
 
@@ -116,7 +163,7 @@ describe("QuestionCard", () => {
 
     expect(screen.getByText("Answered")).toBeOnTheScreen()
     expect(screen.getByText("pg")).toBeOnTheScreen()
-    expect(screen.queryByText("Answer")).toBeNull()
+    expect(screen.queryByText("Submit")).toBeNull()
   })
 
   it("toggles a boolean field", async () => {
@@ -135,7 +182,7 @@ describe("QuestionCard", () => {
 
     expect(screen.getByText("Enable feature")).toBeOnTheScreen()
     await fireEvent(screen.getByRole("switch"), "valueChange", true)
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { flag: true })
   })
 
@@ -154,12 +201,12 @@ describe("QuestionCard", () => {
     )
 
     await fireEvent.changeText(screen.getByLabelText("Count"), "1")
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(screen.getByText("Must be at least 5")).toBeOnTheScreen()
     expect(onRespond).not.toHaveBeenCalled()
 
     await fireEvent.changeText(screen.getByLabelText("Count"), "10")
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { count: 10 })
   })
 
@@ -194,7 +241,7 @@ describe("QuestionCard", () => {
     await fireEvent.press(screen.getByText("Add"))
     expect(screen.getByText("Gamma ×")).toBeOnTheScreen()
 
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { tags: ["a", "Gamma"] })
   })
 
@@ -230,9 +277,11 @@ describe("QuestionCard", () => {
       />,
     )
 
-    expect(screen.queryByText("Level")).toBeNull()
+    expect(screen.queryByLabelText("Level")).toBeNull()
     await fireEvent(screen.getByRole("switch"), "valueChange", true)
-    expect(screen.getByText("Level")).toBeOnTheScreen()
+    // The conditional field shows up as a new step in the top index.
+    await fireEvent.press(screen.getByText("Level"))
+    expect(screen.getByLabelText("Level")).toBeOnTheScreen()
   })
 
   it("supports the custom 'Other…' option", async () => {
@@ -259,7 +308,7 @@ describe("QuestionCard", () => {
 
     await fireEvent.press(screen.getByText("Other…"))
     await fireEvent.changeText(screen.getByLabelText("Database"), "MySQL")
-    await fireEvent.press(screen.getByText("Answer"))
+    await fireEvent.press(screen.getByText("Submit"))
     expect(onRespond).toHaveBeenCalledWith(info, { db: "MySQL" })
   })
 

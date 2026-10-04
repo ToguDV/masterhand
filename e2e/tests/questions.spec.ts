@@ -14,16 +14,19 @@ test("renders agent questions inline and replies to them", async ({ page }) => {
   const main = page.locator("main")
   const card = main.getByTestId("question-card")
   await expect(card).toBeVisible()
+  // The index shows one question at a time: the first question is rendered.
   await expect(card.getByText("Which database should the project use?")).toBeVisible()
   await expect(card.getByText("Postgres")).toBeVisible()
   await expect(card.getByText("SQLite")).toBeVisible()
 
-  // A required field blocks the reply and shows the inline error.
-  await card.getByRole("button", { name: "Answer" }).click()
+  // The final Submit step blocks the reply and jumps to the required question.
+  await card.getByRole("tab", { name: "Submit" }).click()
+  await card.getByRole("button", { name: "Submit" }).click()
   await expect(card.getByText("This field is required")).toBeVisible()
 
   await card.getByRole("radio", { name: /Postgres/ }).click()
-  await card.getByRole("button", { name: "Answer" }).click()
+  await card.getByRole("tab", { name: "Submit" }).click()
+  await card.getByRole("button", { name: "Submit" }).click()
 
   // The agent resumes and the card becomes a read-only summary.
   await expect(main.getByText("Thanks, moving on.")).toBeVisible()
