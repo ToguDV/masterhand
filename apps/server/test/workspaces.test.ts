@@ -4,8 +4,11 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   createWorkspaceDir,
+  externalWriteGuardRules,
   isInsideRoot,
   normalizeWorkspaceSlug,
+  processGuardRules,
+  processSystemPrompt,
   removeWorkspaceDir,
   workspaceName,
   workspacePath,
@@ -56,6 +59,44 @@ describe("workspaceName", () => {
 
   it("falls back to the path for the filesystem root", () => {
     expect(workspaceName("/")).toBe("/")
+  })
+})
+
+describe("processGuardRules", () => {
+  it("denies broad process kills for the v2 shell action and the legacy bash action", () => {
+    const rules = processGuardRules()
+    expect(rules).toContainEqual({ action: "shell", resource: "pkill*", effect: "deny" })
+    expect(rules).toContainEqual({ action: "shell", resource: "killall*", effect: "deny" })
+    expect(rules).toContainEqual({ action: "shell", resource: "kill $*", effect: "deny" })
+    expect(rules).toContainEqual({ action: "shell", resource: "npm run dev:stop*", effect: "deny" })
+    expect(rules).toContainEqual({ action: "bash", resource: "pkill*", effect: "deny" })
+    expect(rules.every((rule) => rule.effect === "deny")).toBe(true)
+  })
+
+  it("does not deny a numeric kill of the exact PID the agent started", () => {
+    // `kill 1234` must stay allowed: it is the supported way to stop a server
+    // the agent owns. Only substitutions and signal-all forms are denied.
+    const resources = processGuardRules().map((rule) => rule.resource)
+    expect(resources).not.toContain("kill *")
+    expect(resources).not.toContain("kill")
+  })
+
+  it("keeps the write guard independent from the process guard", () => {
+    expect(externalWriteGuardRules().map((rule) => rule.action)).toEqual([
+      "external_directory",
+      "edit",
+      "edit",
+      "edit",
+    ])
+  })
+})
+
+describe("processSystemPrompt", () => {
+  it("forbids broad kills and points at the supported lifecycle", () => {
+    const prompt = processSystemPrompt()
+    expect(prompt).toContain("never stop processes by name, pattern or port")
+    expect(prompt).toContain("kill <that pid>")
+    expect(prompt).toContain("Run and Preview controls")
   })
 })
 

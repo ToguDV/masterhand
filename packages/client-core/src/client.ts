@@ -18,11 +18,14 @@ import type {
   PreviewStatus,
   PromptContext,
   PromptInput,
+  RunCandidate,
   RunCommandInput,
+  RunStatus,
   Session,
   SessionStatuses,
   SlashCommand,
   WorkspaceRecord,
+  WorkspaceRunConfig,
 } from "./types"
 import { toChatMessage } from "./chat"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
@@ -120,6 +123,21 @@ export interface Client {
     preview(sessionID: string): Promise<PreviewStatus>
     startPreview(sessionID: string): Promise<PreviewStatus>
     stopPreview(sessionID: string): Promise<void>
+    /**
+     * Managed dev-server lifecycle: MasterHand starts the workspace's run
+     * command (argv, `{port}` replaced) and stops that exact process, so the
+     * agent never kills servers itself.
+     */
+    run(workspaceID: string): Promise<WorkspaceRunConfig | null>
+    saveRun(
+      workspaceID: string,
+      input: { command: string; args: string[]; cwd?: string | null },
+    ): Promise<WorkspaceRunConfig>
+    /** Reads the agent-proposed `.masterhand/run.json` (validated, not saved). */
+    detectRun(workspaceID: string): Promise<RunCandidate>
+    sessionRun(sessionID: string, workspaceID: string): Promise<RunStatus>
+    startSessionRun(sessionID: string, workspaceID: string): Promise<RunStatus>
+    stopSessionRun(sessionID: string, workspaceID: string): Promise<void>
   }
   workspaces: {
     list(): Promise<WorkspaceRecord[]>
@@ -383,6 +401,34 @@ export function createClient(options: ClientOptions = {}): Client {
         }).then((response) => response.preview),
       stopPreview: (sessionID) =>
         request<void>(`/api/sessions/${encodeURIComponent(sessionID)}/preview`, { method: "DELETE" }),
+      run: (workspaceID) =>
+        request<{ run: WorkspaceRunConfig | null }>(
+          `/api/workspaces/${encodeURIComponent(workspaceID)}/run`,
+        ).then((response) => response.run),
+      saveRun: (workspaceID, input) =>
+        request<{ run: WorkspaceRunConfig }>(`/api/workspaces/${encodeURIComponent(workspaceID)}/run`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        }).then((response) => response.run),
+      detectRun: (workspaceID) =>
+        request<{ run: RunCandidate }>(
+          `/api/workspaces/${encodeURIComponent(workspaceID)}/run/detect`,
+          { method: "POST" },
+        ).then((response) => response.run),
+      sessionRun: (sessionID, workspaceID) =>
+        request<{ run: RunStatus }>(
+          `/api/sessions/${encodeURIComponent(sessionID)}/run?workspace=${encodeURIComponent(workspaceID)}`,
+        ).then((response) => response.run),
+      startSessionRun: (sessionID, workspaceID) =>
+        request<{ run: RunStatus }>(
+          `/api/sessions/${encodeURIComponent(sessionID)}/run?workspace=${encodeURIComponent(workspaceID)}`,
+          { method: "POST" },
+        ).then((response) => response.run),
+      stopSessionRun: (sessionID, workspaceID) =>
+        request<void>(
+          `/api/sessions/${encodeURIComponent(sessionID)}/run?workspace=${encodeURIComponent(workspaceID)}`,
+          { method: "DELETE" },
+        ),
     },
     workspaces: {
       list: () => request<{ workspaces: WorkspaceRecord[] }>("/api/workspaces").then((response) => response.workspaces),

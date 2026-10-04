@@ -665,6 +665,39 @@ describe("audit", () => {
   })
 })
 
+describe("managed run", () => {
+  it("reads, saves, detects and controls a session run", async () => {
+    const config = { command: "npm", args: ["run", "dev"], cwd: null, source: "user", updatedAt: 1 }
+    const status = { status: "running", command: "npm", args: ["run", "dev"], port: 3200, pid: 42, error: null }
+    const { calls, fetchImpl } = recordingFetch(
+      () => jsonResponse({ run: config }),
+      () => jsonResponse({ run: config }),
+      () => jsonResponse({ run: { command: "pnpm", args: ["dev"], cwd: null } }),
+      () => jsonResponse({ run: status }),
+      () => jsonResponse({ run: status }),
+      () => new Response(null, { status: 204 }),
+    )
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    expect(await client.api.run("ws/1")).toEqual(config)
+    expect(await client.api.saveRun("ws/1", { command: "npm", args: ["run", "dev"] })).toEqual(config)
+    expect(await client.api.detectRun("ws/1")).toEqual({ command: "pnpm", args: ["dev"], cwd: null })
+    expect(await client.api.sessionRun("ses/1", "ws/1")).toEqual(status)
+    expect(await client.api.startSessionRun("ses/1", "ws/1")).toEqual(status)
+    await client.api.stopSessionRun("ses/1", "ws/1")
+
+    const routes = calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)
+    expect(routes).toEqual([
+      "GET https://mh.example/api/workspaces/ws%2F1/run",
+      "PUT https://mh.example/api/workspaces/ws%2F1/run",
+      "POST https://mh.example/api/workspaces/ws%2F1/run/detect",
+      "GET https://mh.example/api/sessions/ses%2F1/run?workspace=ws%2F1",
+      "POST https://mh.example/api/sessions/ses%2F1/run?workspace=ws%2F1",
+      "DELETE https://mh.example/api/sessions/ses%2F1/run?workspace=ws%2F1",
+    ])
+  })
+})
+
 describe("client error handling", () => {
   it("falls back to the HTTP status when the error body is empty", async () => {
     const { fetchImpl } = recordingFetch(() => new Response("", { status: 500 }))

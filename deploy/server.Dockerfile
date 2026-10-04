@@ -59,4 +59,6 @@ COPY --from=build /app/apps/web/dist ./apps/web/dist
 
 USER node
 EXPOSE 8787
-CMD ["node", "apps/server/dist/index.js"]
+# umask 002 keeps workspace folders and worktrees group-writable, so the agent
+# (same group, different uid) can write what the BFF creates and vice versa.
+CMD ["sh", "-c", "umask 002; exec node apps/server/dist/index.js"]

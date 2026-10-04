@@ -47,12 +47,18 @@ Other rules:
 | `DELETE` | `/api/workspaces/:id` | `{ ok: true }` | Removes the workspace from MasterHand's list and cleans up its isolated worktrees and records. With `?deleteFiles=1` it also deletes the folder and its files from disk (only when the path is inside `WORKSPACES_ROOT`, otherwise `403`); without it, files and opencode sessions are untouched. `404` unknown workspace |
 | `GET` | `/api/workspaces/:id/directories` | `{ directories: string[] }` | Workspace folder plus every isolated worktree of the workspace (used to reconcile pending permissions per directory) |
 | `GET` | `/api/workspaces/:id/sessions` | `{ sessions: Session[] }` | Aggregates opencode sessions from the workspace folder and every worktree. Isolated sessions (and subagent children) carry `isolation: { isolated: true, worktreePath, branch, baseRef, pushed, prUrl }`. `502` when opencode is unreachable |
-| `POST` | `/api/workspaces/:id/sessions` | `201 { session, isolation }` | Body: `{ "isolated": true }` optional. Standard sessions are created in the workspace folder (`isolation: null`); legacy workspaces are made their own git root first. Isolated sessions `git init` the workspace when needed, create a worktree under `WORKTREES_ROOT`, create the opencode session there and return the `isolation` metadata. In both cases the BFF then writes the `masterhand.workspace` instruction and sets the external-write guard (see below). On failure the worktree is rolled back (`500 isolation_failed`) |
+| `POST` | `/api/workspaces/:id/sessions` | `201 { session, isolation }` | Body: `{ "isolated": true }` optional. Standard sessions are created in the workspace folder (`isolation: null`); legacy workspaces are made their own git root first. Isolated sessions `git init` the workspace when needed, create a worktree under `WORKTREES_ROOT`, create the opencode session there and return the `isolation` metadata. In both cases the BFF then writes the `masterhand.workspace` and `masterhand.process` instructions and sets the write/process permission guards (see below). On failure the worktree is rolled back (`500 isolation_failed`) |
 | `DELETE` | `/api/workspaces/:id/sessions/:sessionID` | `{ ok: true }` | Deletes the opencode session (the session id resolves its location; no `directory` needed). For isolated sessions it also removes the worktree and the branch. `404` unknown workspace |
 | `POST` | `/api/isolated-sessions/:sessionID/finish` | `{ committed, pushed, prUrl, branch, path, error }` | Commits everything in the worktree. With a remote it pushes the branch and tries `gh`/`glab` for the PR, falling back to a provider compare URL; `error` reports a failed push. `404` for unknown/non-isolated sessions |
 | `GET` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Current preview state for the session. `404 preview_disabled` when `PREVIEW_ENABLED=false` |
 | `POST` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Starts a Cloudflare quick tunnel to the session's reserved port. `409 preview_not_running` when nothing listens on the port, `503 preview_unavailable` when `cloudflared` is missing, `503 preview_ports_exhausted` when the pool is drained, `502` on tunnel failure. Idempotent while running |
 | `DELETE` | `/api/sessions/:sessionID/preview` | `{ ok: true }` | Stops the tunnel (the reserved port is kept for a later restart) |
+| `GET` | `/api/workspaces/:id/run` | `{ run: WorkspaceRunRecord \| null }` | The workspace's managed run configuration |
+| `PUT` | `/api/workspaces/:id/run` | `{ run: WorkspaceRunRecord }` | Body: `{ command, args, cwd? }` (argv, no shell). Validated: shells/process-killers rejected (`400`), `cwd` must stay inside the workspace, arguments bounded. Saved with `source: "user"` |
+| `POST` | `/api/workspaces/:id/run/detect` | `{ run: RunCandidate }` | Reads and validates the agent-proposed `.masterhand/run.json`. `404 run_not_found` when missing, `400` when invalid |
+| `GET` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ run: RunStatus }` | Current state (`stopped`/`running`), pid and reserved port. Adopts a still-running PTY by its `masterhand:<sessionID>` title after a BFF restart |
+| `POST` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ run: RunStatus }` | Starts the configured command through opencode's PTY API (argv, `{port}` replaced, `PORT` in env, cwd = the session's directory/worktree). `404 run_not_configured`, `502 run_spawn_failed` |
+| `DELETE` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ ok: true }` | Stops the exact PTY MasterHand created (`DELETE /api/pty/:id`); nothing else is signalled |
 
 `workspace` shape: `{ id, name, path, createdAt }`. Each workspace is a subfolder that MasterHand creates and owns under `WORKSPACES_ROOT`, so it is always a single, isolated directory. opencode has no project-deletion endpoint, so deleting the record in MasterHand (optionally with its files) is how a workspace goes away.
 
@@ -66,6 +72,16 @@ Each session gets a **fixed port** from `PREVIEW_PORT_RANGE` on session creation
 
 > Quick tunnels are **public and ephemeral**: anyone with the random URL can reach the preview, and the URL changes on every start. Use them for testing only.
 
+## Managed run (dev-server lifecycle)
+
+MasterHand owns the dev-server process so agents never start or kill servers themselves (the broad-kill incident this feature prevents). A **run configuration** is stored per workspace and reused by every session:
+
+- The agent declares the command in `<workspace>/.masterhand/run.json` (`{ "command": "npm", "args": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "{port}"] }`); the BFF validates it (`POST /run/detect`) and the user applies or edits it in the UI. A saved config carries `source: "agent" | "user"`.
+- The command is **argv, no shell**: `command` is a single executable and `args` a bounded list, so a shell string cannot smuggle anything. Shells and process-killers (`sh`, `bash`, `pkill`, `killall`, `xargs`, `docker`, `systemctl`, …) are rejected; `cwd` must resolve inside the workspace.
+- On Start the BFF calls opencode's `POST /api/pty` with the session's reserved preview port substituted for `{port}` (and `PORT` in the env), in the session's directory (worktree for isolated sessions). On Stop it calls `DELETE /api/pty/:id`, which kills exactly that process tree — no `pkill`, no port sweeps.
+- The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Deleting the session forgets it.
+- Session creation writes a `masterhand.run` instruction telling the agent not to manage servers itself; the `masterhand.preview` instruction still carries the reserved port and the tunnel-host allowlist advice.
+
 ## Workspace isolation & guardrails
 
 opencode resolves project-scoped features (`/init`, `/review`, `AGENTS.md` discovery, the reported "workspace root") from its **`project.directory`**, computed by walking up to the nearest `.git`/`.hg` — it does not use the session's `location.directory` for them. A workspace nested inside the MasterHand repo would therefore make opencode target the **server** repo. MasterHand prevents that on two layers:
@@ -73,9 +89,12 @@ opencode resolves project-scoped features (`/init`, `/review`, `AGENTS.md` disco
 1. **Every workspace is its own git root.** The BFF runs `git init` (+ empty first commit) on workspace creation and, for legacy folders, before the first session. opencode then stops at the workspace when resolving its project root.
 2. **Per-session guardrails**, written best-effort on session creation (a failure never blocks the session):
    - An instruction entry `PUT /api/experimental/session/:id/instructions/entries/masterhand.workspace` (key `masterhand.workspace`, independent from `masterhand.preview`) pinning the agent to its exact directory: that folder is its project root and `AGENTS.md` belongs at `<dir>/AGENTS.md`; it must not touch anything outside it, and must ignore out-of-workspace paths a prompt may mention (e.g. the `AGENTS.md` path of `/init`).
-   - `PATCH /api/session/:id` with `permissions`: `external_directory` is allowed and `edit` (the action the write, edit and patch tools assert) is denied on absolute (`/*`, `?:/*`) and `../*` resources. opencode tags files outside the session directory with an absolute or `../`-prefixed resource and workspace files with a plain relative one, so **writes outside the workspace are blocked while reads stay allowed**.
+   - An instruction entry `masterhand.process` (`processSystemPrompt()`) forbidding broad process kills (`pkill`, `killall`, `fuser`, `kill $(...)`, `npm run dev:stop`) and pointing at the supported lifecycle: capture the PID you started and `kill <that pid>`, or use MasterHand's run/preview controls.
+   - A single `PATCH /api/session/:id` with `permissions` combining both guards (the field replaces the whole ruleset):
+     - `external_directory` is allowed and `edit` (the action the write, edit and patch tools assert) is denied on absolute (`/*`, `?:/*`) and `../*` resources. opencode tags files outside the session directory with an absolute or `../`-prefixed resource and workspace files with a plain relative one, so **writes outside the workspace are blocked while reads stay allowed**.
+     - `shell` is denied on the broad-kill patterns (`pkill*`, `killall*`, `fuser*`, `kill $*`, `kill \`*`, `kill -1*`, `npm run dev:stop*`, `docker compose down*`, `systemctl stop*`, `shutdown*`, …), plus the legacy `bash` action for older servers. `deny` is deliberate: MasterHand's auto-accept answers `ask` requests automatically, so only an explicit deny is enforced regardless. A numeric `kill <pid>` stays allowed. Verified against opencode v2.0.21 (the v2 shell tool asserts the `shell` action; a denied command surfaces as a tool part with `error.type = "permission.rejected"`).
 
-This is defense in depth; it does **not** sandbox shell access (`bash` is a separate permission), which remains a documented limitation (see `ARCHITECTURE.md` §5).
+This is defense in depth; it does **not** sandbox shell access in general (an agent can still run any allowed command), which remains a documented limitation (see `ARCHITECTURE.md` §5).
 
 ## Proxy to opencode
 

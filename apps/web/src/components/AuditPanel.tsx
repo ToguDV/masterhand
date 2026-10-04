@@ -28,20 +28,18 @@ export function AuditPanel() {
 
   return (
     <>
-      <div className="flex items-center justify-end gap-2 px-3 pt-1 md:px-6">
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
-        >
-          Activity
-          {events.length > 0 && (
-            <span className="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-300">
-              {events.length}
-            </span>
-          )}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+      >
+        Activity
+        {events.length > 0 && (
+          <span className="rounded-full bg-amber-500/20 px-1.5 text-[10px] font-semibold text-amber-300">
+            {events.length}
+          </span>
+        )}
+      </button>
 
       {open && (
         <div className="fixed inset-0 z-30 flex flex-col bg-zinc-950 md:inset-auto md:right-0 md:top-0 md:h-full md:w-[min(520px,55vw)] md:border-l md:border-zinc-800">

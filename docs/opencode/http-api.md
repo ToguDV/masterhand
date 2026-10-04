@@ -44,6 +44,14 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | `PUT` | `/api/experimental/session/:id/instructions/entries/:key` | Add/update a session instruction entry; body `{ value: JsonValue }`; `204`. Entries become part of the model's system context (`session.instructions.updated`). **MasterHand uses key `masterhand.preview`** |
 | `DELETE` | `/api/experimental/session/:id/instructions/entries/:key` | Remove an instruction entry |
 
+### Processes (PTY)
+
+| Method | Route | Usage in MasterHand |
+|---|---|---|
+| `POST` | `/api/pty` | Create a process; body `{ command, args?, cwd?, title?, env? }`; responds `{ location, data: { id, pid, status, … } }`. MasterHand starts the workspace's dev server with it (title `masterhand:<sessionID>`, `{port}` substituted in `args`, `PORT` in `env`). Verified against 2.0.21: `env` and `cwd` are honored and the command is spawned without a shell |
+| `GET` | `/api/pty` | List PTYs of a location (`?location[directory]=…`), with `id`, `title`, `status`, `pid`. Used to adopt a still-running dev server after a BFF restart |
+| `DELETE` | `/api/pty/:ptyID` | Terminate the process; `204`. Verified: kills the whole process tree (children included), so a dev server started through `npm`/`bash` dies completely |
+
 ### Permissions
 
 | Method | Route | Usage in MasterHand |

@@ -1,6 +1,15 @@
 import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import type { Client, PreviewStatus } from "@masterhand/client-core"
+import type { Client, PreviewStatus, RunStatus } from "@masterhand/client-core"
+
+export const STOPPED_RUN: RunStatus = {
+  status: "stopped",
+  command: null,
+  args: [],
+  port: null,
+  pid: null,
+  error: null,
+}
 
 export const STOPPED_PREVIEW: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
 
@@ -34,6 +43,12 @@ export interface FakeClient {
     stopPreview: jest.Mock
     audit: jest.Mock
     clearAudit: jest.Mock
+    run: jest.Mock
+    saveRun: jest.Mock
+    detectRun: jest.Mock
+    sessionRun: jest.Mock
+    startSessionRun: jest.Mock
+    stopSessionRun: jest.Mock
     sessions: { list: jest.Mock; finish: jest.Mock }
   }
   workspaces: { list: jest.Mock; create: jest.Mock; remove: jest.Mock }
@@ -57,6 +72,18 @@ export function fakeClient(): FakeClient & Client {
       stopPreview: jest.fn(async () => {}),
       audit: jest.fn(async () => []),
       clearAudit: jest.fn(async () => {}),
+      run: jest.fn(async () => null),
+      saveRun: jest.fn(async () => ({
+        command: "npm",
+        args: ["run", "dev"],
+        cwd: null,
+        source: "user" as const,
+        updatedAt: 1,
+      })),
+      detectRun: jest.fn(async () => ({ command: "pnpm", args: ["dev"], cwd: null })),
+      sessionRun: jest.fn(async () => STOPPED_RUN),
+      startSessionRun: jest.fn(async () => STOPPED_RUN),
+      stopSessionRun: jest.fn(async () => {}),
       sessions: {
         list: jest.fn(async () => []),
         finish: jest.fn(async () => ({

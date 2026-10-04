@@ -18,8 +18,10 @@ import {
   useModels,
   usePreview,
   useSessionDirectories,
+  useSessionRun,
   useSessions,
   useSessionStatuses,
+  useWorkspaceRun,
   useWorkspaces,
 } from "../src/hooks"
 
@@ -46,6 +48,8 @@ function makeClient(stream = makeEventStream()) {
     models: vi.fn(async () => ({ models: [], providers: [], defaultModel: null })),
     preview: vi.fn(async () => ({ status: "stopped", url: null, port: null, error: null })),
     audit: vi.fn(async () => []),
+    run: vi.fn(async () => null),
+    sessionRun: vi.fn(async () => ({ status: "stopped", command: null, args: [], port: null, pid: null, error: null })),
   }
   const eventStream = vi.fn((_options: Parameters<Client["eventStream"]>[0]) => stream)
   const workspaces = { list: vi.fn(async () => []) }
@@ -255,6 +259,26 @@ describe("query hooks", () => {
     const enabled = renderHook(() => useAudit(client), { wrapper: wrapper(qc) })
     await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
     expect(api.audit).toHaveBeenCalledTimes(1)
+  })
+
+  it("useWorkspaceRun and useSessionRun stay idle without identifiers and fetch with them", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+
+    const disabled = renderHook(() => useWorkspaceRun(client, null), { wrapper: wrapper(qc) })
+    expect(disabled.result.current.fetchStatus).toBe("idle")
+    expect(api.run).not.toHaveBeenCalled()
+
+    const config = renderHook(() => useWorkspaceRun(client, "ws_1"), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(config.result.current.isSuccess).toBe(true))
+    expect(api.run).toHaveBeenCalledWith("ws_1")
+
+    const missingWorkspace = renderHook(() => useSessionRun(client, "ses_1", null), { wrapper: wrapper(qc) })
+    expect(missingWorkspace.result.current.fetchStatus).toBe("idle")
+
+    const run = renderHook(() => useSessionRun(client, "ses_1", "ws_1"), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(run.result.current.isSuccess).toBe(true))
+    expect(api.sessionRun).toHaveBeenCalledWith("ses_1", "ws_1")
   })
 })
 

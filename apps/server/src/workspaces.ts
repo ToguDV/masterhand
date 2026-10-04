@@ -91,3 +91,67 @@ export function externalWriteGuardRules(): PermissionRule[] {
     { action: "edit", resource: "../*", effect: "deny" },
   ]
 }
+
+/**
+ * Shell commands that can take down the MasterHand stack. In production the
+ * agent shares a container and user with `opencode serve`, so a broad kill
+ * (`pkill -f vite`, `kill $(lsof -ti:5173)`, `npm run dev:stop`, ...) kills the
+ * engine itself; in native development it can also kill the BFF and the web dev
+ * server. The rules use `deny` (not `ask`) because MasterHand's auto-accept
+ * answers `ask` requests automatically, and only an explicit deny is enforced
+ * regardless. Killing the exact PID the agent started (`kill <pid>`) stays
+ * allowed; the run/preview controls are the preferred way to stop a server.
+ *
+ * Verified against opencode v2.0.21: the permission action for the shell tool is
+ * `shell` (a `bash` action does not match) and `kill $*` blocks `kill $(...)`
+ * while `kill 999999` passes. A denied command surfaces as a tool part with
+ * `error.type = "permission.rejected"`.
+ */
+export function processGuardRules(): PermissionRule[] {
+  const denied = [
+    "pkill*",
+    "killall*",
+    "fuser*",
+    "xargs kill*",
+    "kill $*",
+    "kill `*",
+    "kill -9 $*",
+    "kill -9 `*",
+    "kill -TERM $*",
+    "kill -KILL $*",
+    "kill -1*",
+    "npm run dev:stop*",
+    "docker compose down*",
+    "docker kill*",
+    "docker stop*",
+    "systemctl stop*",
+    "systemctl restart*",
+    "service * stop*",
+    "shutdown*",
+    "reboot*",
+    "init 0*",
+    "sudo pkill*",
+    "sudo killall*",
+  ]
+  return denied.flatMap((resource) => [
+    { action: "shell", resource, effect: "deny" as const },
+    // `bash` was the action name before v2 renamed the tool to `shell`; keeping
+    // both covers servers that still key on the old name.
+    { action: "bash", resource, effect: "deny" as const },
+  ])
+}
+
+/**
+ * Forceful guardrail appended to every session's system context: process safety.
+ * Instructions alone are not enforcement (the permission guard does that), but
+ * they steer less capable models away from the broad-kill reflex and toward the
+ * supported lifecycle.
+ */
+export function processSystemPrompt(): string {
+  return [
+    "Process safety: never stop processes by name, pattern or port.",
+    "Commands such as `pkill`, `killall`, `fuser`, `kill $(...)` or `npm run dev:stop` are blocked because they can kill the MasterHand server or the agent engine itself.",
+    "If you start a background server, capture its exact PID when you start it (`echo $!`) and stop it later with `kill <that pid>` only.",
+    "Prefer MasterHand's Run and Preview controls to start and stop the project's dev server instead of managing processes yourself.",
+  ].join(" ")
+}

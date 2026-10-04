@@ -34,7 +34,14 @@ services:
     networks:
       - internal
     depends_on:
-      - opencode
+      opencode:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8787/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   opencode:
     build:
@@ -48,6 +55,11 @@ services:
       # secrets (MASTERHAND_PASSWORD, SESSION_SECRET) stay out of it.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?set it in deploy/.env}
       OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
+      # Every agent shell command goes through the setuid dropper, so the shell
+      # runs as `agent` (uid 1001) and never as the `node` user (uid 1000) that
+      # runs the engine. Inline config wins over a workspace's opencode.json,
+      # so a project cannot opt out. See ARCHITECTURE.md ADR-22.
+      OPENCODE_CONFIG_CONTENT: '{"shell":"/usr/local/bin/agent-exec"}'
     volumes:
       - opencode_config:/home/node/.config/opencode
       - opencode_data:/home/node/.local/share/opencode
@@ -57,6 +69,18 @@ services:
       - "4096"
     networks:
       - internal
+    healthcheck:
+      # `$$` escapes the compose interpolation so the shell inside the container
+      # reads the env vars opencode was started with.
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS -u \"$${OPENCODE_SERVER_USERNAME:-opencode}:$${OPENCODE_SERVER_PASSWORD}\" http://127.0.0.1:4096/api/info || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 networks:
   internal:

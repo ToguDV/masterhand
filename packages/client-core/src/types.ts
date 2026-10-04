@@ -148,6 +148,37 @@ export interface AuditEvent {
   source: "opencode" | "bff"
 }
 
+/** How MasterHand starts a workspace's dev server (argv, no shell). */
+export interface WorkspaceRunConfig {
+  command: string
+  args: string[]
+  /** Optional working directory, relative to the workspace. */
+  cwd: string | null
+  /** Who proposed it: the agent (`.masterhand/run.json`) or the user. */
+  source: "agent" | "user"
+  updatedAt?: number
+}
+
+/** Agent-proposed run command detected from `.masterhand/run.json`. */
+export interface RunCandidate {
+  command: string
+  args: string[]
+  cwd: string | null
+}
+
+export type RunPhase = "stopped" | "starting" | "running" | "error"
+
+/** State of a session's managed dev server (owned by the BFF). */
+export interface RunStatus {
+  status: RunPhase
+  command: string | null
+  args: string[]
+  /** Reserved preview port (the `{port}` value and `PORT` env). */
+  port: number | null
+  pid: number | null
+  error: string | null
+}
+
 export interface DeviceLoginResponse {
   token: string
   device: DeviceRecord

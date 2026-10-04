@@ -52,6 +52,21 @@ export interface AuditEventRecord {
   source: "opencode" | "bff"
 }
 
+/**
+ * How to start a workspace's dev server. MasterHand runs it through opencode's
+ * PTY API and stops it by killing that exact process, so agents never manage
+ * (or kill) servers themselves. `source` records who proposed it: the agent
+ * (via `.masterhand/run.json`) or the user (edited in the UI).
+ */
+export interface WorkspaceRunRecord {
+  workspaceID: string
+  command: string
+  args: string[]
+  cwd: string | null
+  source: "agent" | "user"
+  updatedAt: number
+}
+
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
@@ -75,6 +90,9 @@ export interface Store {
   recordAudit(event: Omit<AuditEventRecord, "id">): void
   listAudit(limit?: number): AuditEventRecord[]
   clearAudit(): void
+  getWorkspaceRun(workspaceID: string): WorkspaceRunRecord | null
+  saveWorkspaceRun(record: WorkspaceRunRecord): void
+  removeWorkspaceRun(workspaceID: string): void
   close(): void
 }
 
@@ -128,6 +146,17 @@ export function createSqliteStore(file: string): Store {
       command TEXT,
       reason TEXT,
       source TEXT NOT NULL
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_runs (
+      workspace_id TEXT PRIMARY KEY,
+      command TEXT NOT NULL,
+      args TEXT NOT NULL,
+      cwd TEXT,
+      source TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
     )
   `)
 
@@ -209,6 +238,16 @@ export function createSqliteStore(file: string): Store {
   `)
   const listAuditStatement = db.prepare(`${auditColumns} ORDER BY at DESC, id DESC LIMIT ?`)
   const clearAuditStatement = db.prepare("DELETE FROM audit_events")
+  const workspaceRunColumns = `
+    SELECT workspace_id AS workspaceID, command, args, cwd, source, updated_at AS updatedAt
+    FROM workspace_runs
+  `
+  const getWorkspaceRunStatement = db.prepare(`${workspaceRunColumns} WHERE workspace_id = ?`)
+  const saveWorkspaceRunStatement = db.prepare(`
+    INSERT OR REPLACE INTO workspace_runs (workspace_id, command, args, cwd, source, updated_at)
+    VALUES (@workspaceID, @command, @args, @cwd, @source, @updatedAt)
+  `)
+  const removeWorkspaceRunStatement = db.prepare("DELETE FROM workspace_runs WHERE workspace_id = ?")
 
   /**
    * SQLite has no boolean type; rows come back with `pushed` as 0/1. The
@@ -216,6 +255,16 @@ export function createSqliteStore(file: string): Store {
    */
   function normalizeIsolatedSession(row: Record<string, unknown>): IsolatedSessionRecord {
     return { ...(row as unknown as IsolatedSessionRecord), pushed: row.pushed === 1 }
+  }
+
+  /** `workspace_runs.args` is stored as a JSON array; a corrupt row reads as []. */
+  function parseArgs(value: string): string[] {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []
+    } catch {
+      return []
+    }
   }
 
   return {
@@ -294,6 +343,18 @@ export function createSqliteStore(file: string): Store {
     clearAudit() {
       clearAuditStatement.run()
     },
+    getWorkspaceRun(workspaceID) {
+      const row = getWorkspaceRunStatement.get(workspaceID) as
+        | (Omit<WorkspaceRunRecord, "args"> & { args: string })
+        | undefined
+      return row ? { ...row, args: parseArgs(row.args) } : null
+    },
+    saveWorkspaceRun(record) {
+      saveWorkspaceRunStatement.run({ ...record, args: JSON.stringify(record.args) })
+    },
+    removeWorkspaceRun(workspaceID) {
+      removeWorkspaceRunStatement.run(workspaceID)
+    },
     close() {
       db.close()
     },
@@ -307,6 +368,7 @@ export function createMemoryStore(): Store {
   const previewPorts = new Map<string, PreviewPortRecord>()
   const audit: AuditEventRecord[] = []
   let auditSequence = 0
+  const workspaceRuns = new Map<string, WorkspaceRunRecord>()
   return {
     create(record) {
       records.set(record.id, record)
@@ -382,6 +444,15 @@ export function createMemoryStore(): Store {
     },
     clearAudit() {
       audit.length = 0
+    },
+    getWorkspaceRun(workspaceID) {
+      return workspaceRuns.get(workspaceID) ?? null
+    },
+    saveWorkspaceRun(record) {
+      workspaceRuns.set(record.workspaceID, record)
+    },
+    removeWorkspaceRun(workspaceID) {
+      workspaceRuns.delete(workspaceID)
     },
     close() {},
   }

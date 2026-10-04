@@ -34,6 +34,9 @@ jobs:
       - name: Unit tests and coverage
         run: npm run test:coverage
 
+      - name: Dev-script tests
+        run: npm run test:scripts
+
       - name: End-to-end tests
         run: npm run test:e2e
 
