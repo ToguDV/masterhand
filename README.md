@@ -43,8 +43,11 @@ npm run test:e2e      # E2E (Playwright + mocked opencode); run `npm run e2e:bro
 `Ctrl+C` stops what the current run started. If something survives — typically an `opencode serve` reused from an earlier run, or a process orphaned when a terminal was closed — stop it with:
 
 ```bash
-npm run dev:stop   # kills the dev orchestrator, BFF/tsx, Vite and opencode listeners
+npm run dev:stop            # stops exactly the processes scripts/dev.mjs registered
+npm run dev:stop -- --force # additionally sweeps by process name and port
 ```
+
+`dev.mjs` records every process it starts (in a temp file keyed by this repo), so the default `dev:stop` can only kill that stack — it will never take down unrelated processes, including a MasterHand/opencode instance started elsewhere or another project's dev server. An `opencode` you started yourself is intentionally **not** touched; stop it with `--force` or by hand.
 
 If `opencode` is not on your `PATH`, install opencode v2 first (`npm install -g @opencode/cli`, or see https://opencode.ai/docs/). MasterHand targets the v2 server API; a v1 binary will not work.
 

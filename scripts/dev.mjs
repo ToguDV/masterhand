@@ -13,8 +13,12 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import net from "node:net"
 import process from "node:process"
+import { registerProcess, registryPath, unregisterProcess } from "./process-registry.mjs"
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..")
+
+// `dev:stop` reads this to target only the processes this orchestrator started.
+const registryFile = registryPath(rootDir)
 
 // Each target maps to the npm script (and extra args) it runs as the "front".
 // `null` means no front end: opencode + BFF only.
@@ -108,6 +112,7 @@ function shutdown(code) {
   shuttingDown = true
   for (const { child } of children) {
     if (child.exitCode === null && child.signalCode === null) killTree(child)
+    unregisterProcess(registryFile, child.pid)
   }
   process.exit(code)
 }
@@ -118,6 +123,9 @@ function spawnChild(label, command, args) {
     stdio: "inherit",
     detached: process.platform !== "win32",
   })
+  // Record the process (and its group, since it is a group leader on POSIX) so
+  // `dev:stop` can target exactly what this run started.
+  if (child.pid) registerProcess(registryFile, { pid: child.pid, label, command: `${command} ${args.join(" ")}` })
   child.on("error", (error) => {
     if (error.code === "ENOENT") {
       console.error(`[dev] ${label}: command not found (${command})`)
@@ -130,6 +138,7 @@ function spawnChild(label, command, args) {
     shutdown(1)
   })
   child.on("exit", (code, signal) => {
+    unregisterProcess(registryFile, child.pid)
     if (shuttingDown) return
     console.log(`[dev] ${label} exited (${signal ?? code})`)
     shutdown(code ?? 0)

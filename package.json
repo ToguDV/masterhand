@@ -22,6 +22,7 @@
     "dev:stop": "node scripts/stop.mjs",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:e2e": "npm run test:e2e -w @masterhand/e2e",
     "typecheck": "npm run typecheck --workspaces --if-present",
