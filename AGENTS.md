@@ -14,6 +14,7 @@
 | `WORKFLOW.md` | Branch/test gates, PR and merge workflow | When the workflow changes |
 | `CONTRIBUTING.md` | Commit/message conventions and contribution flow | When conventions change |
 | `docs/README.md` | Index of specific documentation | When adding a new document |
+| `design/DESIGN.md` | Design system: tokens, typography, components, responsive rules (getdesign format) + preview `design/DESIGN.html` | When the design system changes |
 | `docs/opencode/` | Verified reference for opencode's API (SSE events, HTTP endpoints) | When integrating/verifying APIs |
 | `docs/bff/` | MasterHand backend API (endpoints, auth, proxy) | When the BFF changes |
 | `docs/runbooks/` | Operational procedures: host, deploy, TLS, backups | When operating or deploying |

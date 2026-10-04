@@ -12,6 +12,7 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 
 | Document | Content | Status |
 |---|---|---|
+| [`../design/DESIGN.md`](../design/DESIGN.md) | Design system: tokens, typography, components, responsive rules (getdesign format); preview in `design/DESIGN.html` | ✅ 2026-10-04 |
 | [`opencode/events.md`](opencode/events.md) | opencode SSE event types (verified) and which ones MasterHand consumes | ✅ 2026-10-03 |
 | [`opencode/http-api.md`](opencode/http-api.md) | opencode HTTP endpoints relevant to MasterHand | ✅ 2026-09-27 |
 | [`bff/api.md`](bff/api.md) | MasterHand BFF API (auth, proxy, SSE relay) | ✅ 2026-09-27 |

@@ -1,0 +1,1409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>MasterHand — Design System</title>
+    <meta
+      name="description"
+      content="MasterHand design system preview: ink on paper, one deep-emerald accent, decoration only where it earns its place."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="design.css" />
+    <script>
+      // Resolve the theme before first paint: stored choice, else system.
+      (function () {
+        try {
+          var stored = localStorage.getItem("mh-theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (error) {
+          /* file:// or private mode: the CSS media query still applies */
+        }
+      })();
+    </script>
+    <script src="design.js" defer></script>
+  </head>
+
+  <body>
+    <!-- ====================================================================
+         Page header
+         ==================================================================== -->
+    <header class="mh-page-header">
+      <div class="mh-container mh-page-header__inner">
+        <a class="mh-brand" href="#top">
+          <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path
+              d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z"
+              fill="var(--mh-accent)"
+            />
+            <path
+              d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4"
+              fill="none"
+              stroke="var(--mh-canvas)"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span class="mh-brand__name">MasterHand</span>
+        </a>
+
+        <nav class="mh-page-nav" aria-label="Page sections">
+          <a href="#foundations">Foundations</a>
+          <a href="#components">Components</a>
+          <a href="#app-preview">App preview</a>
+          <a href="DESIGN.md">DESIGN.md</a>
+        </nav>
+
+        <button class="mh-theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
+          <svg
+            class="mh-icon-moon"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+          </svg>
+          <svg
+            class="mh-icon-sun"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ==================================================================
+           Hero — the decoration composition
+           ================================================================== -->
+      <section class="mh-hero">
+        <div class="mh-deco mh-deco--blob" style="top: -140px; right: -90px"></div>
+        <div class="mh-deco mh-deco--dots" style="bottom: 24px; left: -36px"></div>
+
+        <div class="mh-container mh-hero__inner">
+          <div>
+            <p class="mh-micro mh-eyebrow">Design system · v0.1 alpha</p>
+            <h1 class="mh-display-hero">Your agents, in your hand.</h1>
+            <p class="mh-hero__lede">
+              Ink on paper for a tool that works at machine speed: a near-monochrome interface with one
+              deep-emerald accent, editorial type, and decoration only where a surface would otherwise sit
+              empty.
+            </p>
+            <div class="mh-hero__actions">
+              <a class="mh-btn mh-btn--primary" href="#app-preview">See the app preview</a>
+              <a class="mh-btn mh-btn--secondary" href="#components">Browse components</a>
+            </div>
+            <p class="mh-hero__note mh-caption">
+              Mobile-first · Light &amp; dark · Fraunces + Instrument Sans + JetBrains Mono
+            </p>
+          </div>
+
+          <div class="mh-hero__stage">
+            <div class="mh-deco mh-deco--blob-2" style="top: -48px; right: -36px"></div>
+            <div class="mh-hero-card">
+              <div class="mh-msg--user">Move session storage to SQLite and keep the API stable.</div>
+              <details class="mh-tool" open>
+                <summary class="mh-tool__header">
+                  <span class="mh-tool__glyph">&gt;_</span>
+                  <span class="mh-tool__title"><strong>bash</strong> · npm test</span>
+                  <span class="mh-dot mh-dot--connected"></span>
+                </summary>
+                <div class="mh-tool__body">
+                  <div class="mh-code mh-code--tight">
+                    <pre><span class="mh-c-accent">✓</span> 42 passed <span class="mh-c-muted">·</span> coverage 91.4%
+<span class="mh-c-accent">✓</span> store.test.ts <span class="mh-c-muted">(12)</span></pre>
+                  </div>
+                </div>
+              </details>
+              <p class="mh-msg__body mh-body-sm mh-soft">
+                Migration is staged. Nothing public changed — same endpoints, same types.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           01 · Foundations
+           ================================================================== -->
+      <section class="mh-section" id="foundations">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">01 · Foundations</p>
+            <h2 class="mh-display-lg mh-section__title">Tokens</h2>
+            <p class="mh-lede">
+              Every value below lives in <code class="mh-mono-sm">design.css</code> and is mirrored in
+              <code class="mh-mono-sm">DESIGN.md</code>. Semantic tokens flip with the theme; the raw ramps
+              stay put. Swap the three <code class="mh-mono-sm">--font-*</code> variables to change the
+              whole voice of the system.
+            </p>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin-bottom: 12px">Color</h3>
+          <div class="mh-grid">
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #fafaf7; color: #0c0c0b">Aa</div>
+                <div class="mh-swatch__half" style="background: #0c0c0b; color: #f2f2ed; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Canvas</div>
+                <div class="mh-swatch__token">{colors.canvas} · #FAFAF7 / #0C0C0B</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #ffffff; color: #0c0c0b">Aa</div>
+                <div class="mh-swatch__half" style="background: #141413; color: #f2f2ed; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Surface</div>
+                <div class="mh-swatch__token">{colors.surface} · #FFFFFF / #141413</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #f2f2ee; color: #0c0c0b">Aa</div>
+                <div class="mh-swatch__half" style="background: #1c1c1a; color: #f2f2ed; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Surface muted</div>
+                <div class="mh-swatch__token">{colors.surface-muted} · #F2F2EE / #1C1C1A</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #0c0c0b; color: #f2f2ed">Aa</div>
+                <div class="mh-swatch__half" style="background: #f2f2ed; color: #0c0c0b; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Text</div>
+                <div class="mh-swatch__token">{colors.text} · #0C0C0B / #F2F2ED</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #6e6e6a; color: #fafaf7">Aa</div>
+                <div class="mh-swatch__half" style="background: #8e8e88; color: #0c0c0b; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Text muted</div>
+                <div class="mh-swatch__token">{colors.text-muted} · #6E6E6A / #8E8E88</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #e8e8e2; color: #4a4a46">Aa</div>
+                <div class="mh-swatch__half" style="background: #262624; color: #c9c9c2; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Hairline</div>
+                <div class="mh-swatch__token">{colors.hairline} · #E8E8E2 / #262624</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #0b6b53; color: #ffffff">Aa</div>
+                <div class="mh-swatch__half" style="background: #3ed8a8; color: #04140e; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Accent</div>
+                <div class="mh-swatch__token">{colors.accent} · #0B6B53 / #3ED8A8</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #085041; color: #ffffff">Aa</div>
+                <div class="mh-swatch__half" style="background: #8be9c9; color: #04140e; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Accent strong</div>
+                <div class="mh-swatch__token">{colors.accent-strong} · #085041 / #8BE9C9</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #d9eae3; color: #0b6b53">Aa</div>
+                <div class="mh-swatch__half" style="background: #17302a; color: #3ed8a8; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Accent soft</div>
+                <div class="mh-swatch__token">{colors.accent-soft} · chips · blobs · focus ring</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #8a5a00; color: #fff">Aa</div>
+                <div class="mh-swatch__half" style="background: #e3b341; color: #0c0c0b; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Warning</div>
+                <div class="mh-swatch__token">{colors.warning} · busy · banners</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #b3261e; color: #fff">Aa</div>
+                <div class="mh-swatch__half" style="background: #f08a82; color: #0c0c0b; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Danger</div>
+                <div class="mh-swatch__token">{colors.danger} · errors · destructive</div>
+              </figcaption>
+            </figure>
+
+            <figure class="mh-swatch">
+              <div class="mh-swatch__split">
+                <div class="mh-swatch__half" style="background: #141413; color: #ededE8">Aa</div>
+                <div class="mh-swatch__half" style="background: #171716; color: #ededE8; justify-content: flex-end">Aa</div>
+              </div>
+              <figcaption class="mh-swatch__meta">
+                <div class="mh-swatch__name">Code surface</div>
+                <div class="mh-swatch__token">{colors.code-surface} · dark in both themes</div>
+              </figcaption>
+            </figure>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Typography</h3>
+          <div class="mh-specimen">
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">display-hero · Fraunces 400 · 56/1.05</div>
+              <div class="mh-specimen__sample mh-display-hero">A quiet hand on fast work.</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">display-lg · Fraunces 400 · 42/1.08</div>
+              <div class="mh-specimen__sample mh-display-lg">Sessions and workspaces.</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">heading-1 · Fraunces 400 · 32/1.15</div>
+              <div class="mh-specimen__sample mh-heading-1">Permission requested</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">heading-2 · Fraunces 500 · 26/1.2</div>
+              <div class="mh-specimen__sample mh-heading-2">Select a session to begin</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">heading-3 · Instrument Sans 600 · 20/1.3</div>
+              <div class="mh-specimen__sample mh-heading-3">Tool output</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">heading-4 · Instrument Sans 600 · 17/1.35</div>
+              <div class="mh-specimen__sample mh-heading-4">Migrate session store to SQLite</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">body-md · Instrument Sans 400 · 15/1.6</div>
+              <div class="mh-specimen__sample mh-body">
+                The agent works through a queue of tool calls; the transcript stays readable at 68
+                characters per line, with code and diffs set in mono.
+              </div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">body-sm · Instrument Sans 400 · 13/1.5</div>
+              <div class="mh-specimen__sample mh-body-sm mh-muted">
+                Metadata, tool card bodies, secondary controls.
+              </div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">micro · Instrument Sans 600 · 11/0.08em</div>
+              <div class="mh-specimen__sample mh-micro">Agent · build · step 3 of 7</div>
+            </div>
+            <div class="mh-specimen__row">
+              <div class="mh-specimen__meta">code-md · JetBrains Mono 400 · 13/1.6</div>
+              <div class="mh-specimen__sample mh-mono">npm run test:coverage -- --reporter=dot</div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Spacing</h3>
+          <div class="mh-scale">
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">xs</span>
+              <span class="mh-scale__bar" style="width: 7%"></span>
+              <span class="mh-scale__value">8</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">sm</span>
+              <span class="mh-scale__bar" style="width: 11%"></span>
+              <span class="mh-scale__value">12</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">md</span>
+              <span class="mh-scale__bar" style="width: 14%"></span>
+              <span class="mh-scale__value">16</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">lg</span>
+              <span class="mh-scale__bar" style="width: 18%"></span>
+              <span class="mh-scale__value">20</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">xl</span>
+              <span class="mh-scale__bar" style="width: 21%"></span>
+              <span class="mh-scale__value">24</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">xxl</span>
+              <span class="mh-scale__bar" style="width: 29%"></span>
+              <span class="mh-scale__value">32</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">xxxl</span>
+              <span class="mh-scale__bar" style="width: 36%"></span>
+              <span class="mh-scale__value">40</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">section-sm</span>
+              <span class="mh-scale__bar" style="width: 43%"></span>
+              <span class="mh-scale__value">48</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">section</span>
+              <span class="mh-scale__bar" style="width: 57%"></span>
+              <span class="mh-scale__value">64</span>
+            </div>
+            <div class="mh-scale__row">
+              <span class="mh-scale__label">section-lg</span>
+              <span class="mh-scale__bar" style="width: 86%"></span>
+              <span class="mh-scale__value">96</span>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Radius</h3>
+          <div class="mh-radii">
+            <div class="mh-radius" style="border-radius: var(--r-xs)">
+              <span class="mh-radius__label">xs · 6</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-sm)">
+              <span class="mh-radius__label">sm · 8</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-md)">
+              <span class="mh-radius__label">md · 12</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-lg)">
+              <span class="mh-radius__label">lg · 16</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-xl)">
+              <span class="mh-radius__label">xl · 20</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-xxl)">
+              <span class="mh-radius__label">xxl · 24</span>
+            </div>
+            <div class="mh-radius" style="border-radius: var(--r-full)">
+              <span class="mh-radius__label">full</span>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Elevation</h3>
+          <div class="mh-elev">
+            <div class="mh-elev__card">
+              <strong class="mh-body-sm">Level 0 · flat</strong>
+              <span class="mh-caption mh-muted">1px hairline, no shadow — the default</span>
+            </div>
+            <div class="mh-elev__card mh-elev__card--1">
+              <strong class="mh-body-sm">Level 1 · hover</strong>
+              <span class="mh-caption mh-muted">Surface steps to surface-muted</span>
+            </div>
+            <div class="mh-elev__card mh-elev__card--3">
+              <strong class="mh-body-sm">Level 3 · overlay</strong>
+              <span class="mh-caption mh-muted">Dialogs and sheets only</span>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Decoration — used with discretion</h3>
+          <div class="mh-deco-grid">
+            <div class="mh-deco-tile">
+              <div class="mh-deco mh-deco--blob" style="top: 16px; right: -40px; width: 200px; height: 190px"></div>
+              <div class="mh-deco-tile__name mh-heading-4">Blob</div>
+              <p class="mh-deco-tile__use mh-caption">Login, empty states. One per screen, never behind text.</p>
+            </div>
+            <div class="mh-deco-tile">
+              <div class="mh-deco mh-deco--dots" style="top: 20px; right: 20px"></div>
+              <div class="mh-deco-tile__name mh-heading-4">Halftone dots</div>
+              <p class="mh-deco-tile__use mh-caption">Corner or base fills. 12px grid, low opacity.</p>
+            </div>
+            <div class="mh-deco-tile">
+              <div class="mh-deco mh-deco--hatch" style="bottom: 44px; left: 0"></div>
+              <div class="mh-deco-tile__name mh-heading-4">Line hatch</div>
+              <p class="mh-deco-tile__use mh-caption">Strips only, max 96px tall. Never over content.</p>
+            </div>
+            <div class="mh-deco-tile">
+              <svg class="mh-deco mh-deco--curve" style="top: 18px; right: 10px" viewBox="0 0 220 120" fill="none" aria-hidden="true">
+                <path d="M4 104C58 104 82 16 132 16c28 0 44 18 84 18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+              <div class="mh-deco-tile__name mh-heading-4">Curved line</div>
+              <p class="mh-deco-tile__use mh-caption">One long arc per composition. Accent or ink.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           02 · Components
+           ================================================================== -->
+      <section class="mh-section" id="components">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">02 · Components</p>
+            <h2 class="mh-display-lg mh-section__title">The kit</h2>
+            <p class="mh-lede">
+              Every control the app needs, at the exact tokens defined in DESIGN.md. Toggle the theme at
+              the top of the page — nothing here is theme-specific by hand.
+            </p>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin-bottom: 12px">Actions</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>button-primary · secondary · ghost · danger · disabled</span><span>44px targets</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row">
+                  <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                  <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
+                  <button class="mh-btn mh-btn--ghost" type="button">Sign out</button>
+                  <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                  <button class="mh-btn mh-btn--primary" type="button" disabled>Disabled</button>
+                  <button class="mh-btn mh-btn--icon" type="button" aria-label="More actions">⋯</button>
+                </div>
+                <div class="mh-demo__row">
+                  <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Small</button>
+                  <button class="mh-btn mh-btn--primary mh-btn--lg" type="button">Large</button>
+                  <span class="mh-caption mh-muted">Focus ring: 2px accent, 2px offset — press Tab</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>text-field · focused · text-area · select · search</span><span>forms</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row" style="align-items: flex-start">
+                  <div style="flex: 1 1 220px">
+                    <label class="mh-label" for="demo-server">Server</label>
+                    <input class="mh-input" id="demo-server" type="text" value="masterhand.example.com" />
+                  </div>
+                  <div style="flex: 1 1 220px">
+                    <label class="mh-label" for="demo-password">Password</label>
+                    <input class="mh-input is-focused" id="demo-password" type="password" value="correct horse battery staple" />
+                  </div>
+                  <div style="flex: 0 1 200px">
+                    <label class="mh-label" for="demo-agent">Agent</label>
+                    <select class="mh-select" id="demo-agent">
+                      <option>build</option>
+                      <option>plan</option>
+                      <option>review</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="mh-search">
+                  <span class="mh-search__glyph" aria-hidden="true">⌕</span>
+                  <input class="mh-input mh-search__field" type="search" placeholder="Search sessions…" />
+                </div>
+                <textarea class="mh-textarea" rows="3" placeholder="Write a message…">Refactor the session store and keep the tests green.</textarea>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Status &amp; chips</h3>
+          <div class="mh-demos">
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>status-dot-*</span><span>8px</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row">
+                  <span class="mh-dot"></span><span class="mh-caption mh-muted">idle</span>
+                  <span class="mh-dot mh-dot--busy"></span><span class="mh-caption mh-muted">busy</span>
+                  <span class="mh-dot mh-dot--connected"></span><span class="mh-caption mh-muted">connected</span>
+                  <span class="mh-dot mh-dot--danger"></span><span class="mh-caption mh-muted">error</span>
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>chip-neutral · accent · warning · danger · branch</span><span>pills</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row">
+                  <span class="mh-chip">3 sessions</span>
+                  <span class="mh-chip mh-chip--accent">completed</span>
+                  <span class="mh-chip mh-chip--warning">busy</span>
+                  <span class="mh-chip mh-chip--danger">error</span>
+                  <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite-store</span>
+                  <span class="mh-chip mh-chip--outline">isolated</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Navigation &amp; sessions</h3>
+          <div class="mh-demos">
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>workspace-picker · filter-pill · session-item</span><span>sidebar</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__col" style="max-width: 340px">
+                  <select class="mh-select" aria-label="Workspace">
+                    <option>masterhand — /home/togu/Proyectos/MasterHand</option>
+                    <option>client-core — /home/togu/Proyectos/client-core</option>
+                  </select>
+                  <div class="mh-pills">
+                    <button class="mh-pill is-active" type="button">All</button>
+                    <button class="mh-pill" type="button">Isolated</button>
+                    <button class="mh-pill" type="button">Standard</button>
+                  </div>
+                  <div class="mh-session">
+                    <button class="mh-session-item is-active" type="button">
+                      <span class="mh-session-item__top">
+                        <span class="mh-dot mh-dot--connected"></span>
+                        <span class="mh-session-item__title">Migrate session store to SQLite</span>
+                        <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                      </span>
+                      <span class="mh-session-item__meta">MasterHand · 2m ago</span>
+                    </button>
+                    <button class="mh-session-item" type="button">
+                      <span class="mh-session-item__top">
+                        <span class="mh-dot mh-dot--busy"></span>
+                        <span class="mh-session-item__title">Add device-token rotation</span>
+                      </span>
+                      <span class="mh-session-item__meta">MasterHand · 18m ago</span>
+                    </button>
+                    <button class="mh-session-item" type="button">
+                      <span class="mh-session-item__top">
+                        <span class="mh-dot"></span>
+                        <span class="mh-session-item__title">Design pass on the composer</span>
+                      </span>
+                      <span class="mh-session-item__meta">masterhand-web · 1h ago</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>top-bar · banners</span><span>app chrome</span></div>
+              <div class="mh-demo__stage" style="gap: 0; padding: 0">
+                <div class="mh-app__topbar" style="height: 56px">
+                  <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                  <span class="mh-app__title">Migrate session store</span>
+                  <span class="mh-dot mh-dot--connected"></span>
+                  <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Sign out</button>
+                </div>
+                <div class="mh-banner mh-banner--info">
+                  <span class="mh-dot mh-dot--connected"></span>
+                  The agent is waiting for your answer · Open session
+                </div>
+                <div class="mh-banner mh-banner--warning">Could not reach the MasterHand server · tap to dismiss</div>
+                <div class="mh-banner mh-banner--danger">
+                  opencode rejected MasterHand&rsquo;s credentials. Check OPENCODE_SERVER_PASSWORD.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Conversation</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>user-bubble · assistant-block · tool-card · code · diff</span><span>transcript</span></div>
+              <div class="mh-demo__stage" style="max-width: var(--chat-max); margin-inline: auto">
+                <div class="mh-thread">
+                  <div class="mh-msg--user">Move session storage to SQLite, keep the HTTP API stable.</div>
+
+                  <div class="mh-msg--agent">
+                    <div class="mh-msg__label mh-micro">build · agent · step 3 of 7</div>
+                    <div class="mh-msg__body">
+                      I added the store, migrated the queries and ran the suite. Nothing public changed.
+                    </div>
+
+                    <details class="mh-tool" open>
+                      <summary class="mh-tool__header">
+                        <span class="mh-tool__glyph">&gt;_</span>
+                        <span class="mh-tool__title"><strong>bash</strong> · npm run test:coverage</span>
+                        <span class="mh-dot mh-dot--connected"></span>
+                        <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                      </summary>
+                      <div class="mh-tool__body">
+                        <div class="mh-code">
+                          <div class="mh-code__header">terminal</div>
+                          <pre><span class="mh-c-accent">✓</span> src/store.test.ts <span class="mh-c-muted">(12 tests)</span>
+<span class="mh-c-accent">✓</span> src/sessions.test.ts <span class="mh-c-muted">(18 tests)</span>
+<span class="mh-c-muted">Tests</span>  42 passed <span class="mh-c-muted">|</span> 42 total
+<span class="mh-c-muted">Coverage</span> 91.4% statements</pre>
+                        </div>
+                      </div>
+                    </details>
+
+                    <details class="mh-tool" open>
+                      <summary class="mh-tool__header">
+                        <span class="mh-tool__glyph">±</span>
+                        <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
+                        <span class="mh-chip mh-chip--accent">+48 −12</span>
+                        <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                      </summary>
+                      <div class="mh-tool__body">
+                        <div class="mh-diff">
+                          <div class="mh-diff__line is-remove"><span class="mh-diff__gutter">12</span>  const store = new JsonStore(dataDir)</div>
+                          <div class="mh-diff__line is-add"><span class="mh-diff__gutter">12</span>  const store = new SqliteStore(join(dataDir, "masterhand.db"))</div>
+                          <div class="mh-diff__line is-add"><span class="mh-diff__gutter">13</span>  await store.migrate()</div>
+                        </div>
+                      </div>
+                    </details>
+
+                    <details class="mh-tool">
+                      <summary class="mh-tool__header">
+                        <span class="mh-tool__glyph">&gt;_</span>
+                        <span class="mh-tool__title"><strong>bash</strong> · npm run build</span>
+                        <span class="mh-dot mh-dot--busy"></span>
+                      </summary>
+                      <div class="mh-tool__body">
+                        <p class="mh-body-sm mh-muted">Bundling server…</p>
+                      </div>
+                    </details>
+
+                    <details class="mh-tool is-error">
+                      <summary class="mh-tool__header">
+                        <span class="mh-tool__glyph">⚙</span>
+                        <span class="mh-tool__title"><strong>lint</strong> · eslint apps/web</span>
+                        <span class="mh-dot mh-dot--danger"></span>
+                      </summary>
+                      <div class="mh-tool__body">
+                        <p class="mh-body-sm" style="color: var(--mh-danger)">3 problems (3 errors) — unused import in App.tsx</p>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+
+                <p class="mh-msg__meta" style="text-align: right">Session · $0.0421 · 12.4k tokens · 38 tok/s</p>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>question-card</span><span>inline</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-question">
+                  <div class="mh-msg__label mh-micro">Question from build</div>
+                  <div class="mh-heading-3">Which store should sessions use?</div>
+                  <div class="mh-options">
+                    <button class="mh-option is-selected" type="button">
+                      <span class="mh-option__mark"></span>SQLite (recommended)
+                    </button>
+                    <button class="mh-option" type="button">
+                      <span class="mh-option__mark"></span>Keep JSON files
+                    </button>
+                  </div>
+                  <div class="mh-dialog__actions" style="margin-top: 0">
+                    <button class="mh-btn mh-btn--primary" type="button">Answer</button>
+                    <button class="mh-btn mh-btn--ghost" type="button">Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Feedback &amp; empty states</h3>
+          <div class="mh-demos">
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>toast</span><span>transient</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-toast-host" id="toast-host">
+                  <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button" id="toast-demo">
+                    Show toast
+                  </button>
+                  <span class="mh-toast" id="toast-sample">✓ Copied to clipboard</span>
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>empty-state</span><span>decoration lives here</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-empty" style="min-height: 220px">
+                  <div class="mh-deco mh-deco--blob" style="top: -60px; right: -70px; width: 240px; height: 220px"></div>
+                  <div class="mh-deco mh-deco--dots" style="bottom: -14px; left: -18px"></div>
+                  <h3 class="mh-heading-2">No sessions yet</h3>
+                  <p class="mh-empty__body mh-body-sm">Add a workspace to start working on a project.</p>
+                  <button class="mh-btn mh-btn--primary" type="button">Add workspace</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Overlays &amp; panels</h3>
+          <div class="mh-demos">
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>permission-dialog</span><span>the important one</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-dialog">
+                  <div class="mh-dialog__title mh-heading-4">
+                    <span class="mh-dot mh-dot--busy"></span> Permission requested
+                  </div>
+                  <p class="mh-body-sm mh-muted">
+                    opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
+                  </p>
+                  <div class="mh-code">
+                    <div class="mh-code__header">bash</div>
+                    <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                  </div>
+                  <div class="mh-dialog__actions">
+                    <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                    <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
+                    <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>side-panel</span><span>run · preview · audit · side question</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-panel">
+                  <div class="mh-panel__title">
+                    <span class="mh-heading-4">Run panel</span>
+                    <span class="mh-chip mh-chip--warning">busy</span>
+                  </div>
+                  <div class="mh-code mh-code--tight" style="margin-bottom: 12px">
+                    <pre><span class="mh-c-muted">$</span> opencode run --agent build
+<span class="mh-c-accent">→</span> editing store.ts…</pre>
+                  </div>
+                  <div class="mh-demo__row">
+                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Stop</button>
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Open logs</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>login-card</span><span>only heavily decorated screen</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-empty" style="min-height: 320px; padding-block: 32px">
+                  <div class="mh-deco mh-deco--blob" style="top: -50px; left: -60px; width: 230px; height: 220px"></div>
+                  <div class="mh-deco mh-deco--dots" style="bottom: -10px; right: -16px"></div>
+                  <div class="mh-app__login" style="padding: 0">
+                    <div class="mh-login-card">
+                      <div class="mh-brand" style="margin-bottom: 4px">
+                        <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true" style="width: 26px; height: 26px">
+                          <path
+                            d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z"
+                            fill="var(--mh-accent)"
+                          />
+                          <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                        </svg>
+                        <span class="mh-brand__name" style="font-size: 18px">MasterHand</span>
+                      </div>
+                      <p class="mh-body-sm mh-muted">Sign in to your self-hosted server.</p>
+                      <div>
+                        <label class="mh-label" for="login-pw">Password</label>
+                        <input class="mh-input" id="login-pw" type="password" value="correct horse battery staple" />
+                      </div>
+                      <button class="mh-btn mh-btn--primary" type="button">Sign in</button>
+                      <p class="mh-caption mh-faint">Your data stays on your machine.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           03 · App preview
+           ================================================================== -->
+      <section class="mh-section" id="app-preview">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">03 · App preview</p>
+            <h2 class="mh-display-lg mh-section__title">How it would look</h2>
+            <p class="mh-lede">
+              The same scenes rendered mobile-first and on desktop. The mock app adapts to its frame width,
+              not the viewport — watch the sidebar dock inside the browser frame on wide screens.
+            </p>
+          </div>
+
+          <div class="mh-tabs" role="tablist" aria-label="App scenes">
+            <button class="mh-tab" type="button" role="tab" data-screen-target="login">Login</button>
+            <button class="mh-tab" type="button" role="tab" data-screen-target="sessions">Sessions</button>
+            <button class="mh-tab is-active" type="button" role="tab" data-screen-target="chat">Chat</button>
+            <button class="mh-tab" type="button" role="tab" data-screen-target="permission">Permission</button>
+            <button class="mh-tab" type="button" role="tab" data-screen-target="question">Question</button>
+          </div>
+
+          <div class="mh-frames">
+            <!-- ---------------------------- Phone ---------------------------- -->
+            <figure class="mh-frame" style="margin: 0">
+              <div class="mh-phone">
+                <div class="mh-phone__speaker"></div>
+                <div class="mh-app">
+                  <!-- Login -->
+                  <div class="mh-app-screen" data-screen="login">
+                    <div class="mh-app__login">
+                      <div class="mh-deco mh-deco--blob"></div>
+                      <div class="mh-deco mh-deco--dots"></div>
+                      <div class="mh-login-card">
+                        <div class="mh-brand">
+                          <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true" style="width: 26px; height: 26px">
+                            <path
+                              d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z"
+                              fill="var(--mh-accent)"
+                            />
+                            <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                          </svg>
+                          <span class="mh-brand__name" style="font-size: 17px">MasterHand</span>
+                        </div>
+                        <p class="mh-body-sm mh-muted">Sign in to your server.</p>
+                        <div>
+                          <label class="mh-label" for="phone-pw">Password</label>
+                          <input class="mh-input" id="phone-pw" type="password" value="correct horse battery staple" />
+                        </div>
+                        <button class="mh-btn mh-btn--primary" type="button">Sign in</button>
+                        <p class="mh-caption mh-faint">Your data stays on your machine.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Sessions -->
+                  <div class="mh-app-screen" data-screen="sessions">
+                    <div class="mh-app__topbar">
+                      <select class="mh-select" aria-label="Workspace" style="max-width: 150px">
+                        <option>masterhand</option>
+                        <option>client-core</option>
+                      </select>
+                      <span style="flex: 1"></span>
+                      <span class="mh-dot mh-dot--connected"></span>
+                      <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">+ New</button>
+                    </div>
+                    <div class="mh-app__chat">
+                      <div class="mh-pills">
+                        <button class="mh-pill is-active" type="button">All</button>
+                        <button class="mh-pill" type="button">Isolated</button>
+                        <button class="mh-pill" type="button">Standard</button>
+                      </div>
+                      <div class="mh-session" style="margin-top: 12px">
+                        <button class="mh-session-item is-active" type="button">
+                          <span class="mh-session-item__top">
+                            <span class="mh-dot mh-dot--connected"></span>
+                            <span class="mh-session-item__title">Migrate session store to SQLite</span>
+                          </span>
+                          <span class="mh-session-item__meta">MasterHand · 2m ago</span>
+                        </button>
+                        <button class="mh-session-item" type="button">
+                          <span class="mh-session-item__top">
+                            <span class="mh-dot mh-dot--busy"></span>
+                            <span class="mh-session-item__title">Add device-token rotation</span>
+                            <span class="mh-chip mh-chip--accent mh-chip--mono">feature/tokens</span>
+                          </span>
+                          <span class="mh-session-item__meta">MasterHand · 18m ago</span>
+                        </button>
+                        <button class="mh-session-item" type="button">
+                          <span class="mh-session-item__top">
+                            <span class="mh-dot"></span>
+                            <span class="mh-session-item__title">Design pass on the composer</span>
+                          </span>
+                          <span class="mh-session-item__meta">masterhand-web · 1h ago</span>
+                        </button>
+                        <button class="mh-session-item" type="button">
+                          <span class="mh-session-item__top">
+                            <span class="mh-dot"></span>
+                            <span class="mh-session-item__title">Backups runbook review</span>
+                          </span>
+                          <span class="mh-session-item__meta">ops · yesterday</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Chat -->
+                  <div class="mh-app-screen is-active" data-screen="chat">
+                    <div class="mh-app__topbar">
+                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <span class="mh-app__title">Migrate session store</span>
+                      <span class="mh-dot mh-dot--connected"></span>
+                      <button class="mh-app__icon" type="button" aria-label="More">⋯</button>
+                    </div>
+                    <div class="mh-app__main">
+                      <div class="mh-app__chat">
+                        <div class="mh-thread">
+                          <div class="mh-msg--user">Move session storage to SQLite, keep the HTTP API stable.</div>
+                          <div class="mh-msg--agent">
+                            <div class="mh-msg__label mh-micro">build · agent</div>
+                            <div class="mh-msg__body">On it. Store first, then the queries, then the suite.</div>
+                            <details class="mh-tool" open>
+                              <summary class="mh-tool__header">
+                                <span class="mh-tool__glyph">&gt;_</span>
+                                <span class="mh-tool__title"><strong>bash</strong> · npm test</span>
+                                <span class="mh-dot mh-dot--connected"></span>
+                                <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                              </summary>
+                              <div class="mh-tool__body">
+                                <div class="mh-code mh-code--tight">
+                                  <pre><span class="mh-c-accent">✓</span> 42 passed <span class="mh-c-muted">·</span> coverage 91.4%</pre>
+                                </div>
+                              </div>
+                            </details>
+                            <details class="mh-tool" open>
+                              <summary class="mh-tool__header">
+                                <span class="mh-tool__glyph">±</span>
+                                <span class="mh-tool__title"><strong>edit</strong> · store.ts</span>
+                                <span class="mh-chip mh-chip--accent">+48 −12</span>
+                              </summary>
+                              <div class="mh-tool__body">
+                                <div class="mh-diff">
+                                  <div class="mh-diff__line is-remove"><span class="mh-diff__gutter">12</span> new JsonStore(dataDir)</div>
+                                  <div class="mh-diff__line is-add"><span class="mh-diff__gutter">12</span> new SqliteStore(dbPath)</div>
+                                </div>
+                              </div>
+                            </details>
+                            <details class="mh-tool">
+                              <summary class="mh-tool__header">
+                                <span class="mh-tool__glyph">&gt;_</span>
+                                <span class="mh-tool__title"><strong>bash</strong> · npm run build</span>
+                                <span class="mh-dot mh-dot--busy"></span>
+                              </summary>
+                              <div class="mh-tool__body">
+                                <p class="mh-body-sm mh-muted">Bundling server…</p>
+                              </div>
+                            </details>
+                          </div>
+                        </div>
+                        <p class="mh-app__usage">$0.0421 · 12.4k tokens</p>
+                      </div>
+                      <div class="mh-app__composer">
+                        <div class="mh-app__composer-row">
+                          <select class="mh-select" aria-label="Agent" style="width: 96px">
+                            <option>build</option>
+                            <option>plan</option>
+                          </select>
+                          <select class="mh-select" aria-label="Model" style="width: 118px">
+                            <option>claude-sonnet</option>
+                            <option>gpt-5</option>
+                          </select>
+                          <span class="mh-chip mh-chip--outline">auto-accept</span>
+                        </div>
+                        <div class="mh-app__composer-row">
+                          <div class="mh-app__composer-box">Write a message…</div>
+                          <button class="mh-btn mh-btn--primary" type="button" style="min-height: 44px">Send</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Permission -->
+                  <div class="mh-app-screen" data-screen="permission">
+                    <div class="mh-app__topbar">
+                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <span class="mh-app__title">Migrate session store</span>
+                      <span class="mh-dot mh-dot--busy"></span>
+                    </div>
+                    <div class="mh-app__main">
+                      <div class="mh-app__chat">
+                        <div class="mh-thread">
+                          <div class="mh-msg--user">Move session storage to SQLite.</div>
+                          <div class="mh-msg--agent">
+                            <div class="mh-msg__label mh-micro">build · agent</div>
+                            <div class="mh-msg__body">Reinstalling dependencies to pick up the driver…</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mh-app__scrim">
+                        <div class="mh-sheet">
+                          <div class="mh-heading-4">Permission requested</div>
+                          <p class="mh-body-sm mh-muted">
+                            opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
+                          </p>
+                          <div class="mh-code mh-code--tight">
+                            <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                          </div>
+                          <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                          <div class="mh-demo__row">
+                            <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button" style="flex: 1">Always</button>
+                            <button class="mh-btn mh-btn--danger mh-btn--sm" type="button" style="flex: 1">Reject</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Question -->
+                  <div class="mh-app-screen" data-screen="question">
+                    <div class="mh-app__topbar">
+                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <span class="mh-app__title">Composer design pass</span>
+                      <span class="mh-dot mh-dot--busy"></span>
+                    </div>
+                    <div class="mh-app__main">
+                      <div class="mh-app__chat">
+                        <div class="mh-thread">
+                          <div class="mh-msg--agent">
+                            <div class="mh-msg__label mh-micro">plan · agent</div>
+                            <div class="mh-msg__body">One decision before I touch the composer layout.</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mh-app__scrim">
+                        <div class="mh-sheet">
+                          <div class="mh-msg__label mh-micro">Question from plan</div>
+                          <div class="mh-heading-3">Where should the model picker live?</div>
+                          <div class="mh-options">
+                            <button class="mh-option is-selected" type="button">
+                              <span class="mh-option__mark"></span>Inline, above the input
+                            </button>
+                            <button class="mh-option" type="button">
+                              <span class="mh-option__mark"></span>In the top bar
+                            </button>
+                          </div>
+                          <button class="mh-btn mh-btn--primary" type="button">Answer</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <figcaption class="mh-frame__caption">Mobile · 360×720 · bottom sheets and drawer navigation</figcaption>
+            </figure>
+
+            <!-- --------------------------- Browser --------------------------- -->
+            <figure class="mh-frame" style="margin: 0">
+              <div class="mh-browser">
+                <div class="mh-browser__chrome">
+                  <span class="mh-browser__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="mh-browser__url">masterhand.local</span>
+                </div>
+                <div class="mh-browser__body">
+                  <div class="mh-app">
+                    <!-- Login -->
+                    <div class="mh-app-screen" data-screen="login">
+                      <div class="mh-app__login">
+                        <div class="mh-deco mh-deco--blob" style="top: -160px; right: -120px; width: 420px; height: 380px"></div>
+                        <div class="mh-deco mh-deco--dots" style="bottom: 40px; left: 60px"></div>
+                        <div class="mh-login-card" style="max-width: 360px">
+                          <div class="mh-brand">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path
+                                d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z"
+                                fill="var(--mh-accent)"
+                              />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-body-sm mh-muted">Sign in to your self-hosted server.</p>
+                          <div>
+                            <label class="mh-label" for="desktop-pw">Password</label>
+                            <input class="mh-input" id="desktop-pw" type="password" value="correct horse battery staple" />
+                          </div>
+                          <button class="mh-btn mh-btn--primary" type="button">Sign in</button>
+                          <p class="mh-caption mh-faint">Your data stays on your machine.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Sessions (empty state on desktop) -->
+                    <div class="mh-app-screen" data-screen="sessions">
+                      <div class="mh-app__body">
+                        <aside class="mh-app__sidebar">
+                          <select class="mh-select" aria-label="Workspace">
+                            <option>masterhand</option>
+                          </select>
+                          <div class="mh-pills">
+                            <button class="mh-pill is-active" type="button">All</button>
+                            <button class="mh-pill" type="button">Isolated</button>
+                          </div>
+                          <div class="mh-session">
+                            <button class="mh-session-item is-active" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--connected"></span>
+                                <span class="mh-session-item__title">Migrate session store to SQLite</span>
+                              </span>
+                              <span class="mh-session-item__meta">2m ago</span>
+                            </button>
+                            <button class="mh-session-item" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--busy"></span>
+                                <span class="mh-session-item__title">Add device-token rotation</span>
+                              </span>
+                              <span class="mh-session-item__meta">18m ago</span>
+                            </button>
+                            <button class="mh-session-item" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot"></span>
+                                <span class="mh-session-item__title">Design pass on the composer</span>
+                              </span>
+                              <span class="mh-session-item__meta">1h ago</span>
+                            </button>
+                          </div>
+                          <span style="flex: 1"></span>
+                          <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button" style="width: 100%">+ New session</button>
+                        </aside>
+                        <div class="mh-app__main">
+                          <div class="mh-app__chat" style="display: flex">
+                            <div class="mh-empty" style="border: 0; flex: 1">
+                              <div class="mh-deco mh-deco--blob" style="top: -80px; right: -80px; width: 280px; height: 260px"></div>
+                              <div class="mh-deco mh-deco--dots" style="bottom: -12px; left: -20px"></div>
+                              <h3 class="mh-heading-2">No session open</h3>
+                              <p class="mh-empty__body mh-body-sm">Pick one from the sidebar or start a new one.</p>
+                              <button class="mh-btn mh-btn--primary" type="button">New session</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Chat -->
+                    <div class="mh-app-screen is-active" data-screen="chat">
+                      <div class="mh-app__body">
+                        <aside class="mh-app__sidebar">
+                          <select class="mh-select" aria-label="Workspace">
+                            <option>masterhand</option>
+                          </select>
+                          <div class="mh-pills">
+                            <button class="mh-pill is-active" type="button">All</button>
+                            <button class="mh-pill" type="button">Isolated</button>
+                          </div>
+                          <div class="mh-session">
+                            <button class="mh-session-item is-active" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--connected"></span>
+                                <span class="mh-session-item__title">Migrate session store to SQLite</span>
+                              </span>
+                              <span class="mh-session-item__meta">2m ago</span>
+                            </button>
+                            <button class="mh-session-item" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--busy"></span>
+                                <span class="mh-session-item__title">Add device-token rotation</span>
+                              </span>
+                              <span class="mh-session-item__meta">18m ago</span>
+                            </button>
+                            <button class="mh-session-item" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot"></span>
+                                <span class="mh-session-item__title">Design pass on the composer</span>
+                              </span>
+                              <span class="mh-session-item__meta">1h ago</span>
+                            </button>
+                          </div>
+                          <span style="flex: 1"></span>
+                          <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button" style="width: 100%">+ New session</button>
+                        </aside>
+                        <div class="mh-app__main">
+                          <div class="mh-app__topbar">
+                            <span class="mh-app__title">Migrate session store to SQLite</span>
+                            <span class="mh-dot mh-dot--connected"></span>
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Audit</button>
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Run</button>
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Preview</button>
+                          </div>
+                          <div class="mh-app__chat">
+                            <div class="mh-app__content">
+                              <div class="mh-thread">
+                                <div class="mh-msg--user">Move session storage to SQLite, keep the HTTP API stable.</div>
+                                <div class="mh-msg--agent">
+                                  <div class="mh-msg__label mh-micro">build · agent · step 3 of 7</div>
+                                  <div class="mh-msg__body">
+                                    I added the store, migrated the queries and ran the suite. Nothing public
+                                    changed — same endpoints, same types.
+                                  </div>
+                                  <details class="mh-tool" open>
+                                    <summary class="mh-tool__header">
+                                      <span class="mh-tool__glyph">&gt;_</span>
+                                      <span class="mh-tool__title"><strong>bash</strong> · npm run test:coverage</span>
+                                      <span class="mh-dot mh-dot--connected"></span>
+                                      <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                                    </summary>
+                                    <div class="mh-tool__body">
+                                      <div class="mh-code">
+                                        <div class="mh-code__header">terminal</div>
+                                        <pre><span class="mh-c-accent">✓</span> src/store.test.ts <span class="mh-c-muted">(12 tests)</span>
+<span class="mh-c-accent">✓</span> src/sessions.test.ts <span class="mh-c-muted">(18 tests)</span>
+<span class="mh-c-muted">Tests</span>  42 passed <span class="mh-c-muted">|</span> 42 total</pre>
+                                      </div>
+                                    </div>
+                                  </details>
+                                  <details class="mh-tool" open>
+                                    <summary class="mh-tool__header">
+                                      <span class="mh-tool__glyph">±</span>
+                                      <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
+                                      <span class="mh-chip mh-chip--accent">+48 −12</span>
+                                      <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                                    </summary>
+                                    <div class="mh-tool__body">
+                                      <div class="mh-diff">
+                                        <div class="mh-diff__line is-remove"><span class="mh-diff__gutter">12</span>  const store = new JsonStore(dataDir)</div>
+                                        <div class="mh-diff__line is-add"><span class="mh-diff__gutter">12</span>  const store = new SqliteStore(join(dataDir, "masterhand.db"))</div>
+                                        <div class="mh-diff__line is-add"><span class="mh-diff__gutter">13</span>  await store.migrate()</div>
+                                      </div>
+                                    </div>
+                                  </details>
+                                </div>
+                              </div>
+                              <p class="mh-app__usage">Session · $0.0421 · 12.4k tokens · 38 tok/s</p>
+                            </div>
+                          </div>
+                          <div class="mh-app__composer">
+                            <div class="mh-app__content">
+                              <div class="mh-app__composer-row">
+                                <select class="mh-select" aria-label="Agent" style="width: 96px">
+                                  <option>build</option>
+                                  <option>plan</option>
+                                </select>
+                                <select class="mh-select" aria-label="Model" style="width: 128px">
+                                  <option>claude-sonnet</option>
+                                </select>
+                                <select class="mh-select" aria-label="Effort" style="width: 118px">
+                                  <option>Effort: high</option>
+                                </select>
+                                <span class="mh-chip mh-chip--outline">auto-accept</span>
+                              </div>
+                              <div class="mh-app__composer-row">
+                                <div class="mh-app__composer-box">Write a message…</div>
+                                <button class="mh-btn mh-btn--primary" type="button">Send</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Permission -->
+                    <div class="mh-app-screen" data-screen="permission">
+                      <div class="mh-app__body">
+                        <aside class="mh-app__sidebar">
+                          <div class="mh-session">
+                            <button class="mh-session-item is-active" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--busy"></span>
+                                <span class="mh-session-item__title">Migrate session store to SQLite</span>
+                              </span>
+                              <span class="mh-session-item__meta">2m ago</span>
+                            </button>
+                          </div>
+                        </aside>
+                        <div class="mh-app__main">
+                          <div class="mh-app__chat">
+                            <div class="mh-app__content">
+                              <div class="mh-thread">
+                                <div class="mh-msg--user">Move session storage to SQLite.</div>
+                                <div class="mh-msg--agent">
+                                  <div class="mh-msg__label mh-micro">build · agent</div>
+                                  <div class="mh-msg__body">Reinstalling dependencies to pick up the driver…</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mh-app__scrim mh-app__scrim--center">
+                          <div class="mh-dialog">
+                            <div class="mh-dialog__title mh-heading-4">
+                              <span class="mh-dot mh-dot--busy"></span> Permission requested
+                            </div>
+                            <p class="mh-body-sm mh-muted">
+                              opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
+                            </p>
+                            <div class="mh-code" style="margin-top: 12px">
+                              <div class="mh-code__header">bash</div>
+                              <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                            </div>
+                            <div class="mh-dialog__actions">
+                              <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                              <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
+                              <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Question -->
+                    <div class="mh-app-screen" data-screen="question">
+                      <div class="mh-app__body">
+                        <aside class="mh-app__sidebar">
+                          <div class="mh-session">
+                            <button class="mh-session-item is-active" type="button">
+                              <span class="mh-session-item__top">
+                                <span class="mh-dot mh-dot--busy"></span>
+                                <span class="mh-session-item__title">Design pass on the composer</span>
+                              </span>
+                              <span class="mh-session-item__meta">just now</span>
+                            </button>
+                          </div>
+                        </aside>
+                        <div class="mh-app__main">
+                          <div class="mh-app__chat">
+                            <div class="mh-app__content">
+                              <div class="mh-thread">
+                                <div class="mh-msg--agent">
+                                  <div class="mh-msg__label mh-micro">plan · agent</div>
+                                  <div class="mh-msg__body">One decision before I touch the composer layout.</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mh-app__scrim mh-app__scrim--center">
+                          <div class="mh-dialog">
+                            <div class="mh-msg__label mh-micro">Question from plan</div>
+                            <div class="mh-heading-3" style="margin: 4px 0 12px">Where should the model picker live?</div>
+                            <div class="mh-options">
+                              <button class="mh-option is-selected" type="button">
+                                <span class="mh-option__mark"></span>Inline, above the input
+                              </button>
+                              <button class="mh-option" type="button">
+                                <span class="mh-option__mark"></span>In the top bar
+                              </button>
+                            </div>
+                            <div class="mh-dialog__actions">
+                              <button class="mh-btn mh-btn--primary" type="button">Answer</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <figcaption class="mh-frame__caption">
+                Desktop · sidebar docks in the frame at ≥620px container width
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mh-page-footer">
+      <div class="mh-container mh-page-footer__inner">
+        <span class="mh-caption mh-muted">MasterHand design system · v0.1 alpha</span>
+        <span class="mh-caption mh-muted">
+          <a href="DESIGN.md">DESIGN.md</a> is the source of truth — this page previews it.
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>
