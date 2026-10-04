@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createFakeTunnel,
@@ -270,6 +273,191 @@ describe("preview routes", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe("managed run", () => {
+  it("saves and validates the workspace run config", async () => {
+    app = await startTestApp()
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+
+    const invalid = await fetch(`${app.url}/api/workspaces/ws/run`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ command: "bash", args: ["-c", "pkill node"] }),
+    })
+    expect(invalid.status).toBe(400)
+    expect(((await invalid.json()) as { error: string }).error).toBe("command_not_allowed")
+
+    const saved = await fetch(`${app.url}/api/workspaces/ws/run`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ command: "npm", args: ["run", "dev", "--", "--port", "{port}"] }),
+    })
+    expect(saved.status).toBe(200)
+    expect(app.store.getWorkspaceRun("ws")).toMatchObject({ command: "npm", source: "user" })
+
+    const listed = await fetch(`${app.url}/api/workspaces/ws/run`, { headers: { cookie } })
+    expect(await listed.json()).toMatchObject({ run: { command: "npm" } })
+  })
+
+  it("detects an agent-proposed .masterhand/run.json", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-run-app-"))
+    try {
+      mkdirSync(join(dir, ".masterhand"))
+      writeFileSync(
+        join(dir, ".masterhand", "run.json"),
+        JSON.stringify({ command: "pnpm", args: ["dev", "--port", "{port}"] }),
+      )
+      app = await startTestApp()
+      const cookie = await login(app.url)
+      app.store.createWorkspace({ id: "ws", name: "ws", path: dir, createdAt: Date.now() })
+      app.store.createWorkspace({
+        id: "empty",
+        name: "empty",
+        path: join(dir, "does-not-exist"),
+        createdAt: Date.now(),
+      })
+
+      const detected = await fetch(`${app.url}/api/workspaces/ws/run/detect`, { method: "POST", headers: { cookie } })
+      expect(detected.status).toBe(200)
+      expect(await detected.json()).toMatchObject({ run: { command: "pnpm", source: "agent" } })
+
+      const missing = await fetch(`${app.url}/api/workspaces/empty/run/detect`, {
+        method: "POST",
+        headers: { cookie },
+      })
+      expect(missing.status).toBe(404)
+      expect(((await missing.json()) as { error: string }).error).toBe("run_not_found")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("starts and stops a session run through the PTY API", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "{port}"],
+      cwd: null,
+      source: "user",
+      updatedAt: Date.now(),
+    })
+
+    const started = await fetch(`${app.url}/api/sessions/ses_run/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(started.status).toBe(200)
+    expect(await started.json()).toMatchObject({ run: { status: "running", port: 32900, pid: 5001 } })
+
+    const ptyCall = upstream.requests.find((request) => request.method === "POST" && request.path === "/api/pty")
+    expect(JSON.parse(ptyCall?.body ?? "{}")).toMatchObject({
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "32900"],
+      title: "masterhand:ses_run",
+      env: { PORT: "32900" },
+    })
+
+    const status = await fetch(`${app.url}/api/sessions/ses_run/run?workspace=ws`, { headers: { cookie } })
+    expect(await status.json()).toMatchObject({ run: { status: "running" } })
+
+    const stopped = await fetch(`${app.url}/api/sessions/ses_run/run?workspace=ws`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(stopped.status).toBe(200)
+
+    const after = await fetch(`${app.url}/api/sessions/ses_run/run?workspace=ws`, { headers: { cookie } })
+    expect(await after.json()).toMatchObject({ run: { status: "stopped" } })
+  })
+})
+
+describe("managed run errors", () => {
+  it("requires a workspace and a saved config", async () => {
+    app = await startTestApp()
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+
+    const noWorkspace = await fetch(`${app.url}/api/sessions/ses_1/run`, { headers: { cookie } })
+    expect(noWorkspace.status).toBe(400)
+
+    const noConfig = await fetch(`${app.url}/api/sessions/ses_1/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(noConfig.status).toBe(404)
+    expect(((await noConfig.json()) as { error: string }).error).toBe("run_not_configured")
+  })
+
+  it("reports a spawn failure", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      fetchImpl: ((input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input)
+        if (init?.method === "POST" && url.includes("/api/pty")) {
+          return Promise.resolve(new Response("boom", { status: 500 }))
+        }
+        return fetch(input as RequestInfo, init)
+      }) as typeof fetch,
+    })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+
+    const failed = await fetch(`${app.url}/api/sessions/ses_1/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(failed.status).toBe(502)
+    expect(((await failed.json()) as { error: string }).error).toBe("run_spawn_failed")
+  })
+
+  it("runs an isolated session in its worktree directory", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+    app.store.createIsolatedSession({
+      sessionID: "ses_iso",
+      workspaceID: "ws",
+      path: "/tmp/masterhand-worktrees/ws/abc",
+      branch: "b",
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt: 1,
+    })
+
+    const started = await fetch(`${app.url}/api/sessions/ses_iso/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(started.status).toBe(200)
+    const ptyCall = upstream.requests.find((request) => request.method === "POST" && request.path === "/api/pty")
+    expect(decodeURIComponent(ptyCall?.query ?? "")).toContain("location[directory]=/tmp/masterhand-worktrees/ws/abc")
+    expect(JSON.parse(ptyCall?.body ?? "{}")).toMatchObject({ cwd: "/tmp/masterhand-worktrees/ws/abc" })
   })
 })
 

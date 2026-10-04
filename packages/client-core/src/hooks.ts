@@ -34,6 +34,10 @@ export const queryKeys = {
   /** Directories holding sessions for a workspace (base folder + worktrees). */
   directories: (workspaceID?: string | null) => ["directories", workspaceID ?? null] as const,
   preview: (sessionID: string) => ["preview", sessionID] as const,
+  /** Managed dev-server config for a workspace. */
+  run: (workspaceID?: string | null) => ["run", workspaceID ?? null] as const,
+  /** Managed dev-server state for a session. */
+  sessionRun: (sessionID: string) => ["sessionRun", sessionID] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -144,6 +148,25 @@ export function usePreview(client: Client, sessionID: string | null, enabled = t
     queryKey: queryKeys.preview(sessionID ?? ""),
     queryFn: () => client.api.preview(sessionID!),
     enabled: enabled && Boolean(sessionID),
+    refetchInterval: (query) => (query.state.data?.status === "starting" ? 1500 : false),
+  })
+}
+
+/** The workspace's managed run configuration (null until one is saved/detected). */
+export function useWorkspaceRun(client: Client, workspaceID?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.run(workspaceID),
+    queryFn: () => client.api.run(workspaceID!),
+    enabled: Boolean(workspaceID),
+  })
+}
+
+/** Live state of a session's managed dev server. */
+export function useSessionRun(client: Client, sessionID: string | null, workspaceID?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.sessionRun(sessionID ?? ""),
+    queryFn: () => client.api.sessionRun(sessionID!, workspaceID!),
+    enabled: Boolean(sessionID) && Boolean(workspaceID),
     refetchInterval: (query) => (query.state.data?.status === "starting" ? 1500 : false),
   })
 }

@@ -16,6 +16,7 @@ import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { Composer } from "./Composer"
 import { PreviewPanel } from "./PreviewPanel"
+import { RunPanel } from "./RunPanel"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -100,7 +101,10 @@ export function ChatView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PreviewPanel sessionID={sessionID} />
+      <div className="flex items-center justify-end gap-2 px-3 pt-2 md:px-6">
+        <RunPanel sessionID={sessionID} workspaceID={workspaceID} />
+        <PreviewPanel sessionID={sessionID} />
+      </div>
       <div ref={scrollRef} onScroll={handleScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           {messagesQuery.isLoading && <p className="text-center text-sm text-zinc-500">Loading conversation…</p>}

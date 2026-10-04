@@ -102,8 +102,8 @@ export async function reachableOverHttp(url: string): Promise<boolean> {
 export function previewSystemPrompt(port: number): string {
   return [
     `A live-preview port is reserved for this project: ${port}.`,
-    `If you start any web server (dev server, static server, API), bind it to host 0.0.0.0 and port ${port}`,
-    `(for example: \`npm run dev -- --host 0.0.0.0 --port ${port}\` or \`python3 -m http.server ${port} --bind 0.0.0.0\`).`,
+    `MasterHand's Run control starts the web server (declare it in .masterhand/run.json using "--port {port}"); do not start or stop it yourself.`,
+    `A web server for this project must listen on host 0.0.0.0 and port ${port} (MasterHand passes PORT=${port}).`,
     `Never use a different port for a web server: the preview tunnel only forwards port ${port}.`,
     `If a process already listens on ${port}, reuse it instead of starting another one.`,
     `The user opens the preview through a public tunnel (a random *.trycloudflare.com host), so if the dev server`,
