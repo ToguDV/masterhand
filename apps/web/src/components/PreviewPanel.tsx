@@ -48,25 +48,23 @@ export function PreviewPanel({ sessionID }: { sessionID: string }) {
 
   return (
     <>
-      <div className="flex items-center justify-end gap-2 px-3 pt-2 md:px-6">
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
-        >
-          <span
-            aria-hidden="true"
-            className={`h-1.5 w-1.5 rounded-full ${
-              preview.status === "running"
-                ? "bg-emerald-400"
-                : preview.status === "error"
-                  ? "bg-red-400"
-                  : "bg-zinc-600"
-            }`}
-          />
-          Preview
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+      >
+        <span
+          aria-hidden="true"
+          className={`h-1.5 w-1.5 rounded-full ${
+            preview.status === "running"
+              ? "bg-emerald-400"
+              : preview.status === "error"
+                ? "bg-red-400"
+                : "bg-zinc-600"
+          }`}
+        />
+        Preview
+      </button>
 
       {open && (
         <div className="fixed inset-0 z-30 flex flex-col bg-zinc-950 md:inset-auto md:right-0 md:top-0 md:h-full md:w-[min(560px,60vw)] md:border-l md:border-zinc-800">

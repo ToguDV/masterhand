@@ -23,7 +23,16 @@ import type { Config } from "./config.js"
 import type { EventHub } from "./events.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
 import { createOpencodeProxy } from "./proxy.js"
-import type { IsolatedSessionRecord, Store } from "./store.js"
+import {
+  createRunManager,
+  readRunFile,
+  RunError,
+  runSystemPrompt,
+  validateRunConfig,
+  type RunManager,
+  type RunOpencode,
+} from "./runs.js"
+import type { IsolatedSessionRecord, Store, WorkspaceRunRecord } from "./store.js"
 import {
   createWorktreeManager,
   pullRequestUrl,
@@ -53,6 +62,8 @@ export interface AppDeps {
   worktrees?: WorktreeManager
   /** Overridable for tests: Cloudflare quick-tunnel previews. */
   preview?: PreviewManager
+  /** Overridable for tests: managed dev-server lifecycle. */
+  runs?: RunManager
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
 }
@@ -101,6 +112,40 @@ export function createApp(deps: AppDeps): Hono {
       userEmail: config.gitUserEmail,
     })
   const preview = deps.preview ?? createPreviewManager({ config, store: deps.store })
+
+  /**
+   * Managed dev-server lifecycle over opencode's PTY API. The run process is
+   * created and deleted by the BFF (never by the agent), always inside the
+   * session's directory, so stopping it cannot take down anything else.
+   */
+  const runOpencode: RunOpencode = {
+    async createPty({ directory, command, args, cwd, title, env }) {
+      const response = await callOpencode("/api/pty", {
+        method: "POST",
+        location: directory,
+        body: { command, args, cwd, title, env },
+      })
+      if (!response.ok) throw new Error(`opencode ${response.status}`)
+      const body = (await response.json()) as { data: { id: string; pid: number; status: string; title: string } }
+      return body.data
+    },
+    async listPtys(directory) {
+      const response = await callOpencode("/api/pty", { location: directory })
+      if (!response.ok) throw new Error(`opencode ${response.status}`)
+      const body = (await response.json()) as {
+        data: Array<{ id: string; pid: number; status: string; title: string }>
+      }
+      return body.data
+    },
+    async removePty(directory, ptyID) {
+      const response = await callOpencode(`/api/pty/${encodeURIComponent(ptyID)}`, {
+        method: "DELETE",
+        location: directory,
+      })
+      if (!response.ok && response.status !== 404) throw new Error(`opencode ${response.status}`)
+    },
+  }
+  const runs = deps.runs ?? createRunManager({ opencode: runOpencode })
 
   // Clients poll the workspace session list every 10 s and each poll walks the
   // v2 cursor pages per directory (base + worktrees). A short-lived per-directory
@@ -222,6 +267,15 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /**
+   * Tells the agent to declare the dev-server command in `.masterhand/run.json`
+   * instead of starting or killing servers itself; MasterHand's run control
+   * starts and stops that exact process.
+   */
+  async function ensureRunInstruction(sessionID: string): Promise<void> {
+    await writeSessionInstruction(sessionID, "masterhand.run", runSystemPrompt())
+  }
+
+  /**
    * Blocks writes outside the session directory while keeping reads allowed, as
    * defense in depth on top of the workspace instruction. Best effort: it must
    * never block session creation.
@@ -243,6 +297,7 @@ export function createApp(deps: AppDeps): Hono {
   /** Applies the workspace guardrails to a freshly created session. */
   async function ensureWorkspaceGuard(sessionID: string, directory: string): Promise<void> {
     await ensureWorkspaceInstruction(sessionID, directory)
+    await ensureRunInstruction(sessionID)
     await ensureExternalWriteGuard(sessionID)
   }
 
@@ -644,6 +699,7 @@ export function createApp(deps: AppDeps): Hono {
       deps.store.removeIsolatedSession(sessionID)
     }
     preview.forget(sessionID)
+    runs.forget(sessionID)
     return c.json({ ok: true })
   })
 
@@ -692,6 +748,102 @@ export function createApp(deps: AppDeps): Hono {
       path: record.path,
       error: pushError,
     })
+  })
+
+  api.get("/workspaces/:id/run", (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    return c.json({ run: deps.store.getWorkspaceRun(workspace.id) })
+  })
+
+  api.put("/workspaces/:id/run", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_config" }, 400)
+    }
+    const result = validateRunConfig(body, workspace.path)
+    if (!result.ok) return c.json({ error: result.error }, 400)
+
+    const record: WorkspaceRunRecord = {
+      workspaceID: workspace.id,
+      command: result.config.command,
+      args: result.config.args,
+      cwd: result.config.cwd,
+      source: "user",
+      updatedAt: Date.now(),
+    }
+    deps.store.saveWorkspaceRun(record)
+    return c.json({ run: record })
+  })
+
+  api.post("/workspaces/:id/run/detect", (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    const detected = readRunFile(workspace.path)
+    if (!detected) return c.json({ error: "run_not_found" }, 404)
+    if ("error" in detected) return c.json({ error: detected.error }, 400)
+    return c.json({ run: { ...detected.config, source: "agent" } })
+  })
+
+  /**
+   * Resolves the session's directory and the workspace it belongs to. The
+   * workspace id travels as a query param because a session id alone does not
+   * tell the BFF which workspace (and worktree) it belongs to.
+   */
+  function sessionRunContext(c: Context): { workspaceID: string; sessionID: string; directory: string } | null {
+    const workspace = deps.store.getWorkspace(c.req.query("workspace") ?? "")
+    if (!workspace) return null
+    const sessionID = c.req.param("sessionID") ?? ""
+    const record = sessionID ? deps.store.getIsolatedSession(sessionID) : null
+    const directory = record && record.workspaceID === workspace.id ? record.path : workspace.path
+    return { workspaceID: workspace.id, sessionID, directory }
+  }
+
+  api.get("/sessions/:sessionID/run", async (c) => {
+    const context = sessionRunContext(c)
+    if (!context) return c.json({ error: "workspace_required" }, 400)
+    const config = deps.store.getWorkspaceRun(context.workspaceID)
+    try {
+      const port = preview.portFor(context.sessionID)
+      const run = await runs.status(context.sessionID, context.directory, port)
+      return c.json({
+        run: {
+          ...run,
+          command: run.command ?? config?.command ?? null,
+          args: run.args.length > 0 ? run.args : (config?.args ?? []),
+        },
+      })
+    } catch (error) {
+      if (error instanceof PreviewError) return c.json({ error: error.code }, 503)
+      return c.json({ error: "opencode_unreachable" }, 502)
+    }
+  })
+
+  api.post("/sessions/:sessionID/run", async (c) => {
+    const context = sessionRunContext(c)
+    if (!context) return c.json({ error: "workspace_required" }, 400)
+    const config = deps.store.getWorkspaceRun(context.workspaceID)
+    if (!config) return c.json({ error: "run_not_configured" }, 404)
+    try {
+      const port = preview.portFor(context.sessionID)
+      return c.json({ run: await runs.start(context.sessionID, context.directory, config, port) })
+    } catch (error) {
+      const code = error instanceof RunError ? error.code : error instanceof PreviewError ? error.code : "run_failed"
+      const status = code === "run_spawn_failed" ? 502 : code === "preview_ports_exhausted" ? 503 : 500
+      return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
+    }
+  })
+
+  api.delete("/sessions/:sessionID/run", async (c) => {
+    const context = sessionRunContext(c)
+    if (!context) return c.json({ error: "workspace_required" }, 400)
+    await runs.stop(context.sessionID, context.directory).catch(() => {})
+    return c.json({ ok: true })
   })
 
   api.get("/sessions/:sessionID/preview", (c) => {

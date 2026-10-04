@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
 import { createMemoryStore, createSqliteStore } from "../src/store.js"
 
@@ -73,6 +74,59 @@ describe("memory workspace store", () => {
     store.removeWorkspace("ws_2")
     expect(store.listWorkspaces()).toHaveLength(1)
     store.close()
+  })
+})
+
+describe("workspace run store", () => {
+  const run = {
+    workspaceID: "ws_1",
+    command: "npm",
+    args: ["run", "dev"],
+    cwd: null,
+    source: "user" as const,
+    updatedAt: 1,
+  }
+
+  it("persists, reads and removes a run config in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      store.saveWorkspaceRun(run)
+      expect(store.getWorkspaceRun("ws_1")).toEqual(run)
+      store.removeWorkspaceRun("ws_1")
+      expect(store.getWorkspaceRun("ws_1")).toBeNull()
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("reads a corrupt args column as an empty list", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "test.sqlite")
+    const store = createSqliteStore(file)
+    store.saveWorkspaceRun(run)
+    store.close()
+
+    const raw = new Database(file)
+    raw.prepare("UPDATE workspace_runs SET args = ? WHERE workspace_id = ?").run("{not json", "ws_1")
+    raw.close()
+
+    const reopened = createSqliteStore(file)
+    try {
+      expect(reopened.getWorkspaceRun("ws_1")?.args).toEqual([])
+    } finally {
+      reopened.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("behaves the same in memory", () => {
+    const store = createMemoryStore()
+    store.saveWorkspaceRun(run)
+    expect(store.getWorkspaceRun("ws_1")).toEqual(run)
+    store.removeWorkspaceRun("ws_1")
+    expect(store.getWorkspaceRun("ws_1")).toBeNull()
   })
 })
 

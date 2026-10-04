@@ -18,6 +18,7 @@ import {
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
 import { PreviewModal } from "../components/PreviewModal"
+import { RunModal } from "../components/RunModal"
 import { Screen } from "../components/Screen"
 import { colors } from "../theme"
 
@@ -69,6 +70,7 @@ export function ChatScreen({
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const statusQuery = useBffStatus(client)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [runOpen, setRunOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
@@ -102,6 +104,11 @@ export function ChatScreen({
         <Text style={styles.title} numberOfLines={1}>
           {title || "Session"}
         </Text>
+        {workspaceID ? (
+          <Pressable style={styles.previewButton} onPress={() => setRunOpen(true)}>
+            <Text style={styles.previewButtonText}>Run</Text>
+          </Pressable>
+        ) : null}
         {statusQuery.data?.preview?.enabled ? (
           <Pressable style={styles.previewButton} onPress={() => setPreviewOpen(true)}>
             <Text style={styles.previewButtonText}>Preview</Text>
@@ -213,6 +220,15 @@ export function ChatScreen({
 
       {previewOpen ? (
         <PreviewModal client={client} sessionID={sessionID} onClose={() => setPreviewOpen(false)} />
+      ) : null}
+
+      {runOpen && workspaceID ? (
+        <RunModal
+          client={client}
+          sessionID={sessionID}
+          workspaceID={workspaceID}
+          onClose={() => setRunOpen(false)}
+        />
       ) : null}
     </Screen>
   )

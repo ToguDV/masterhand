@@ -37,7 +37,9 @@ export interface MockOpencode {
 export async function startMockOpencode(): Promise<MockOpencode> {
   const requests: MockOpencode["requests"] = []
   const sseClients = new Set<import("node:http").ServerResponse>()
+  const ptys: Array<{ id: string; title: string; status: string; pid: number; command: string; args: string[]; cwd: string }> = []
   let sessionCounter = 0
+  let ptyCounter = 0
 
   const server = createServer((req, res) => {
     let body = ""
@@ -92,6 +94,45 @@ export async function startMockOpencode(): Promise<MockOpencode> {
       }
 
       if (req.method === "PUT" && path.includes("/instructions/entries/")) {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+
+      if (path === "/api/pty") {
+        if (req.method === "GET") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: ptys.filter((pty) => pty.status === "running") }))
+          return
+        }
+        if (req.method === "POST") {
+          ptyCounter += 1
+          let input: { command?: string; args?: string[]; cwd?: string; title?: string } = {}
+          try {
+            input = JSON.parse(body) as typeof input
+          } catch {
+            // an empty body is fine: the mock answers with defaults
+          }
+          const pty = {
+            id: `pty_mock_${ptyCounter}`,
+            pid: 5000 + ptyCounter,
+            status: "running",
+            title: input.title ?? "",
+            command: input.command ?? "",
+            args: input.args ?? [],
+            cwd: input.cwd ?? "",
+          }
+          ptys.push(pty)
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: pty }))
+          return
+        }
+      }
+
+      if (req.method === "DELETE" && path.startsWith("/api/pty/")) {
+        const ptyID = decodeURIComponent(path.slice("/api/pty/".length))
+        const index = ptys.findIndex((pty) => pty.id === ptyID)
+        if (index >= 0) ptys.splice(index, 1)
         res.writeHead(204)
         res.end()
         return

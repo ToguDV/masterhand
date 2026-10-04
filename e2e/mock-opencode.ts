@@ -90,6 +90,8 @@ const messageOrders = new Map<string, string>()
 const pendingPermissions = new Map<string, PendingPermission>()
 const pendingForms = new Map<string, PendingForm>()
 const activeRuns = new Set<string>()
+/** Managed dev-server processes created through the PTY API. */
+const ptys = new Map<string, { id: string; title: string; status: string; pid: number; directory: string }>()
 
 // E2E control: makes the mock unreachable (503) and drops its SSE clients, so
 // the BFF hub retries and tests can cover the upstream reconnection recovery.
@@ -763,6 +765,33 @@ const server = createServer((req, res) => {
       return json(res, 200, { version: "2.0.6", pid: 1, urls: [], paths: { tmp: "/tmp" } })
     }
     if (req.method === "GET" && path === "/api/event") return openStream(res)
+
+    // Managed dev-server lifecycle (opencode PTY API).
+    if (path === "/api/pty") {
+      const directory = url.searchParams.get("location[directory]") ?? DEFAULT_DIRECTORY
+      if (req.method === "GET") {
+        return json(res, 200, {
+          location: { directory },
+          data: [...ptys.values()].filter((pty) => pty.status === "running"),
+        })
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req)
+        const pty = {
+          id: nextId("pty"),
+          pid: 5000 + ptys.size,
+          status: "running",
+          title: typeof body.title === "string" ? body.title : "",
+          directory,
+        }
+        ptys.set(pty.id, pty)
+        return json(res, 200, { location: { directory }, data: pty })
+      }
+    }
+    if (req.method === "DELETE" && segments[0] === "api" && segments[1] === "pty" && segments[2]) {
+      ptys.delete(decodeURIComponent(segments[2]))
+      return empty(res, 204)
+    }
 
     if (req.method === "GET" && path === "/api/session") {
       const directory = url.searchParams.get("directory")

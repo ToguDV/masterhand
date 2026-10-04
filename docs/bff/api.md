@@ -51,6 +51,12 @@ Other rules:
 | `GET` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Current preview state for the session. `404 preview_disabled` when `PREVIEW_ENABLED=false` |
 | `POST` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Starts a Cloudflare quick tunnel to the session's reserved port. `409 preview_not_running` when nothing listens on the port, `503 preview_unavailable` when `cloudflared` is missing, `503 preview_ports_exhausted` when the pool is drained, `502` on tunnel failure. Idempotent while running |
 | `DELETE` | `/api/sessions/:sessionID/preview` | `{ ok: true }` | Stops the tunnel (the reserved port is kept for a later restart) |
+| `GET` | `/api/workspaces/:id/run` | `{ run: WorkspaceRunRecord \| null }` | The workspace's managed run configuration |
+| `PUT` | `/api/workspaces/:id/run` | `{ run: WorkspaceRunRecord }` | Body: `{ command, args, cwd? }` (argv, no shell). Validated: shells/process-killers rejected (`400`), `cwd` must stay inside the workspace, arguments bounded. Saved with `source: "user"` |
+| `POST` | `/api/workspaces/:id/run/detect` | `{ run: RunCandidate }` | Reads and validates the agent-proposed `.masterhand/run.json`. `404 run_not_found` when missing, `400` when invalid |
+| `GET` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ run: RunStatus }` | Current state (`stopped`/`running`), pid and reserved port. Adopts a still-running PTY by its `masterhand:<sessionID>` title after a BFF restart |
+| `POST` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ run: RunStatus }` | Starts the configured command through opencode's PTY API (argv, `{port}` replaced, `PORT` in env, cwd = the session's directory/worktree). `404 run_not_configured`, `502 run_spawn_failed` |
+| `DELETE` | `/api/sessions/:sessionID/run?workspace=<id>` | `{ ok: true }` | Stops the exact PTY MasterHand created (`DELETE /api/pty/:id`); nothing else is signalled |
 
 `workspace` shape: `{ id, name, path, createdAt }`. Each workspace is a subfolder that MasterHand creates and owns under `WORKSPACES_ROOT`, so it is always a single, isolated directory. opencode has no project-deletion endpoint, so deleting the record in MasterHand (optionally with its files) is how a workspace goes away.
 
@@ -63,6 +69,16 @@ Each session gets a **fixed port** from `PREVIEW_PORT_RANGE` on session creation
 `PreviewStatus` shape: `{ status: "stopped" | "starting" | "running" | "error", url, port, error }`. The tunnel process lives in the BFF container; `PREVIEW_ORIGIN` is the host where the dev server listens as seen from there (`opencode` in Compose, `127.0.0.1` in native dev). Tunnels stop on `DELETE`, on session deletion and on BFF shutdown.
 
 > Quick tunnels are **public and ephemeral**: anyone with the random URL can reach the preview, and the URL changes on every start. Use them for testing only.
+
+## Managed run (dev-server lifecycle)
+
+MasterHand owns the dev-server process so agents never start or kill servers themselves (the broad-kill incident this feature prevents). A **run configuration** is stored per workspace and reused by every session:
+
+- The agent declares the command in `<workspace>/.masterhand/run.json` (`{ "command": "npm", "args": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "{port}"] }`); the BFF validates it (`POST /run/detect`) and the user applies or edits it in the UI. A saved config carries `source: "agent" | "user"`.
+- The command is **argv, no shell**: `command` is a single executable and `args` a bounded list, so a shell string cannot smuggle anything. Shells and process-killers (`sh`, `bash`, `pkill`, `killall`, `xargs`, `docker`, `systemctl`, …) are rejected; `cwd` must resolve inside the workspace.
+- On Start the BFF calls opencode's `POST /api/pty` with the session's reserved preview port substituted for `{port}` (and `PORT` in the env), in the session's directory (worktree for isolated sessions). On Stop it calls `DELETE /api/pty/:id`, which kills exactly that process tree — no `pkill`, no port sweeps.
+- The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Deleting the session forgets it.
+- Session creation writes a `masterhand.run` instruction telling the agent not to manage servers itself; the `masterhand.preview` instruction still carries the reserved port and the tunnel-host allowlist advice.
 
 ## Workspace isolation & guardrails
 
