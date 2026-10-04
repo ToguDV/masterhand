@@ -637,6 +637,34 @@ describe("previews", () => {
   })
 })
 
+describe("audit", () => {
+  it("reads the denied-command log and clears it", async () => {
+    const event = {
+      id: 1,
+      at: 10,
+      sessionID: "ses_1",
+      workspaceID: null,
+      kind: "permission_denied",
+      command: "pkill -f node",
+      reason: "Permission denied: shell",
+      source: "opencode",
+    }
+    const { calls, fetchImpl } = recordingFetch(
+      () => jsonResponse({ events: [event] }),
+      () => new Response(null, { status: 204 }),
+    )
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    expect(await client.api.audit(50)).toEqual([event])
+    await client.api.clearAudit()
+
+    expect(calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)).toEqual([
+      "GET https://mh.example/api/audit?limit=50",
+      "DELETE https://mh.example/api/audit",
+    ])
+  })
+})
+
 describe("client error handling", () => {
   it("falls back to the HTTP status when the error body is empty", async () => {
     const { fetchImpl } = recordingFetch(() => new Response("", { status: 500 }))

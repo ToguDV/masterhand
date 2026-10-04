@@ -5,6 +5,7 @@ import {
   login,
   startMockOpencode,
   startTestApp,
+  waitFor,
   type MockOpencode,
   type TestApp,
 } from "./helpers.js"
@@ -238,6 +239,110 @@ describe("preview routes", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe("audit log", () => {
+  it("records a permission-denied tool call with its command", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    // The hub connects asynchronously; emit only after its SSE subscription exists.
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    upstream.emit({
+      type: "session.tool.called",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        id: "call_1",
+        name: "shell",
+        input: { command: "pkill -f node" },
+      },
+    })
+    upstream.emit({
+      type: "session.tool.failed",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        id: "call_1",
+        error: { type: "permission.rejected", message: "Permission denied: shell" },
+        content: [],
+      },
+    })
+
+    await waitFor(() => app!.store.listAudit().length === 1)
+    const response = await fetch(`${app.url}/api/audit`, { headers: { cookie } })
+    const body = (await response.json()) as { events: Array<Record<string, unknown>> }
+    expect(body.events[0]).toMatchObject({
+      kind: "permission_denied",
+      command: "pkill -f node",
+      sessionID: "ses_1",
+      reason: "Permission denied: shell",
+      source: "opencode",
+    })
+  })
+
+  it("ignores unrelated failures, caps the limit and clears on request", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    upstream.emit({
+      type: "session.tool.called",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        id: "call_2",
+        name: "shell",
+        input: { command: "ls" },
+      },
+    })
+    upstream.emit({
+      type: "session.tool.failed",
+      data: { sessionID: "ses_1", id: "call_2", error: { message: "exit code 1" }, content: [] },
+    })
+    // Then a denied one: when it lands, only it must be in the log.
+    upstream.emit({
+      type: "session.tool.called",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        id: "call_3",
+        name: "shell",
+        input: { command: "killall node" },
+      },
+    })
+    upstream.emit({
+      type: "session.tool.failed",
+      data: {
+        sessionID: "ses_1",
+        id: "call_3",
+        error: { type: "permission.rejected", message: "Permission denied: shell" },
+        content: [],
+      },
+    })
+    await waitFor(() => app!.store.listAudit().length === 1)
+    expect(app.store.listAudit()[0]).toMatchObject({ command: "killall node" })
+
+    for (let index = 0; index < 3; index += 1) {
+      app.store.recordAudit({
+        at: index,
+        sessionID: "ses_1",
+        workspaceID: null,
+        kind: "permission_denied",
+        command: `cmd_${index}`,
+        reason: "denied",
+        source: "opencode",
+      })
+    }
+    const limited = await fetch(`${app.url}/api/audit?limit=2`, { headers: { cookie } })
+    expect(((await limited.json()) as { events: unknown[] }).events).toHaveLength(2)
+
+    const cleared = await fetch(`${app.url}/api/audit`, { method: "DELETE", headers: { cookie } })
+    expect(cleared.status).toBe(200)
+    expect(app.store.listAudit()).toHaveLength(0)
   })
 })
 

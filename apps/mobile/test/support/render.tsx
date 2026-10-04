@@ -32,6 +32,8 @@ export interface FakeClient {
     preview: jest.Mock
     startPreview: jest.Mock
     stopPreview: jest.Mock
+    audit: jest.Mock
+    clearAudit: jest.Mock
     sessions: { list: jest.Mock; finish: jest.Mock }
   }
   workspaces: { list: jest.Mock; create: jest.Mock; remove: jest.Mock }
@@ -53,6 +55,8 @@ export function fakeClient(): FakeClient & Client {
       preview: jest.fn(async () => STOPPED_PREVIEW),
       startPreview: jest.fn(async () => STOPPED_PREVIEW),
       stopPreview: jest.fn(async () => {}),
+      audit: jest.fn(async () => []),
+      clearAudit: jest.fn(async () => {}),
       sessions: {
         list: jest.fn(async () => []),
         finish: jest.fn(async () => ({

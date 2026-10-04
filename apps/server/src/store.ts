@@ -36,6 +36,22 @@ export interface PreviewPortRecord {
   createdAt: number
 }
 
+/**
+ * A blocked action, kept for diagnosis. `permission_denied` comes from
+ * opencode (a tool call rejected by the session permission guard);
+ * `run_rejected` comes from MasterHand's run-config validation.
+ */
+export interface AuditEventRecord {
+  id: number
+  at: number
+  sessionID: string | null
+  workspaceID: string | null
+  kind: "permission_denied" | "run_rejected"
+  command: string | null
+  reason: string | null
+  source: "opencode" | "bff"
+}
+
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
@@ -56,6 +72,9 @@ export interface Store {
   getPreviewPort(sessionID: string): number | null
   assignPreviewPort(record: PreviewPortRecord): void
   removePreviewPort(sessionID: string): void
+  recordAudit(event: Omit<AuditEventRecord, "id">): void
+  listAudit(limit?: number): AuditEventRecord[]
+  clearAudit(): void
   close(): void
 }
 
@@ -97,6 +116,18 @@ export function createSqliteStore(file: string): Store {
       session_id TEXT PRIMARY KEY,
       port INTEGER NOT NULL UNIQUE,
       created_at INTEGER NOT NULL
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      session_id TEXT,
+      workspace_id TEXT,
+      kind TEXT NOT NULL,
+      command TEXT,
+      reason TEXT,
+      source TEXT NOT NULL
     )
   `)
 
@@ -167,6 +198,17 @@ export function createSqliteStore(file: string): Store {
     VALUES (@sessionID, @port, @createdAt)
   `)
   const removePreviewPortStatement = db.prepare("DELETE FROM preview_ports WHERE session_id = ?")
+
+  const auditColumns = `
+    SELECT id, at, session_id AS sessionID, workspace_id AS workspaceID, kind, command, reason, source
+    FROM audit_events
+  `
+  const recordAuditStatement = db.prepare(`
+    INSERT INTO audit_events (at, session_id, workspace_id, kind, command, reason, source)
+    VALUES (@at, @sessionID, @workspaceID, @kind, @command, @reason, @source)
+  `)
+  const listAuditStatement = db.prepare(`${auditColumns} ORDER BY at DESC, id DESC LIMIT ?`)
+  const clearAuditStatement = db.prepare("DELETE FROM audit_events")
 
   /**
    * SQLite has no boolean type; rows come back with `pushed` as 0/1. The
@@ -243,6 +285,15 @@ export function createSqliteStore(file: string): Store {
     removePreviewPort(sessionID) {
       removePreviewPortStatement.run(sessionID)
     },
+    recordAudit(event) {
+      recordAuditStatement.run(event)
+    },
+    listAudit(limit = 100) {
+      return listAuditStatement.all(limit) as AuditEventRecord[]
+    },
+    clearAudit() {
+      clearAuditStatement.run()
+    },
     close() {
       db.close()
     },
@@ -254,6 +305,8 @@ export function createMemoryStore(): Store {
   const workspaces = new Map<string, WorkspaceRecord>()
   const isolatedSessions = new Map<string, IsolatedSessionRecord>()
   const previewPorts = new Map<string, PreviewPortRecord>()
+  const audit: AuditEventRecord[] = []
+  let auditSequence = 0
   return {
     create(record) {
       records.set(record.id, record)
@@ -319,6 +372,16 @@ export function createMemoryStore(): Store {
     },
     removePreviewPort(sessionID) {
       previewPorts.delete(sessionID)
+    },
+    recordAudit(event) {
+      audit.unshift({ id: ++auditSequence, ...event })
+      if (audit.length > 500) audit.length = 500
+    },
+    listAudit(limit = 100) {
+      return audit.slice(0, limit)
+    },
+    clearAudit() {
+      audit.length = 0
     },
     close() {},
   }

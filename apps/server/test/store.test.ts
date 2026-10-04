@@ -76,6 +76,45 @@ describe("memory workspace store", () => {
   })
 })
 
+describe("audit store", () => {
+  const event = {
+    at: 1,
+    sessionID: "ses_1",
+    workspaceID: null,
+    kind: "permission_denied" as const,
+    command: "pkill -f node",
+    reason: "Permission denied: shell",
+    source: "opencode" as const,
+  }
+
+  it("records, lists newest-first and clears in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      store.recordAudit({ ...event, command: "first" })
+      store.recordAudit({ ...event, command: "second" })
+
+      expect(store.listAudit().map((entry) => entry.command)).toEqual(["second", "first"])
+      expect(store.listAudit(1)).toHaveLength(1)
+      expect(store.listAudit()[0]?.id).toBeGreaterThan(store.listAudit()[1]?.id ?? 0)
+
+      store.clearAudit()
+      expect(store.listAudit()).toHaveLength(0)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("behaves the same in memory and keeps a bounded history", () => {
+    const store = createMemoryStore()
+    for (let index = 0; index < 520; index += 1) store.recordAudit({ ...event, at: index })
+    expect(store.listAudit(1000)).toHaveLength(500)
+    store.clearAudit()
+    expect(store.listAudit()).toHaveLength(0)
+  })
+})
+
 describe("preview port store", () => {
   it("persists reserved preview ports in sqlite", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))

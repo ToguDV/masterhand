@@ -17,6 +17,7 @@ import {
 } from "@masterhand/client-core"
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
+import { AuditModal } from "../components/AuditModal"
 import { PreviewModal } from "../components/PreviewModal"
 import { Screen } from "../components/Screen"
 import { colors } from "../theme"
@@ -69,6 +70,7 @@ export function ChatScreen({
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const statusQuery = useBffStatus(client)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
@@ -102,6 +104,9 @@ export function ChatScreen({
         <Text style={styles.title} numberOfLines={1}>
           {title || "Session"}
         </Text>
+        <Pressable style={styles.previewButton} onPress={() => setAuditOpen(true)}>
+          <Text style={styles.previewButtonText}>Log</Text>
+        </Pressable>
         {statusQuery.data?.preview?.enabled ? (
           <Pressable style={styles.previewButton} onPress={() => setPreviewOpen(true)}>
             <Text style={styles.previewButtonText}>Preview</Text>
@@ -214,6 +219,8 @@ export function ChatScreen({
       {previewOpen ? (
         <PreviewModal client={client} sessionID={sessionID} onClose={() => setPreviewOpen(false)} />
       ) : null}
+
+      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
     </Screen>
   )
 }

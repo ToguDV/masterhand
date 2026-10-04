@@ -158,6 +158,8 @@ Quick tunnels are **public and ephemeral** (random URL per start, no authenticat
 
 > Note: an agent with shell access on the host is RCE by design. The mitigation is not to remove the feature but to limit the blast radius (unprivileged user, `ask` permissions, minimal surface).
 
+**Denied-command audit.** Every command blocked by the session permission guard is kept for diagnosis: the BFF correlates opencode's `session.tool.called` event (which carries the command) with the matching `session.tool.failed` carrying `error.type = "permission.rejected"`, stores an `audit_events` row (session, command, reason, timestamp) and exposes it through `GET /api/audit`. Web (`AuditPanel`) and mobile (`AuditModal`) show the log with a clear action, so an incident like "the model tried to stop the server and something died" can be traced to the exact command and the reason it was blocked.
+
 ## 6. Deployment (Docker Compose)
 
 The stack deploys with a single command (`docker compose up -d`) on any host with Docker. **TLS is the deployer's responsibility** and can be provided by any reverse proxy or tunnel; the repository does not ship a proxy configuration.
