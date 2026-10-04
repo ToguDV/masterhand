@@ -18,44 +18,38 @@ The BFF is the only bridge: clients never talk to opencode directly. TLS is left
 
 ## Quick start (development)
 
-Development runs opencode, the BFF and a front end directly on your machine from source, using its **own** environment file — not the Docker one under `deploy/`. Each command below is self-contained: it starts everything the front end needs.
+Development runs the **same Docker Compose stack as a deployment** (opencode + BFF) plus a hot-reloading web front end, through the `deploy/docker-compose.dev.yml` override. The opencode container, its `agent-exec` sandbox, the internal network, the paths and the environment contract are identical to production; only the BFF (`tsx watch`) and web (Vite + HMR) run from source. Full guide: `docs/runbooks/development.md`.
 
 ```bash
 npm install
-cp apps/server/.env.example apps/server/.env.local   # development secrets (git-ignored)
+cp deploy/.env.dev.example deploy/.env.dev   # optional: `npm run dev` creates it on first run
 
-npm run dev:web       # opencode + BFF (:8787) + web (:5173)
-npm run dev:desktop   # opencode + BFF + Electron shell
-npm run dev:mobile    # opencode + BFF + Expo dev server
+npm run dev           # opencode + BFF (:8787) + web/Vite (:5173)
 npm run dev:server    # opencode + BFF only
-npm run dev:stop      # stop any dev process left running (see below)
+npm run dev:desktop   # the Docker stack + Electron on the host
+npm run dev:mobile    # the Docker stack + Expo dev server on the host
+npm run dev:logs      # follow the stack logs
+npm run dev:stop      # stop the stack (volumes and data are kept)
 
 npm test              # tests (vitest: BFF + client-core)
 npm run test:e2e      # E2E (Playwright + mocked opencode); run `npm run e2e:browsers` once
 ```
 
-`scripts/dev.mjs` orchestrates the dev stack:
+The first `npm run dev` builds the images. `deploy/.env.dev` uses the **same variable names** as the production `deploy/.env.example` (see that file). Desktop and mobile cannot run in a container, so they run on the host against the containerized BFF (`http://localhost:8787`); they leave the stack running until `npm run dev:stop`.
 
-- loads `apps/server/.env.local` (shipped with `COOKIE_SECURE=false` and `OPENCODE_URL=http://127.0.0.1:4096`);
-- starts `opencode serve` on the `OPENCODE_URL` host/port, **unless** it is already listening — so it will not fight a running instance; set `MASTERHAND_SKIP_OPENCODE=1` to always reuse an external one;
-- starts the BFF (`:8787`) and the requested front end, and stops the whole group when any process exits or on `Ctrl+C`.
+To open the web app from a phone on the same network, publish Vite on all interfaces (`MASTERHAND_DEV_WEB_BIND=0.0.0.0` is the default) and browse to `http://<your-PC-IP>:5173`.
 
-`Ctrl+C` stops what the current run started. If something survives — typically an `opencode serve` reused from an earlier run, or a process orphaned when a terminal was closed — stop it with:
+### Native fallback
+
+The previous, fully native flow is still available when you do not want Docker (it needs `opencode` v2 on your `PATH` and uses `apps/server/.env.local`):
 
 ```bash
-npm run dev:stop            # stops exactly the processes scripts/dev.mjs registered
-npm run dev:stop -- --force # additionally sweeps by process name and port
+npm run dev:native:web       # opencode + BFF + web, all on the host
+npm run dev:native:server
+npm run dev:native:desktop
+npm run dev:native:mobile
+npm run dev:native:stop
 ```
-
-`dev.mjs` records every process it starts (in a temp file keyed by this repo), so the default `dev:stop` can only kill that stack — it will never take down unrelated processes, including a MasterHand/opencode instance started elsewhere or another project's dev server. An `opencode` you started yourself is intentionally **not** touched; stop it with `--force` or by hand.
-
-If `opencode` is not on your `PATH`, install opencode v2 first (`npm install -g @opencode/cli`, or see https://opencode.ai/docs/). MasterHand targets the v2 server API; a v1 binary will not work.
-
-opencode v2 always protects its API with basic auth and generates a password when `OPENCODE_SERVER_PASSWORD` is unset. When `npm run dev:*` starts opencode itself it generates a shared password for both processes, so the default flow just works. If you run opencode yourself, give both the same value: either export `OPENCODE_SERVER_PASSWORD` or set it in `apps/server/.env.local` (which the dev script loads and shares) and restart both. `npm run dev:*` warns when a reused opencode rejects the BFF credentials.
-
-`apps/server/.env.local` is also loaded by `npm run dev:server`'s own `tsx --env-file-if-exists`; it is **not** used by Docker.
-
-To try the web app from a phone on the same network: `npm run dev:web -- --host` and open `http://<your-PC-IP>:5173`. Extra arguments after `--` are forwarded to the front end.
 
 ## Deployment
 
@@ -66,7 +60,7 @@ cp deploy/.env.example deploy/.env   # production secrets
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Docker Compose reads `deploy/.env` and injects it into the containers; inside the network the BFF reaches opencode at `http://opencode:4096`, a hostname that does not exist in development. Then put your own reverse proxy / TLS in front of the published BFF port. See `docs/runbooks/deployment.md`.
+Docker Compose reads `deploy/.env` and injects it into the containers; inside the network the BFF reaches opencode at `http://opencode:4096`. The development stack uses the same service name and network; only its env file (`deploy/.env.dev`) and the hot-reloading BFF/web differ. Then put your own reverse proxy / TLS in front of the published BFF port. See `docs/runbooks/deployment.md`.
 
 ## Stack
 

@@ -1,6 +1,6 @@
 # Runbook — Deployment
 
-How to deploy MasterHand with Docker Compose. TLS is **not** bundled with the project: you choose how to terminate HTTPS.
+How to deploy MasterHand with Docker Compose. TLS is **not** bundled with the project: you choose how to terminate HTTPS. For running the same stack for development (hot-reloading BFF/web), see [`development.md`](development.md).
 
 ## 1. Prerequisites
 
@@ -166,7 +166,8 @@ Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` reg
 
 MasterHand's BFF and `opencode serve` must share the same `OPENCODE_SERVER_PASSWORD`. opencode v2 always protects its API: when started without that env var it generates a password and prints `server password <value>`.
 
-- **Docker:** Compose passes `OPENCODE_SERVER_PASSWORD` to the `opencode` service and the BFF reads the same value from `deploy/.env`. Set it once there.
-- **Native development:** `npm run dev:*` starts opencode itself with the environment from `apps/server/.env.local` and, when no password is configured, generates one shared by both processes. If you start opencode yourself, give the BFF the same value (export it or set it in `apps/server/.env.local`) and restart both; the dev script probes a reused opencode and warns on a mismatch.
+- **Docker (production):** Compose passes `OPENCODE_SERVER_PASSWORD` to the `opencode` service and the BFF reads the same value from `deploy/.env`. Set it once there.
+- **Docker (development):** the same Compose stack plus `docker-compose.dev.yml` reads `deploy/.env.dev`; set the password there (see `development.md`).
+- **Native fallback (`npm run dev:native:*`):** the script starts opencode itself with the environment from `apps/server/.env.local` and, when no password is configured, generates one shared by both processes. If you start opencode yourself, give the BFF the same value (export it or set it in `apps/server/.env.local`) and restart both; the dev script probes a reused opencode and warns on a mismatch.
 
 Symptoms of a mismatch: every conversation shows a red `opencode rejected MasterHand's credentials…` message, a banner under the header repeats the hint, the sessions list is empty and `/api/status` returns `opencode: { healthy: false, error: "unauthorized" }`. Fix the password and restart both processes (a BFF restart is required: it reads the password at boot).
