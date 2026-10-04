@@ -1,0 +1,51 @@
+# Development override for deploy/docker-compose.yml.
+#
+# It keeps the exact same stack as a real deployment and only swaps how the BFF
+# runs: instead of the compiled image it bind-mounts the sources and runs the
+# BFF watcher plus Vite. The `opencode` service is intentionally untouched, so
+# the agent engine, its `agent-exec` sandbox, volumes and the internal network
+# alias are byte-for-byte the production ones.
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
+#     --env-file deploy/.env.dev up --build
+#
+# (Or just `npm run dev` / `dev:web`, which wraps exactly that command. On
+# Windows, Git Bash/WSL is required for the bind mounts.)
+services:
+  masterhand:
+    build:
+      # Same Dockerfile and context as production, only the stage changes.
+      target: dev
+    # Replace the production env file (never load deploy/.env by accident).
+    env_file: !override
+      - .env.dev
+    environment:
+      NODE_ENV: development
+      # opencode is a sibling service; never start a second one in here.
+      MASTERHAND_SKIP_OPENCODE: "1"
+      # Which front end scripts/dev.mjs starts (web | server).
+      MASTERHAND_DEV_TARGET: ${MASTERHAND_DEV_TARGET:-web}
+    command:
+      - sh
+      - -c
+      - "umask 002; exec node scripts/dev.mjs ${MASTERHAND_DEV_TARGET:-web} --host 0.0.0.0"
+    # Replace the production volumes: SQLite and workspaces go to the repo
+    # (git-ignored) so they are easy to inspect, and the sources are mounted on
+    # top of the image so tsx/Vite reload in place. Dependencies stay inside the
+    # image, avoiding host/container ABI mismatches (better-sqlite3).
+    #
+    # `data/dev` is deliberately a *different* database than the native fallback
+    # (`data/masterhand.sqlite`): workspace rows store the workspace root, which
+    # is `/workspace` in the container but an absolute host path natively, so
+    # sharing one SQLite between both would make each environment reject the
+    # other's records. `workspace/` is shared on purpose: it is the same files.
+    volumes: !override
+      - ../data/dev:/data
+      - ../workspace:/workspace
+      - ../packages/client-core/src:/app/packages/client-core/src
+      - ../apps/server/src:/app/apps/server/src
+      - ../apps/web/src:/app/apps/web/src
+      - ../apps/web/index.html:/app/apps/web/index.html
+      - ../apps/web/vite.config.ts:/app/apps/web/vite.config.ts
+    ports:
+      - "${MASTERHAND_DEV_WEB_BIND:-0.0.0.0}:${MASTERHAND_DEV_WEB_PORT:-5173}:5173"

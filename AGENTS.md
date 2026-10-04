@@ -54,13 +54,18 @@ MasterHand/
 ```bash
 npm install            # install the whole monorepo (npm workspaces)
 
-npm run dev:server     # opencode serve + BFF in development (:8787, tsx watch)
-npm run dev:web        # the above + web app (:5173, proxies /api → :8787)
-npm run dev:desktop    # the above + Electron shell (MASTERHAND_URL default http://localhost:8787)
-npm run dev:mobile     # the above + Expo dev server for iOS/Android
-# Each `dev:*` command is self-contained (scripts/dev.mjs); it skips starting
-# opencode when one is already listening and honors MASTERHAND_SKIP_OPENCODE=1.
-npm run dev:stop       # stop the processes started by dev.mjs (--force also sweeps by name/port)
+npm run dev            # Docker Compose dev stack: opencode + BFF + web/Vite (:5173)
+npm run dev:server     # the same stack without Vite (BFF :8787)
+npm run dev:desktop    # the Docker stack (detached) + Electron on the host
+npm run dev:mobile     # the Docker stack (detached) + Expo dev server on the host
+# Dev uses the deployment stack (deploy/docker-compose.yml) plus
+# deploy/docker-compose.dev.yml (hot-reloading BFF/web) and deploy/.env.dev.
+# The opencode image, sandbox, network, paths and env contract match production.
+npm run dev:logs       # follow the stack logs
+npm run dev:stop       # stop the stack (keeps volumes)
+# Native fallback (no Docker, needs opencode v2 on PATH, apps/server/.env.local):
+npm run dev:native:web # | dev:native:server | dev:native:desktop | dev:native:mobile
+npm run dev:native:stop
 
 npm run typecheck      # tsc across all workspaces
 npm test               # vitest (server + client-core)

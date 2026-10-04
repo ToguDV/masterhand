@@ -47,7 +47,7 @@ Technical design. For scope and requirements see `SPEC.md`; for status see `PROG
 | Agent engine | `opencode` container | `opencode serve` (pinned version) | Runs agents and tools; OpenAPI 3.1 + SSE; data on volumes |
 | TLS / reverse proxy | Deployer-owned | Any | TLS termination and security headers; out of the repository's scope |
 | BFF persistence | `masterhand` container | SQLite (better-sqlite3) | Device/token records; minimal config |
-| Orchestration | Host | Docker Compose | Brings up BFF + opencode, internal network, volumes, auto-restart |
+| Orchestration | Host | Docker Compose | Brings up BFF + opencode, internal network, volumes, auto-restart. Development layers `docker-compose.dev.yml` on the same stack (hot-reloading BFF/web, shared opencode sandbox) |
 
 ## 3. Stack and rationale
 
@@ -177,8 +177,11 @@ The stack deploys with a single command (`docker compose up -d`) on any host wit
 ```
 deploy/
 ├── docker-compose.yml     # masterhand (BFF) + opencode, BFF port published
-├── opencode.Dockerfile     # pinned opencode + tooling (git, ripgrep, ...)
-└── .env.example            # OPENCODE_SERVER_PASSWORD, MASTERHAND_PASSWORD, SESSION_SECRET, ...
+├── docker-compose.dev.yml # dev override: same stack, hot-reloading BFF/web
+├── server.Dockerfile       # BFF + web build (multi-stage; `dev` target for hot reload)
+├── opencode.Dockerfile     # pinned opencode + agent-exec sandbox
+├── .env.example            # OPENCODE_SERVER_PASSWORD, MASTERHAND_PASSWORD, SESSION_SECRET, ...
+└── .env.dev.example        # same variables, development values
 ```
 
 | Service | Image | Ports | Volumes |
@@ -194,6 +197,22 @@ deploy/
 - Session previews: the `masterhand` image bundles `cloudflared`; Compose sets `PREVIEW_ORIGIN=opencode`, so the tunnel targets the dev server inside the opencode container. The BFF needs **outbound Internet** and the agent must bind the reserved port to `0.0.0.0`. Set `PREVIEW_ENABLED=false` to disable the feature.
 - Upgrade: opencode is pinned (`OPENCODE_VERSION`, v2); `docker compose build && docker compose up -d`. **Back up the `opencode_data` volume before the first v2 start**: v2 migrates v1 session data on boot and the beta warns data may be reset. Track the migration with `GET /api/experimental/migration/v1`.
 - See `docs/runbooks/deployment.md` for concrete TLS options.
+
+### 6.1 Development on the same stack
+
+Development does not diverge from the deployment: it layers
+`deploy/docker-compose.dev.yml` on top of `docker-compose.yml`, so both share the
+**same services, images, internal network (`opencode:4096`), paths (`/data`,
+`/workspace`, `/workspace/.worktrees`) and environment contract**. The override
+only changes how the BFF/web run: `deploy/server.Dockerfile` gains a `dev` target
+(dev dependencies from the same `base` stage) and the sources are bind-mounted so
+`tsx watch` and Vite reload in place, running as the same `node` user
+(uid 1000, `umask 002`) as production; `opencode` is left untouched, which keeps
+the `agent-exec` sandbox (ADR-22) and the preview tooling identical to
+production. `deploy/.env.dev` uses the same variable names as `.env.example`, and
+`npm run dev` wraps the whole command. Desktop and mobile still run on the host
+(GUI/device) against the containerized BFF; the fully native `scripts/dev.mjs`
+flow stays as a fallback (`dev:native:*`). See `docs/runbooks/development.md`.
 
 ## 7. Decisions (ADR-lite)
 
@@ -222,6 +241,7 @@ deploy/
 | ADR-21 | Tool parts are interpreted by a pure `client-core` view model (`describeTool`) and rendered per platform; agent questions use opencode v2 **forms** with an inline answer card anchored by the form's `metadata.tool.id` | Tool JSON is shaped per tool (`command`, `filePath`/`oldString`/`newString`, `pattern`, `todos`…) and every client needs the same summary; keeping the interpretation platform-free (like the other chat helpers) prevents web and mobile from drifting while each client owns its JSX. Forms are the only v2 primitive behind the `question` tool (verified against a live 2.0.21 server: no `question.*` endpoints) and `metadata.tool.id` matches the tool call, so the answer UI can live exactly where the agent asked instead of in a disconnected modal | Raw JSON dumps (unreadable, the previous behavior), per-client parsing (duplication and drift), a blocking modal for every question (interrupts reading; the inline card plus a cross-session banner keeps the agent unblocked without stealing the screen) |
 | ADR-22 | Docker deployments run agent shell commands as a separate unprivileged user (`agent`, uid 1001) from `opencode serve` (`node`, uid 1000), through a setuid helper with a hardcoded uid/gid and a shared `node` group for the workspace | The agent shared a container and user with the engine, so a broad kill (`pkill node`, `killall`, `kill $(...)`) killed `opencode serve` itself. A different uid makes those signals `EPERM` (a non-root process cannot signal another user's process), while the shared group plus `umask 002` keep the workspace writable for both. A tiny setuid binary is needed because a non-root process cannot change uid on its own; it hardcodes the target identity and only execs bash, so it can never grant root | Running `opencode serve` as root and dropping only the shell (in-process edit tools would create root-owned files, and any bypass becomes container root), `setpriv`/`su` from the non-root server (both need privileges), a sidecar container with SSH (more moving parts than the threat justifies), `unshare` user namespaces (host-dependent, needs setuid `newuidmap`), relying on `deny` permission rules alone (bypassable by commands not on the list) |
 | ADR-23 | Managed dev-server lifecycle through a per-workspace argv run configuration and opencode's PTY API | The agent shares a user with the engine, so any manual start/stop is dangerous and a model that ignores instructions can still kill the wrong process. Letting the BFF create and delete exactly one PTY per session removes the need to kill anything, keeps the command validatable (argv, no shell, bounded, cwd pinned) and reuses the existing per-session preview port. `.masterhand/run.json` lets the agent propose the command without credentials, while the user confirms or edits it | A free-form stop command (reintroduces the kill hazard), shell strings (injection surface), running the server in the BFF container (the toolchain and worktrees live with opencode), `docker exec`/socket (privilege escalation), no lifecycle management (the incident this prevents) |
+| ADR-24 | Development runs the **deployment Compose stack plus a `dev` override** (hot-reloading BFF/web), not a parallel native setup | The agent engine's real behavior — the `agent-exec` sandbox, service DNS (`opencode:4096`), container paths and env contract — only exists in Docker, so a native dev stack silently differed and hid deploy bugs (uid/permissions, preview origin, volume layout). Reusing the same `docker-compose.yml` and `server.Dockerfile` (`dev` target) keeps one source of truth and makes parity real rather than emulated, while `tsx watch`/Vite keep the inner loop fast | A standalone dev Compose file (duplicates the opencode service and drifts), `docker compose watch` over production images (file syncing without watchers, slower feedback), keeping native orchestration as the default (no sandbox parity, diverging env/paths), never containerizing opencode in development (misses ADR-22 and preview behavior) |
 
 ## 8. Risks
 

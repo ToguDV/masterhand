@@ -1,0 +1,22 @@
+# Keep the build context small and free of secrets and local state. The
+# Dockerfile copies only the files it needs, so nothing here is required by a
+# build.
+.git
+.github
+node_modules
+**/node_modules
+data
+workspace
+coverage
+**/coverage
+**/dist
+e2e/test-results
+e2e/playwright-report
+.expo
+*.log
+.env
+.env.*
+**/.env
+**/.env.*
+deploy/.env
+deploy/.env.dev
