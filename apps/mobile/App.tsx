@@ -169,6 +169,9 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
   const [banner, setBanner] = useState<string | null>(null)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>([])
   const autoAcceptLoaded = useRef(false)
+  // Set when the user switches workspace: drop the open session and open the
+  // new workspace's most recent one once its session list arrives.
+  const pendingWorkspaceAutoOpenRef = useRef(false)
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -233,6 +236,18 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
   const busy = sessionID ? statuses[sessionID]?.type === "busy" : false
+
+  // The open session belongs to one workspace. `switchWorkspace` drops it and
+  // sets this flag; once the new workspace's session list is available, open
+  // its most recent session instead of leaving another workspace's chat on
+  // screen (same behavior as web).
+  useEffect(() => {
+    if (!pendingWorkspaceAutoOpenRef.current) return
+    if (!sessionsQuery.isSuccess) return
+    pendingWorkspaceAutoOpenRef.current = false
+    const next = [...sessions].sort((a, b) => b.time.updated - a.time.updated)[0]?.id ?? null
+    if (next !== sessionID) setSessionID(next)
+  }, [sessionsQuery.isSuccess, sessions, sessionID])
 
   const handleEvent = useMemo(
     () =>
@@ -394,6 +409,17 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
     void saveWorkspaceID(id)
   }
 
+  /**
+   * Workspace switch: drop the open session and open the new workspace's most
+   * recent one once its list loads (same behavior as web).
+   */
+  function switchWorkspace(id: string) {
+    if (id === workspaceID) return
+    pendingWorkspaceAutoOpenRef.current = true
+    setSessionID(null)
+    selectWorkspace(id)
+  }
+
   async function respondPermission(response: "once" | "always" | "reject") {
     const permission = permissions[0]
     if (!permission) return
@@ -488,7 +514,7 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
           onSignOut={onSignOut}
-          onSelectWorkspace={selectWorkspace}
+          onSelectWorkspace={switchWorkspace}
           onAddWorkspace={addWorkspace}
           onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
           onDeleteSession={(id) => void deleteSession(id)}

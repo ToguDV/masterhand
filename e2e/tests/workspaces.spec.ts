@@ -46,3 +46,40 @@ test("keeps sessions scoped to the selected workspace", async ({ page }) => {
   await workspace.selectOption(firstWorkspaceID)
   await expect(page.getByText("Untitled")).toBeVisible()
 })
+
+test("never leaks the previous workspace's session or preview", async ({ page }) => {
+  await login(page)
+  const workspace = page.getByRole("combobox", { name: "Workspace", exact: true })
+
+  // Workspace A: a session with a running preview.
+  await addWorkspace(page)
+  const workspaceA = await workspace.inputValue()
+  await page.getByRole("button", { name: "+ New" }).click()
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+  await page.getByRole("button", { name: "Preview" }).click()
+  await page.getByRole("button", { name: "Start" }).click()
+  await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
+    "src",
+    "https://e2e-preview.trycloudflare.com",
+  )
+  await page.getByRole("button", { name: "Close preview" }).click()
+
+  // Switching to an empty workspace must drop A's chat and preview, not keep
+  // rendering them under the new workspace.
+  await addWorkspace(page)
+  await expect(page.getByText("No sessions yet.")).toBeVisible()
+  await expect(page.getByPlaceholder("Write a message…")).toBeHidden()
+  await expect(page.locator('iframe[title="Session preview"]')).toHaveCount(0)
+
+  // With its own session, going back to A auto-opens A's most recent session
+  // (the one with the running preview), not the other workspace's.
+  await page.getByRole("button", { name: "+ New" }).click()
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+  await workspace.selectOption(workspaceA)
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+  await page.getByRole("button", { name: "Preview" }).click()
+  await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
+    "src",
+    "https://e2e-preview.trycloudflare.com",
+  )
+})
