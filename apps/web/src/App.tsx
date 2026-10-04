@@ -77,6 +77,9 @@ export default function App() {
   const answeringRef = useRef(new Set<string>())
   const formsRef = useRef(forms)
   formsRef.current = forms
+  // Set when the user switches workspace: drop the open session and open the
+  // new workspace's most recent one once its session list arrives.
+  const pendingWorkspaceAutoOpenRef = useRef(false)
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(async (permission: Permission) => {
@@ -149,6 +152,22 @@ export default function App() {
       // storage may be unavailable (private mode)
     }
   }, [])
+
+  /**
+   * Switching workspace must not keep showing a session from the previous one
+   * (its chat, run and preview). Drop the open session immediately and let the
+   * reconciliation effect open the new workspace's most recent session once its
+   * list arrives.
+   */
+  const switchWorkspace = useCallback(
+    (id: string | null) => {
+      if (id === workspaceID) return
+      if (id !== null) pendingWorkspaceAutoOpenRef.current = true
+      selectWorkspace(id)
+      openSession(null)
+    },
+    [workspaceID, selectWorkspace, openSession],
+  )
 
   const workspacesQuery = useWorkspaces(client, authed === true)
   const workspaces = workspacesQuery.data ?? []
@@ -276,6 +295,19 @@ export default function App() {
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
   const busy = sessionID ? statuses[sessionID]?.type === "busy" : false
+
+  // The open session belongs to one workspace. `switchWorkspace` drops it and
+  // sets this flag; once the new workspace's session list is available, open
+  // its most recent session instead of leaving another workspace's chat (and
+  // its preview and run state) on screen.
+  useEffect(() => {
+    if (!pendingWorkspaceAutoOpenRef.current) return
+    if (!sessionsQuery.isSuccess) return
+    pendingWorkspaceAutoOpenRef.current = false
+    const next = sessions[0]?.id ?? null
+    if (next !== sessionID) openSession(next)
+  }, [sessionsQuery.isSuccess, sessions, sessionID, openSession])
+
   // A question raised in another session still blocks its agent: surface it.
   const waitingForm = forms.find((form) => formIsQuestion(form) && form.sessionID !== sessionID) ?? null
 
@@ -324,7 +356,7 @@ export default function App() {
   async function addWorkspace(input: CreateWorkspaceInput) {
     const created = await client.workspaces.create(input)
     await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
-    selectWorkspace(created.id)
+    switchWorkspace(created.id)
     setAddingWorkspace(false)
   }
 
@@ -471,7 +503,7 @@ export default function App() {
           <WorkspacePicker
             workspaces={workspaces}
             selectedID={workspaceID}
-            onSelect={selectWorkspace}
+            onSelect={switchWorkspace}
             onAdd={() => setAddingWorkspace(true)}
             onDelete={setRemoveWorkspaceID}
           />
