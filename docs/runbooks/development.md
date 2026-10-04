@@ -18,6 +18,7 @@ network and paths. In Docker both run the **same** image and topology:
 | Paths | `/data`, `/workspace`, `/workspace/.worktrees` | same |
 | Env contract | same variable names | same |
 | Previews | bundled `cloudflared`, `PREVIEW_ORIGIN=opencode` | same |
+| Runtime user | `node` (uid 1000) with `umask 002` | same |
 | BFF | **`tsx watch` from source** (dev only) | compiled `dist/` |
 | Web | **Vite dev server + HMR on `:5173`** (dev only) | static build served by the BFF |
 
@@ -87,7 +88,12 @@ that file for the full list. The most relevant ones:
 
 ## 5. State, volumes and hot reload
 
-- **BFF SQLite** → `./data` (bind mount, easy to inspect).
+- **BFF SQLite** → `./data/dev/masterhand.sqlite` (bind mount, easy to inspect).
+  It is intentionally separate from the native fallback's
+  `./data/masterhand.sqlite`: workspace rows store the workspace root, which is
+  `/workspace` in the container but an absolute host path natively, so sharing
+  one database between both environments would make each reject the other's
+  records.
 - **Workspaces** → `./workspace` (bind mount; each workspace you add is a
   subfolder, worktrees under `workspace/.worktrees/`).
 - **opencode config/data** → named volumes `masterhand_opencode_config` and
@@ -101,11 +107,12 @@ that file for the full list. The most relevant ones:
 Adding a dependency requires a rebuild: `npm run dev` (it runs
 `docker compose ... build`).
 
-> **Permissions:** the container runs as `node` (uid/gid 1000). If `./data` or
-> `./workspace` are owned by another uid, fix them:
+> **Permissions:** the container runs as `node` (uid/gid 1000). The `npm run dev`
+> script creates `data/dev` and `workspace` as your user before Compose starts,
+> so this only bites when you create them by hand. Fix ownership with:
 >
 > ```bash
-> sudo chown -R 1000:1000 data workspace
+> sudo chown -R 1000:1000 data/dev workspace
 > ```
 
 ## 6. Authenticate providers (one-time)
@@ -145,5 +152,5 @@ file under `apps/server/src` or `apps/web/src` to confirm the hot reload.
   `OPENCODE_SERVER_PASSWORD`. It comes from `deploy/.env.dev`; restart the stack
   after changing it.
 - **Logs:** `npm run dev:logs` (or `docker compose ... logs -f opencode`).
-- **Start over** (deletes SQLite, workspaces and opencode data):
-  `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml --env-file deploy/.env.dev down -v`.
+- **Start over** (deletes the dev database at `data/dev` and the opencode data; workspaces under `workspace/` stay):
+  `npm run dev:stop && rm -rf data/dev && docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml --env-file deploy/.env.dev down -v`

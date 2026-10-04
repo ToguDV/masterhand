@@ -26,17 +26,21 @@ services:
       # Which front end scripts/dev.mjs starts (web | server).
       MASTERHAND_DEV_TARGET: ${MASTERHAND_DEV_TARGET:-web}
     command:
-      - node
-      - scripts/dev.mjs
-      - ${MASTERHAND_DEV_TARGET:-web}
-      - --host
-      - 0.0.0.0
+      - sh
+      - -c
+      - "umask 002; exec node scripts/dev.mjs ${MASTERHAND_DEV_TARGET:-web} --host 0.0.0.0"
     # Replace the production volumes: SQLite and workspaces go to the repo
     # (git-ignored) so they are easy to inspect, and the sources are mounted on
     # top of the image so tsx/Vite reload in place. Dependencies stay inside the
     # image, avoiding host/container ABI mismatches (better-sqlite3).
+    #
+    # `data/dev` is deliberately a *different* database than the native fallback
+    # (`data/masterhand.sqlite`): workspace rows store the workspace root, which
+    # is `/workspace` in the container but an absolute host path natively, so
+    # sharing one SQLite between both would make each environment reject the
+    # other's records. `workspace/` is shared on purpose: it is the same files.
     volumes: !override
-      - ../data:/data
+      - ../data/dev:/data
       - ../workspace:/workspace
       - ../packages/client-core/src:/app/packages/client-core/src
       - ../apps/server/src:/app/apps/server/src

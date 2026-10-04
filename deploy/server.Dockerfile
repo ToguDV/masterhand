@@ -52,8 +52,13 @@ COPY packages/client-core packages/client-core
 COPY apps/server apps/server
 COPY apps/web apps/web
 COPY scripts scripts
+# Run as the same unprivileged user as production (`node`, uid 1000): workspace
+# files stay group-writable for the agent (shared `node` group + umask 002) and
+# Vite can write its cache under the installed dependencies.
+RUN chown -R node:node /app
+USER node
 EXPOSE 8787 5173
-CMD ["node", "scripts/dev.mjs", "web", "--host", "0.0.0.0"]
+CMD ["sh", "-c", "umask 002; exec node scripts/dev.mjs web --host 0.0.0.0"]
 
 # ---------- build ----------
 FROM base AS build

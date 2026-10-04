@@ -206,7 +206,8 @@ Development does not diverge from the deployment: it layers
 `/workspace`, `/workspace/.worktrees`) and environment contract**. The override
 only changes how the BFF/web run: `deploy/server.Dockerfile` gains a `dev` target
 (dev dependencies from the same `base` stage) and the sources are bind-mounted so
-`tsx watch` and Vite reload in place; `opencode` is left untouched, which keeps
+`tsx watch` and Vite reload in place, running as the same `node` user
+(uid 1000, `umask 002`) as production; `opencode` is left untouched, which keeps
 the `agent-exec` sandbox (ADR-22) and the preview tooling identical to
 production. `deploy/.env.dev` uses the same variable names as `.env.example`, and
 `npm run dev` wraps the whole command. Desktop and mobile still run on the host

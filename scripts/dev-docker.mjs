@@ -11,7 +11,7 @@
 // environment contract; only the BFF and web run hot-reloading. The native
 // `scripts/dev.mjs` flow stays available as `npm run dev:native:*`.
 import { spawn } from "node:child_process"
-import { copyFileSync, existsSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import process from "node:process"
@@ -51,6 +51,16 @@ function ensureEnvFile() {
   }
   copyFileSync(example, envFile)
   console.log(`[dev] created ${ENV_FILE} from ${ENV_FILE}.example`)
+}
+
+/**
+ * Docker creates missing bind sources as root, which the BFF (uid 1000) then
+ * cannot write. Create them as the invoking user so ownership matches.
+ */
+function ensureDirs() {
+  for (const dir of [join(rootDir, "data", "dev"), join(rootDir, "workspace")]) {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  }
 }
 
 function runCompose(args, extraEnv = {}) {
@@ -102,6 +112,7 @@ async function main() {
   }
 
   ensureEnvFile()
+  ensureDirs()
 
   if (action === "stop") {
     process.exit(await runCompose(["down"]))
