@@ -45,6 +45,8 @@ import {
   externalWriteGuardRules,
   isInsideRoot,
   normalizeWorkspaceSlug,
+  processGuardRules,
+  processSystemPrompt,
   removeWorkspaceDir,
   workspacePath,
   workspaceSystemPrompt,
@@ -276,29 +278,41 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /**
-   * Blocks writes outside the session directory while keeping reads allowed, as
-   * defense in depth on top of the workspace instruction. Best effort: it must
-   * never block session creation.
+   * Sets the session permission guards in one PATCH (the field replaces the
+   * whole ruleset): writes outside the session directory are blocked while
+   * reads stay allowed, and dangerous process-killing shell commands are
+   * denied so a broad kill cannot take down the agent engine. Best effort: it
+   * must never block session creation.
    */
-  async function ensureExternalWriteGuard(sessionID: string): Promise<void> {
+  async function ensurePermissionGuards(sessionID: string): Promise<void> {
     try {
       const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
         method: "PATCH",
-        body: { permissions: externalWriteGuardRules() },
+        body: { permissions: [...externalWriteGuardRules(), ...processGuardRules()] },
       })
       if (!response.ok) {
-        console.warn(`[workspace] could not set the external write guard for ${sessionID} (HTTP ${response.status})`)
+        console.warn(`[workspace] could not set the session permission guards for ${sessionID} (HTTP ${response.status})`)
       }
     } catch {
       // opencode unreachable: the workspace instruction still applies
     }
   }
 
+  /**
+   * Process-safety instruction, independent from `masterhand.workspace`: steers
+   * the model away from broad kills and toward the supported lifecycle. The
+   * permission guard is the enforcement; this is the guidance.
+   */
+  async function ensureProcessInstruction(sessionID: string): Promise<void> {
+    await writeSessionInstruction(sessionID, "masterhand.process", processSystemPrompt())
+  }
+
   /** Applies the workspace guardrails to a freshly created session. */
   async function ensureWorkspaceGuard(sessionID: string, directory: string): Promise<void> {
     await ensureWorkspaceInstruction(sessionID, directory)
     await ensureRunInstruction(sessionID)
-    await ensureExternalWriteGuard(sessionID)
+    await ensureProcessInstruction(sessionID)
+    await ensurePermissionGuards(sessionID)
   }
 
   /**

@@ -60,7 +60,7 @@ npm run dev:desktop    # the above + Electron shell (MASTERHAND_URL default http
 npm run dev:mobile     # the above + Expo dev server for iOS/Android
 # Each `dev:*` command is self-contained (scripts/dev.mjs); it skips starting
 # opencode when one is already listening and honors MASTERHAND_SKIP_OPENCODE=1.
-npm run dev:stop       # kill any leftover dev process (orchestrator, BFF, Vite, opencode)
+npm run dev:stop       # stop the processes started by dev.mjs (--force also sweeps by name/port)
 
 npm run typecheck      # tsc across all workspaces
 npm test               # vitest (server + client-core)

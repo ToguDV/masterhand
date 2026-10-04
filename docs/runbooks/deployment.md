@@ -34,6 +34,16 @@ Fill in `deploy/.env`:
 
 > **Isolated sessions:** when you create a session with the "Isolated" toggle, MasterHand runs it in its own git worktree (`/workspace/.worktrees/<workspace>/<id>`) on branch `masterhand/<slug>-<id>`. The workspace is `git init`-ed automatically if needed. "Finish & PR" commits the worktree, and if the repo has a remote it pushes the branch and opens a PR/MR with `gh`/`glab` when available, otherwise it shows a compare URL.
 
+> **Workspace ownership (agent sandbox, ADR-22):** agent shell commands run as the unprivileged `agent` user (uid 1001) inside the opencode container, while the BFF and the engine run as `node` (uid 1000). Both share the `node` group, so `WORKSPACES_DIR` and every workspace subfolder must be writable by gid `1000`. Docker Compose usually creates the directory as root; if you create it by hand:
+>
+> ```bash
+> sudo install -d -o 1000 -g 1000 -m 2775 /path/to/workspace
+> # folders created before this change:
+> sudo chgrp -R 1000 /path/to/workspace && sudo chmod -R g+ws /path/to/workspace
+> ```
+>
+> This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine.
+
 ## 3. Start the stack
 
 ```bash

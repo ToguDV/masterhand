@@ -211,6 +211,38 @@ describe("preview routes", () => {
     expect(app.store.getPreviewPort(session.id)).toBeNull()
   })
 
+  it("applies the write and process guards plus the process instruction on session creation", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    const created = await fetch(`${app.url}/api/workspaces/ws/sessions`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(created.status).toBe(201)
+    const { session } = (await created.json()) as { session: { id: string } }
+
+    const patch = upstream.requests.find(
+      (request) => request.method === "PATCH" && request.path === `/api/session/${session.id}`,
+    )
+    const permissions = (JSON.parse(patch?.body ?? "{}") as { permissions?: unknown[] }).permissions ?? []
+    expect(permissions).toContainEqual({ action: "edit", resource: "/*", effect: "deny" })
+    expect(permissions).toContainEqual({ action: "shell", resource: "pkill*", effect: "deny" })
+    expect(permissions).toContainEqual({ action: "shell", resource: "kill $*", effect: "deny" })
+
+    const instruction = upstream.requests.find((request) =>
+      request.path.endsWith("/instructions/entries/masterhand.process"),
+    )
+    expect(instruction?.method).toBe("PUT")
+    expect(instruction?.path).toBe(`/api/experimental/session/${session.id}/instructions/entries/masterhand.process`)
+    expect(JSON.parse(instruction?.body ?? "{}")).toMatchObject({
+      value: expect.stringContaining("never stop processes by name"),
+    })
+  })
+
   it("keeps session creation working when the preview instruction is rejected", async () => {
     upstream = await startMockOpencode()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
