@@ -1,20 +1,34 @@
 #!/usr/bin/env node
-// Stops everything `scripts/dev.mjs` may have left running, including
-// processes it reused or that got orphaned (opencode serve re-parents itself,
-// so a plain Ctrl+C on a later run cannot reach an old instance).
+// Stops the dev stack started by `scripts/dev.mjs`.
 //
-//   npm run dev:stop
+// By default it only kills the PIDs the orchestrator registered (in a temp file
+// keyed by this repo), so it can never take down unrelated processes — including
+// MasterHand's own BFF/opencode or another project's dev server. The legacy
+// sweep by process name/port is still available behind `--force` for the cases
+// the registry cannot cover (a process started outside the orchestrator).
+//
+//   npm run dev:stop           # registry only (safe)
+//   npm run dev:stop -- --force # registry + name/port sweep
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import {
+  commandMatches,
+  MAX_AGE_MS,
+  readRegistry,
+  registryPath,
+  unregisterProcess,
+} from "./process-registry.mjs"
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..")
 const isWindows = process.platform === "win32"
 const isMac = process.platform === "darwin"
+const force = process.argv.includes("--force")
+const registryFile = registryPath(rootDir)
 
-// Same env file the dev orchestrator loads, so the ports match.
+// Same env file the dev orchestrator loads, so the ports match (used by --force).
 const envFile = join(rootDir, "apps/server/.env.local")
 if (existsSync(envFile)) process.loadEnvFile(envFile)
 
@@ -43,7 +57,18 @@ function add(pid, label) {
   if (value && !excluded.has(value)) targets.set(value, label)
 }
 
-// Repo-local dev binaries (the absolute path from `ps` is passed to pgrep -f).
+// 1. Registry entries (the default path): only processes `dev.mjs` started.
+for (const entry of readRegistry(registryFile).entries) {
+  if (Date.now() - entry.at > MAX_AGE_MS) continue
+  if (!commandMatches(entry.pid, entry.command)) {
+    console.log(`[stop] skipping stale registry entry ${entry.label ?? "process"} (pid ${entry.pid})`)
+    unregisterProcess(registryFile, entry.pid)
+    continue
+  }
+  add(entry.pid, entry.label ?? "dev process")
+}
+
+// 2. Optional sweep by name/port (--force only).
 function fromCommand(pattern, label) {
   if (isWindows) return
   try {
@@ -76,6 +101,24 @@ function fromPort(port, label) {
   }
 }
 
+if (force) {
+  console.log("[stop] --force: also sweeping by process name and port")
+  fromCommand(join(rootDir, "scripts/dev.mjs"), "dev orchestrator")
+  fromCommand("scripts/dev.mjs", "dev orchestrator")
+  for (const bin of ["vite", "tsx", "expo", "electron"]) fromCommand(join(rootDir, "node_modules/.bin", bin), bin)
+  fromPort(opencodePort, "opencode")
+  fromPort(bffPort, "BFF")
+}
+
+if (targets.size === 0) {
+  console.log(
+    force
+      ? "[stop] nothing to stop"
+      : "[stop] nothing to stop (only processes started by scripts/dev.mjs are targeted; use --force to sweep by name/port)",
+  )
+  process.exit(0)
+}
+
 function kill(pid, signal) {
   if (isWindows) {
     try {
@@ -99,17 +142,6 @@ function kill(pid, signal) {
   }
 }
 
-fromCommand(join(rootDir, "scripts/dev.mjs"), "dev orchestrator")
-fromCommand("scripts/dev.mjs", "dev orchestrator")
-for (const bin of ["vite", "tsx", "expo", "electron"]) fromCommand(join(rootDir, "node_modules/.bin", bin), bin)
-fromPort(opencodePort, "opencode")
-fromPort(bffPort, "BFF")
-
-if (targets.size === 0) {
-  console.log("[stop] nothing to stop")
-  process.exit(0)
-}
-
 for (const [pid, label] of targets) {
   if (kill(pid, "SIGTERM")) console.log(`[stop] ${label}: SIGTERM (pid ${pid})`)
 }
@@ -121,6 +153,7 @@ setTimeout(() => {
       console.log(`[stop] ${label}: SIGKILL (pid ${pid})`)
       forced++
     }
+    unregisterProcess(registryFile, pid)
   }
   console.log(`[stop] done (${targets.size} targeted${forced ? `, ${forced} forced` : ""})`)
 }, 1500)

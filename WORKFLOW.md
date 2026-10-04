@@ -34,7 +34,7 @@ git push                                    # pre-push hook runs the full gate
 
 | Gate | Runs | Purpose |
 |---|---|---|
-| `pre-commit` (`.githooks/pre-commit`) | `npm run typecheck` + `npm run test:coverage` | Fast: never commit broken types, failing unit tests or uncovered code |
+| `pre-commit` (`.githooks/pre-commit`) | `npm run typecheck` + `npm run test:coverage` + `npm run test:scripts` | Fast: never commit broken types, failing unit tests or uncovered code |
 | `commit-msg` (`.githooks/commit-msg`) | Conventional Commits check | Keep an English, standard history |
 | `pre-push` (`.githooks/pre-push`) | typecheck + unit/coverage + E2E + builds | Full local mirror of CI before sharing the branch |
 | GitHub Actions (`.github/workflows/ci.yml`) | typecheck + unit/coverage + E2E + build | Required check on every PR to `main` |
@@ -50,8 +50,8 @@ npm run e2e:browsers     # downloads the Chromium used by Playwright
 
 ## Unit tests
 
-- Locations: `apps/server/test`, `packages/client-core/test` and `apps/mobile/test` (vitest).
-- Run all: `npm test`. Watch a workspace: `npm run test:watch -w @masterhand/server`.
+- Locations: `apps/server/test`, `packages/client-core/test` and `apps/mobile/test` (vitest); `scripts/*.test.mjs` (Node's built-in runner).
+- Run all: `npm test`. Watch a workspace: `npm run test:watch -w @masterhand/server`. Dev scripts: `npm run test:scripts`.
 
 ## Coverage gate
 
