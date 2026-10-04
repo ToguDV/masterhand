@@ -15,6 +15,7 @@ import {
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { Composer } from "./Composer"
+import { AuditPanel } from "./AuditPanel"
 import { PreviewPanel } from "./PreviewPanel"
 import { RunPanel } from "./RunPanel"
 
@@ -102,6 +103,7 @@ export function ChatView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-end gap-2 px-3 pt-2 md:px-6">
+        <AuditPanel />
         <RunPanel sessionID={sessionID} workspaceID={workspaceID} />
         <PreviewPanel sessionID={sessionID} />
       </div>

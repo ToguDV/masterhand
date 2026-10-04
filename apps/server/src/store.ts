@@ -37,6 +37,22 @@ export interface PreviewPortRecord {
 }
 
 /**
+ * A blocked action, kept for diagnosis. `permission_denied` comes from
+ * opencode (a tool call rejected by the session permission guard);
+ * `run_rejected` comes from MasterHand's run-config validation.
+ */
+export interface AuditEventRecord {
+  id: number
+  at: number
+  sessionID: string | null
+  workspaceID: string | null
+  kind: "permission_denied" | "run_rejected"
+  command: string | null
+  reason: string | null
+  source: "opencode" | "bff"
+}
+
+/**
  * How to start a workspace's dev server. MasterHand runs it through opencode's
  * PTY API and stops it by killing that exact process, so agents never manage
  * (or kill) servers themselves. `source` records who proposed it: the agent
@@ -71,6 +87,9 @@ export interface Store {
   getPreviewPort(sessionID: string): number | null
   assignPreviewPort(record: PreviewPortRecord): void
   removePreviewPort(sessionID: string): void
+  recordAudit(event: Omit<AuditEventRecord, "id">): void
+  listAudit(limit?: number): AuditEventRecord[]
+  clearAudit(): void
   getWorkspaceRun(workspaceID: string): WorkspaceRunRecord | null
   saveWorkspaceRun(record: WorkspaceRunRecord): void
   removeWorkspaceRun(workspaceID: string): void
@@ -117,6 +136,19 @@ export function createSqliteStore(file: string): Store {
       created_at INTEGER NOT NULL
     )
   `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      session_id TEXT,
+      workspace_id TEXT,
+      kind TEXT NOT NULL,
+      command TEXT,
+      reason TEXT,
+      source TEXT NOT NULL
+    )
+  `)
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspace_runs (
       workspace_id TEXT PRIMARY KEY,
@@ -196,6 +228,16 @@ export function createSqliteStore(file: string): Store {
   `)
   const removePreviewPortStatement = db.prepare("DELETE FROM preview_ports WHERE session_id = ?")
 
+  const auditColumns = `
+    SELECT id, at, session_id AS sessionID, workspace_id AS workspaceID, kind, command, reason, source
+    FROM audit_events
+  `
+  const recordAuditStatement = db.prepare(`
+    INSERT INTO audit_events (at, session_id, workspace_id, kind, command, reason, source)
+    VALUES (@at, @sessionID, @workspaceID, @kind, @command, @reason, @source)
+  `)
+  const listAuditStatement = db.prepare(`${auditColumns} ORDER BY at DESC, id DESC LIMIT ?`)
+  const clearAuditStatement = db.prepare("DELETE FROM audit_events")
   const workspaceRunColumns = `
     SELECT workspace_id AS workspaceID, command, args, cwd, source, updated_at AS updatedAt
     FROM workspace_runs
@@ -292,6 +334,15 @@ export function createSqliteStore(file: string): Store {
     removePreviewPort(sessionID) {
       removePreviewPortStatement.run(sessionID)
     },
+    recordAudit(event) {
+      recordAuditStatement.run(event)
+    },
+    listAudit(limit = 100) {
+      return listAuditStatement.all(limit) as AuditEventRecord[]
+    },
+    clearAudit() {
+      clearAuditStatement.run()
+    },
     getWorkspaceRun(workspaceID) {
       const row = getWorkspaceRunStatement.get(workspaceID) as
         | (Omit<WorkspaceRunRecord, "args"> & { args: string })
@@ -315,6 +366,8 @@ export function createMemoryStore(): Store {
   const workspaces = new Map<string, WorkspaceRecord>()
   const isolatedSessions = new Map<string, IsolatedSessionRecord>()
   const previewPorts = new Map<string, PreviewPortRecord>()
+  const audit: AuditEventRecord[] = []
+  let auditSequence = 0
   const workspaceRuns = new Map<string, WorkspaceRunRecord>()
   return {
     create(record) {
@@ -381,6 +434,16 @@ export function createMemoryStore(): Store {
     },
     removePreviewPort(sessionID) {
       previewPorts.delete(sessionID)
+    },
+    recordAudit(event) {
+      audit.unshift({ id: ++auditSequence, ...event })
+      if (audit.length > 500) audit.length = 500
+    },
+    listAudit(limit = 100) {
+      return audit.slice(0, limit)
+    },
+    clearAudit() {
+      audit.length = 0
     },
     getWorkspaceRun(workspaceID) {
       return workspaceRuns.get(workspaceID) ?? null

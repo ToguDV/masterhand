@@ -2,6 +2,7 @@ import { OpenCode } from "@opencode/client"
 import type { Permission, PermissionResponse } from "./types"
 import type {
   AgentInfo,
+  AuditEvent,
   BffStatus,
   ChatMessage,
   CreateSessionInput,
@@ -88,6 +89,9 @@ export interface Client {
     removeSession(sessionID: string): Promise<void>
     /** Interrupts the running turn; returns whether anything was interrupted. */
     abortSession(sessionID: string): Promise<boolean>
+    /** Blocked actions (denied commands) kept for diagnosis, newest first. */
+    audit(limit?: number): Promise<AuditEvent[]>
+    clearAudit(): Promise<void>
     /** Pending permission requests, optionally scoped to a location. */
     permissions(directory?: string | null): Promise<Permission[]>
     respondPermission(
@@ -335,6 +339,11 @@ export function createClient(options: ClientOptions = {}): Client {
         opencodeRequest(() =>
           opencode.session.interrupt({ sessionID }).then((response) => response.interrupted),
         ),
+      audit: (limit) =>
+        request<{ events: AuditEvent[] }>(`/api/audit${limit ? `?limit=${limit}` : ""}`).then(
+          (response) => response.events,
+        ),
+      clearAudit: () => request<void>("/api/audit", { method: "DELETE" }),
       permissions: (directory) =>
         opencodeRequest(() =>
           opencode.permission.request

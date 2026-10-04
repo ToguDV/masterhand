@@ -37,6 +37,8 @@ Other rules:
 |---|---|---|---|
 | `GET` | `/api/status` | `{ ok: true, opencode: { healthy, version?, error? }, preview: { enabled, available, portRange } }` | Calls opencode's `/api/info` with a 3s timeout; on failure returns `healthy: false` plus `error: "unauthorized"` (opencode rejected the BFF credentials) or `"unreachable"`. `preview.available` reports whether the `cloudflared` binary can be executed |
 | `GET` | `/api/events` | SSE | Re-emits opencode v2 events from **all locations** (hub on `/api/event`); first event `hello` with `{ connected }`; `ping` every 25s |
+| `GET` | `/api/audit` | `{ events: AuditEvent[] }` | Blocked actions, newest first (`?limit=`, max 500, default 100). `permission_denied` events come from opencode tool failures with `error.type = "permission.rejected"`, correlated with the command from the preceding `session.tool.called` event |
+| `DELETE` | `/api/audit` | `{ ok: true }` | Clears the log |
 | `GET` | `/api/devices` | `{ devices: DeviceRecord[] }` | Lists registered devices |
 | `DELETE` | `/api/devices/:id` | `{ ok: true }` | Revokes a device token |
 | `GET` | `/api/commands` | `{ commands: SlashCommand[] }` | Slash commands for a location (`?directory=/abs`), with deterministic argument hints. Composes opencode's `/api/command` catalog with the `template` only `/api/config` exposes (`$ARGUMENTS`, `$1..$N`, `[a\|b\|c]`), so raw config never reaches the clients. `502` when opencode is unreachable; a broken config degrades to commands without hints |

@@ -17,6 +17,7 @@ import {
 } from "@masterhand/client-core"
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
+import { AuditModal } from "../components/AuditModal"
 import { PreviewModal } from "../components/PreviewModal"
 import { RunModal } from "../components/RunModal"
 import { Screen } from "../components/Screen"
@@ -70,6 +71,7 @@ export function ChatScreen({
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const statusQuery = useBffStatus(client)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const [finishing, setFinishing] = useState(false)
@@ -104,6 +106,9 @@ export function ChatScreen({
         <Text style={styles.title} numberOfLines={1}>
           {title || "Session"}
         </Text>
+        <Pressable style={styles.previewButton} onPress={() => setAuditOpen(true)}>
+          <Text style={styles.previewButtonText}>Log</Text>
+        </Pressable>
         {workspaceID ? (
           <Pressable style={styles.previewButton} onPress={() => setRunOpen(true)}>
             <Text style={styles.previewButtonText}>Run</Text>
@@ -221,6 +226,8 @@ export function ChatScreen({
       {previewOpen ? (
         <PreviewModal client={client} sessionID={sessionID} onClose={() => setPreviewOpen(false)} />
       ) : null}
+
+      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
 
       {runOpen && workspaceID ? (
         <RunModal

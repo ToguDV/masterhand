@@ -133,6 +133,21 @@ export interface PreviewStatus {
   error: string | null
 }
 
+/**
+ * A blocked action kept for diagnosis. `permission_denied` is an opencode tool
+ * call rejected by the session permission guard (the broad-kill commands).
+ */
+export interface AuditEvent {
+  id: number
+  at: number
+  sessionID: string | null
+  workspaceID: string | null
+  kind: "permission_denied" | "run_rejected"
+  command: string | null
+  reason: string | null
+  source: "opencode" | "bff"
+}
+
 /** How MasterHand starts a workspace's dev server (argv, no shell). */
 export interface WorkspaceRunConfig {
   command: string

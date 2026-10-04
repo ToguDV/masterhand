@@ -41,6 +41,8 @@ export interface FakeClient {
     preview: jest.Mock
     startPreview: jest.Mock
     stopPreview: jest.Mock
+    audit: jest.Mock
+    clearAudit: jest.Mock
     run: jest.Mock
     saveRun: jest.Mock
     detectRun: jest.Mock
@@ -68,6 +70,8 @@ export function fakeClient(): FakeClient & Client {
       preview: jest.fn(async () => STOPPED_PREVIEW),
       startPreview: jest.fn(async () => STOPPED_PREVIEW),
       stopPreview: jest.fn(async () => {}),
+      audit: jest.fn(async () => []),
+      clearAudit: jest.fn(async () => {}),
       run: jest.fn(async () => null),
       saveRun: jest.fn(async () => ({
         command: "npm",

@@ -156,9 +156,56 @@ export function createApp(deps: AppDeps): Hono {
   // (e.g. subagent children) show up immediately.
   const sessionsCacheMs = deps.sessionsCacheMs ?? 5_000
   const sessionsCache = new Map<string, { at: number; sessions: OpencodeSession[] }>()
+  // Audit: correlate a tool call with its failure, because the failure event
+  // carries the permission error but not the command it tried to run.
+  const toolCommands = new Map<string, { sessionID: string; command: string }>()
   deps.hub.subscribe((event) => {
     const type = (event as { type?: unknown } | null)?.type
     if (type === "session.created" || type === "session.deleted") invalidateSessionsCache()
+
+    const data = (event as { data?: Record<string, unknown> } | null)?.data
+    if (!data) return
+
+    if (type === "session.tool.called") {
+      const id = typeof data.id === "string" ? data.id : ""
+      const sessionID = typeof data.sessionID === "string" ? data.sessionID : ""
+      const input = data.input as { command?: unknown } | undefined
+      if (id && sessionID && typeof input?.command === "string") {
+        toolCommands.set(id, { sessionID, command: input.command })
+        // Bounded: a long-lived process must not grow this forever.
+        if (toolCommands.size > 200) {
+          const oldest = toolCommands.keys().next().value
+          if (oldest) toolCommands.delete(oldest)
+        }
+      }
+      return
+    }
+
+    if (type === "session.tool.success") {
+      const id = typeof data.id === "string" ? data.id : ""
+      if (id) toolCommands.delete(id)
+      return
+    }
+
+    if (type === "session.tool.failed") {
+      const id = typeof data.id === "string" ? data.id : ""
+      const pending = toolCommands.get(id)
+      if (id) toolCommands.delete(id)
+      const error = data.error as { message?: unknown; type?: unknown } | undefined
+      const message = typeof error?.message === "string" ? error.message : ""
+      const denied = error?.type === "permission.rejected" || /permission denied/i.test(message)
+      if (!denied) return
+      const input = data.input as { command?: unknown } | undefined
+      deps.store.recordAudit({
+        at: Date.now(),
+        sessionID: pending?.sessionID ?? (typeof data.sessionID === "string" ? data.sessionID : null),
+        workspaceID: null,
+        kind: "permission_denied",
+        command: pending?.command ?? (typeof input?.command === "string" ? input.command : null),
+        reason: message || "Permission denied",
+        source: "opencode",
+      })
+    }
   })
 
   /**
@@ -463,6 +510,18 @@ export function createApp(deps: AppDeps): Hono {
         unsubscribe()
       }
     })
+  })
+
+  /** Blocked actions (opencode permission denials) for diagnosis. */
+  api.get("/audit", (c) => {
+    const requested = Number.parseInt(c.req.query("limit") ?? "", 10)
+    const limit = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 500) : 100
+    return c.json({ events: deps.store.listAudit(limit) })
+  })
+
+  api.delete("/audit", (c) => {
+    deps.store.clearAudit()
+    return c.json({ ok: true })
   })
 
   api.get("/devices", (c) => c.json({ devices: deps.store.list() }))

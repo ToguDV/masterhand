@@ -11,6 +11,7 @@ import {
   createEventHandler,
   queryKeys,
   useAgents,
+  useAudit,
   useBffStatus,
   useEventStream,
   useMessages,
@@ -46,6 +47,7 @@ function makeClient(stream = makeEventStream()) {
     agents: vi.fn(async () => []),
     models: vi.fn(async () => ({ models: [], providers: [], defaultModel: null })),
     preview: vi.fn(async () => ({ status: "stopped", url: null, port: null, error: null })),
+    audit: vi.fn(async () => []),
     run: vi.fn(async () => null),
     sessionRun: vi.fn(async () => ({ status: "stopped", command: null, args: [], port: null, pid: null, error: null })),
   }
@@ -124,6 +126,24 @@ describe("query hooks", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data).toEqual({ ses_1: { type: "busy" } })
+  })
+
+  it("invalidates the audit log when a tool is denied", () => {
+    const qc = newQueryClient()
+    const invalidate = vi.spyOn(qc, "invalidateQueries")
+
+    createEventHandler(qc)({
+      type: "session.tool.failed",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_1",
+        id: "call_1",
+        error: { type: "permission.rejected", message: "Permission denied: shell" },
+        content: [],
+      },
+    })
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.audit })
   })
 
   it("useSessionStatuses trusts the snapshot for statuses with no fresh event", async () => {
@@ -226,6 +246,19 @@ describe("query hooks", () => {
     const enabled = renderHook(() => usePreview(client, "ses_1"), { wrapper: wrapper(qc) })
     await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
     expect(api.preview).toHaveBeenCalledWith("ses_1")
+  })
+
+  it("useAudit loads the denied-command log when enabled", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+
+    const disabled = renderHook(() => useAudit(client, false), { wrapper: wrapper(qc) })
+    expect(disabled.result.current.fetchStatus).toBe("idle")
+    expect(api.audit).not.toHaveBeenCalled()
+
+    const enabled = renderHook(() => useAudit(client), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
+    expect(api.audit).toHaveBeenCalledTimes(1)
   })
 
   it("useWorkspaceRun and useSessionRun stay idle without identifiers and fetch with them", async () => {

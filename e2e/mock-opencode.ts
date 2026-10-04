@@ -444,6 +444,60 @@ async function runToolsPrompt(sessionID: string): Promise<void> {
   activeRuns.delete(sessionID)
 }
 
+/** Streams a shell command denied by the permission guard (audit-log spec). */
+async function runDeniedPrompt(sessionID: string): Promise<void> {
+  const session = sessions.get(sessionID)
+  if (!session) return
+  const directory = session.location.directory
+
+  activeRuns.add(sessionID)
+  broadcast("session.execution.started", { sessionID }, directory)
+  await delay(30)
+
+  const assistant = appendAssistantMessage(sessionID)
+  const id = nextId("prt")
+  const created = now()
+  const input = { command: "pkill -f node" }
+  const tool: AssistantTool = {
+    type: "tool",
+    id,
+    name: "bash",
+    executed: false,
+    state: { status: "running", input, time: { created } },
+    time: { created },
+  }
+  broadcast(
+    "session.tool.input.started",
+    { sessionID, assistantMessageID: assistant.id, id, name: "bash" },
+    directory,
+  )
+  await delay(20)
+  broadcast(
+    "session.tool.called",
+    { sessionID, assistantMessageID: assistant.id, id, input, executed: true },
+    directory,
+  )
+  await delay(40)
+  const ran = now()
+  const error = { type: "permission.rejected", message: "Permission denied: shell" }
+  tool.state = { status: "error", input, error, time: { created, ran } }
+  tool.time = { created, ran, completed: now() }
+  broadcast(
+    "session.tool.failed",
+    { sessionID, assistantMessageID: assistant.id, id, error, content: [], metadata: {}, executed: false },
+    directory,
+  )
+
+  const text = "That command was blocked by the permission guard."
+  assistant.content = [tool, { type: "text", text }]
+  streamText(sessionID, assistant.id, 0, text)
+  completeAssistant(session, assistant, {
+    cost: 0.001,
+    tokens: { input: 10, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+  })
+  activeRuns.delete(sessionID)
+}
+
 /**
  * Streams a `question` tool backed by a v2 form and blocks until the client
  * replies (or cancels) through `POST /api/session/:id/form/:formID/reply`.
@@ -623,6 +677,7 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
   if (text.toLowerCase().includes("subagent")) return runSubagentPrompt(sessionID, text)
   if (text.toLowerCase().includes("markdown")) return runMarkdownPrompt(sessionID)
   if (text.toLowerCase().includes("question")) return runQuestionPrompt(sessionID)
+  if (text.toLowerCase().includes("denied")) return runDeniedPrompt(sessionID)
   if (text.toLowerCase().includes("tool")) return runToolsPrompt(sessionID)
 
   activeRuns.add(sessionID)

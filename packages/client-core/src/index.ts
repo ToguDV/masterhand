@@ -44,6 +44,7 @@ export {
   invalidateOnReconnect,
   queryKeys,
   useAgents,
+  useAudit,
   useBffStatus,
   useCommands,
   useEventStream,

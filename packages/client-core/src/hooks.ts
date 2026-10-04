@@ -34,6 +34,8 @@ export const queryKeys = {
   /** Directories holding sessions for a workspace (base folder + worktrees). */
   directories: (workspaceID?: string | null) => ["directories", workspaceID ?? null] as const,
   preview: (sessionID: string) => ["preview", sessionID] as const,
+  /** Denied commands (audit log), newest first. */
+  audit: ["audit"] as const,
   /** Managed dev-server config for a workspace. */
   run: (workspaceID?: string | null) => ["run", workspaceID ?? null] as const,
   /** Managed dev-server state for a session. */
@@ -149,6 +151,19 @@ export function usePreview(client: Client, sessionID: string | null, enabled = t
     queryFn: () => client.api.preview(sessionID!),
     enabled: enabled && Boolean(sessionID),
     refetchInterval: (query) => (query.state.data?.status === "starting" ? 1500 : false),
+  })
+}
+
+/**
+ * Denied commands (audit log). Polled only while a panel is open; the shared
+ * event handler invalidates it as soon as a denial arrives.
+ */
+export function useAudit(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.audit,
+    queryFn: () => client.api.audit(),
+    enabled,
+    refetchInterval: enabled ? 10_000 : false,
   })
 }
 
@@ -505,7 +520,7 @@ export function createEventHandler(
           ),
         )
         return
-      case "session.tool.failed":
+      case "session.tool.failed": {
         updateMessages(event.data.sessionID, (list) =>
           updateToolPart(
             list,
@@ -537,7 +552,13 @@ export function createEventHandler(
             eventNow,
           ),
         )
+        // A denied command is also recorded in the BFF audit log; refresh it live.
+        const errorType = (event.data.error as { type?: unknown }).type
+        if (errorType === "permission.rejected" || /permission denied/i.test(event.data.error.message)) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.audit })
+        }
         return
+      }
       default:
         return
     }
