@@ -127,12 +127,27 @@ describe("POST /api/workspaces/:id/sessions", () => {
       const guard = opencode.calls.find(
         (call) => call.method === "PATCH" && call.path === `/api/session/${body.session.id}`,
       )
-      expect(guard?.parsedBody?.permissions).toEqual([
-        { action: "external_directory", resource: "*", effect: "allow" },
-        { action: "edit", resource: "/*", effect: "deny" },
-        { action: "edit", resource: "?:/*", effect: "deny" },
-        { action: "edit", resource: "../*", effect: "deny" },
-      ])
+      const permissions = guard?.parsedBody?.permissions as {
+        action: string
+        resource: string
+        effect: string
+      }[]
+      expect(permissions).toEqual(
+        expect.arrayContaining([
+          { action: "external_directory", resource: "*", effect: "allow" },
+          { action: "edit", resource: "/*", effect: "deny" },
+          { action: "edit", resource: "?:/*", effect: "deny" },
+          { action: "edit", resource: "../*", effect: "deny" },
+          { action: "shell", resource: "pkill*", effect: "deny" },
+          { action: "shell", resource: "kill $*", effect: "deny" },
+        ]),
+      )
+
+      const processInstruction = opencode.calls.find((call) =>
+        call.path.endsWith("/instructions/entries/masterhand.process"),
+      )
+      expect(processInstruction?.method).toBe("PUT")
+      expect(processInstruction?.parsedBody?.value).toContain("never stop processes by name")
     } finally {
       await app.close()
     }
