@@ -11,7 +11,7 @@ test("drops a pending permission answered elsewhere after reconnecting", async (
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("hello agent")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
 
   // Another device answers the request while this client is offline: the mock
   // resolves it without broadcasting `permission.replied`, so the local state
@@ -28,10 +28,10 @@ test("drops a pending permission answered elsewhere after reconnecting", async (
 
   // The answered turn continues and completes while the stale dialog stays up.
   await expect(page.getByText("Done!")).toBeVisible()
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
 
   // Reconnect: the server returns no pending requests, so the stale dialog
   // must be pruned instead of kept forever.
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")))
-  await expect(page.getByText("Permission required")).toBeHidden()
+  await expect(page.getByText("Permission requested")).toBeHidden()
 })

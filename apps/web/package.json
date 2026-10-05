@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@masterhand/client-core": "*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.104.0",

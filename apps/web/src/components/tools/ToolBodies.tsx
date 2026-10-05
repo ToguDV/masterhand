@@ -5,13 +5,13 @@ import { truncateLines, type TodoItem } from "@masterhand/client-core"
 export function KeyValueList({ entries }: { entries: Array<{ key: string; value: string }> }) {
   if (entries.length === 0) return null
   return (
-    <dl className="scroll-thin max-h-72 space-y-1.5 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
+    <dl className="scroll-thin mh-code max-h-72 space-y-1.5 overflow-auto px-2.5 py-2">
       {entries.map((entry) => (
         <div key={entry.key} className="flex gap-2 text-xs">
-          <dt className="w-28 shrink-0 truncate font-mono text-zinc-500" title={entry.key}>
+          <dt className="w-28 shrink-0 truncate font-mono text-code-muted" title={entry.key}>
             {entry.key}
           </dt>
-          <dd className="min-w-0 flex-1 whitespace-pre-wrap break-words text-zinc-300">{entry.value}</dd>
+          <dd className="min-w-0 flex-1 whitespace-pre-wrap break-words text-code-text">{entry.value}</dd>
         </div>
       ))}
     </dl>
@@ -35,18 +35,20 @@ export function TerminalBody({
   const cleaned = output ?? ""
   return (
     <div className="space-y-2">
-      <div className="flex items-start gap-2 rounded-lg border border-emerald-500/15 bg-black/50 px-2.5 py-1.5">
-        <span className="select-none font-mono text-xs leading-5 text-emerald-400">$</span>
-        <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-zinc-100">
-          {command}
-        </code>
-        {copySlot}
+      <div className="mh-code">
+        <div className="flex items-start gap-2 px-3 py-2">
+          <span className="select-none font-mono text-xs leading-5 text-[#7fd8ba]">$</span>
+          <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-code-text">
+            {command}
+          </code>
+          {copySlot}
+        </div>
       </div>
-      {cwd && <p className="px-0.5 font-mono text-[10px] text-zinc-600">{cwd}</p>}
+      {cwd && <p className="px-0.5 font-mono text-[10px] text-ink-faint">{cwd}</p>}
       {cleaned ? (
         <TerminalOutput text={cleaned} />
       ) : running ? (
-        <p className="px-0.5 text-xs text-zinc-500">Running…</p>
+        <p className="px-0.5 text-xs text-ink-muted">Running…</p>
       ) : null}
     </div>
   )
@@ -56,15 +58,15 @@ function TerminalOutput({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false)
   const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : 30)
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-black/60">
-      <pre className="scroll-thin max-h-80 overflow-auto p-2.5 font-mono text-xs leading-relaxed text-zinc-300">
+    <div className="mh-code">
+      <pre className="scroll-thin max-h-80 overflow-auto">
         <code className="whitespace-pre-wrap break-words">{truncated.text}</code>
       </pre>
       {truncated.hiddenLines > 0 && (
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="block w-full border-t border-zinc-800/80 px-2.5 py-1 text-left text-[10px] text-zinc-500 hover:text-zinc-300"
+          className="block w-full border-t border-code-soft px-2.5 py-1 text-left text-[10px] text-code-muted hover:text-code-text"
         >
           … {truncated.hiddenLines} more lines (show all)
         </button>
@@ -90,9 +92,7 @@ function Highlight({ text, pattern }: { text: string; pattern: string }) {
       {parts.map((part, index) => (
         <Fragment key={index}>
           {part}
-          {index < matches.length && (
-            <span className="rounded bg-teal-500/20 px-0.5 text-teal-200">{matches[index]}</span>
-          )}
+          {index < matches.length && <span className="rounded-xs bg-accent-soft px-0.5 text-accent">{matches[index]}</span>}
         </Fragment>
       ))}
     </>
@@ -102,16 +102,16 @@ function Highlight({ text, pattern }: { text: string; pattern: string }) {
 /** Search results: one monospace line per match, pattern highlighted. */
 export function SearchBody({ pattern, matches }: { pattern: string; matches: string[] }) {
   const [expanded, setExpanded] = useState(false)
-  if (matches.length === 0) return <p className="px-0.5 text-xs text-zinc-500">No matches</p>
+  if (matches.length === 0) return <p className="px-0.5 text-xs text-ink-muted">No matches</p>
   const shown = expanded ? matches : matches.slice(0, 40)
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/60">
+    <div className="mh-code">
       <div className="scroll-thin max-h-72 overflow-auto py-1">
         {shown.map((line, index) => (
           <p
             key={index}
             title={line}
-            className="truncate whitespace-pre px-2.5 py-0.5 font-mono text-xs text-zinc-300 hover:bg-zinc-900/60"
+            className="truncate whitespace-pre px-2.5 py-0.5 font-mono text-xs text-code-text hover:bg-code-soft/60"
           >
             <Highlight text={line} pattern={pattern} />
           </p>
@@ -121,7 +121,7 @@ export function SearchBody({ pattern, matches }: { pattern: string; matches: str
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="block w-full border-t border-zinc-800/80 px-2.5 py-1 text-left text-[10px] text-zinc-500 hover:text-zinc-300"
+          className="block w-full border-t border-code-soft px-2.5 py-1 text-left text-[10px] text-code-muted hover:text-code-text"
         >
           … {matches.length - shown.length} more matches (show all)
         </button>
@@ -131,23 +131,23 @@ export function SearchBody({ pattern, matches }: { pattern: string; matches: str
 }
 
 const TODO_STYLES: Record<string, { icon: string; className: string }> = {
-  completed: { icon: "✓", className: "text-emerald-400" },
-  in_progress: { icon: "▸", className: "text-amber-300" },
-  cancelled: { icon: "✕", className: "text-zinc-600" },
-  pending: { icon: "○", className: "text-zinc-500" },
+  completed: { icon: "✓", className: "text-accent" },
+  in_progress: { icon: "▸", className: "text-warning" },
+  cancelled: { icon: "✕", className: "text-ink-faint" },
+  pending: { icon: "○", className: "text-ink-muted" },
 }
 
 /** Checklist for the todo tool. */
 export function TodoBody({ todos }: { todos: TodoItem[] }) {
   if (todos.length === 0) return null
   return (
-    <ul className="space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
+    <ul className="space-y-1.5 rounded-md border border-hairline bg-surface px-2.5 py-2">
       {todos.map((todo, index) => {
         const style = TODO_STYLES[todo.status] ?? TODO_STYLES.pending!
         return (
           <li key={index} className="flex items-start gap-2 text-xs">
             <span className={`shrink-0 font-mono ${style.className}`}>{style.icon}</span>
-            <span className={todo.status === "completed" ? "text-zinc-500 line-through" : "text-zinc-300"}>
+            <span className={todo.status === "completed" ? "text-ink-muted line-through" : "text-ink-soft"}>
               {todo.content}
             </span>
           </li>

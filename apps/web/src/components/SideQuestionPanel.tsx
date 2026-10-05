@@ -23,24 +23,18 @@ export function SideQuestionPanel({
   const reply = [...messages].reverse().find((entry) => entry.info.role === "assistant")
 
   return (
-    <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-3">
+    <div className="rounded-lg border border-hairline bg-surface p-3">
       <div className="mb-2 flex items-center gap-2">
-        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
-          Side question
-        </span>
-        <span className="min-w-0 flex-1 truncate text-xs text-zinc-400" title={question}>
+        <span className="mh-micro shrink-0 text-ink-muted">Side question</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-muted" title={question}>
           {question}
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded-lg border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-        >
+        <button type="button" onClick={onClose} className="mh-btn mh-btn--secondary mh-btn--sm shrink-0">
           Close
         </button>
       </div>
-      <div className="max-h-64 overflow-y-auto">
-        {reply ? <AssistantBlock entry={reply} /> : <p className="text-sm text-zinc-500">Thinking…</p>}
+      <div className="scroll-thin max-h-64 overflow-y-auto">
+        {reply ? <AssistantBlock entry={reply} /> : <p className="text-sm text-ink-muted">Thinking…</p>}
       </div>
     </div>
   )

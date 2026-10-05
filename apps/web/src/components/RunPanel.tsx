@@ -8,6 +8,7 @@ import {
   type RunStatus,
 } from "@masterhand/client-core"
 import { client } from "../client"
+import { SidePanel } from "./SidePanel"
 
 const STOPPED: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
 
@@ -17,11 +18,45 @@ const STOPPED: RunStatus = { status: "stopped", command: null, args: [], port: n
  * anything. The command can come from `.masterhand/run.json` (proposed by the
  * agent) or be edited here.
  */
-export function RunPanel({ sessionID, workspaceID }: { sessionID: string; workspaceID: string | null }) {
+export function RunTrigger({
+  sessionID,
+  workspaceID,
+  onOpen,
+  className = "",
+}: {
+  sessionID: string
+  workspaceID: string | null
+  onOpen: () => void
+  className?: string
+}) {
+  const runQuery = useSessionRun(client, sessionID, workspaceID)
+  if (!workspaceID) return null
+  const run = runQuery.data ?? STOPPED
+  const running = run.status === "running"
+
+  return (
+    <button type="button" onClick={onOpen} className={`mh-btn mh-btn--ghost ${className}`}>
+      <span
+        aria-hidden="true"
+        className={`mh-dot ${running ? "mh-dot--connected" : run.status === "error" ? "mh-dot--danger" : ""}`}
+      />
+      Run
+    </button>
+  )
+}
+
+export function RunSheet({
+  sessionID,
+  workspaceID,
+  onClose,
+}: {
+  sessionID: string
+  workspaceID: string | null
+  onClose: () => void
+}) {
   const queryClient = useQueryClient()
   const runQuery = useSessionRun(client, sessionID, workspaceID)
   const configQuery = useWorkspaceRun(client, workspaceID)
-  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -122,149 +157,116 @@ export function RunPanel({ sessionID, workspaceID }: { sessionID: string; worksp
   }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
-      >
-        <span
-          aria-hidden="true"
-          className={`h-1.5 w-1.5 rounded-full ${
-            running ? "bg-emerald-400" : run.status === "error" ? "bg-red-400" : "bg-zinc-600"
-          }`}
-        />
-        Run
-      </button>
-
-      {open && (
-        <div className="fixed inset-0 z-30 flex flex-col bg-zinc-950 p-4 md:inset-auto md:left-1/2 md:top-1/4 md:h-auto md:w-[min(560px,80vw)] md:-translate-x-1/2 md:rounded-xl md:border md:border-zinc-800">
-          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <h2 className="text-sm font-medium text-zinc-200">Run server</h2>
-            {run.port !== null && (
-              <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-400">port {run.port}</span>
-            )}
-            <span className="flex-1" />
-            {busy ? (
-              <span className="text-xs text-zinc-500">Working…</span>
-            ) : running ? (
-              <button
-                type="button"
-                onClick={() => void stop()}
-                className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void start()}
-                disabled={!config}
-                className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Start
-              </button>
-            )}
+    <SidePanel
+      title="Run server"
+      closeLabel="Close run panel"
+      onClose={onClose}
+      actions={
+        <>
+          {run.port !== null && <span className="mh-chip mh-chip--mono">port {run.port}</span>}
+          {busy ? (
+            <span className="text-xs text-ink-muted">Working…</span>
+          ) : running ? (
+            <button type="button" onClick={() => void stop()} className="mh-btn mh-btn--secondary mh-btn--sm">
+              Stop
+            </button>
+          ) : (
             <button
               type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close run panel"
-              className="rounded-lg px-2 py-1 text-zinc-400 hover:bg-zinc-800"
+              onClick={() => void start()}
+              disabled={!config}
+              className="mh-btn mh-btn--primary mh-btn--sm"
             >
-              ✕
+              Start
+            </button>
+          )}
+        </>
+      }
+    >
+      {error && (
+        <p className="mh-banner mh-banner--danger" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-3 p-3 text-sm">
+        {shownCommand ? (
+          <div className="mh-code">
+            <p className="break-all px-3 py-2 font-mono text-xs text-code-text">
+              {shownCommand} {args.join(" ")}
+            </p>
+          </div>
+        ) : (
+          <p className="text-ink-muted">
+            No run command configured. Let the agent declare <code className="mh-mono-sm">.masterhand/run.json</code>,
+            or edit it here.
+          </p>
+        )}
+
+        {detected && (
+          <div className="flex flex-col gap-2 rounded-md border border-accent-line bg-accent-soft px-3 py-2">
+            <p className="text-xs text-accent">
+              Detected in <code className="mh-mono-sm">.masterhand/run.json</code>:
+            </p>
+            <p className="break-all font-mono text-xs text-accent">
+              {detected.command} {detected.args.join(" ")}
+            </p>
+            <button
+              type="button"
+              onClick={() => void applyDetected()}
+              className="mh-btn mh-btn--secondary mh-btn--sm self-start"
+            >
+              Apply
             </button>
           </div>
+        )}
 
-          {error && <p className="border-b border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
-
-          <div className="flex flex-col gap-3 py-3 text-sm">
-            {shownCommand ? (
-              <p className="break-all rounded-lg bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-300">
-                {shownCommand} {args.join(" ")}
-              </p>
-            ) : (
-              <p className="text-zinc-500">
-                No run command configured. Let the agent declare <code>.masterhand/run.json</code>, or edit it here.
-              </p>
-            )}
-
-            {detected && (
-              <div className="flex flex-col gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2">
-                <p className="text-xs text-indigo-200">
-                  Detected in <code>.masterhand/run.json</code>:
-                </p>
-                <p className="break-all font-mono text-xs text-indigo-100">
-                  {detected.command} {detected.args.join(" ")}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void applyDetected()}
-                  className="self-start rounded-lg border border-indigo-500/40 px-2.5 py-1 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20"
-                >
-                  Apply
-                </button>
-              </div>
-            )}
-
-            {editing ? (
-              <div className="flex flex-col gap-2">
-                <label className="flex flex-col gap-1 text-xs text-zinc-400">
-                  Executable (argv, no shell)
-                  <input
-                    value={command}
-                    onChange={(event) => setCommand(event.target.value)}
-                    placeholder="npm"
-                    className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 font-mono text-xs text-zinc-200"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-zinc-400">
-                  Arguments (one per line; <code>{"{port}"}</code> is replaced by the reserved port)
-                  <textarea
-                    value={argsText}
-                    onChange={(event) => setArgsText(event.target.value)}
-                    rows={5}
-                    placeholder={"run\ndev\n--\n--host\n0.0.0.0\n--port\n{port}"}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 font-mono text-xs text-zinc-200"
-                  />
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void save()}
-                    className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20"
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(false)}
-                    className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={openEditor}
-                  className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                >
-                  Edit command
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void detect()}
-                  className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                >
-                  Detect from .masterhand/run.json
-                </button>
-              </div>
-            )}
+        {editing ? (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1 text-xs text-ink-muted">
+              Executable (argv, no shell)
+              <input
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                placeholder="npm"
+                className="mh-input font-mono text-xs"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-ink-muted">
+              Arguments (one per line; <code className="mh-mono-sm">{"{port}"}</code> is replaced by the reserved
+              port)
+              <textarea
+                value={argsText}
+                onChange={(event) => setArgsText(event.target.value)}
+                rows={5}
+                placeholder={"run\ndev\n--\n--host\n0.0.0.0\n--port\n{port}"}
+                className="mh-textarea font-mono text-xs"
+              />
+            </label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => void save()} className="mh-btn mh-btn--primary mh-btn--sm">
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="mh-btn mh-btn--secondary mh-btn--sm"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-    </>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={openEditor} className="mh-btn mh-btn--secondary mh-btn--sm">
+              Edit command
+            </button>
+            <button type="button" onClick={() => void detect()} className="mh-btn mh-btn--secondary mh-btn--sm">
+              Detect from .masterhand/run.json
+            </button>
+          </div>
+        )}
+      </div>
+    </SidePanel>
   )
 }

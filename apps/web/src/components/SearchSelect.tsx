@@ -80,16 +80,16 @@ export function SearchSelect({
         aria-expanded={open}
         aria-label={ariaLabel}
       >
-        <span className={`truncate ${selected ? "text-zinc-300" : "text-zinc-500"}`}>
+        <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
           {selected?.label ?? placeholder}
         </span>
-        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 fill-zinc-500">
+        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-ink-muted">
           <path d="M5.5 7.5 10 12l4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[85vw] rounded-xl border border-zinc-800 bg-zinc-900 p-2 shadow-xl">
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[85vw] rounded-md border border-hairline bg-surface p-2 shadow-elev3">
           {searchable && (
             <input
               ref={inputRef}
@@ -104,7 +104,7 @@ export function SearchSelect({
               }}
               placeholder="Search…"
               aria-label={`Search ${ariaLabel.toLowerCase()}`}
-              className="mb-2 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 outline-none placeholder:text-zinc-500 focus:border-indigo-500"
+              className="mb-2 w-full rounded-sm border border-hairline-strong bg-surface px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent"
             />
           )}
 
@@ -119,22 +119,22 @@ export function SearchSelect({
                     onChange(option.value)
                     setOpen(false)
                   }}
-                  className={`w-full truncate rounded-lg px-2 py-1.5 text-left text-xs hover:bg-zinc-800 ${
-                    option.value === value ? "text-indigo-400" : "text-zinc-300"
+                  className={`w-full truncate rounded-sm px-2 py-1.5 text-left text-xs hover:bg-surface-muted ${
+                    option.value === value ? "text-accent" : "text-ink-soft"
                   }`}
                 >
                   {option.label}
                 </button>
               </li>
             ))}
-            {visible.length === 0 && <li className="px-2 py-3 text-xs text-zinc-500">No matches</li>}
+            {visible.length === 0 && <li className="px-2 py-3 text-xs text-ink-muted">No matches</li>}
           </ul>
 
           {truncated && (
             <button
               type="button"
               onClick={() => setExpanded(true)}
-              className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-xs text-indigo-400 hover:bg-zinc-800"
+              className="mt-1 w-full rounded-sm px-2 py-1.5 text-left text-xs text-accent hover:bg-surface-muted"
             >
               Show all {options.length} {ariaLabel.toLowerCase()}s
             </button>
@@ -146,4 +146,4 @@ export function SearchSelect({
 }
 
 const triggerClass =
-  "flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs outline-none focus:border-indigo-500"
+  "flex w-full items-center justify-between gap-2 rounded-sm border border-hairline-strong bg-surface px-2.5 py-1.5 text-sm outline-none transition-colors hover:bg-surface-muted focus-visible:border-accent"

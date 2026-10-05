@@ -9,7 +9,6 @@ import {
   type ChatToolTiming,
   type ToolSummary,
 } from "@masterhand/client-core"
-import { accentStyle } from "./theme"
 import { StatusDot } from "./StatusDot"
 import { ToolIcon } from "./ToolIcon"
 import { CodeBlock, CopyButton } from "./CodeBlock"
@@ -33,10 +32,6 @@ function useLiveDuration(status: ChatToolStatus, timing?: ChatToolTiming): numbe
   return end === undefined ? null : Math.max(0, end - timing.created)
 }
 
-function Badge({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${className}`}>{children}</span>
-}
-
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -46,7 +41,7 @@ function Chevron({ open }: { open: boolean }) {
       strokeWidth="1.4"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`h-3 w-3 shrink-0 text-zinc-600 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+      className={`mh-tool__chevron h-3 w-3 shrink-0 ${open ? "rotate-90" : ""}`}
       aria-hidden="true"
     >
       <path d="M3.5 2l3 3-3 3" />
@@ -58,44 +53,39 @@ function HeaderStats({ summary, duration }: { summary: ToolSummary; duration: nu
   const badges: ReactNode[] = []
   if (summary.kind === "shell" && summary.exitCode !== null) {
     badges.push(
-      <Badge
+      <span
         key="exit"
-        className={
-          summary.exitCode === 0
-            ? "bg-emerald-500/10 font-mono text-emerald-300"
-            : "bg-red-500/10 font-mono text-red-300"
-        }
+        className={`mh-chip mh-chip--mono ${summary.exitCode === 0 ? "text-accent" : "text-danger"}`}
       >
         exit {summary.exitCode}
-      </Badge>,
+      </span>,
     )
   }
   if (summary.kind === "edit" && (summary.additions > 0 || summary.deletions > 0)) {
     badges.push(
-      <span key="diff" className="flex gap-1 font-mono text-[10px]">
-        <span className="text-emerald-400">+{summary.additions}</span>
-        <span className="text-red-400">−{summary.deletions}</span>
+      <span key="diff" className="mh-chip mh-chip--accent mh-chip--mono">
+        +{summary.additions} −{summary.deletions}
       </span>,
     )
   }
   if (summary.kind === "search" && summary.matches.length > 0) {
     badges.push(
-      <Badge key="matches" className="bg-teal-500/10 text-teal-300">
+      <span key="matches" className="mh-chip">
         {summary.matches.length} matches
-      </Badge>,
+      </span>,
     )
   }
   if (summary.kind === "todo" && summary.todos.length > 0) {
     const done = summary.todos.filter((todo) => todo.status === "completed").length
     badges.push(
-      <Badge key="todos" className="bg-indigo-500/10 text-indigo-300">
+      <span key="todos" className="mh-chip">
         {done}/{summary.todos.length}
-      </Badge>,
+      </span>,
     )
   }
   if (duration !== null && duration >= 400) {
     badges.push(
-      <span key="time" className="font-mono text-[10px] text-zinc-500">
+      <span key="time" className="font-mono text-[10px] text-ink-faint">
         {formatDuration(duration)}
       </span>,
     )
@@ -113,8 +103,8 @@ function HeaderStats({ summary, duration }: { summary: ToolSummary; duration: nu
 function PendingBody() {
   return (
     <div className="space-y-1.5" data-testid="tool-pending">
-      <span className="block h-2 w-2/3 animate-pulse rounded bg-zinc-800" />
-      <span className="block h-2 w-1/3 animate-pulse rounded bg-zinc-800" />
+      <span className="block h-2 w-2/3 animate-pulse rounded bg-surface-muted" />
+      <span className="block h-2 w-1/3 animate-pulse rounded bg-surface-muted" />
     </div>
   )
 }
@@ -132,8 +122,8 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
         />
       )
     case "read":
-      if (summary.content === undefined) return <p className="px-0.5 text-xs text-zinc-500">Reading…</p>
-      if (summary.content === "") return <p className="px-0.5 text-xs text-zinc-500">Empty file</p>
+      if (summary.content === undefined) return <p className="px-0.5 text-xs text-ink-muted">Reading…</p>
+      if (summary.content === "") return <p className="px-0.5 text-xs text-ink-muted">Empty file</p>
       return (
         <div className="space-y-1.5">
           <CodeBlock
@@ -141,10 +131,9 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
             numbered={!looksLineNumbered(summary.content)}
             startLine={summary.startLine ?? 1}
             maxLines={28}
-            className="border-zinc-800/70"
           />
           {summary.truncatedNext !== undefined && (
-            <p className="px-0.5 text-[10px] text-zinc-600">
+            <p className="px-0.5 text-[10px] text-ink-faint">
               Output truncated · continue from line {summary.truncatedNext}
             </p>
           )}
@@ -154,14 +143,14 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
       return summary.content ? (
         <CodeBlock text={summary.content} maxLines={28} />
       ) : (
-        <p className="px-0.5 text-xs text-zinc-500">Writing…</p>
+        <p className="px-0.5 text-xs text-ink-muted">Writing…</p>
       )
     case "edit":
       if (summary.diff.length > 0) return <DiffView diff={summary.diff} />
       return summary.output ? (
         <CodeBlock text={summary.output} numbered={false} maxLines={12} />
       ) : (
-        <p className="px-0.5 text-xs text-zinc-500">Applying edit…</p>
+        <p className="px-0.5 text-xs text-ink-muted">Applying edit…</p>
       )
     case "search":
       return <SearchBody pattern={summary.pattern} matches={summary.matches} />
@@ -173,7 +162,7 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
               href={summary.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="block truncate rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-xs text-cyan-300 hover:border-cyan-500/30 hover:text-cyan-200"
+              className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
             >
               {summary.url} ↗
             </a>
@@ -189,18 +178,14 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
       return (
         <ul className="space-y-2">
           {summary.questions.map((question, index) => (
-            <li key={index} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
-              {question.header && (
-                <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-300/80">
-                  {question.header}
-                </p>
-              )}
-              <p className="text-sm text-zinc-200">{question.question}</p>
+            <li key={index} className="rounded-md border border-hairline bg-surface px-2.5 py-2">
+              {question.header && <p className="mh-micro text-ink-muted">{question.header}</p>}
+              <p className="text-sm text-ink">{question.question}</p>
               {question.options.length > 0 && (
                 <ul className="mt-1.5 space-y-1">
                   {question.options.map((option) => (
-                    <li key={option.label} className="text-xs text-zinc-400">
-                      <span className="text-zinc-300">{option.label}</span>
+                    <li key={option.label} className="text-xs text-ink-muted">
+                      <span className="text-ink-soft">{option.label}</span>
                       {option.description ? ` — ${option.description}` : ""}
                     </li>
                   ))}
@@ -228,14 +213,13 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
 export function ToolCard({ part }: { part: ChatToolPart }) {
   const [open, setOpen] = useState(false)
   const summary = describeTool(part)
-  const accent = accentStyle(summary.accent)
   const duration = useLiveDuration(summary.status, summary.timing)
   const pending = summary.status === "pending"
   const showSubtitle = summary.subtitle && summary.kind !== "edit"
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50"
+      className={`mh-tool ${open ? "is-open" : ""} ${summary.status === "error" ? "is-error" : ""}`}
       data-testid="tool-card"
       data-tool={summary.tool}
     >
@@ -243,28 +227,28 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-900/80"
+        className="mh-tool__header hover:bg-surface-muted"
       >
         <StatusDot status={summary.status} />
-        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${accent.bg} ${accent.text}`}>
+        <span className="mh-tool__glyph">
           <ToolIcon icon={summary.icon} className="h-3.5 w-3.5" />
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-zinc-500">{summary.tool}</span>
-        <span className={`min-w-0 flex-1 truncate text-[13px] ${pending ? "text-zinc-500" : "text-zinc-200"}`}>
-          {summary.title}
+        <span className="mh-tool__title">
+          <strong>{summary.tool}</strong>
+          {summary.title ? ` · ${summary.title}` : ""}
         </span>
         {showSubtitle && (
-          <span className="hidden max-w-[26%] truncate text-xs text-zinc-500 sm:block">{summary.subtitle}</span>
+          <span className="hidden max-w-[26%] truncate text-xs text-ink-faint sm:block">{summary.subtitle}</span>
         )}
         <HeaderStats summary={summary} duration={duration} />
         <Chevron open={open} />
       </button>
 
       {open && (
-        <div className="mh-reveal space-y-2 border-t border-zinc-800/80 px-3 py-2.5">
+        <div className="mh-reveal mh-tool__body">
           {pending ? <PendingBody /> : <ToolBody summary={summary} />}
           {summary.error && (
-            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300">
+            <p className="rounded-md border border-danger-line bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
               {summary.error}
             </p>
           )}

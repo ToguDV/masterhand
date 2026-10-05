@@ -22,14 +22,14 @@ test("login, create a session, stream a reply and approve a permission", async (
 
   await expect(page.getByText("hello agent")).toBeVisible()
 
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
   await expect(page.getByTestId("permission-kind")).toHaveText("bash")
   await expect(page.getByTestId("permission-patterns")).toHaveText("ls")
   await page.getByRole("button", { name: "Once" }).click()
 
   await expect(page.getByText("Done!")).toBeVisible()
   await expect(page.getByText(/Session · \$0\.0010 · 10 input · 1 output/)).toBeVisible()
-  await expect(page.getByText("Permission required")).toBeHidden()
+  await expect(page.getByText("Permission requested")).toBeHidden()
 })
 
 test("recovers a pending permission after a reload", async ({ page }) => {
@@ -41,12 +41,12 @@ test("recovers a pending permission after a reload", async ({ page }) => {
   await composer.fill("hello agent")
   await page.getByRole("button", { name: "Send" }).click()
 
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
 
   // The stream does not replay `permission.asked`; the client must reconcile.
   await page.reload()
 
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
   await expect(page.getByTestId("permission-kind")).toHaveText("bash")
   await page.getByRole("button", { name: "Once" }).click()
 

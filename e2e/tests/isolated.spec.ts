@@ -18,14 +18,14 @@ test("filters isolated and standard sessions", async ({ page }) => {
   await addWorkspace(page)
 
   await page.getByRole("button", { name: "+ New" }).click()
-  await expect(page.getByText("Untitled")).toBeVisible()
+  await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
   await expect(page.getByText("Isolated worktree")).toBeHidden()
 
   await page.getByRole("button", { name: "Isolated", exact: true }).click()
   await expect(page.getByText("No sessions match this filter.")).toBeVisible()
 
   await page.getByRole("button", { name: "Standard", exact: true }).click()
-  await expect(page.getByText("Untitled")).toBeVisible()
+  await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
 })
 
 test("finishes an isolated session and deletes its worktree", async ({ page }) => {

@@ -22,6 +22,9 @@ import { StatusDot } from "./tools/StatusDot"
  * shows one question at a time behind a top index (plus a final Submit step),
  * so multi-question forms never dump every field at once. Once answered (here
  * or on another device) it collapses into a read-only summary.
+ *
+ * `variant="modal"` is the choice-modal rendering: the same content, but the
+ * dismiss action moves to the modal footer so it can keep the card pending.
  */
 export function QuestionCard({
   part,
@@ -43,21 +46,31 @@ export function QuestionCard({
   const form = byCall ?? (sameSession.length === 1 ? sameSession[0]! : null) ?? null
 
   if (form) {
-    return <QuestionForm key={form.id} form={form} busy={busyFormID === form.id} onRespond={onRespond} onCancel={onCancel} />
+    return (
+      <QuestionForm
+        key={form.id}
+        form={form}
+        busy={busyFormID === form.id}
+        onRespond={onRespond}
+        onCancel={onCancel}
+      />
+    )
   }
 
   const answered = answeredForms.find((entry) => formToolCallID(entry.form) === part.callID)
   return <AnsweredCard part={part} answered={answered ?? null} />
 }
 
-function QuestionForm({
+export function QuestionForm({
   form,
   busy,
+  variant = "inline",
   onRespond,
   onCancel,
 }: {
   form: FormInfo
   busy: boolean
+  variant?: "inline" | "modal"
   onRespond: (form: FormInfo, answer: FormAnswer) => void
   onCancel: (form: FormInfo) => void
 }) {
@@ -92,21 +105,14 @@ function QuestionForm({
   }
 
   return (
-    <div
-      className="overflow-hidden rounded-xl border border-indigo-500/40 bg-indigo-500/[0.06]"
-      data-testid="question-card"
-    >
-      <div className="flex items-center gap-2 border-b border-indigo-500/20 px-3 py-2">
-        <span className="relative flex h-2 w-2" aria-hidden="true">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-50 motion-reduce:animate-none" />
-          <span className="relative h-2 w-2 rounded-full bg-indigo-400" />
-        </span>
-        <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
-          Question
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
-          {form.title || "The agent needs input"}
-        </span>
+    <div className="mh-question" data-testid="question-card">
+      <div className="mh-question__head">
+        <span className="mh-msg__label mh-micro min-w-0 truncate">{form.title || "Question"}</span>
+        {multi && (
+          <span className="mh-caption mh-muted shrink-0">
+            {step >= 0 ? step + 1 : fields.length + 1} of {fields.length + 1}
+          </span>
+        )}
       </div>
 
       {multi && (
@@ -123,7 +129,7 @@ function QuestionForm({
           event.preventDefault()
           submit()
         }}
-        className="space-y-4 px-3 py-3"
+        className="flex flex-col gap-4"
       >
         {current ? (
           <Field
@@ -136,31 +142,28 @@ function QuestionForm({
           <ReviewStep form={form} answer={answer} errors={submitted ? errors : {}} />
         )}
 
-        <div className="flex items-center gap-2 pt-0.5">
-          <span className="flex-1 text-[11px] text-indigo-300/60">The agent is waiting for this answer.</span>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onCancel(form)}
-            className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200 disabled:opacity-50"
-          >
-            Dismiss
-          </button>
+        <div className="mh-question__actions items-center">
+          {variant === "inline" ? (
+            <>
+              <span className="mh-caption mh-muted flex-1 basis-full sm:basis-auto">
+                The agent is waiting for this answer.
+              </span>
+              <button type="button" disabled={busy} onClick={() => onCancel(form)} className="mh-btn mh-btn--ghost">
+                Dismiss
+              </button>
+            </>
+          ) : null}
           {multi && current ? (
             <button
               type="button"
               disabled={busy}
               onClick={() => setActive(step >= 0 && step < fields.length - 1 ? fields[step + 1]!.key : null)}
-              className="rounded-lg border border-zinc-700 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+              className={`mh-btn mh-btn--secondary ${variant === "modal" ? "flex-1" : ""}`}
             >
               Next
             </button>
           ) : (
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
-            >
+            <button type="submit" disabled={busy} className="mh-btn mh-btn--primary">
               {busy ? "Sending…" : "Submit"}
             </button>
           )}
@@ -190,12 +193,8 @@ function QuestionIndex({
   onSelect: (key: string | null) => void
 }) {
   return (
-    <div
-      role="tablist"
-      aria-label="Questions"
-      className="flex items-center gap-0.5 overflow-x-auto border-b border-indigo-500/20 px-2"
-    >
-      {fields.map((field) => {
+    <div role="tablist" aria-label="Questions" className="mh-tabindex">
+      {fields.map((field, index) => {
         const selected = active === field.key
         return (
           <button
@@ -204,18 +203,10 @@ function QuestionIndex({
             role="tab"
             aria-selected={selected}
             onClick={() => onSelect(field.key)}
-            className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1.5 text-xs transition-colors ${
-              selected
-                ? "border-indigo-400 font-medium text-zinc-100"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
-            }`}
+            className={`mh-tabindex__tab ${selected ? "is-active" : ""}`}
           >
-            {errors[field.key] && (
-              <span className="mr-1 text-red-400" aria-hidden="true">
-                ●
-              </span>
-            )}
-            {fieldLabel(field)}
+            {errors[field.key] && <span className="mh-tabindex__dot" aria-hidden="true" />}
+            {index + 1} · {fieldLabel(field)}
           </button>
         )
       })}
@@ -224,11 +215,7 @@ function QuestionIndex({
         role="tab"
         aria-selected={active === null}
         onClick={() => onSelect(null)}
-        className={`shrink-0 whitespace-nowrap border-b-2 px-2 py-1.5 text-xs transition-colors ${
-          active === null
-            ? "border-indigo-400 font-medium text-zinc-100"
-            : "border-transparent text-zinc-500 hover:text-zinc-300"
-        }`}
+        className={`mh-tabindex__tab ${active === null ? "is-active" : ""}`}
       >
         Submit
       </button>
@@ -251,19 +238,19 @@ function ReviewStep({
     .map((field) => ({ key: field.key, label: fieldLabel(field), value: formatAnswerValue(answer[field.key]) }))
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-zinc-200">Review your answers</p>
+      <p className="mh-body-sm font-medium">Review your answers</p>
       <dl className="space-y-1">
         {rows.map((row) => (
           <div key={row.key} className="flex gap-2 text-xs">
-            <dt className="w-28 shrink-0 truncate text-zinc-500" title={row.label}>
+            <dt className="w-28 shrink-0 truncate text-ink-muted" title={row.label}>
               {row.label}
             </dt>
-            <dd className="min-w-0 flex-1 break-words text-zinc-300">{row.value}</dd>
+            <dd className="min-w-0 flex-1 break-words text-ink-soft">{row.value}</dd>
           </div>
         ))}
       </dl>
       {Object.keys(errors).length > 0 && (
-        <p className="text-xs text-red-400">Some answers need attention. Use the index above to fix them.</p>
+        <p className="text-xs text-danger">Some answers need attention. Use the index above to fix them.</p>
       )}
     </div>
   )
@@ -279,30 +266,28 @@ function AnsweredCard({
   const rows = answered ? describeFormAnswer(answered.form, answered.answer) : []
   const title = answered?.form.title || "Question"
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900/50" data-testid="question-answered">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div className="mh-tool" data-testid="question-answered">
+      <div className="mh-tool__header">
         <StatusDot status={part.state.status} />
-        <span className="rounded bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-300/80">
-          Question
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-300">{title}</span>
-        <span className="shrink-0 text-[11px] text-zinc-500">
+        <span className="mh-chip mh-chip--outline">Question</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">{title}</span>
+        <span className="shrink-0 text-xs text-ink-muted">
           {part.state.status === "error" ? "Cancelled" : "Answered"}
         </span>
       </div>
       {rows.length > 0 ? (
-        <dl className="space-y-1 border-t border-zinc-800/80 px-3 py-2">
+        <dl className="flex flex-col gap-1 border-t border-hairline px-3 py-2">
           {rows.map((row) => (
             <div key={row.key} className="flex gap-2 text-xs">
-              <dt className="w-32 shrink-0 truncate text-zinc-500" title={row.key}>
+              <dt className="w-32 shrink-0 truncate text-ink-muted" title={row.key}>
                 {row.key}
               </dt>
-              <dd className="min-w-0 flex-1 break-words text-zinc-300">{row.value}</dd>
+              <dd className="min-w-0 flex-1 break-words text-ink-soft">{row.value}</dd>
             </div>
           ))}
         </dl>
       ) : part.state.output ? (
-        <p className="border-t border-zinc-800/80 px-3 py-2 text-xs whitespace-pre-wrap text-zinc-400">
+        <p className="border-t border-hairline px-3 py-2 text-xs whitespace-pre-wrap text-ink-muted">
           {part.state.output}
         </p>
       ) : null}
@@ -325,8 +310,8 @@ function Field({
     return (
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-zinc-200">{fieldLabel(field)}</p>
-          {field.description && <p className="mt-0.5 text-xs text-zinc-500">{field.description}</p>}
+          <p className="mh-body-sm font-medium">{fieldLabel(field)}</p>
+          {field.description && <p className="mt-0.5 text-xs text-ink-muted">{field.description}</p>}
         </div>
         <BooleanToggle checked={Boolean(value)} onChange={onChange} />
       </div>
@@ -336,13 +321,13 @@ function Field({
   if (field.type === "external") {
     return (
       <div className="space-y-1">
-        <p className="text-sm font-medium text-zinc-200">{fieldLabel(field)}</p>
-        {field.description && <p className="text-xs text-zinc-500">{field.description}</p>}
+        <p className="mh-body-sm font-medium">{fieldLabel(field)}</p>
+        {field.description && <p className="text-xs text-ink-muted">{field.description}</p>}
         <a
           href={field.url}
           target="_blank"
           rel="noreferrer noopener"
-          className="block truncate rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-xs text-cyan-300 hover:text-cyan-200"
+          className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
         >
           {field.url} ↗
         </a>
@@ -352,13 +337,13 @@ function Field({
 
   return (
     <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-zinc-200">
+      <label className="block text-sm font-medium">
         {fieldLabel(field)}
-        {"required" in field && field.required && <span className="ml-0.5 text-red-400">*</span>}
+        {"required" in field && field.required && <span className="ml-0.5 text-danger">*</span>}
       </label>
-      {field.description && <p className="-mt-1 text-xs text-zinc-500">{field.description}</p>}
+      {field.description && <p className="text-xs text-ink-muted">{field.description}</p>}
       <FieldInput field={field} value={value} onChange={onChange} />
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   )
 }
@@ -379,14 +364,6 @@ function FieldInput({
   return <StringInput field={field} value={value} onChange={onChange} />
 }
 
-const INPUT_CLASS =
-  "w-full rounded-lg border border-zinc-700 bg-zinc-950/70 px-2.5 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-500/60 focus:outline-none"
-
-const OPTION_CLASS = (active: boolean): string =>
-  `flex w-full items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${
-    active ? "border-indigo-500/50 bg-indigo-500/10" : "border-zinc-800 bg-zinc-900/40 hover:border-zinc-700"
-  }`
-
 function StringInput({
   field,
   value,
@@ -402,7 +379,7 @@ function StringInput({
 
   if (options.length > 0) {
     return (
-      <div role="radiogroup" className="space-y-1.5">
+      <div role="radiogroup" className="mh-options">
         {options.map((option) => {
           const active = !other && text === option.value
           return (
@@ -415,19 +392,12 @@ function StringInput({
                 setOther(false)
                 onChange(option.value)
               }}
-              className={OPTION_CLASS(active)}
+              className={`mh-option ${active ? "is-selected" : ""}`}
             >
-              <span
-                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                  active ? "border-indigo-400" : "border-zinc-600"
-                }`}
-                aria-hidden="true"
-              >
-                {active && <span className="h-2 w-2 rounded-full bg-indigo-400" />}
-              </span>
+              <span className="mh-option__mark" aria-hidden="true" />
               <span className="min-w-0 flex-1">
-                <span className="block break-words text-sm text-zinc-200">{option.label}</span>
-                {option.description && <span className="mt-0.5 block text-xs text-zinc-500">{option.description}</span>}
+                <span className="block break-words text-sm">{option.label}</span>
+                {option.description && <span className="mt-0.5 block text-xs text-ink-muted">{option.description}</span>}
               </span>
             </button>
           )
@@ -441,17 +411,10 @@ function StringInput({
               setOther(true)
               onChange("")
             }}
-            className={OPTION_CLASS(other)}
+            className={`mh-option ${other ? "is-selected" : ""}`}
           >
-            <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                other ? "border-indigo-400" : "border-zinc-600"
-              }`}
-              aria-hidden="true"
-            >
-              {other && <span className="h-2 w-2 rounded-full bg-indigo-400" />}
-            </span>
-            <span className="text-sm text-zinc-200">Other…</span>
+            <span className="mh-option__mark" aria-hidden="true" />
+            <span className="text-sm">Other…</span>
           </button>
         )}
         {other && (
@@ -461,7 +424,7 @@ function StringInput({
             onChange={(event) => onChange(event.target.value)}
             placeholder="Type your answer"
             aria-label={fieldLabel(field)}
-            className={INPUT_CLASS}
+            className="mh-input"
           />
         )}
       </div>
@@ -476,7 +439,7 @@ function StringInput({
       placeholder={field.placeholder}
       maxLength={field.maxLength}
       aria-label={fieldLabel(field)}
-      className={INPUT_CLASS}
+      className="mh-input"
     />
   )
 }
@@ -509,7 +472,7 @@ function NumberInput({
       step={field.type === "integer" ? 1 : "any"}
       onChange={(event) => onChange(event.target.value === "" ? "" : Number(event.target.value))}
       aria-label={fieldLabel(field)}
-      className={INPUT_CLASS}
+      className="mh-input"
     />
   )
 }
@@ -533,41 +496,38 @@ function MultiInput({
 
   return (
     <div className="space-y-1.5">
-      {field.options.map((option) => {
-        const active = selected.includes(option.value)
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="checkbox"
-            aria-checked={active}
-            onClick={() => toggle(option.value)}
-            className={OPTION_CLASS(active)}
-          >
-            <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] leading-none ${
-                active ? "border-indigo-400 bg-indigo-500/20 text-indigo-200" : "border-zinc-600 text-transparent"
-              }`}
-              aria-hidden="true"
+      <div className="mh-options">
+        {field.options.map((option) => {
+          const active = selected.includes(option.value)
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="checkbox"
+              aria-checked={active}
+              onClick={() => toggle(option.value)}
+              className={`mh-option ${active ? "is-selected" : ""}`}
             >
-              ✓
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-sm text-zinc-200">{option.label}</span>
-              {option.description && <span className="mt-0.5 block text-xs text-zinc-500">{option.description}</span>}
-            </span>
-          </button>
-        )
-      })}
+              <span
+                className={`mh-option__mark rounded-xs text-[10px] leading-none ${active ? "text-accent" : "text-transparent"}`}
+                aria-hidden="true"
+              >
+                ✓
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words text-sm">{option.label}</span>
+                {option.description && <span className="mt-0.5 block text-xs text-ink-muted">{option.description}</span>}
+              </span>
+            </button>
+          )
+        })}
+      </div>
       {custom.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {custom.map((item) => (
-            <span
-              key={item}
-              className="flex items-center gap-1 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-200"
-            >
+            <span key={item} className="mh-chip mh-chip--accent">
               {item}
-              <button type="button" onClick={() => toggle(item)} className="text-indigo-300/70 hover:text-indigo-100">
+              <button type="button" onClick={() => toggle(item)} className="text-accent hover:text-accent-strong">
                 ×
               </button>
             </span>
@@ -589,7 +549,7 @@ function MultiInput({
             }}
             placeholder="Add your own"
             aria-label={`Add ${fieldLabel(field)}`}
-            className={INPUT_CLASS}
+            className="mh-input"
           />
           <button
             type="button"
@@ -598,7 +558,7 @@ function MultiInput({
               toggle(draft.trim())
               setDraft("")
             }}
-            className="shrink-0 rounded-lg border border-zinc-700 px-2.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+            className="mh-btn mh-btn--secondary shrink-0 px-3"
           >
             Add
           </button>
@@ -615,13 +575,11 @@ function BooleanToggle({ checked, onChange }: { checked: boolean; onChange: (val
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-indigo-600" : "bg-zinc-700"
-      }`}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? "bg-accent" : "bg-hairline-strong"}`}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-4.5" : "translate-x-0.5"
+        className={`absolute top-0.5 h-4 w-4 rounded-full transition-transform ${
+          checked ? "translate-x-4.5 bg-on-accent" : "translate-x-0.5 bg-surface"
         }`}
       />
     </button>

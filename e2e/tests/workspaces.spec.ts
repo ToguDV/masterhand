@@ -8,11 +8,11 @@ test("adds a workspace, deletes a session and removes the workspace", async ({ p
 
   await page.getByRole("button", { name: "+ New" }).click()
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-  await expect(page.getByText("Untitled")).toBeVisible()
+  await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
 
   page.on("dialog", (dialog) => dialog.accept())
   await page.getByRole("button", { name: "Delete session" }).click()
-  await expect(page.getByText("Untitled")).toBeHidden()
+  await expect(page.locator("aside").getByText("Untitled")).toBeHidden()
   await expect(page.getByText("No sessions yet.")).toBeVisible()
 
   await page.getByRole("button", { name: "Remove workspace" }).click()
@@ -37,14 +37,14 @@ test("keeps sessions scoped to the selected workspace", async ({ page }) => {
   const firstWorkspaceID = await workspace.inputValue()
 
   await page.getByRole("button", { name: "+ New" }).click()
-  await expect(page.getByText("Untitled")).toBeVisible()
+  await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
 
   await addWorkspace(page)
-  await expect(page.getByText("Untitled")).toBeHidden()
+  await expect(page.locator("aside").getByText("Untitled")).toBeHidden()
   await expect(page.getByText("No sessions yet.")).toBeVisible()
 
   await workspace.selectOption(firstWorkspaceID)
-  await expect(page.getByText("Untitled")).toBeVisible()
+  await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
 })
 
 test("never leaks the previous workspace's session or preview", async ({ page }) => {

@@ -22,7 +22,7 @@ test("auto-accepts permission requests for the active session", async ({ page })
   await send(page, "hello agent")
 
   await expect(page.getByText("Done!")).toBeVisible()
-  await expect(page.getByText("Permission required")).toBeHidden()
+  await expect(page.getByText("Permission requested")).toBeHidden()
 })
 
 test("does not auto-accept for other sessions", async ({ page }) => {
@@ -39,7 +39,7 @@ test("does not auto-accept for other sessions", async ({ page }) => {
 
   await send(page, "hello agent")
 
-  await expect(page.getByText("Permission required")).toBeVisible()
+  await expect(page.getByText("Permission requested")).toBeVisible()
   await page.getByRole("button", { name: "Once" }).click()
   await expect(page.getByText("Done!")).toBeVisible()
 })
