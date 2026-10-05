@@ -11,20 +11,21 @@ test("starts and stops a session preview through the tunnel", async ({ page }) =
   await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
 
-  await page.getByRole("button", { name: "Preview" }).click()
-  await expect(page.getByRole("heading", { name: "Preview" })).toBeVisible()
+  await page.getByRole("button", { name: "Run and preview" }).click()
+  await expect(page.getByRole("heading", { name: "Run & preview" })).toBeVisible()
+  await page.getByRole("tab", { name: "Preview" }).click()
 
-  await page.getByRole("button", { name: "Start" }).click()
+  await page.getByRole("button", { name: "Start preview" }).click()
   const frame = page.locator('iframe[title="Session preview"]')
   await expect(frame).toHaveAttribute("src", "https://e2e-preview.trycloudflare.com")
-  await expect(page.getByRole("link", { name: "Open" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Open preview" })).toHaveAttribute(
     "href",
     "https://e2e-preview.trycloudflare.com",
   )
 
-  await page.getByRole("button", { name: "Stop" }).click()
+  await page.getByRole("button", { name: "Stop preview" }).click()
   await expect(frame).toBeHidden()
-  await expect(page.getByRole("button", { name: "Start" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Start preview" })).toBeVisible()
 })
 
 test("surfaces a tunnel that dies while running", async ({ page }) => {
@@ -34,8 +35,9 @@ test("surfaces a tunnel that dies while running", async ({ page }) => {
     await addWorkspace(page)
 
     await newSession(page)
-    await page.getByRole("button", { name: "Preview" }).click()
-    await page.getByRole("button", { name: "Start" }).click()
+    await page.getByRole("button", { name: "Run and preview" }).click()
+    await page.getByRole("tab", { name: "Preview" }).click()
+    await page.getByRole("button", { name: "Start preview" }).click()
     const frame = page.locator('iframe[title="Session preview"]')
     await expect(frame).toBeVisible()
 
@@ -44,7 +46,7 @@ test("surfaces a tunnel that dies while running", async ({ page }) => {
     writeFileSync(DIE_FILE, "die")
     await expect(page.getByText(/cloudflared exited/).first()).toBeVisible({ timeout: 15_000 })
     await expect(frame).toBeHidden()
-    await expect(page.getByRole("button", { name: "Start" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Start preview" })).toBeVisible()
   } finally {
     rmSync(DIE_FILE, { force: true })
   }

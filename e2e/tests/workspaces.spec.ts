@@ -57,13 +57,14 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   const workspaceA = await addWorkspace(page)
   await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-  await page.getByRole("button", { name: "Preview" }).click()
-  await page.getByRole("button", { name: "Start" }).click()
+  await page.getByRole("button", { name: "Run and preview" }).click()
+  await page.getByRole("tab", { name: "Preview" }).click()
+  await page.getByRole("button", { name: "Start preview" }).click()
   await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
     "src",
     "https://e2e-preview.trycloudflare.com",
   )
-  await page.getByRole("button", { name: "Close preview" }).click()
+  await page.getByRole("button", { name: "Close run and preview" }).click()
 
   // Switching to an empty workspace must drop A's chat and preview, not keep
   // rendering them under the new workspace.
@@ -79,7 +80,8 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   await page.getByRole("button", { name: "Workspace" }).click()
   await page.getByRole("menuitemradio", { name: workspaceA }).click()
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-  await page.getByRole("button", { name: "Preview" }).click()
+  // A's preview is running: the unified panel opens straight on the Preview tab.
+  await page.getByRole("button", { name: "Run and preview" }).click()
   await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
     "src",
     "https://e2e-preview.trycloudflare.com",

@@ -629,7 +629,7 @@ Fonts are intentionally easy to replace: the whole system references three CSS c
 - **Docs / preview container**: 1200px max, 24px gutters.
 - **Management dialogs** (workspace add/remove, choice modal): 440px max, become bottom sheets below 640px.
 - **Blocking cards** (permission, questions): never dialogs; they live in the 768px chat column at every size.
-- **Side panels** (side question, run, preview, audit): 360px, become full-width sheets on mobile.
+- **Side panels** (side question, run & preview, audit): 360px, become full-width sheets on mobile.
 
 ### Whitespace Philosophy
 Dense where the work is, airy where the work waits. Transcripts, diffs and tool output pack tightly with hairline separation. Empty states, login and session lists breathe, and that breathing room is exactly where decoration is allowed to live. Never both at once: decoration and density are mutually exclusive per surface.
@@ -748,7 +748,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
-**`side-panel`** — right sheet (360px) for side questions, run, preview and audit; full-width on mobile.
+**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`Run | Preview`, active tab underlined in accent) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch.
 
 **`login-card`** — centered card, `{rounded.xxl}`, with a blob behind it and a dot field at its base; contains the wordmark, one field and one primary button. The single most decorated screen in the product.
 
@@ -799,7 +799,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code
 - **Question index**: tabs scroll horizontally when they overflow (never wrap to a second row); the active question stays visible
 - **Management dialogs** (workspace add/remove, choice modal): bottom sheets below 640px, centered cards above
-- **Panels** (side question / run / preview / audit): full-width sheet on mobile, 360px dock on desktop
+- **Panels** (side question / run & preview / audit): full-width sheet on mobile, 360px dock on desktop
 - **Frames in the preview page**: phone and browser frames stack vertically below 1024px; the mock app inside the browser frame responds to **container width**, not viewport
 
 ### Decoration Behavior

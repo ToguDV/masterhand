@@ -31,10 +31,9 @@ import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
 import { BranchPicker } from "./components/BranchPicker"
-import { PreviewSheet, PreviewTrigger } from "./components/PreviewPanel"
+import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
-import { RunSheet, RunTrigger } from "./components/RunPanel"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { ThemeToggle } from "./components/ThemeToggle"
@@ -109,7 +108,7 @@ export default function App() {
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(loadAutoAcceptSessions)
-  const [panel, setPanel] = useState<"audit" | "run" | "preview" | null>(null)
+  const [panel, setPanel] = useState<"audit" | "run" | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -781,8 +780,7 @@ export default function App() {
         {sessionID && (
           <div className="hidden items-center gap-1 md:flex">
             <AuditTrigger onOpen={() => setPanel("audit")} />
-            <RunTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
-            <PreviewTrigger sessionID={sessionID} onOpen={() => setPanel("preview")} />
+            <RunPreviewTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
           </div>
         )}
         <div className="mx-1 hidden h-6 w-px bg-hairline md:block" />
@@ -814,15 +812,10 @@ export default function App() {
                 {sessionID && (
                   <div className="mb-1.5 flex flex-col gap-0.5 border-b border-hairline pb-1.5">
                     <AuditTrigger onOpen={() => setPanel("audit")} className="w-full justify-start" />
-                    <RunTrigger
+                    <RunPreviewTrigger
                       sessionID={sessionID}
                       workspaceID={workspaceID}
                       onOpen={() => setPanel("run")}
-                      className="w-full justify-start"
-                    />
-                    <PreviewTrigger
-                      sessionID={sessionID}
-                      onOpen={() => setPanel("preview")}
                       className="w-full justify-start"
                     />
                   </div>
@@ -1019,9 +1012,8 @@ export default function App() {
 
       {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
       {sessionID && panel === "run" && (
-        <RunSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
+        <RunPreviewSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
       )}
-      {sessionID && panel === "preview" && <PreviewSheet sessionID={sessionID} onClose={() => setPanel(null)} />}
     </div>
   )
 }
