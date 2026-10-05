@@ -99,8 +99,11 @@ let offline = false
 const catalogRequests = { agent: 0, model: 0 }
 
 // E2E control: holds prompt responses so a test can reproduce a stalled send
-// (the request never settles). `/e2e/release-prompt` flushes held responses.
+// (the request never settles). `stall-prompt` holds before processing (nothing
+// runs); `stall-response` holds after processing (the agent works and finishes,
+// only the HTTP response is lost). `/e2e/release-prompt` flushes held responses.
 let stallPrompts = false
+let stallResponses = false
 const heldPrompts: Array<() => void> = []
 
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
@@ -794,9 +797,15 @@ const server = createServer((req, res) => {
       if (offline) closeStreams()
       return empty(res, 204)
     }
-    if (req.method === "POST" && (path === "/e2e/stall-prompt" || path === "/e2e/release-prompt")) {
+    if (req.method === "POST" && path.startsWith("/e2e/stall")) {
       stallPrompts = path === "/e2e/stall-prompt"
-      if (!stallPrompts) for (const release of heldPrompts.splice(0)) release()
+      stallResponses = path === "/e2e/stall-response"
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/release-prompt") {
+      stallPrompts = false
+      stallResponses = false
+      for (const release of heldPrompts.splice(0)) release()
       return empty(res, 204)
     }
     if (req.method === "GET" && path === "/e2e/state") {
@@ -978,6 +987,9 @@ const server = createServer((req, res) => {
         } else {
           void runPrompt(sessionID, text)
         }
+        // E2E control: hold after processing too — the agent's turn runs and
+        // finishes, only the HTTP response is lost.
+        if (stallResponses) await new Promise<void>((resolve) => heldPrompts.push(resolve))
         json(res, 200, {
           data: {
             id: message.id,

@@ -38,6 +38,37 @@ test("recovers the send button when the prompt response stalls", async ({ page, 
   await expect(page.getByText(/server did not respond/)).toBeVisible()
 })
 
+// The variant the user reported: the message was sent and the agent already
+// finished, but the lost prompt response still leaves the button locked.
+test("recovers the send button after a lost response when the agent finished", async ({ page, request }) => {
+  await login(page)
+  await addWorkspace(page)
+  await page.getByRole("button", { name: "+ New" }).click()
+
+  const composer = page.getByPlaceholder("Write a message…")
+  const send = page.getByRole("button", { name: "Send" })
+
+  await request.post(`${MOCK_URL}/e2e/stall-response`)
+  await composer.fill("/seed 2")
+  await send.click()
+  await expect(send).toHaveText("Sending…")
+
+  // The turn runs to completion while the response is still held.
+  await expect(page.getByText("Seed message 1")).toBeVisible()
+
+  // The user types the next message: the session is idle, yet the composer
+  // still looks empty (Sending…/disabled) — the reported stuck state.
+  await composer.fill("follow up")
+  await expect(composer).toHaveValue("follow up")
+  await expect(send).toBeDisabled()
+
+  // The deadline releases it and keeps the new text.
+  await expect(send).toHaveText("Send", { timeout: 15_000 })
+  await expect(send).toBeEnabled()
+  await expect(composer).toHaveValue("follow up")
+  await expect(page.getByText(/server did not respond/)).toBeVisible()
+})
+
 // Text typed while a slow (but successful) send is in flight must survive:
 // it was neither sent nor should it be wiped when the response arrives.
 test("keeps text typed while a slow send is in flight", async ({ page, request }) => {
