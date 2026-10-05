@@ -28,9 +28,13 @@ const preview = createPreviewManager({ config, store })
 
 try {
   const reconciled = reconcileWorktrees(store, worktrees, config.worktreesRoot)
-  if (reconciled.droppedRecords.length || reconciled.removedWorktrees.length) {
+  if (reconciled.skipped) {
+    console.warn(
+      `[masterhand] worktree reconciliation skipped (${reconciled.skipped}): no worktree data was touched`,
+    )
+  } else if (reconciled.droppedRecords.length || reconciled.quarantinedWorktrees.length) {
     console.log(
-      `[masterhand] worktrees reconciled: ${reconciled.droppedRecords.length} stale record(s), ${reconciled.removedWorktrees.length} orphan(s) removed`,
+      `[masterhand] worktrees reconciled: ${reconciled.droppedRecords.length} stale record(s), ${reconciled.quarantinedWorktrees.length} orphan(s) quarantined`,
     )
   }
 } catch (error) {

@@ -25,6 +25,7 @@ import {
 import { client } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
 import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
+import { BrandMark } from "./components/BrandMark"
 import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
@@ -67,6 +68,11 @@ export default function App() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [authed, setAuthed] = useState<boolean | null>(null)
+  const [statusFailed, setStatusFailed] = useState(false)
+  // Read inside the status effect without re-running it: a stale 401 from
+  // before login must not sign the user out after a successful login.
+  const authedRef = useRef(authed)
+  authedRef.current = authed
   const [sessionID, setSessionID] = useState<string | null>(
     () => new URLSearchParams(window.location.search).get("session"),
   )
@@ -101,6 +107,10 @@ export default function App() {
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
+  // Session ids from the last list snapshot (see the reconciliation effect).
+  const knownSessionIDsRef = useRef<Set<string>>(new Set())
+  const sessionIDRef = useRef(sessionID)
+  sessionIDRef.current = sessionID
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(async (permission: Permission) => {
@@ -125,10 +135,21 @@ export default function App() {
   const statusQuery = useBffStatus(client, authed ? 15_000 : false)
 
   useEffect(() => {
-    if (statusQuery.isSuccess) setAuthed(true)
-    else if (statusQuery.error) {
-      if (statusQuery.error instanceof ApiError && statusQuery.error.status === 401) setAuthed(false)
-      else if (!(statusQuery.error instanceof ApiError)) {
+    if (statusQuery.isSuccess) {
+      setStatusFailed(false)
+      setAuthed(true)
+    } else if (statusQuery.error) {
+      if (statusQuery.error instanceof ApiError) {
+        if (statusQuery.error.status === 401) {
+          setStatusFailed(false)
+          setAuthed(false)
+        } else if (authedRef.current === null) {
+          // Any other HTTP error (5xx, unexpected 4xx): terminal, so show a
+          // retry screen instead of leaving the app on "Loading…" forever.
+          setStatusFailed(true)
+        }
+      } else {
+        setStatusFailed(false)
         setBanner("Could not reach the MasterHand server")
         setAuthed(false)
       }
@@ -323,6 +344,21 @@ export default function App() {
     () => [...(sessionsQuery.data ?? [])].sort((a, b) => b.time.updated - a.time.updated),
     [sessionsQuery.data],
   )
+
+  // Reconcile the open session when it disappears from the list (deleted from
+  // another device/TUI: `session.deleted` invalidates the list and the refetch
+  // confirms it). Only a session that was present in the previous snapshot is
+  // closed, so a just-created session is never dropped by a stale fetch.
+  useEffect(() => {
+    if (!sessionsQuery.isSuccess) return
+    const current = new Set(sessions.map((session) => session.id))
+    const openID = sessionIDRef.current
+    const wasKnown = openID !== null && knownSessionIDsRef.current.has(openID)
+    knownSessionIDsRef.current = current
+    if (wasKnown && openID && !current.has(openID)) {
+      openSession(sessions[0]?.id ?? null)
+    }
+  }, [sessions, sessionsQuery.isSuccess, openSession])
   const statuses = statusesQuery.data ?? {}
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
@@ -510,6 +546,34 @@ export default function App() {
     } finally {
       setBusyFormID(null)
     }
+  }
+
+  if (statusFailed) {
+    return (
+      <main className="mh-login">
+        <Deco variant="blob" />
+        <Deco variant="dots" />
+        <div className="mh-login-card">
+          <div className="mh-brand">
+            <BrandMark />
+            <span className="mh-brand__name">MasterHand</span>
+          </div>
+          <p className="mh-body-sm text-ink-muted">
+            The server answered with an error. Check the server logs and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFailed(false)
+              void statusQuery.refetch()
+            }}
+            className="mh-btn mh-btn--primary w-full"
+          >
+            Retry
+          </button>
+        </div>
+      </main>
+    )
   }
 
   if (authed === null) {

@@ -228,6 +228,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     port: 0,
     opencodeUrl: "http://127.0.0.1:1",
     opencodeAuth: null,
+    opencodeTimeoutMs: 10_000,
     masterhandPassword: "secret",
     sessionSecret: "test-secret",
     sessionTtlHours: 720,
@@ -272,6 +273,10 @@ export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = 
     remove: (repo, path, branch) => {
       calls.push(`remove:${repo}:${path}:${branch}`)
       branches.delete(branch)
+    },
+    quarantine: (repo, path) => {
+      calls.push(`quarantine:${repo}:${path}`)
+      return `${path}.orphaned-test`
     },
     list: () => [],
     commitAll: (path) => {
@@ -364,6 +369,7 @@ export async function startTestApp(
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
+    sseQueueMax?: number
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -406,6 +412,7 @@ export async function startTestApp(
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
+    sseQueueMax: options.sseQueueMax,
   })
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
   await new Promise<void>((resolve) => server.once("listening", resolve))
