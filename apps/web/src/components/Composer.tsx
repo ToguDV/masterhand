@@ -6,7 +6,10 @@ import {
   buildComposerPopover,
   collectAgentMentions,
   composerTrigger,
+  createDeliveryMarker,
   defaultModelValue,
+  deliveryMarkerOf,
+  deliveryMetadata,
   flattenModels,
   isEffortVariant,
   mentionableAgents,
@@ -49,23 +52,12 @@ function composerErrorMessage(error: unknown, kind: "send" | "side question"): s
   return kind === "send" ? "Could not send" : "Could not start the side question"
 }
 
-/** Plain text of a chat message (user messages carry a single text part). */
-function chatMessageText(message: ChatMessage): string {
-  return message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n")
-}
-
 /** A send waiting for its HTTP response, kept for delivery reconciliation. */
 interface PendingSend {
   text: string
-  at: number
-  /** User-message ids already known when the send started. */
-  known: Set<string>
+  /** Per-send marker persisted on the user message opencode creates. */
+  marker: string
 }
-
-/** Clock tolerance between the client and the server when matching the sent message. */
-const DELIVERY_SKEW_MS = 5_000
 
 interface SessionPreferences {
   agent: string
@@ -259,22 +251,17 @@ export function Composer({
   // Delivery reconciliation: the prompt response can be lost while opencode
   // already processed the message, so waiting only for the request deadline
   // would keep the button locked (and warn falsely) until it expires. As soon
-  // as the live history shows the sent message, the send is confirmed and the
-  // composer is released immediately; the deadline stays as the fallback for
-  // an unconfirmable send.
+  // as the live history shows the message carrying this send's marker, the send
+  // is confirmed and the composer is released immediately; the deadline stays
+  // as the fallback for an unconfirmable send. Matching by marker — not text +
+  // time — means an identical message created elsewhere can never confirm it.
   useEffect(() => {
     if (!sending) return
     const pending = pendingSend.current
     if (!pending) return
     const check = (): void => {
       const messages = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID))
-      const delivered = messages?.some(
-        (message) =>
-          message.info.role === "user" &&
-          !pending.known.has(message.info.id) &&
-          message.info.time.created >= pending.at - DELIVERY_SKEW_MS &&
-          chatMessageText(message) === pending.text,
-      )
+      const delivered = messages?.some((message) => deliveryMarkerOf(message) === pending.marker)
       if (delivered) completeSend(pending)
     }
     check()
@@ -317,14 +304,8 @@ export function Composer({
     }
     setSending(true)
     setError(null)
-    const known = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID)) ?? []
-    const pending: PendingSend = {
-      text: trimmed,
-      at: Date.now(),
-      known: new Set(
-        known.filter((message) => message.info.role === "user").map((message) => message.info.id),
-      ),
-    }
+    const marker = createDeliveryMarker()
+    const pending: PendingSend = { text: trimmed, marker }
     pendingSend.current = pending
     try {
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
@@ -344,7 +325,7 @@ export function Composer({
       } else {
         await client.api.prompt(
           sessionID,
-          { text: trimmed, ...context },
+          { text: trimmed, metadata: deliveryMetadata(marker), ...context },
           { agent: session?.agent, model: session?.model },
         )
       }

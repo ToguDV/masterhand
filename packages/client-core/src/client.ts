@@ -364,6 +364,7 @@ export function createClient(options: ClientOptions = {}): Client {
             sessionID,
             text: input.text,
             ...(input.agents && input.agents.length > 0 ? { agents: input.agents } : {}),
+            ...(input.metadata ? { metadata: input.metadata } : {}),
           })
         }),
       runCommand: (sessionID, input, current) =>

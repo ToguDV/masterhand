@@ -134,6 +134,7 @@ export function toChatMessage(message: SessionMessageInfo, sessionID: string): C
         sessionID,
         role: "user",
         time: { created: message.time.created },
+        ...(message.metadata ? { metadata: message.metadata as Record<string, unknown> } : {}),
       },
       parts: [{ id: `${message.id}:text`, sessionID, messageID: message.id, type: "text", text: message.text }],
     }
