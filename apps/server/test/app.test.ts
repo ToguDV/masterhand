@@ -227,7 +227,7 @@ describe("storage resilience", () => {
           })
         },
       }),
-      createDir: () => {},
+      createDir: async () => {},
     })
     const cookie = await login(app.url)
 
@@ -728,7 +728,7 @@ describe("managed run errors", () => {
 describe("/api/workspaces", () => {
   it("creates the folder under the root, lists and removes it", async () => {
     const createdPaths: string[] = []
-    app = await startTestApp({ createDir: (path) => createdPaths.push(path) })
+    app = await startTestApp({ createDir: async (path) => { createdPaths.push(path) } })
     const cookie = await login(app.url)
 
     const created = await fetch(`${app.url}/api/workspaces`, {
@@ -815,7 +815,7 @@ describe("/api/workspaces", () => {
 
   it("deletes the folder when deleteFiles is set", async () => {
     const removedPaths: string[] = []
-    app = await startTestApp({ removeDir: (path) => removedPaths.push(path) })
+    app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
     const cookie = await login(app.url)
     const created = await fetch(`${app.url}/api/workspaces`, {
       method: "POST",
@@ -834,7 +834,7 @@ describe("/api/workspaces", () => {
 
   it("refuses to delete files outside the root but still forgets the workspace", async () => {
     const removedPaths: string[] = []
-    app = await startTestApp({ removeDir: (path) => removedPaths.push(path) })
+    app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
     const cookie = await login(app.url)
     app.store.createWorkspace({ id: "legacy", name: "legacy", path: "/etc", createdAt: Date.now() })
 

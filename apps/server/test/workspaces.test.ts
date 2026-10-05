@@ -101,15 +101,15 @@ describe("processSystemPrompt", () => {
 })
 
 describe("createWorkspaceDir / removeWorkspaceDir", () => {
-  it("creates nested folders and deletes them recursively", () => {
+  it("creates nested folders and deletes them recursively", async () => {
     const root = mkdtempSync(join(tmpdir(), "masterhand-ws-"))
     try {
       const path = join(root, "nested", "project")
-      createWorkspaceDir(path)
+      await createWorkspaceDir(path)
       expect(existsSync(path)).toBe(true)
 
       writeFileSync(join(path, "file.txt"), "x")
-      removeWorkspaceDir(path)
+      await removeWorkspaceDir(path)
       expect(existsSync(path)).toBe(false)
       expect(existsSync(join(root, "nested"))).toBe(true)
     } finally {
@@ -117,10 +117,10 @@ describe("createWorkspaceDir / removeWorkspaceDir", () => {
     }
   })
 
-  it("removing a missing folder is a no-op", () => {
+  it("removing a missing folder is a no-op", async () => {
     const root = mkdtempSync(join(tmpdir(), "masterhand-ws-"))
     try {
-      expect(() => removeWorkspaceDir(join(root, "missing"))).not.toThrow()
+      await expect(removeWorkspaceDir(join(root, "missing"))).resolves.toBeUndefined()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

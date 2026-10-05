@@ -282,7 +282,7 @@ describe("orphan tunnel cleanup", () => {
 })
 
 describe("preview availability", () => {
-  it("uses the injected availability check and caches it", () => {
+  it("uses the injected availability check and caches it", async () => {
     const config = testConfig()
     let calls = 0
     const manager = createPreviewManager({
@@ -294,17 +294,17 @@ describe("preview availability", () => {
       },
     })
 
-    expect(manager.available()).toBe(false)
-    expect(manager.available()).toBe(false)
+    await expect(manager.available()).resolves.toBe(false)
+    await expect(manager.available()).resolves.toBe(false)
     expect(calls).toBe(1)
   })
 
-  it("reports unavailable when the binary does not exist", () => {
+  it("reports unavailable when the binary does not exist", async () => {
     const manager = createPreviewManager({
       config: testConfig({ cloudflaredBin: "/nonexistent/cloudflared-xyz" }),
       store: createMemoryStore(),
     })
-    expect(manager.available()).toBe(false)
+    await expect(manager.available()).resolves.toBe(false)
   })
 })
 

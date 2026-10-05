@@ -1,5 +1,5 @@
 import { basename, resolve, sep } from "node:path"
-import { mkdirSync, rmSync } from "node:fs"
+import { mkdir, rm } from "node:fs/promises"
 
 const MAX_SLUG_LENGTH = 64
 
@@ -45,13 +45,13 @@ export function workspaceName(path: string): string {
 }
 
 /** Creates the workspace folder (and the root itself) if missing. */
-export function createWorkspaceDir(path: string): void {
-  mkdirSync(path, { recursive: true })
+export function createWorkspaceDir(path: string): Promise<void> {
+  return mkdir(path, { recursive: true }).then(() => undefined)
 }
 
 /** Deletes a workspace folder and everything inside it. */
-export function removeWorkspaceDir(path: string): void {
-  rmSync(path, { recursive: true, force: true })
+export function removeWorkspaceDir(path: string): Promise<void> {
+  return rm(path, { recursive: true, force: true })
 }
 
 /**

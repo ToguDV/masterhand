@@ -253,7 +253,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 /** In-memory `git` stand-in: records calls and answers like a clean repo. */
 export interface FakeWorktrees extends WorktreeManager {
   calls: string[]
-  branches: Set<string>
+  /** Branch names currently "created" by the fake. */
+  knownBranches: Set<string>
 }
 
 export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = {}): FakeWorktrees {
@@ -261,35 +262,44 @@ export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = 
   const branches = new Set<string>()
   const manager: FakeWorktrees = {
     calls,
-    branches,
-    isRepoRoot: () => true,
-    ensureRepo: (path) => {
+    knownBranches: branches,
+    isRepoRoot: async () => true,
+    ensureRepo: async (path) => {
       calls.push(`ensure:${path}`)
     },
-    headBranch: () => "main",
-    create: (repo, path, branch) => {
+    headBranch: async () => "main",
+    create: async (repo, path, branch) => {
       calls.push(`create:${repo}:${path}:${branch}`)
       branches.add(branch)
     },
-    remove: (repo, path, branch) => {
+    remove: async (repo, path, branch) => {
       calls.push(`remove:${repo}:${path}:${branch}`)
       branches.delete(branch)
     },
-    quarantine: (repo, path) => {
+    quarantine: async (repo, path) => {
       calls.push(`quarantine:${repo}:${path}`)
       return `${path}.orphaned-test`
     },
-    list: () => [],
-    commitAll: (path) => {
+    list: async () => [],
+    commitAll: async (path) => {
       calls.push(`commit:${path}`)
       return true
     },
-    hasRemote: () => false,
-    remoteUrl: () => null,
-    push: (path, branch) => {
+    hasRemote: async () => false,
+    remoteUrl: async () => null,
+    push: async (path, branch) => {
       calls.push(`push:${path}:${branch}`)
     },
-    pullRequest: () => null,
+    pullRequest: async () => null,
+    branches: async () => ({ current: "main", branches: ["main"] }),
+    isDirty: async () => false,
+    createBranch: async (repo, name) => {
+      calls.push(`create-branch:${repo}:${name}`)
+      branches.add(name)
+    },
+    checkout: async (repo, name) => {
+      calls.push(`checkout:${repo}:${name}`)
+    },
     ...overrides,
   }
   return manager
@@ -367,8 +377,8 @@ export async function startTestApp(
   options: {
     config?: Partial<Config>
     store?: Store
-    createDir?: (path: string) => void
-    removeDir?: (path: string) => void
+    createDir?: (path: string) => Promise<void>
+    removeDir?: (path: string) => Promise<void>
     worktrees?: WorktreeManager
     fetchImpl?: typeof fetch
     preview?: PreviewManager
@@ -378,7 +388,7 @@ export async function startTestApp(
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
-      available?: () => boolean
+      available?: () => boolean | Promise<boolean>
       readinessImpl?: (url: string) => Promise<boolean>
       urlTimeoutMs?: number
       readinessTimeoutMs?: number
@@ -411,8 +421,8 @@ export async function startTestApp(
     config,
     store,
     hub,
-    createDir: options.createDir ?? (() => {}),
-    removeDir: options.removeDir ?? (() => {}),
+    createDir: options.createDir ?? (async () => {}),
+    removeDir: options.removeDir ?? (async () => {}),
     worktrees: options.worktrees ?? createFakeWorktreeManager(),
     fetchImpl: options.fetchImpl,
     preview,
