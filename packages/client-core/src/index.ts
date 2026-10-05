@@ -1,5 +1,11 @@
 export * from "./types"
 export { ApiError, RequestTimeoutError, createClient, type Client, type ClientOptions } from "./client"
+export {
+  DELIVERY_MARKER_KEY,
+  createDeliveryMarker,
+  deliveryMarkerOf,
+  deliveryMetadata,
+} from "./delivery"
 export { conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"

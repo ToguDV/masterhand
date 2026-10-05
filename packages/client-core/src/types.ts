@@ -1,5 +1,6 @@
 import type {
   AgentInfo,
+  JsonValue,
   ModelInfo,
   ModelRef,
   PermissionRequest,
@@ -201,6 +202,11 @@ export interface PromptInput {
   model?: ModelRef
   /** Subagents mentioned with `@` in `text`. */
   agents?: PromptAgentMention[]
+  /**
+   * Metadata opencode persists on the created user message. MasterHand uses it
+   * for the per-send delivery marker (see `delivery.ts`).
+   */
+  metadata?: Record<string, JsonValue>
 }
 
 /** Input to run a slash command (the argument text plus optional context). */
@@ -254,6 +260,8 @@ export interface ChatMessageInfo {
   cost?: number
   tokens?: TokenUsageInfo
   error?: SessionStructuredError
+  /** Metadata opencode persisted on the message (user messages carry the send marker). */
+  metadata?: Record<string, unknown>
 }
 
 export type ChatToolStatus = "pending" | "running" | "completed" | "error"

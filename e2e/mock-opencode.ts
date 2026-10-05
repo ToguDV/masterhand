@@ -34,6 +34,7 @@ interface UserMessage {
   sessionID: string
   time: { created: number }
   text: string
+  metadata?: Record<string, unknown>
   type: "user"
 }
 
@@ -107,6 +108,8 @@ let stallResponses = false
 const heldPrompts: Array<() => void> = []
 /** How many prompt requests reached the mock (read via `/e2e/state`). */
 let promptRequests = 0
+/** Session the last prompt request targeted, used by the message-injection control. */
+let lastPromptSessionID: string | null = null
 
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
 // persistent SQLite DATA_DIR locally, so restarting at `ses_1` every time
@@ -210,12 +213,13 @@ function createSession(input: { directory: string; parentID?: string; title?: st
   return session
 }
 
-function appendUserMessage(sessionID: string, text: string): UserMessage {
+function appendUserMessage(sessionID: string, text: string, metadata?: Record<string, unknown>): UserMessage {
   const message: UserMessage = {
     id: nextId("msg"),
     sessionID,
     time: { created: now() },
     text,
+    ...(metadata ? { metadata } : {}),
     type: "user",
   }
   conversations.get(sessionID)?.push(message)
@@ -811,6 +815,20 @@ const server = createServer((req, res) => {
       for (const release of heldPrompts.splice(0)) release()
       return empty(res, 204)
     }
+    // Simulates another device (or the opencode TUI) sending a message to a
+    // session: appends the user message and announces a turn, so the client
+    // refetches the history. Used to prove delivery reconciliation never
+    // matches a message that is not ours.
+    if (req.method === "POST" && path === "/e2e/inject-user-message") {
+      const body = await readBody(req)
+      const sessionID = typeof body.sessionID === "string" ? body.sessionID : lastPromptSessionID
+      if (!sessionID || !sessions.has(sessionID)) return json(res, 404, { error: "no_session" })
+      const message = appendUserMessage(sessionID, typeof body.text === "string" ? body.text : "")
+      const directory = directoryOf(sessionID)
+      broadcast("session.execution.started", { sessionID }, directory)
+      broadcast("session.idle", { sessionID }, directory)
+      return json(res, 200, { data: message })
+    }
     if (req.method === "GET" && path === "/e2e/state") {
       return json(res, 200, { offline, stalled: heldPrompts.length, prompts: promptRequests, ...catalogRequests })
     }
@@ -968,12 +986,17 @@ const server = createServer((req, res) => {
       if (req.method === "POST" && segments[3] === "prompt") {
         if (!session) return json(res, 404, { error: "not_found" })
         promptRequests += 1
+        lastPromptSessionID = sessionID
         const body = await readBody(req)
         // E2E control: hold this response until the release route runs, so the
         // client's fetch stays pending exactly like a stalled network request.
         if (stallPrompts) await new Promise<void>((resolve) => heldPrompts.push(resolve))
         const text = typeof body.text === "string" ? body.text : ""
-        const message = appendUserMessage(sessionID, text)
+        const metadata =
+          body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+            ? (body.metadata as Record<string, unknown>)
+            : undefined
+        const message = appendUserMessage(sessionID, text, metadata)
         // E2E helper: `/seed N` fills the conversation with N more messages and
         // reports the session idle, so clients refetch the whole history.
         const seed = /^\/seed (\d+)$/.exec(text.trim())

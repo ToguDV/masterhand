@@ -27,7 +27,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 7. **Guard against double submit synchronously.** A React state flag is not a lock: two events in the same tick can both read it as `false`. Use a ref for in-flight guards on non-idempotent actions.
 8. **Reconcile stale state.** When an entity is deleted/renamed elsewhere (`session.deleted`, workspace list change), clear references to it (open session, cached panels) instead of leaving a mounted view pointed at a 404.
 9. **Bound polling of transitional states.** `starting`/`retry` polls need a cap/backoff and a timeout state; an unbounded 1.5 s refetch spins forever when the transition never completes.
-10. **Validate delivery/confirmation heuristics.** Matching by text + time is fragile: identical consecutive sends, other devices, or server-side text normalization can produce false positives (and false negatives). Prefer a stronger correlation or document the accepted residual risk with tests.
+10. **Correlate mutations with a server-persisted marker, not text + time.** Matching by text + time is fragile: identical consecutive sends, another device sending the same text, or server-side text normalization produce false positives (and false negatives). Prefer a correlation the server stores and returns verbatim — the prompt body accepts `metadata` and opencode persists it on the created user message, so MasterHand sends a per-send marker there (`delivery.ts`) and confirms only on it. When no marker channel exists, document the accepted residual risk with tests.
 
 ## Checklist for a new mutating operation
 
@@ -45,7 +45,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 
 - `client-core` `RequestTimeoutError` + `timeoutMs` (PR #62).
 - Synchronous send lock in both composers: `pendingSend`/`startingSideQuestionRef` (web) and `sendLock` (mobile) refs, set before the first `await` (#72).
-- Web composer delivery reconciliation via `queryKeys.messages`, with known-ids + clock tolerance (PR #63).
+- Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
@@ -61,7 +61,6 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 | [#68](https://github.com/ToguDV/masterhand/issues/68) | Orphaned `/btw` forks on partial failure and unmount races |
 | [#69](https://github.com/ToguDV/masterhand/issues/69) | Open session not closed when deleted from another device |
 | [#70](https://github.com/ToguDV/masterhand/issues/70) | Auto-accept permission stalls on failure |
-| [#71](https://github.com/ToguDV/masterhand/issues/71) | Composer delivery-match heuristic false positives |
 | [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |
 
 Track them with `gh issue list --label reliability`.

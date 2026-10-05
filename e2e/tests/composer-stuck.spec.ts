@@ -128,3 +128,44 @@ test("ignores a second submit dispatched in the same tick", async ({ page, reque
   await expect(send).toHaveText("Send")
   await expect(send).toBeDisabled()
 })
+
+// The delivery reconciliation used to match by text + time only, so a message
+// with the same text created elsewhere (another device, the opencode TUI) or a
+// late duplicate confirmed the send even though the request never landed: the
+// composer released and cleared the text. Each prompt now carries a per-send
+// marker (`metadata`) and only its own user message can confirm it (#71).
+test("does not confirm a send from an identical message created elsewhere", async ({ page, request }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  const composer = page.getByPlaceholder("Write a message…")
+  const send = page.getByRole("button", { name: "Send" })
+
+  await request.post(`${MOCK_URL}/e2e/stall-prompt`)
+  // `/seed` keeps the mock out of the permission dance (the released prompt
+  // would otherwise leave a pending request behind for later specs).
+  await composer.fill("/seed 0")
+  await send.click()
+  await expect(send).toHaveText("Sending…")
+  // The click flags `sending` before the request reaches the mock; wait for the
+  // held prompt so the injected message cannot race it.
+  await expect
+    .poll(async () => ((await (await request.get(`${MOCK_URL}/e2e/state`)).json()) as { stalled: number }).stalled)
+    .toBe(1)
+
+  // Another device sends the same text while our request is still held: the
+  // message lands in the history but is not ours.
+  await request.post(`${MOCK_URL}/e2e/inject-user-message`, { data: { text: "/seed 0" } })
+  await expect(page.getByText("/seed 0", { exact: true })).toHaveCount(1)
+  await page.waitForTimeout(500)
+  await expect(send).toHaveText("Sending…")
+  await expect(composer).toHaveValue("/seed 0")
+
+  // Releasing our own prompt delivers the message that carries the marker: now
+  // the composer releases and clears the sent text.
+  await request.post(`${MOCK_URL}/e2e/release-prompt`)
+  await expect(send).toHaveText("Send", { timeout: 10_000 })
+  await expect(composer).toHaveValue("")
+  await expect(page.getByText("/seed 0", { exact: true })).toHaveCount(2)
+})

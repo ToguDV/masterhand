@@ -345,6 +345,18 @@ describe("prompt", () => {
     expect(calls[0]?.url).toContain("/prompt")
   })
 
+  it("forwards the delivery metadata with the prompt", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ data: {} }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    await client.api.prompt("ses_1", { text: "hi", metadata: { "masterhand.delivery": "d1" } })
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      text: "hi",
+      metadata: { "masterhand.delivery": "d1" },
+    })
+  })
+
   it("forwards subagent mentions with the prompt", async () => {
     const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ data: {} }))
     const client = createClient({ baseUrl: "https://mh.example", fetchImpl })

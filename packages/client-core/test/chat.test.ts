@@ -94,6 +94,20 @@ describe("toChatMessage", () => {
     })
   })
 
+  it("keeps the metadata of a user message (the per-send delivery marker)", () => {
+    const message = toChatMessage(
+      {
+        type: "user",
+        id: "msg_u",
+        time: { created: 7 },
+        text: "hello",
+        metadata: { "masterhand.delivery": "d1" },
+      },
+      SESSION,
+    )
+    expect(message?.info.metadata).toEqual({ "masterhand.delivery": "d1" })
+  })
+
   it("adapts a v2 assistant message with metadata, content and usage", () => {
     const assistant = assistantMessage({
       content: [
