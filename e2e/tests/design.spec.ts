@@ -4,16 +4,30 @@ import { addWorkspace, login } from "./helpers"
 test("switches between light and dark themes and remembers the choice", async ({ page }) => {
   await login(page)
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+  // The tokens follow `color-scheme`, so assert the actual paint, not only the
+  // attribute: the old bug left the attribute right while the UI stayed dark.
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgb(250, 250, 247)")
 
   await page.getByRole("button", { name: "Switch to dark theme" }).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgb(12, 12, 11)")
 
   await page.reload()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgb(12, 12, 11)")
   await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible()
 
   await page.getByRole("button", { name: "Switch to light theme" }).click()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgb(250, 250, 247)")
 })
 
 test("renders permission requests inline in the transcript, not as a modal", async ({ page }) => {
