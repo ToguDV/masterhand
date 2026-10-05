@@ -49,6 +49,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
+- Auto-accept retry: bounded attempts with backoff (`AUTO_ACCEPT_MAX_ATTEMPTS`/`AUTO_ACCEPT_RETRY_DELAYS_MS`, web + mobile), tracked per permission in a pending set that `permission.replied` clears; after the cap the session is never left silently blocked — the inline card plus an actionable banner let the user answer manually (#70).
 
 ## Open issues in this family
 

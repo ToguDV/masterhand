@@ -511,7 +511,27 @@ describe("App — permissions and events", () => {
     )
   })
 
-  it("banners when auto-accept cannot answer", async () => {
+  it("retries auto-accept after a transient failure", async () => {
+    client = makeClient()
+    client.api.permissions.mockResolvedValue([permission])
+    client.api.respondPermission
+      .mockRejectedValueOnce(new Error("nope"))
+      .mockResolvedValue(undefined)
+    createClientMock.mockReturnValue(client)
+    await renderAuthenticated({
+      autoAccept: ["ses_1"],
+      directories: ["/workspaces/demo"],
+      sessions: [makeSession()],
+    })
+
+    // The retry fires ~1 s after the first failure: answer it, no banner.
+    await waitFor(() => expect(client.api.respondPermission).toHaveBeenCalledTimes(2), {
+      timeout: 3000,
+    })
+    expect(screen.queryByText(/Could not auto-accept/)).toBeNull()
+  })
+
+  it("stops retrying and banners when auto-accept keeps failing", async () => {
     client = makeClient()
     client.api.permissions.mockResolvedValue([permission])
     client.api.respondPermission.mockRejectedValue(new Error("nope"))
@@ -522,7 +542,13 @@ describe("App — permissions and events", () => {
       sessions: [makeSession()],
     })
 
-    expect(await screen.findByText("Could not answer the permission request")).toBeOnTheScreen()
+    // Initial attempt + retries at ~1 s and ~3 s, then the actionable banner.
+    expect(
+      await screen.findByText("Could not auto-accept the permission request — answer it in the chat", {}, {
+        timeout: 6000,
+      }),
+    ).toBeOnTheScreen()
+    expect(client.api.respondPermission).toHaveBeenCalledTimes(3)
   })
 
   it("shows an inline question from the stream and answers it", async () => {

@@ -40,6 +40,10 @@ import type { AnsweredPermission } from "./components/PermissionCard"
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
 
+/** Auto-accept retry policy: bounded attempts with a short backoff. */
+const AUTO_ACCEPT_MAX_ATTEMPTS = 3
+const AUTO_ACCEPT_RETRY_DELAYS_MS = [1_000, 3_000]
+
 function initialWorkspaceID(): string | null {
   const fromUrl = new URLSearchParams(window.location.search).get("workspace")
   if (fromUrl) return fromUrl
@@ -93,6 +97,13 @@ export default function App() {
   const autoAcceptSessionsRef = useRef(autoAcceptSessions)
   autoAcceptSessionsRef.current = autoAcceptSessions
   const answeringRef = useRef(new Set<string>())
+  // Auto-accept failures are retried with backoff (bounded); after the cap the
+  // user is pointed at the inline card instead of the session stalling forever.
+  // `autoPending` tracks requests only auto-accept answers (they never enter
+  // `permissions` state), so a stale retry can drop itself.
+  const autoPendingRef = useRef(new Set<string>())
+  const autoAcceptAttemptsRef = useRef(new Map<string, number>())
+  const autoAcceptTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const formsRef = useRef(forms)
   formsRef.current = forms
   // Set when the user switches workspace: drop the open session and open the
@@ -100,24 +111,60 @@ export default function App() {
   const pendingWorkspaceAutoOpenRef = useRef(false)
 
   /** Answers a permission request automatically ("once", reversible). */
-  const answerAuto = useCallback(async (permission: Permission) => {
+  const answerAuto = useCallback(async (permission: Permission, retry = false) => {
     if (answeringRef.current.has(permission.id)) return
+    // A retry only applies while auto-accept still owns an unanswered request.
+    if (
+      retry &&
+      (!autoPendingRef.current.has(permission.id) ||
+        !autoAcceptSessionsRef.current.includes(permission.sessionID))
+    ) {
+      autoPendingRef.current.delete(permission.id)
+      autoAcceptAttemptsRef.current.delete(permission.id)
+      return
+    }
+    autoPendingRef.current.add(permission.id)
     answeringRef.current.add(permission.id)
     try {
       await client.api.respondPermission(permission.sessionID, permission.id, "once")
+      autoPendingRef.current.delete(permission.id)
+      autoAcceptAttemptsRef.current.delete(permission.id)
       setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
       // Auto-answers stay in the transcript as resolved history.
       setAnsweredPermissions((prev) =>
         [...prev.filter((entry) => entry.permission.id !== permission.id), { permission, response: "once" as const, at: Date.now() }].slice(-50),
       )
     } catch {
-      setBanner("Could not answer the permission request")
+      const attempts = (autoAcceptAttemptsRef.current.get(permission.id) ?? 0) + 1
+      if (attempts < AUTO_ACCEPT_MAX_ATTEMPTS) {
+        autoAcceptAttemptsRef.current.set(permission.id, attempts)
+        const delay = AUTO_ACCEPT_RETRY_DELAYS_MS[attempts - 1] ?? AUTO_ACCEPT_RETRY_DELAYS_MS[AUTO_ACCEPT_RETRY_DELAYS_MS.length - 1]!
+        const timer = setTimeout(() => {
+          autoAcceptTimersRef.current.delete(permission.id)
+          void answerAutoRef.current(permission, true)
+        }, delay)
+        autoAcceptTimersRef.current.set(permission.id, timer)
+      } else {
+        // Stop retrying, keep the inline card reachable and say what to do.
+        autoPendingRef.current.delete(permission.id)
+        autoAcceptAttemptsRef.current.delete(permission.id)
+        setBanner("Could not auto-accept the permission request — answer it in the chat")
+      }
     } finally {
       answeringRef.current.delete(permission.id)
     }
   }, [])
   const answerAutoRef = useRef(answerAuto)
   answerAutoRef.current = answerAuto
+
+  // Never leave retry timers running after unmount.
+  useEffect(
+    () => () => {
+      for (const timer of autoAcceptTimersRef.current.values()) clearTimeout(timer)
+      autoAcceptTimersRef.current.clear()
+    },
+    [],
+  )
 
   const statusQuery = useBffStatus(client, authed ? 15_000 : false)
 
@@ -144,7 +191,15 @@ export default function App() {
         },
         onPermissionReplied: (permissionID) => {
           // Answered elsewhere: the event carries no response, so no resolved
-          // row is recorded (the tool card still reflects the outcome).
+          // row is recorded (the tool card still reflects the outcome). Drop
+          // any pending auto-accept retry for it too.
+          autoPendingRef.current.delete(permissionID)
+          autoAcceptAttemptsRef.current.delete(permissionID)
+          const timer = autoAcceptTimersRef.current.get(permissionID)
+          if (timer) {
+            clearTimeout(timer)
+            autoAcceptTimersRef.current.delete(permissionID)
+          }
           setPermissions((prev) => prev.filter((item) => item.id !== permissionID))
         },
         onForm: (form) =>
