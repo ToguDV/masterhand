@@ -44,6 +44,8 @@ colors:
   accent-soft: "#D9EAE3"
   accent-line: "rgba(11, 107, 83, 0.35)"
   on-accent: "#FFFFFF"
+  bubble-user: "#085041"
+  bubble-user-text: "#FFFFFF"
   success: "#0B6B53"
   warning: "#8A5A00"
   warning-soft: "rgba(138, 90, 0, 0.09)"
@@ -290,8 +292,8 @@ components:
     padding: "6px 10px"
     border: "1px solid {colors.hairline-strong}"
   user-bubble:
-    backgroundColor: "{colors.text}"
-    textColor: "{colors.canvas}"
+    backgroundColor: "{colors.bubble-user}"
+    textColor: "{colors.bubble-user-text}"
     typography: "{typography.body-md}"
     rounded: "{rounded.lg}"
     padding: "10px 14px"
@@ -540,7 +542,7 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.canvas}` | `#FAFAF7` paper | `#0C0C0B` ink-950 | Page background |
 | `{colors.surface}` | `#FFFFFF` | `#141413` ink-900 | Cards, fields, dialogs |
 | `{colors.surface-muted}` | `#F2F2EE` grey-50 | `#1C1C1A` ink-800 | Hover, active rows, chips |
-| `{colors.text}` | `#0C0C0B` ink-950 | `#F2F2ED` chalk | Primary text, inverted bubbles |
+| `{colors.text}` | `#0C0C0B` ink-950 | `#F2F2ED` chalk | Primary text |
 | `{colors.text-soft}` | `#4A4A46` ink-500 | `#C9C9C2` | Secondary text |
 | `{colors.text-muted}` | `#6E6E6A` grey-500 | `#8E8E88` | Tertiary text, metadata |
 | `{colors.text-faint}` | `#8E8E88` grey-400 | `#6A6A65` | Disabled, placeholders |
@@ -550,6 +552,8 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.accent-strong}` | `#085041` emerald-800 | `#8BE9C9` emerald-200 | Pressed / hover |
 | `{colors.accent-soft}` | `#D9EAE3` emerald-100 | `rgba(62,216,168,0.14)` | Tint: chips, blobs, focus ring |
 | `{colors.on-accent}` | `#FFFFFF` | `#04140E` | Text on accent fills |
+| `{colors.bubble-user}` | `#085041` emerald-800 | `#06372C` emerald-900 | User message bubble fill (deep emerald, never a bright surface) |
+| `{colors.bubble-user-text}` | `#FFFFFF` | `#D9EAE3` emerald-100 | Text on the user bubble (≥ 4.5:1 in both themes) |
 | `{colors.warning}` | `#8A5A00` | `#E3B341` | Busy state, banners |
 | `{colors.danger}` | `#B3261E` | `#F08A82` | Destructive, errors |
 | `{colors.success}` | `#0B6B53` | `#3ED8A8` | Completed, connected |
@@ -708,7 +712,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Conversation
 
-**`user-bubble`** — right-aligned, inverted: `{colors.text}` background, `{colors.canvas}` text, `{rounded.lg}`, max 85% width. The inversion mirrors "ink" in both themes.
+**`user-bubble`** — right-aligned, deep-emerald fill: `{colors.bubble-user}` background, `{colors.bubble-user-text}` text, `{rounded.lg}`, max 85% width. It is the only filled transcript surface, so it uses the accent ramp **darker** (emerald-800 light / emerald-900 dark) instead of the inverted ink pair, which made every user message the brightest element on a dark canvas.
 
 **`assistant-block`** — no bubble. Agent label in `{typography.micro}` uppercase + `{colors.text-muted}`, body in `{typography.body-md}`, max 68ch. Code, tool cards and blocking-request cards stack inside the block at full column width.
 
