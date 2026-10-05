@@ -73,6 +73,14 @@ export interface AppDeps {
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
 
+/** An internal opencode call exceeded `OPENCODE_TIMEOUT_MS`. */
+export class OpencodeTimeoutError extends Error {
+  constructor() {
+    super("opencode call timed out")
+    this.name = "OpencodeTimeoutError"
+  }
+}
+
 interface OpencodeSession {
   id: string
   parentID?: string
@@ -209,6 +217,26 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   /**
+   * Bounded fetch to opencode: a stalled upstream (TCP accepted, no response)
+   * must never hold the route forever. The timeout is normalized so routes can
+   * answer 504 `opencode_timeout` instead of an opaque 500.
+   */
+  async function fetchOpencode(target: URL, init: RequestInit = {}): Promise<Response> {
+    try {
+      return await fetchImpl(target, { ...init, signal: AbortSignal.timeout(config.opencodeTimeoutMs) })
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === "TimeoutError") throw new OpencodeTimeoutError()
+      throw error
+    }
+  }
+
+  /** 504 for a missed deadline, 502 for any other upstream failure. */
+  function opencodeFailure(c: Context, error: unknown, fallback = "opencode_unreachable"): Response {
+    if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
+    return c.json({ error: fallback }, 502)
+  }
+
+  /**
    * Calls opencode directly (injecting basic auth). The `directory` override
    * travels as a query parameter exactly like the clients' proxy calls.
    */
@@ -229,7 +257,7 @@ export function createApp(deps: AppDeps): Hono {
       // nested `location[directory]` query, unlike the flat `/api/session`.
       target.searchParams.set("location[directory]", options.location)
     }
-    return fetchImpl(target, {
+    return fetchOpencode(target, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -248,7 +276,7 @@ export function createApp(deps: AppDeps): Hono {
       target.searchParams.set("directory", directory)
       target.searchParams.set("limit", "200")
       if (cursor) target.searchParams.set("cursor", cursor)
-      const response = await fetchImpl(target, {
+      const response = await fetchOpencode(target, {
         headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
       })
       if (!response.ok) throw new Error(`opencode ${response.status}`)
@@ -542,8 +570,8 @@ export function createApp(deps: AppDeps): Hono {
     let commandResponse: Response
     try {
       commandResponse = await callOpencode("/api/command", { location: directory })
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
     if (!commandResponse.ok) return c.json({ error: "opencode_error" }, 502)
 
@@ -647,8 +675,8 @@ export function createApp(deps: AppDeps): Hono {
         sessionsInDirectory(workspace.path),
         ...records.map((record) => sessionsInDirectory(record.path).catch(() => [])),
       ])
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
 
     const byID = new Map(records.map((record) => [record.sessionID, record]))
@@ -680,8 +708,8 @@ export function createApp(deps: AppDeps): Hono {
           method: "POST",
           body: { location: { directory: workspace.path } },
         })
-      } catch {
-        return c.json({ error: "opencode_unreachable" }, 502)
+      } catch (error) {
+        return opencodeFailure(c, error)
       }
       if (!response.ok) return c.json({ error: "opencode_error" }, 502)
       const session = ((await response.json()) as { data: OpencodeSession }).data
@@ -740,6 +768,9 @@ export function createApp(deps: AppDeps): Hono {
       } catch {
         // the worktree may not exist if creation failed early
       }
+      // A deadline means the session may still have been created upstream; the
+      // client reconciles against the list (see #66) instead of blind retrying.
+      if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
       return c.json(
         { error: "isolation_failed", detail: error instanceof Error ? error.message : "unknown" },
         500,
@@ -757,8 +788,8 @@ export function createApp(deps: AppDeps): Hono {
     let response: Response
     try {
       response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" })
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
