@@ -1,5 +1,14 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native"
-import { ApiError, type AgentInfo, type ModelInfo, type ProviderInfo, type SlashCommand } from "@masterhand/client-core"
+import {
+  ApiError,
+  RequestTimeoutError,
+  queryKeys,
+  type AgentInfo,
+  type ChatMessage,
+  type ModelInfo,
+  type ProviderInfo,
+  type SlashCommand,
+} from "@masterhand/client-core"
 import { Composer } from "../src/components/Composer"
 import { loadSessionPreferences } from "../src/storage"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
@@ -35,6 +44,7 @@ async function setup(
   options: { commands?: SlashCommand[] } = {},
 ) {
   const client = fakeClient()
+  const queryClient = makeQueryClient()
   client.api.agents.mockResolvedValue(agents)
   client.api.commands.mockResolvedValue(options.commands ?? [])
   client.api.models.mockResolvedValue({ models, providers, defaultModel: models[0] })
@@ -48,9 +58,9 @@ async function setup(
       onToggleAutoAccept={jest.fn()}
       {...props}
     />,
-    { wrapper: ({ children }) => <QueryWrapper client={makeQueryClient()}>{children}</QueryWrapper> },
+    { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client }
+  return { client, queryClient }
 }
 
 describe("Composer", () => {
@@ -69,7 +79,7 @@ describe("Composer", () => {
 
     expect(client.api.prompt).toHaveBeenCalledWith(
       "s1",
-      { text: "hello", agent: "build", model: { providerID: "test", id: "test-model" } },
+      expect.objectContaining({ text: "hello", agent: "build", model: { providerID: "test", id: "test-model" } }),
       { agent: undefined, model: undefined },
     )
   })
@@ -134,7 +144,7 @@ describe("Composer", () => {
 
     expect(client.api.prompt).toHaveBeenCalledWith(
       "s1",
-      { text: "hi", agent: "build", model: { providerID: "test", id: "alpha" } },
+      expect.objectContaining({ text: "hi", agent: "build", model: { providerID: "test", id: "alpha" } }),
       { agent: undefined, model: undefined },
     )
   })
@@ -149,7 +159,11 @@ describe("Composer", () => {
 
     expect(client.api.prompt).toHaveBeenCalledWith(
       "s1",
-      { text: "go", agent: "build", model: { providerID: "test", id: "test-model", variant: "high" } },
+      expect.objectContaining({
+        text: "go",
+        agent: "build",
+        model: { providerID: "test", id: "test-model", variant: "high" },
+      }),
       { agent: undefined, model: undefined },
     )
   })
@@ -174,6 +188,67 @@ describe("Composer", () => {
     expect(await screen.findByText("Could not send")).toBeOnTheScreen()
   })
 
+  it("maps a timed-out send to an explicit may-not-have-been-sent warning", async () => {
+    const { client } = await setup()
+    client.api.prompt.mockRejectedValue(new RequestTimeoutError())
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hi")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText(/your message may not have been sent/)).toBeOnTheScreen()
+    // The text survives so the user can check the chat before retrying.
+    expect(screen.getByPlaceholderText("Write a message…").props.value).toBe("hi")
+  })
+
+  it("keeps text typed while a slow send is in flight", async () => {
+    const { client } = await setup()
+    let resolvePrompt: (() => void) | undefined
+    client.api.prompt.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePrompt = resolve
+        }),
+    )
+
+    const input = await screen.findByPlaceholderText("Write a message…")
+    await fireEvent.changeText(input, "hello")
+    await fireEvent.press(screen.getByText("Send"))
+    await fireEvent.changeText(input, "follow up")
+
+    await act(async () => resolvePrompt?.())
+
+    expect(input.props.value).toBe("follow up")
+  })
+
+  it("releases the composer as soon as the marked message appears in the history", async () => {
+    const { client, queryClient } = await setup()
+    client.api.prompt.mockImplementation(() => new Promise<void>(() => {}))
+
+    const input = await screen.findByPlaceholderText("Write a message…")
+    await fireEvent.changeText(input, "hello")
+    await fireEvent.press(screen.getByText("Send"))
+
+    const marker = (
+      client.api.prompt.mock.calls[0]?.[1] as { metadata: Record<string, string> }
+    ).metadata["masterhand.delivery"]
+    await act(async () => {
+      queryClient.setQueryData<ChatMessage[]>(queryKeys.messages("s1"), [
+        {
+          info: {
+            id: "msg_live",
+            sessionID: "s1",
+            role: "user",
+            time: { created: Date.now() },
+            metadata: { "masterhand.delivery": marker },
+          },
+          parts: [],
+        },
+      ])
+    })
+
+    expect(input.props.value).toBe("")
+  })
+
   it("switches the agent through the picker", async () => {
     const { client } = await setup()
 
@@ -184,7 +259,7 @@ describe("Composer", () => {
 
     expect(client.api.prompt).toHaveBeenCalledWith(
       "s1",
-      { text: "go", agent: "explore", model: { providerID: "test", id: "test-model" } },
+      expect.objectContaining({ text: "go", agent: "explore", model: { providerID: "test", id: "test-model" } }),
       { agent: undefined, model: undefined },
     )
   })
@@ -297,12 +372,12 @@ describe("Composer", () => {
 
     expect(client.api.prompt).toHaveBeenCalledWith(
       "s1",
-      {
+      expect.objectContaining({
         text: "@general hello",
         agent: "build",
         model: { providerID: "test", id: "test-model" },
         agents: [{ name: "general", mention: { start: 0, end: 8, text: "@general" } }],
-      },
+      }),
       { agent: undefined, model: undefined },
     )
   })
@@ -323,5 +398,17 @@ describe("Composer", () => {
 
     await fireEvent.press(screen.getByText("Close"))
     expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
+  })
+
+  it("keeps the /btw text and frames a timeout as ambiguous", async () => {
+    const { client } = await setup()
+    client.api.prompt.mockRejectedValue(new RequestTimeoutError())
+
+    const input = await screen.findByPlaceholderText("Write a message…")
+    await fireEvent.changeText(input, "/btw what changed?")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText(/side question may not have started/)).toBeOnTheScreen()
+    expect(input.props.value).toBe("/btw what changed?")
   })
 })

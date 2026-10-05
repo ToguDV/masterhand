@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { ApiError } from "../src/client"
-import { conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "../src/errors"
+import { ApiError, RequestTimeoutError } from "../src/client"
+import { composerErrorMessage, conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "../src/errors"
 import type { SessionStructuredError } from "../src/types"
 
 describe("opencodeErrorMessage", () => {
@@ -82,5 +82,23 @@ describe("previewErrorMessage", () => {
 
   it("tolerates an ApiError whose message is not JSON", () => {
     expect(previewErrorMessage(new ApiError(500, "not-json"))).toBe("Could not start the preview")
+  })
+})
+
+describe("composerErrorMessage", () => {
+  it("frames a timeout as ambiguous, not as a failure", () => {
+    expect(composerErrorMessage(new RequestTimeoutError(), "send")).toBe(
+      "The server did not respond — your message may not have been sent. Check the chat before retrying.",
+    )
+    expect(composerErrorMessage(new RequestTimeoutError(), "side question")).toContain("may not have started")
+  })
+
+  it("reports the HTTP status and falls back for unknown errors", () => {
+    expect(composerErrorMessage(new ApiError(500, "x"), "send")).toBe("Could not send (HTTP 500)")
+    expect(composerErrorMessage(new ApiError(502, "x"), "side question")).toBe(
+      "Could not start the side question (HTTP 502)",
+    )
+    expect(composerErrorMessage(new Error("offline"), "send")).toBe("Could not send")
+    expect(composerErrorMessage(new Error("offline"), "side question")).toBe("Could not start the side question")
   })
 })

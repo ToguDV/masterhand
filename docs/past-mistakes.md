@@ -54,7 +54,6 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 
 | Issue | Area |
 |---|---|
-| [#64](https://github.com/ToguDV/masterhand/issues/64) | Mobile composer parity (timeout message, text preservation, reconciliation) |
 | [#65](https://github.com/ToguDV/masterhand/issues/65) | "Finish & PR" long non-idempotent operation |
 | [#66](https://github.com/ToguDV/masterhand/issues/66) | Session creation recoverable after an ambiguous response |
 | [#67](https://github.com/ToguDV/masterhand/issues/67) | Ambiguous permission/form responses and duplicate retries |
