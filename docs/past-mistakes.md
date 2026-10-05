@@ -30,6 +30,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 9. **Bound polling of transitional states.** `starting`/`retry` polls need a cap/backoff and a timeout state; an unbounded 1.5 s refetch spins forever when the transition never completes.
 10. **Correlate mutations with a server-persisted marker, not text + time.** Matching by text + time is fragile: identical consecutive sends, another device sending the same text, or server-side text normalization produce false positives (and false negatives). Prefer a correlation the server stores and returns verbatim — the prompt body accepts `metadata` and opencode persists it on the created user message, so MasterHand sends a per-send marker there (`delivery.ts`) and confirms only on it. When no marker channel exists, document the accepted residual risk with tests.
 11. **Destructive cleanup only on a demonstrably healthy store.** Before deleting (or even moving) worktree records or folders, confirm the volume is real: the sentinel written by a previous successful pass, or live evidence that recorded paths still exist. When it cannot be confirmed — late/failed mount, DB restored from an older backup — skip the pass and log why. Prefer quarantine (rename, keep the branch) over delete, so uncommitted work stays recoverable, and never drop a record on a single `existsSync` observation alone.
+12. **Serialize non-idempotent check→create on the server.** A client-side guard cannot stop two devices (or a retry racing the first request) from both passing a status check and creating two resources. Coalesce per entity with an in-flight promise (the architecture assumes a single BFF instance; see §4.6) and make stop/cleanup wait for it.
 
 ## Checklist for a new mutating operation
 
@@ -41,6 +42,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - [ ] If a confirmation channel exists, wire it and let it beat a later timeout.
 - [ ] Created/partial resources are removed on failure and unmount.
 - [ ] In-flight guard uses a ref, not state alone.
+- [ ] Concurrent identical mutations coalesce server-side (no duplicate PTY, process or record).
 - [ ] Destructive cleanup paths confirm storage health first and quarantine rather than delete irreplaceable data.
 - [ ] Tests cover: lost response, timeout, slow success, double submit, unmount mid-flight.
 
@@ -60,13 +62,12 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Terminal startup state: `/api/status` resolves the shell on **every** outcome — success → app, 401 → login, transport error → login + banner, any other HTTP error → retry screen (`statusFailed`) — so a 5xx can never leave "Loading…" forever (#81).
 - Session-create reconciliation by marker: `createSession` sends `marker`, the BFF persists it as opencode session metadata (`masterhand.create`) and returns it from the list; on a timeout/504 the client walks the list (bounded: three attempts) and opens the marked session instead of reporting a failure (#66). No blind retry.
 - Auto-accept retry: bounded attempts with backoff (`AUTO_ACCEPT_MAX_ATTEMPTS`/`AUTO_ACCEPT_RETRY_DELAYS_MS`, web + mobile), tracked per permission in a pending set that `permission.replied` clears; after the cap the session is never left silently blocked — the inline card plus an actionable banner let the user answer manually (#70).
+- Coalesced non-idempotent starts: `RunManager.start` keeps a per-session in-flight promise, so two Start taps (or devices) share one PTY instead of racing into duplicate dev servers; `stop`/`forget` wait for the in-flight create before acting (#84).
+- Out-of-band entity cleanup: the BFF hub treats `session.deleted` as authoritative and releases the session's managed resources (quick tunnel, PTY, reserved port, worktree record/branch) even when no route ran (#85). Startup reaps orphaned `cloudflared` PIDs recorded at spawn time, killing only PIDs still confirmed to be cloudflared (PID-reuse guard).
+- Bounded transition + liveness polling: `transitionPollInterval` polls `starting` at 1.5 s up to `STARTING_TIMEOUT_MS` (then the UI shows a timeout) and `running` at 5 s so a run/tunnel that dies on its own flips to `stopped`/`error` with a visible notice instead of a stale "running" (#89, #73).
+- Ambiguous answer reconciliation: `respondPermission`/`respondForm`/`cancelForm` treat `RequestTimeoutError`/504 as "may have applied", reconcile against `GET /permission` / `GET /form` before reporting, and only invite a retry when the request is provably still pending — with ref in-flight guards so a same-tick double click cannot double-answer (#67).
+- Long-operation budget + record reconciliation: `finish` uses `FINISH_TIMEOUT_MS` (240 s) instead of the interactive deadline, reconciles a lost response against the isolated-session record (`finishResultFromIsolation`), and the server never re-creates a PR when `pr_url` is already recorded, so a retry is safe (#65).
 
 ## Open issues in this family
 
-| Issue | Area |
-|---|---|
-| [#65](https://github.com/ToguDV/masterhand/issues/65) | "Finish & PR" long non-idempotent operation |
-| [#67](https://github.com/ToguDV/masterhand/issues/67) | Ambiguous permission/form responses and duplicate retries |
-| [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |
-
-Track them with `gh issue list --label reliability`.
+None open (all of #65, #67 and #73 landed 2026-10-05). Track new ones with `gh issue list --label reliability`.
