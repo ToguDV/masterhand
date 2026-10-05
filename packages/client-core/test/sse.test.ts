@@ -67,4 +67,18 @@ describe("parseSseStream", () => {
       { event: undefined, id: undefined, data: "x" },
     ])
   })
+
+  it("reports raw activity for comment-only heartbeat chunks", async () => {
+    let activity = 0
+    const messages: SseMessage[] = []
+    for await (const message of parseSseStream(streamOf(": heartbeat\n\n", ": heartbeat\n\n"), {
+      onActivity: () => {
+        activity += 1
+      },
+    })) {
+      messages.push(message)
+    }
+    expect(messages).toEqual([])
+    expect(activity).toBe(2)
+  })
 })

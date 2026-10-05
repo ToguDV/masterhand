@@ -48,6 +48,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
+- Event-hub stall watchdog: `parseSseStream`'s `onActivity` reports raw chunks (heartbeats/comments included), the hub aborts/reconnects past `stallMs` (opencode heartbeats every 15 s, default window 45 s) and pushes `hub.connected`/`hub.disconnected` downstream so clients refresh `/api/status` immediately (#76).
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
 
 ## Open issues in this family
