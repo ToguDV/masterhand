@@ -100,14 +100,26 @@ export async function loadSessionPreferences(sessionID: string): Promise<Partial
   }
 }
 
-export async function saveSessionPreferences(sessionID: string, preferences: SessionPreferences): Promise<void> {
-  let map: Record<string, SessionPreferences> = {}
-  try {
-    const raw = await SecureStore.getItemAsync(PREFERENCES_KEY)
-    if (raw) map = JSON.parse(raw) as Record<string, SessionPreferences>
-  } catch {
-    map = {}
-  }
-  map[sessionID] = preferences
-  await SecureStore.setItemAsync(PREFERENCES_KEY, JSON.stringify(map))
+/**
+ * Serialized read-modify-write queue for the preferences map: two concurrent
+ * saves used to read the same JSON and clobber each other (issue #82). The
+ * chain stays alive after a failure so one rejected write cannot poison every
+ * later save; callers still observe their own rejection.
+ */
+let preferencesWrite: Promise<void> = Promise.resolve()
+
+export function saveSessionPreferences(sessionID: string, preferences: SessionPreferences): Promise<void> {
+  const write = preferencesWrite.then(async () => {
+    let map: Record<string, SessionPreferences> = {}
+    try {
+      const raw = await SecureStore.getItemAsync(PREFERENCES_KEY)
+      if (raw) map = JSON.parse(raw) as Record<string, SessionPreferences>
+    } catch {
+      map = {}
+    }
+    map[sessionID] = preferences
+    await SecureStore.setItemAsync(PREFERENCES_KEY, JSON.stringify(map))
+  })
+  preferencesWrite = write.catch(() => {})
+  return write
 }

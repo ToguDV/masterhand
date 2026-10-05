@@ -154,7 +154,9 @@ export function Composer({
 
   useEffect(() => {
     if (!loaded.current) return
-    void saveSessionPreferences(sessionID, { agent, model, variant })
+    // Best effort: a failed preference write must not surface as an unhandled
+    // rejection (issue #82); the in-memory selection still applies.
+    void saveSessionPreferences(sessionID, { agent, model, variant }).catch(() => {})
   }, [sessionID, agent, model, variant])
 
   // A side-question fork must not outlive the composer (session switch/reload).

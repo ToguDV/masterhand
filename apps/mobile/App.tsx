@@ -75,15 +75,26 @@ function Root() {
   const [token, setToken] = useState<string | null>(null)
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const tokenRef = useRef<string | null>(null)
 
   useEffect(() => {
     void (async () => {
-      const [storedUrl, storedToken] = await Promise.all([loadServerUrl(), loadToken()])
-      tokenRef.current = storedToken
-      setServerUrl(storedUrl)
-      setToken(storedToken)
-      setReady(true)
+      try {
+        const [storedUrl, storedToken] = await Promise.all([loadServerUrl(), loadToken()])
+        tokenRef.current = storedToken
+        setServerUrl(storedUrl)
+        setToken(storedToken)
+      } catch {
+        // A SecureStore failure (keychain unavailable, corrupted access group)
+        // must never leave the app on a permanent spinner: fall back to the
+        // login screen with a storage-specific message (issue #82).
+        setLoginError(
+          "Could not read the saved session from this device's secure storage. Sign in again.",
+        )
+      } finally {
+        setReady(true)
+      }
     })()
   }, [])
 
@@ -109,7 +120,15 @@ function Root() {
       const candidate = createClient({ baseUrl: normalized, fetchImpl })
       const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
       const result = await candidate.auth.loginDevice(password, deviceName)
-      await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
+      try {
+        await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
+      } catch {
+        // The login worked but the device cannot persist it: keep the session
+        // usable in memory and say it will not survive a restart (issue #82).
+        setStorageWarning(
+          "Signed in, but this device could not save the session. You will need to sign in again after restarting.",
+        )
+      }
       tokenRef.current = result.token
       setServerUrl(normalized)
       setToken(result.token)
@@ -157,10 +176,24 @@ function Root() {
     )
   }
 
-  return <AuthenticatedApp client={client} onSignOut={() => void handleSignOut()} />
+  return (
+    <AuthenticatedApp
+      client={client}
+      initialBanner={storageWarning}
+      onSignOut={() => void handleSignOut()}
+    />
+  )
 }
 
-function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: () => void }) {
+function AuthenticatedApp({
+  client,
+  onSignOut,
+  initialBanner = null,
+}: {
+  client: Client
+  onSignOut: () => void
+  initialBanner?: string | null
+}) {
   const [sessionID, setSessionID] = useState<string | null>(null)
   const [workspaceID, setWorkspaceID] = useState<string | null>(null)
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -170,7 +203,7 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
   const [responding, setResponding] = useState(false)
   const [connected, setConnected] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [banner, setBanner] = useState<string | null>(null)
+  const [banner, setBanner] = useState<string | null>(initialBanner)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>([])
   const autoAcceptLoaded = useRef(false)
   // Set when the user switches workspace: drop the open session and open the
