@@ -19,6 +19,7 @@
 | `docs/bff/` | MasterHand backend API (endpoints, auth, proxy) | When the BFF changes |
 | `docs/runbooks/` | Operational procedures: host, deploy, TLS, backups | When operating or deploying |
 | `docs/past-mistakes.md` | Past reliability mistakes: failure classes and the rules every client change must honor | When a failure class changes, a new mutating operation is added, or a fix lands |
+| `docs/plans/issue-chunks.md` | Batched follow-up plan: open issues grouped in chunks by shared code surface, with order, dependencies and status | When a chunk starts or lands, or the backlog is re-chunked |
 
 ### Maintenance rules
 
