@@ -1,3 +1,4 @@
+import { get as httpGet, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
 import { createOpencodeProxy } from "../src/proxy.js"
@@ -170,5 +171,60 @@ describe("SSE relay", () => {
     const reader = response.body!.getReader()
     const received = await readUntil(reader, "session.idle")
     expect(received).toContain('"sessionID":"ses_42"')
+  })
+
+  it("drops a slow client when its queue overflows instead of buffering every event", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH },
+      sseQueueMax: 4,
+    })
+    const cookie = await login(app.url)
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    // Raw client that never reads its response: TCP backpressure stalls the
+    // server-side writes, so only a bounded queue can keep memory flat.
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      const request = httpGet(
+        {
+          host: "127.0.0.1",
+          port: Number(new URL(app!.url).port),
+          path: "/api/events",
+          headers: { cookie },
+        },
+        resolve,
+      )
+      request.on("error", reject)
+    })
+    expect(response.statusCode).toBe(200)
+
+    try {
+      // ~16 MB of frames with the client paused: far more than the kernel/Hono
+      // buffers. Yielding lets the server write until the socket backpressures,
+      // after which the queue must overflow (cap = 4 for this test).
+      const payload = "x".repeat(16 * 1024)
+      const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+      for (let i = 0; i < 2048; i += 1) {
+        upstream.emit({ id: `evt_${i}`, type: "session.idle", data: { sessionID: "ses_1", i, payload } })
+        if (i % 8 === 7) await tick()
+      }
+
+      // Drain what the server did manage to write: only a dropped client ends
+      // the response. A buffering client never does (the keepalive keeps it open).
+      const settled = new Promise<void>((resolve) => {
+        response.on("end", resolve)
+        response.on("close", resolve)
+        response.on("aborted", resolve)
+      })
+      response.resume()
+      await expect(
+        Promise.race([
+          settled,
+          new Promise((_resolve, reject) => setTimeout(() => reject(new Error("slow client was never dropped")), 5000)),
+        ]),
+      ).resolves.toBeUndefined()
+    } finally {
+      response.destroy()
+    }
   })
 })

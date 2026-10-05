@@ -68,3 +68,4 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 | [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |
 
 Track them with `gh issue list --label reliability`.
+- Bounded per-client SSE queue: `/api/events` writes through one serialized drain loop and drops a client that falls more than `MAX_SSE_QUEUE` frames behind, instead of forking an unbounded promise/string chain (#83).

@@ -68,10 +68,14 @@ export interface AppDeps {
   runs?: RunManager
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
+  /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
+  sseQueueMax?: number
 }
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** Frames a single SSE client may fall behind before it is dropped. */
+const MAX_SSE_QUEUE = 1024
 
 /** An internal opencode call exceeded `OPENCODE_TIMEOUT_MS`. */
 export class OpencodeTimeoutError extends Error {
@@ -506,36 +510,73 @@ export function createApp(deps: AppDeps): Hono {
   api.get("/events", (c) => {
     c.header("cache-control", "no-cache")
     c.header("x-accel-buffering", "no")
+    const maxQueue = deps.sseQueueMax ?? MAX_SSE_QUEUE
     return streamSSE(c, async (stream) => {
+      interface SseFrame {
+        event?: string
+        data: string
+      }
+
       let closed = false
-      const unsubscribe = deps.hub.subscribe((event) => {
+      let draining = false
+      const queue: SseFrame[] = []
+      let unsubscribe = (): void => {}
+
+      const teardown = (): void => {
         if (closed) return
-        // A rejected write means the client disconnected mid-frame; drop the
-        // subscription instead of leaking an unhandled rejection.
-        stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {
-          closed = true
-          unsubscribe()
-        })
-      })
-      stream.onAbort(() => {
         closed = true
         unsubscribe()
+      }
+
+      // One writer per client: each frame awaits the stream, so a slow client
+      // applies natural backpressure to the queue instead of forking an
+      // unbounded promise chain.
+      const drain = async (): Promise<void> => {
+        if (draining) return
+        draining = true
+        try {
+          while (!closed) {
+            const frame = queue.shift()
+            if (!frame) break
+            await stream.writeSSE(frame)
+          }
+        } catch {
+          // the client disconnected
+        } finally {
+          draining = false
+          if (!closed && queue.length > 0) void drain()
+        }
+      }
+
+      const enqueue = (frame: SseFrame): void => {
+        if (closed) return
+        if (queue.length >= maxQueue) {
+          // Zero-window/slow client: drop it instead of buffering every event in
+          // memory. It reconnects (SSE has no replay) and reconciles state.
+          teardown()
+          stream.abort()
+          return
+        }
+        queue.push(frame)
+        void drain()
+      }
+
+      unsubscribe = deps.hub.subscribe((event) => {
+        enqueue({ data: JSON.stringify(event) })
       })
+      stream.onAbort(teardown)
 
       try {
-        await stream.writeSSE({
-          event: "hello",
-          data: JSON.stringify({ connected: deps.hub.connected }),
-        })
+        enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
         while (!closed) {
           await stream.sleep(KEEPALIVE_MS)
-          if (!closed) await stream.writeSSE({ event: "ping", data: "{}" })
+          if (closed) break
+          enqueue({ event: "ping", data: "{}" })
         }
       } catch {
         // client disconnected
       } finally {
-        closed = true
-        unsubscribe()
+        teardown()
       }
     })
   })
