@@ -12,6 +12,40 @@ function sseResponse(chunks: string[]): Response {
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } })
 }
 
+/** Sends `initial` frames, then never closes nor sends again: a half-open socket. */
+function stalledResponse(initial: string[], signal?: AbortSignal | null): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of initial) controller.enqueue(encoder.encode(chunk))
+      // Real fetch errors the body when the request signal aborts.
+      signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")), {
+        once: true,
+      })
+    },
+  })
+  return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } })
+}
+
+/** Sends each chunk after its delay; optionally never closes. */
+function timedResponse(
+  chunks: Array<{ afterMs: number; chunk: string }>,
+  options: { close?: boolean } = {},
+): Response {
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let elapsed = 0
+      for (const { afterMs, chunk } of chunks) {
+        elapsed += afterMs
+        setTimeout(() => controller.enqueue(encoder.encode(chunk)), elapsed)
+      }
+      if (options.close !== false) setTimeout(() => controller.close(), elapsed + 5)
+    },
+  })
+  return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } })
+}
+
 function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
   return new Promise((resolve, reject) => {
     const started = Date.now()
@@ -61,10 +95,71 @@ describe("createEventHub", () => {
       "http://upstream/api/event",
       expect.objectContaining({ headers: expect.objectContaining({ accept: "text/event-stream" }) }),
     )
-    expect(received).toEqual([event])
+    const upstream = received.filter(
+      (item) => !["hub.connected", "hub.disconnected"].includes((item as { type?: string }).type ?? ""),
+    )
+    expect(upstream).toEqual([event])
+    expect(received).toContainEqual({ type: "hub.connected", data: { connected: true } })
     expect(onEvent).toHaveBeenCalledWith(event)
 
     unsubscribe()
+  })
+
+  it("aborts a half-open stream, reconnects and reports the connectivity change", async () => {
+    let connection = 0
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      connection += 1
+      return connection === 1
+        ? stalledResponse([`data: ${JSON.stringify({ type: "server.connected", data: {} })}\n\n`], init?.signal)
+        : sseResponse([`data: ${JSON.stringify({ type: "session.idle", data: { sessionID: "ses_1" } })}\n\n`])
+    })
+    hub = createEventHub({
+      url: "http://upstream/api/event",
+      reconnectBaseMs: 5,
+      reconnectMaxMs: 10,
+      stallMs: 60,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    const types: string[] = []
+    hub.subscribe((event) => types.push((event as { type: string }).type))
+
+    hub.start()
+    await waitFor(() => types.includes("session.idle"), 3000)
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(types).toContain("hub.disconnected")
+    expect(types).toContain("hub.connected")
+  })
+
+  it("keeps a stream alive through comment-only heartbeats", async () => {
+    let connection = 0
+    const fetchImpl = vi.fn(async () => {
+      connection += 1
+      if (connection > 1) return stalledResponse([])
+      return timedResponse(
+        [
+          { afterMs: 0, chunk: ": heartbeat\n\n" },
+          { afterMs: 40, chunk: ": heartbeat\n\n" },
+          { afterMs: 40, chunk: ": heartbeat\n\n" },
+          { afterMs: 40, chunk: `data: ${JSON.stringify({ type: "session.idle", data: { sessionID: "ses_1" } })}\n\n` },
+        ],
+        { close: false },
+      )
+    })
+    hub = createEventHub({
+      url: "http://upstream/api/event",
+      reconnectBaseMs: 5,
+      reconnectMaxMs: 10,
+      stallMs: 90,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    const types: string[] = []
+    hub.subscribe((event) => types.push((event as { type: string }).type))
+
+    hub.start()
+    // The event arrives ~125 ms in, well past the 90 ms stall window: only the
+    // heartbeats (ignored as messages) can have kept the connection alive.
+    await waitFor(() => types.includes("session.idle"), 3000)
+    expect(types).not.toContain("hub.disconnected")
   })
 
   it("keeps notifying healthy listeners when one throws", async () => {

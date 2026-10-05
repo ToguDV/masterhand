@@ -28,7 +28,18 @@ function parseBlock(block: string): SseMessage | null {
   return { event, data, id }
 }
 
-export async function* parseSseStream(stream: ReadableStream<Uint8Array>): AsyncGenerator<SseMessage> {
+export interface SseParseOptions {
+  /**
+   * Called for every raw chunk, including comment-only heartbeats that never
+   * yield a message, so callers can watch the connection's liveness.
+   */
+  onActivity?: () => void
+}
+
+export async function* parseSseStream(
+  stream: ReadableStream<Uint8Array>,
+  options: SseParseOptions = {},
+): AsyncGenerator<SseMessage> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
@@ -41,6 +52,7 @@ export async function* parseSseStream(stream: ReadableStream<Uint8Array>): Async
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      options.onActivity?.()
       let text = decoder.decode(value, { stream: true })
       if (pendingCR) {
         // The held CR was a line ending: drop the LF half when the chunk

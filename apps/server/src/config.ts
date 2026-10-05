@@ -16,6 +16,8 @@ export interface Config {
   port: number
   opencodeUrl: string
   opencodeAuth: string | null
+  /** Deadline for every internal opencode call (seconds at the HTTP layer). */
+  opencodeTimeoutMs: number
   masterhandPassword: string
   sessionSecret: string
   sessionTtlHours: number
@@ -108,6 +110,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: intFromEnv(env.PORT, 8787),
     opencodeUrl,
     opencodeAuth,
+    // Internal calls are interactive; a wedged upstream must fail fast instead
+    // of holding the route (and its socket) open forever.
+    opencodeTimeoutMs: Math.max(1000, intFromEnv(env.OPENCODE_TIMEOUT_MS, 10_000)),
     masterhandPassword,
     sessionSecret,
     sessionTtlHours: intFromEnv(env.SESSION_TTL_HOURS, 720),
