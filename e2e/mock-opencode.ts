@@ -926,6 +926,8 @@ const server = createServer((req, res) => {
         prompts: promptRequests,
         failPrompts,
         permissionReplies: permissionReplyAttempts,
+        stallPermissionReplies,
+        stalledPermissionReplies: heldPermissionReplies.length,
         stalledForks: heldForks,
         forks: { created: forksCreated, removed: forksRemoved },
         ...catalogRequests,
@@ -1189,12 +1191,18 @@ const server = createServer((req, res) => {
         if (pending) {
           pendingPermissions.delete(segments[4])
           const decision = typeof body.decision === "string" ? body.decision : "reject"
+          pending.resolve(decision)
+          if (stallPermissionReplies) {
+            // Applied, but the response is lost and no event confirms it: the
+            // client must reconcile against the pending list.
+            await new Promise<void>((resolve) => heldPermissionReplies.push(resolve))
+            return empty(res, 204)
+          }
           broadcast(
             "permission.replied",
             { sessionID: pending.sessionID, requestID: segments[4], reply: decision },
             pending.directory,
           )
-          pending.resolve(decision)
         }
         return empty(res, 204)
       }
