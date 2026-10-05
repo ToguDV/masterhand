@@ -48,6 +48,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
+- Terminal startup state: `/api/status` resolves the shell on **every** outcome — success → app, 401 → login, transport error → login + banner, any other HTTP error → retry screen (`statusFailed`) — so a 5xx can never leave "Loading…" forever (#81).
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
 
 ## Open issues in this family
