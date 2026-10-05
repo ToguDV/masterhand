@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
+  RequestTimeoutError,
   createEventHandler,
+  createSessionMarker,
   formIsQuestion,
   invalidateOnReconnect,
   reconcileForms,
   reconcilePermissions,
+  sessionCreateMarker,
   useBffStatus,
   useEventStream,
   useSessionDirectories,
@@ -363,6 +366,25 @@ export default function App() {
     openSession(null)
   }, [queryClient, openSession])
 
+  /**
+   * Walks the session list for a marker after an ambiguous create. Bounded
+   * (three attempts): the session may appear once the BFF finishes server-side.
+   */
+  async function findCreatedSession(marker: string): Promise<string | null> {
+    if (!workspaceID) return null
+    for (const delay of [0, 1000, 2500]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const sessions = await client.api.sessions.list(workspaceID)
+        const found = sessions.find((session) => sessionCreateMarker(session) === marker)
+        if (found) return found.id
+      } catch {
+        // keep polling: a transient failure must not hide the confirmation
+      }
+    }
+    return null
+  }
+
   async function createSession(isolated: boolean) {
     if (!workspaceID) {
       setBanner("Add a workspace first")
@@ -370,13 +392,30 @@ export default function App() {
     }
     setCreating(true)
     setBanner(null)
+    const marker = createSessionMarker()
     try {
-      const session = await client.api.sessions.create(workspaceID, { isolated })
+      const session = await client.api.sessions.create(workspaceID, { isolated, marker })
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
       void queryClient.invalidateQueries({ queryKey: ["directories"] })
       openSession(session.id)
-    } catch {
-      setBanner("Could not create the session")
+    } catch (error) {
+      const ambiguous =
+        error instanceof RequestTimeoutError || (error instanceof ApiError && error.status === 504)
+      if (ambiguous) {
+        // Session creation is not idempotent: reconcile by the marker before
+        // reporting anything, and never retry automatically.
+        const created = await findCreatedSession(marker)
+        if (created) {
+          void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+          void queryClient.invalidateQueries({ queryKey: ["directories"] })
+          openSession(created)
+          return
+        }
+        void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+        setBanner("The server did not answer in time — the session may still be created. Check the list before retrying.")
+      } else {
+        setBanner("Could not create the session")
+      }
     } finally {
       setCreating(false)
     }

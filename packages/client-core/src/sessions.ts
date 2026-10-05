@@ -1,5 +1,24 @@
 import type { Session } from "./types"
 
+/**
+ * Session metadata key opencode persists on sessions MasterHand creates. The
+ * session create body accepts `metadata` and returns it from `GET /api/session`
+ * (verified against v2.0.21), so a lost create response can be reconciled by
+ * marker instead of guessing by time or title.
+ */
+export const CREATE_MARKER_KEY = "masterhand.create"
+
+/** Unique token attached to one session creation. */
+export function createSessionMarker(): string {
+  return `session_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** Reads the create marker persisted on a session (null for other clients' sessions). */
+export function sessionCreateMarker(session: Session): string | null {
+  const value = session.metadata?.[CREATE_MARKER_KEY]
+  return typeof value === "string" && value.length > 0 ? value : null
+}
+
 export type SessionFilter = "all" | "isolated" | "standard"
 
 /** Filters a workspace session list by isolation mode (shared by web/mobile). */

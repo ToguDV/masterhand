@@ -70,6 +70,11 @@ export interface Session extends SessionInfo {
 export interface CreateSessionInput {
   /** Run the session in its own git worktree instead of the workspace folder. */
   isolated?: boolean
+  /**
+   * Per-request marker persisted as session metadata
+   * (`masterhand.create`), so a lost create response can be reconciled.
+   */
+  marker?: string
 }
 
 export interface FinishSessionResult {

@@ -9,11 +9,12 @@ surface they share, so a chunk can be implemented in one work session without ch
   one feature per branch/PR, red test first, `docs/past-mistakes.md` trace, full gates.
 - Reproduce before implementing (`WORKFLOW.md` §"Working from an issue"): an issue may be stale,
   already fixed or misdiagnosed. Close/relabel what does not reproduce.
-- Two coupled pairs may be merged into one PR **only with the maintainer's explicit approval**
-  (asked on 2026-10-05, no answer yet): [#71](https://github.com/ToguDV/masterhand/issues/71) +
+- Two coupled pairs may be merged into one PR **only with the maintainer's explicit approval**:
+  [#71](https://github.com/ToguDV/masterhand/issues/71) +
   [#72](https://github.com/ToguDV/masterhand/issues/72) (same `send`) and
   [#79](https://github.com/ToguDV/masterhand/issues/79) +
-  [#77](https://github.com/ToguDV/masterhand/issues/77) (same git runner/reconcile).
+  [#77](https://github.com/ToguDV/masterhand/issues/77) (same git runner/reconcile). C1 kept one PR
+  per issue; the pairs above are still unapproved.
 - Update the status table when a chunk lands, and remove the issue rows from the open-findings
   table in `docs/past-mistakes.md` as each issue closes.
 
@@ -21,7 +22,7 @@ surface they share, so a chunk can be implemented in one work session without ch
 
 | Chunk | Issues | Status |
 |---|---|---|
-| C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | ✅ Implemented 2026-10-05 — PRs #102 → #103 → #104 → #105 (stacked; merge in order after #101) |
+| C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | ✅ Merged 2026-10-05 — #101 → #102 → #103 → #104 → #105 |
 | C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | Pending |
 | C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | Pending |
 | C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | Pending |
@@ -51,8 +52,8 @@ next session is short, do #79 first regardless of chunk order.
 - **Why together:** #71/#72 harden the same `send`; #64 is the mobile port of those rules; #68 is
   the fork lifecycle both composers share.
 - **Order:** #72 → #71 → #64 → #68.
-- **Dependencies:** #64 is a listed prerequisite of #92, #93, #99 and #100 — landing C1 unblocks
-  the mobile track.
+- **Dependencies:** #64 was a listed prerequisite of #92, #93, #99 and #100 — C1 landed, so the
+  mobile track is unblocked.
 - **Notes:** a prompt accepts `metadata` (`SessionPromptInput` in `types.generated.ts`) and the
   persisted `SessionMessageUser` keeps it, so a per-send marker is available; prefer it over the
   text+time heuristic (see #71).

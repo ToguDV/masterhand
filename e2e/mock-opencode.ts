@@ -27,6 +27,7 @@ interface SessionRecord {
   time: { created: number; updated: number }
   title: string
   location: { directory: string }
+  metadata?: Record<string, unknown>
 }
 
 interface UserMessage {
@@ -117,6 +118,12 @@ let failPrompts = false
 let forksCreated = 0
 let forksRemoved = 0
 let heldForks = 0
+// E2E controls for session-creation reconciliation: `stall-create` holds the
+// response after creating (the response is lost), `stall-create-before` holds
+// before creating (nothing exists to reconcile). `/e2e/release-create` flushes.
+let stallCreate = false
+let stallCreateBefore = false
+const heldCreates: Array<() => void> = []
 
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
 // persistent SQLite DATA_DIR locally, so restarting at `ses_1` every time
@@ -191,7 +198,12 @@ function openStream(res: ServerResponse): void {
   })
 }
 
-function createSession(input: { directory: string; parentID?: string; title?: string }): SessionRecord {
+function createSession(input: {
+  directory: string
+  parentID?: string
+  title?: string
+  metadata?: Record<string, unknown>
+}): SessionRecord {
   const session: SessionRecord = {
     id: nextId("ses"),
     projectID: "global",
@@ -200,6 +212,7 @@ function createSession(input: { directory: string; parentID?: string; title?: st
     time: { created: now(), updated: now() },
     title: input.title ?? "",
     location: { directory: input.directory },
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   }
   if (input.parentID) session.parentID = input.parentID
   sessions.set(session.id, session)
@@ -815,6 +828,8 @@ const server = createServer((req, res) => {
       stallPrompts = path === "/e2e/stall-prompt"
       stallResponses = path === "/e2e/stall-response"
       if (path === "/e2e/stall-fork") stallForks = true
+      if (path === "/e2e/stall-create") stallCreate = true
+      if (path === "/e2e/stall-create-before") stallCreateBefore = true
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/release-prompt") {
@@ -822,6 +837,12 @@ const server = createServer((req, res) => {
       stallResponses = false
       stallForks = false
       for (const release of heldPrompts.splice(0)) release()
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/release-create") {
+      stallCreate = false
+      stallCreateBefore = false
+      for (const release of heldCreates.splice(0)) release()
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/fail-prompts") {
@@ -917,9 +938,16 @@ const server = createServer((req, res) => {
     }
     if (req.method === "POST" && path === "/api/session") {
       const body = await readBody(req)
+      if (stallCreateBefore) await new Promise<void>((resolve) => heldCreates.push(resolve))
       const location = (body.location ?? {}) as { directory?: unknown }
       const directory = typeof location.directory === "string" ? location.directory : DEFAULT_DIRECTORY
-      return json(res, 200, { data: createSession({ directory }) })
+      const metadata =
+        body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+          ? (body.metadata as Record<string, unknown>)
+          : undefined
+      const session = createSession({ directory, metadata })
+      if (stallCreate) await new Promise<void>((resolve) => heldCreates.push(resolve))
+      return json(res, 200, { data: session })
     }
     if (req.method === "GET" && path === "/api/session/active") {
       const active = Object.fromEntries([...activeRuns].map((sessionID) => [sessionID, { type: "running" }]))

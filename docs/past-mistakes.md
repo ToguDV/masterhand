@@ -49,6 +49,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
+- Session-create reconciliation by marker: `createSession` sends `marker`, the BFF persists it as opencode session metadata (`masterhand.create`) and returns it from the list; on a timeout/504 the client walks the list (bounded: three attempts) and opens the marked session instead of reporting a failure (#66). No blind retry.
 
 ## Open issues in this family
 
