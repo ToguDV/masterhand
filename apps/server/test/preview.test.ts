@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { AddressInfo } from "node:net"
 import { createMemoryStore } from "../src/store.js"
-import { createPreviewManager, PreviewError, previewSystemPrompt, reachableOverHttp } from "../src/preview.js"
+import {
+  cleanupOrphanTunnels,
+  createPreviewManager,
+  PreviewError,
+  previewSystemPrompt,
+  reachableOverHttp,
+  tunnelPidFile,
+} from "../src/preview.js"
 import { createFakeTunnel, testConfig } from "./helpers.js"
 
 function setup(overrides: Parameters<typeof testConfig>[0] = {}, tunnel = createFakeTunnel()) {
@@ -178,6 +188,69 @@ describe("preview tunnel lifecycle", () => {
     for (const child of tunnel.children) expect(child.signalCode).toBe("SIGTERM")
     expect(manager.status("ses_1").status).toBe("stopped")
     expect(manager.status("ses_2").status).toBe("stopped")
+  })
+})
+
+describe("orphan tunnel cleanup", () => {
+  it("kills only PIDs confirmed to be cloudflared and removes the pid file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
+    const file = tunnelPidFile(dir)
+    writeFileSync(file, JSON.stringify([111, 222, 333]))
+    const killed: number[] = []
+    const names = new Map<number, string>([
+      [111, "cloudflared"],
+      [222, "node"],
+      [333, "cloudflared"],
+    ])
+    try {
+      const result = cleanupOrphanTunnels({
+        pidFile: file,
+        processName: (pid) => names.get(pid) ?? null,
+        kill: (pid) => killed.push(pid),
+      })
+      expect(result).toEqual([111, 333])
+      expect(killed).toEqual([111, 333])
+      expect(existsSync(file)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("tolerates a missing or malformed pid file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
+    try {
+      expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
+      writeFileSync(tunnelPidFile(dir), "{not json")
+      expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("tracks a spawned tunnel PID and drops it on stop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
+    const tunnel = createFakeTunnel("https://fake-preview.trycloudflare.com", { pid: 4242 })
+    const manager = createPreviewManager({
+      config: testConfig({ dataDir: dir }),
+      store: createMemoryStore(),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => true,
+    })
+    try {
+      await manager.start("ses_1")
+      expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([4242])
+
+      manager.stop("ses_1")
+      expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([])
+
+      await manager.start("ses_1")
+      manager.stopAll()
+      expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -181,6 +181,29 @@ export function createApp(deps: AppDeps): Hono {
   }
   const runs = deps.runs ?? createRunManager({ opencode: runOpencode })
 
+  /**
+   * Drops every MasterHand-managed resource tied to a session id: its quick
+   * tunnel (a leaked one would stay publicly exposed), its dev-server PTY, its
+   * reserved port and its worktree record/branch. Used when a session is
+   * deleted by a client and, critically, when opencode reports it deleted
+   * outside MasterHand (TUI/API), where no route runs.
+   */
+  function releaseSession(sessionID: string): void {
+    preview.forget(sessionID)
+    runs.forget(sessionID)
+    const record = deps.store.getIsolatedSession(sessionID)
+    if (!record) return
+    const workspace = deps.store.getWorkspace(record.workspaceID)
+    if (workspace) {
+      try {
+        worktrees.remove(workspace.path, record.path, record.branch)
+      } catch {
+        // best effort: never block dropping the record
+      }
+    }
+    deps.store.removeIsolatedSession(sessionID)
+  }
+
   // Clients poll the workspace session list every 10 s and each poll walks the
   // v2 cursor pages per directory (base + worktrees). A short-lived per-directory
   // cache absorbs concurrent devices and repeated polls; session mutations clear
@@ -196,6 +219,13 @@ export function createApp(deps: AppDeps): Hono {
     if (type === "session.created" || type === "session.deleted") invalidateSessionsCache()
 
     const data = (event as { data?: Record<string, unknown> } | null)?.data
+    if (type === "session.deleted") {
+      // Out-of-band deletion: nothing else would stop the tunnel/PTY or drop
+      // the worktree record (issue #85).
+      const sessionID = typeof data?.sessionID === "string" ? data.sessionID : ""
+      if (sessionID) releaseSession(sessionID)
+      return
+    }
     if (!data) return
 
     if (type === "session.tool.called") {
@@ -844,8 +874,6 @@ export function createApp(deps: AppDeps): Hono {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
     const sessionID = c.req.param("sessionID")
-    const record = deps.store.getIsolatedSession(sessionID)
-    const isolated = record && record.workspaceID === workspace.id
 
     let response: Response
     try {
@@ -856,16 +884,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    if (isolated) {
-      try {
-        worktrees.remove(workspace.path, record.path, record.branch)
-      } catch {
-        // best effort: never block deleting the session record
-      }
-      deps.store.removeIsolatedSession(sessionID)
-    }
-    preview.forget(sessionID)
-    runs.forget(sessionID)
+    releaseSession(sessionID)
     return c.json({ ok: true })
   })
 

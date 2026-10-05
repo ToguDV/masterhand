@@ -5,12 +5,19 @@ import { serveStatic } from "@hono/node-server/serve-static"
 import { createApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
-import { createPreviewManager } from "./preview.js"
+import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
 import { createSqliteStore } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
 const config = loadConfig()
 mkdirSync(config.dataDir, { recursive: true })
+
+// A hard crash (SIGKILL, power loss) can leave cloudflared running with its
+// tunnel publicly exposed; reap only PIDs still confirmed to be cloudflared.
+const orphanTunnels = cleanupOrphanTunnels({ pidFile: tunnelPidFile(config.dataDir) })
+if (orphanTunnels.length > 0) {
+  console.log(`[masterhand] stopped ${orphanTunnels.length} orphaned preview tunnel(s)`)
+}
 
 const store = createSqliteStore(join(config.dataDir, "masterhand.sqlite"))
 

@@ -782,3 +782,58 @@ describe("login rate limiting", () => {
     expect(statuses[5]).toBe(429)
   })
 })
+
+describe("out-of-band session deletion", () => {
+  it("cleans up the preview, the run PTY, the reserved port and the worktree record", async () => {
+    upstream = await startMockOpencode()
+    const worktrees = createFakeWorktreeManager()
+    const tunnel = createFakeTunnel()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      worktrees,
+      previewOptions: { spawnImpl: tunnel.spawnImpl },
+    })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "{port}"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+    app.store.createIsolatedSession({
+      sessionID: "ses_out",
+      workspaceID: "ws",
+      path: "/tmp/masterhand-worktrees/ws/abc",
+      branch: "masterhand/ws-abc",
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt: 1,
+    })
+
+    // Start both managed resources, then let opencode report the session gone
+    // (as the TUI/API would).
+    const preview = await fetch(`${app.url}/api/sessions/ses_out/preview`, { method: "POST", headers: { cookie } })
+    expect(preview.status).toBe(200)
+    const started = await fetch(`${app.url}/api/sessions/ses_out/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(started.status).toBe(200)
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    upstream.emit({ id: "evt_out", type: "session.deleted", data: { sessionID: "ses_out" } })
+
+    await waitFor(() => app!.store.getIsolatedSession("ses_out") === null)
+    await waitFor(() =>
+      upstream!.requests.some((request) => request.method === "DELETE" && request.path.startsWith("/api/pty/")),
+    )
+    expect(worktrees.calls).toContain("remove:/tmp/masterhand-workspaces/ws:/tmp/masterhand-worktrees/ws/abc:masterhand/ws-abc")
+    expect(app.store.getPreviewPort("ses_out")).toBeNull()
+    expect(app.preview.status("ses_out")).toMatchObject({ status: "stopped" })
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+  })
+})

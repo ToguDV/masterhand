@@ -313,6 +313,7 @@ export interface FakeTunnel {
 }
 
 interface FakeChildProcess extends EventEmitter {
+  pid?: number
   stdout: PassThrough
   stderr: PassThrough
   exitCode: number | null
@@ -326,13 +327,14 @@ interface FakeChildProcess extends EventEmitter {
  */
 export function createFakeTunnel(
   url = "https://fake-preview.trycloudflare.com",
-  options: { fail?: boolean; silent?: boolean } = {},
+  options: { fail?: boolean; silent?: boolean; pid?: number } = {},
 ): FakeTunnel {
   const children: ChildProcess[] = []
   const calls: FakeTunnel["calls"] = []
   const spawnImpl = ((command: string, args: string[]): ChildProcess => {
     calls.push({ command, args })
     const child = new EventEmitter() as unknown as FakeChildProcess
+    child.pid = options.pid
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
     child.exitCode = null
