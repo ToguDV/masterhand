@@ -48,6 +48,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
+- Bounded per-client SSE queue: `/api/events` writes through one serialized drain loop and drops a client that falls more than `MAX_SSE_QUEUE` frames behind, instead of forking an unbounded promise/string chain (#83).
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
 
 ## Open issues in this family

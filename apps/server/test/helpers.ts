@@ -364,6 +364,7 @@ export async function startTestApp(
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
+    sseQueueMax?: number
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -406,6 +407,7 @@ export async function startTestApp(
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
+    sseQueueMax: options.sseQueueMax,
   })
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
   await new Promise<void>((resolve) => server.once("listening", resolve))
