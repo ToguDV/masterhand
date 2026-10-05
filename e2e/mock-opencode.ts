@@ -843,6 +843,21 @@ const server = createServer((req, res) => {
       broadcast("session.idle", { sessionID }, directory)
       return json(res, 200, { data: message })
     }
+    // Simulates another device (or the opencode TUI) deleting a session:
+    // opencode announces it and the list no longer contains it, without going
+    // through MasterHand's own delete route.
+    if (req.method === "POST" && path === "/e2e/delete-session") {
+      const body = await readBody(req)
+      const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
+      const session = sessions.get(sessionID)
+      if (!session) return json(res, 404, { error: "no_session" })
+      sessions.delete(sessionID)
+      conversations.delete(sessionID)
+      messageOrders.delete(sessionID)
+      activeRuns.delete(sessionID)
+      broadcast("session.deleted", { sessionID }, session.location.directory)
+      return empty(res, 204)
+    }
     if (req.method === "GET" && path === "/e2e/state") {
       return json(res, 200, {
         offline,

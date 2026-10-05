@@ -49,6 +49,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
+- Open-entity reconciliation by list diff: keep the ids of the previous list snapshot and close/replace the open entity only when it **was present before and disappeared** from a fresh fetch (web open session on `session.deleted`, #69). Never close on an absent id that was never seen: a just-created entity or a stale in-flight response must not be dropped.
 
 ## Open issues in this family
 

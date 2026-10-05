@@ -98,6 +98,10 @@ export default function App() {
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
+  // Session ids from the last list snapshot (see the reconciliation effect).
+  const knownSessionIDsRef = useRef<Set<string>>(new Set())
+  const sessionIDRef = useRef(sessionID)
+  sessionIDRef.current = sessionID
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(async (permission: Permission) => {
@@ -320,6 +324,21 @@ export default function App() {
     () => [...(sessionsQuery.data ?? [])].sort((a, b) => b.time.updated - a.time.updated),
     [sessionsQuery.data],
   )
+
+  // Reconcile the open session when it disappears from the list (deleted from
+  // another device/TUI: `session.deleted` invalidates the list and the refetch
+  // confirms it). Only a session that was present in the previous snapshot is
+  // closed, so a just-created session is never dropped by a stale fetch.
+  useEffect(() => {
+    if (!sessionsQuery.isSuccess) return
+    const current = new Set(sessions.map((session) => session.id))
+    const openID = sessionIDRef.current
+    const wasKnown = openID !== null && knownSessionIDsRef.current.has(openID)
+    knownSessionIDsRef.current = current
+    if (wasKnown && openID && !current.has(openID)) {
+      openSession(sessions[0]?.id ?? null)
+    }
+  }, [sessions, sessionsQuery.isSuccess, openSession])
   const statuses = statusesQuery.data ?? {}
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
