@@ -10,8 +10,9 @@ test("adds a workspace, deletes a session and removes the workspace", async ({ p
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
   await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
 
-  page.on("dialog", (dialog) => dialog.accept())
   await page.getByRole("button", { name: "Delete session" }).click()
+  await expect(page.getByRole("heading", { name: "Delete session" })).toBeVisible()
+  await page.getByRole("button", { name: "Delete", exact: true }).click()
   await expect(page.locator("aside").getByText("Untitled")).toBeHidden()
   await expect(page.getByText("No sessions yet.")).toBeVisible()
 

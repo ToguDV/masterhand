@@ -27,6 +27,7 @@ import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
 import { PreviewSheet, PreviewTrigger } from "./components/PreviewPanel"
+import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { RunSheet, RunTrigger } from "./components/RunPanel"
 import { SessionList } from "./components/SessionList"
@@ -69,6 +70,8 @@ export default function App() {
   const [addingWorkspace, setAddingWorkspace] = useState(false)
   const [removeWorkspaceID, setRemoveWorkspaceID] = useState<string | null>(null)
   const [removingWorkspace, setRemovingWorkspace] = useState(false)
+  const [removeSessionID, setRemoveSessionID] = useState<string | null>(null)
+  const [removingSession, setRemovingSession] = useState(false)
   const [connected, setConnected] = useState(false)
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [answeredPermissions, setAnsweredPermissions] = useState<AnsweredPermission[]>([])
@@ -378,17 +381,21 @@ export default function App() {
     }
   }
 
-  async function deleteSession(id: string) {
-    if (!workspaceID) return
-    if (!window.confirm("Delete this session and all its data?")) return
+  async function confirmRemoveSession() {
+    const id = removeSessionID
+    if (!workspaceID || !id) return
+    setRemovingSession(true)
     try {
       await client.api.sessions.remove(workspaceID, id)
       if (sessionID === id) openSession(null)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
       void queryClient.invalidateQueries({ queryKey: ["directories"] })
       toast("✓ Session deleted")
+      setRemoveSessionID(null)
     } catch {
       setBanner("Could not delete the session")
+    } finally {
+      setRemovingSession(false)
     }
   }
 
@@ -646,7 +653,7 @@ export default function App() {
               setDrawerOpen(false)
               void createSession(isolated)
             }}
-            onDelete={(id) => void deleteSession(id)}
+            onDelete={setRemoveSessionID}
             creating={creating}
             canCreate={Boolean(workspaceID)}
           />
@@ -722,6 +729,18 @@ export default function App() {
           busy={removingWorkspace}
           onConfirm={confirmRemoveWorkspace}
           onClose={() => setRemoveWorkspaceID(null)}
+        />
+      )}
+
+      {removeSessionID && (
+        <RemoveSessionDialog
+          name={
+            sessions.find((item) => item.id === removeSessionID)?.title ||
+            "this session"
+          }
+          busy={removingSession}
+          onConfirm={confirmRemoveSession}
+          onClose={() => setRemoveSessionID(null)}
         />
       )}
 
