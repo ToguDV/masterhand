@@ -1,8 +1,9 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native"
 import { WebView } from "react-native-webview"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  isAmbiguousError,
   previewErrorMessage,
   queryKeys,
   useBffStatus,
@@ -28,11 +29,34 @@ export function PreviewModal({
   const previewQuery = usePreview(client, sessionID, statusQuery.data?.preview?.enabled === true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A tunnel that dies on its own must not keep claiming "running" (#89).
+  const [notice, setNotice] = useState<string | null>(null)
+  const previousStatus = useRef<PreviewStatus["status"]>("stopped")
 
   const availability = statusQuery.data?.preview
   const preview = previewQuery.data ?? STOPPED
   const unavailable = availability ? !availability.available : false
   const key = queryKeys.preview(sessionID)
+
+  useEffect(() => {
+    const before = previousStatus.current
+    previousStatus.current = preview.status
+    if (before === "running" && preview.status === "error") {
+      setNotice(preview.error ?? "The preview tunnel stopped.")
+    } else if (before === "running" && preview.status === "stopped") {
+      setNotice("The preview tunnel stopped.")
+    } else if (preview.status === "running" || preview.status === "starting") {
+      setNotice(null)
+    }
+  }, [preview.status, preview.error])
+
+  const timedOut = previewQuery.timedOut && preview.status === "starting"
+
+  /** Reconciles a start/stop whose response was lost against a fresh status. */
+  async function reconcile(): Promise<PreviewStatus | null> {
+    const fresh = await previewQuery.refetch().catch(() => null)
+    return fresh?.data ?? null
+  }
 
   async function start() {
     setBusy(true)
@@ -40,7 +64,14 @@ export function PreviewModal({
     try {
       queryClient.setQueryData(key, await client.api.startPreview(sessionID))
     } catch (startError) {
-      setError(previewErrorMessage(startError))
+      const fresh = await reconcile()
+      if (fresh?.status === "running" || fresh?.status === "starting") {
+        setError(null)
+      } else if (isAmbiguousError(startError)) {
+        setError("The server did not answer in time — the tunnel may still start. Check the status before retrying.")
+      } else {
+        setError(previewErrorMessage(startError))
+      }
     } finally {
       setBusy(false)
     }
@@ -52,8 +83,15 @@ export function PreviewModal({
     try {
       await client.api.stopPreview(sessionID)
       queryClient.setQueryData(key, STOPPED)
-    } catch {
-      setError("Could not stop the preview")
+    } catch (stopError) {
+      const fresh = await reconcile()
+      if (fresh?.status === "stopped") {
+        queryClient.setQueryData(key, fresh)
+      } else if (isAmbiguousError(stopError)) {
+        setError("The server did not answer in time — the tunnel may still be stopping. Check the status.")
+      } else {
+        setError("Could not stop the preview")
+      }
     } finally {
       setBusy(false)
     }
@@ -83,6 +121,9 @@ export function PreviewModal({
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {!error && (notice || (preview.status === "error" && preview.error)) ? (
+          <Text style={styles.notice}>{notice ?? preview.error}</Text>
+        ) : null}
 
         {preview.status === "running" && preview.url ? (
           <WebView source={{ uri: preview.url }} style={styles.webview} startInLoadingState />
@@ -91,11 +132,15 @@ export function PreviewModal({
             <Text style={styles.placeholderText}>
               {unavailable
                 ? "cloudflared is not available on the server. Install it, or run MasterHand with Docker (the image bundles it)."
-                : preview.status === "starting"
-                  ? "Starting the tunnel…"
-                  : `Ask the agent to start the web server on port ${
-                      preview.port ?? availability?.portRange.min ?? ""
-                    }, then press Start.`}
+                : preview.status === "error"
+                  ? preview.error ?? "The preview tunnel stopped."
+                  : timedOut
+                    ? "The tunnel is taking longer than expected. Check the server logs, then retry the preview."
+                    : preview.status === "starting"
+                      ? "Starting the tunnel…"
+                      : `Ask the agent to start the web server on port ${
+                          preview.port ?? availability?.portRange.min ?? ""
+                        }, then press Start.`}
             </Text>
           </View>
         )}
@@ -153,6 +198,12 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.danger,
+    fontSize: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  notice: {
+    color: colors.warning,
     fontSize: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,

@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  isAmbiguousError,
   queryKeys,
   useSessionRun,
   useWorkspaceRun,
@@ -59,14 +60,27 @@ export function RunSheet({
   const configQuery = useWorkspaceRun(client, workspaceID)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A run that dies on its own (crashed dev server, killed PTY) must not keep
+  // showing "running" until the next manual action (#89).
+  const [notice, setNotice] = useState<string | null>(null)
+  const previousStatus = useRef<RunStatus["status"]>("stopped")
   const [editing, setEditing] = useState(false)
   const [command, setCommand] = useState("")
   const [argsText, setArgsText] = useState("")
   const [detected, setDetected] = useState<RunCandidate | null>(null)
 
+  const run = runQuery.data ?? STOPPED
+
+  useEffect(() => {
+    const before = previousStatus.current
+    previousStatus.current = run.status
+    if (before === "running" && run.status === "stopped") setNotice("The dev server stopped.")
+    else if (before === "running" && run.status === "error") setNotice(run.error ?? "The dev server stopped.")
+    else if (run.status === "running") setNotice(null)
+  }, [run.status, run.error])
+
   if (!workspaceID) return null
 
-  const run = runQuery.data ?? STOPPED
   const config = configQuery.data ?? null
   const running = run.status === "running"
   const args = run.args.length > 0 ? run.args : (config?.args ?? [])
@@ -79,14 +93,30 @@ export function RunSheet({
     setEditing(true)
   }
 
+  /** Reconciles a start/stop whose response was lost against a fresh status. */
+  async function reconcile(): Promise<RunStatus | null> {
+    const fresh = await runQuery.refetch().catch(() => null)
+    return fresh?.data ?? null
+  }
+
   async function start() {
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       const next = await client.api.startSessionRun(sessionID, workspaceID!)
       queryClient.setQueryData(queryKeys.sessionRun(sessionID), next)
-    } catch {
-      setError("Could not start the run server. Check the command, then try again.")
+    } catch (startError) {
+      // The start is not idempotent server-side (a PTY may have been created):
+      // never report a hard failure without checking the live status first.
+      const fresh = await reconcile()
+      if (fresh?.status === "running" || fresh?.status === "starting") {
+        setError(null)
+      } else if (isAmbiguousError(startError)) {
+        setError("The server did not answer in time — the run may still start. Check the status before retrying.")
+      } else {
+        setError("Could not start the run server. Check the command, then try again.")
+      }
     } finally {
       setBusy(false)
     }
@@ -98,8 +128,15 @@ export function RunSheet({
     try {
       await client.api.stopSessionRun(sessionID, workspaceID!)
       queryClient.setQueryData(queryKeys.sessionRun(sessionID), STOPPED)
-    } catch {
-      setError("Could not stop the run server")
+    } catch (stopError) {
+      const fresh = await reconcile()
+      if (fresh?.status === "stopped") {
+        queryClient.setQueryData(queryKeys.sessionRun(sessionID), fresh)
+      } else if (isAmbiguousError(stopError)) {
+        setError("The server did not answer in time — the dev server may still be stopping. Check the status.")
+      } else {
+        setError("Could not stop the run server")
+      }
     } finally {
       setBusy(false)
     }
@@ -186,6 +223,11 @@ export function RunSheet({
       {error && (
         <p className="mh-banner mh-banner--danger" role="alert">
           {error}
+        </p>
+      )}
+      {!error && (notice || (run.status === "error" && run.error)) && (
+        <p className="mh-banner mh-banner--warning" role="status">
+          {notice ?? run.error}
         </p>
       )}
 

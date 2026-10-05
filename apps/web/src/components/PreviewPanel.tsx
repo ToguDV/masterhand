@@ -1,6 +1,13 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { previewErrorMessage, queryKeys, useBffStatus, usePreview, type PreviewStatus } from "@masterhand/client-core"
+import {
+  isAmbiguousError,
+  previewErrorMessage,
+  queryKeys,
+  useBffStatus,
+  usePreview,
+  type PreviewStatus,
+} from "@masterhand/client-core"
 import { client } from "../client"
 import { SidePanel } from "./SidePanel"
 import { ExternalLinkIcon } from "./icons"
@@ -33,13 +40,36 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
   const previewQuery = usePreview(client, sessionID, statusQuery.data?.preview?.enabled === true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The tunnel dying while the panel is open must surface, not keep claiming
+  // "running" with a blank iframe (#89).
+  const [notice, setNotice] = useState<string | null>(null)
+  const previousStatus = useRef<PreviewStatus["status"]>("stopped")
 
   const availability = statusQuery.data?.preview
   const preview = previewQuery.data ?? STOPPED
   const key = queryKeys.preview(sessionID)
 
+  useEffect(() => {
+    const before = previousStatus.current
+    previousStatus.current = preview.status
+    if (before === "running" && preview.status === "error") {
+      setNotice(preview.error ?? "The preview tunnel stopped.")
+    } else if (before === "running" && preview.status === "stopped") {
+      setNotice("The preview tunnel stopped.")
+    } else if (preview.status === "running" || preview.status === "starting") {
+      setNotice(null)
+    }
+  }, [preview.status, preview.error])
+
   if (!availability || !availability.enabled) return null
   const unavailable = !availability.available
+  const timedOut = previewQuery.timedOut && preview.status === "starting"
+
+  /** Reconciles a start/stop whose response was lost against a fresh status. */
+  async function reconcile(): Promise<PreviewStatus | null> {
+    const fresh = await previewQuery.refetch().catch(() => null)
+    return fresh?.data ?? null
+  }
 
   async function start() {
     setBusy(true)
@@ -48,7 +78,15 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
       const next = await client.api.startPreview(sessionID)
       queryClient.setQueryData(key, next)
     } catch (startError) {
-      setError(previewErrorMessage(startError))
+      // The tunnel may already be starting (or up) after a lost response.
+      const fresh = await reconcile()
+      if (fresh?.status === "running" || fresh?.status === "starting") {
+        setError(null)
+      } else if (isAmbiguousError(startError)) {
+        setError("The server did not answer in time — the tunnel may still start. Check the status before retrying.")
+      } else {
+        setError(previewErrorMessage(startError))
+      }
     } finally {
       setBusy(false)
     }
@@ -60,8 +98,15 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
     try {
       await client.api.stopPreview(sessionID)
       queryClient.setQueryData(key, STOPPED)
-    } catch {
-      setError("Could not stop the preview")
+    } catch (stopError) {
+      const fresh = await reconcile()
+      if (fresh?.status === "stopped") {
+        queryClient.setQueryData(key, fresh)
+      } else if (isAmbiguousError(stopError)) {
+        setError("The server did not answer in time — the tunnel may still be stopping. Check the status.")
+      } else {
+        setError("Could not stop the preview")
+      }
     } finally {
       setBusy(false)
     }
@@ -100,6 +145,11 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
           {error}
         </p>
       )}
+      {!error && (notice || (preview.status === "error" && preview.error)) && (
+        <p className="mh-banner mh-banner--warning" role="status">
+          {notice ?? preview.error}
+        </p>
+      )}
 
       <div className="min-h-[60vh] bg-white">
         {preview.status === "running" && preview.url ? (
@@ -116,6 +166,12 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
               <span>
                 cloudflared is not available on the server. Install it, or run MasterHand with Docker (the image
                 bundles it).
+              </span>
+            ) : preview.status === "error" ? (
+              <span>{preview.error ?? "The preview tunnel stopped."}</span>
+            ) : timedOut ? (
+              <span>
+                The tunnel is taking longer than expected. Check the server logs, then retry the preview.
               </span>
             ) : preview.status === "starting" ? (
               "Starting the tunnel…"

@@ -54,6 +54,8 @@ export default defineConfig({
         // wait for it to become reachable.
         PREVIEW_READINESS_MS: "0",
         CLOUDFLARED_BIN: path.join(e2eDir, "fake-cloudflared.sh"),
+        // Creating this file makes the fake tunnel exit on its own (#89).
+        E2E_CLOUDFLARED_DIE_FILE: "/tmp/masterhand-e2e-cloudflared-die",
       },
       url: `http://127.0.0.1:${BFF_PORT}/api/health`,
       reuseExistingServer: !process.env.CI,

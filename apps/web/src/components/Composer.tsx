@@ -10,6 +10,7 @@ import {
   deliveryMarkerOf,
   deliveryMetadata,
   flattenModels,
+  isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
@@ -389,10 +390,16 @@ export function Composer({
   }
 
   async function stop() {
+    setError(null)
     try {
       await client.api.abortSession(sessionID)
-    } catch {
-      // the state reconciles through events
+    } catch (stopError) {
+      // Never fail silently: the turn may still be running.
+      setError(
+        isAmbiguousError(stopError)
+          ? "The server did not answer in time — the agent may still be stopping. Check the status."
+          : "Could not stop the agent. Try again.",
+      )
     }
   }
 

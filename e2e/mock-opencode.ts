@@ -115,6 +115,12 @@ let lastPromptSessionID: string | null = null
 // the /btw orphan tests can prove created forks are removed.
 let stallForks = false
 let failPrompts = false
+let failAbort = false
+// E2E control: apply a permission reply server-side but lose the response and
+// suppress the `permission.replied` broadcast, so only a list reconciliation
+// can confirm it (#67).
+let stallPermissionReplies = false
+const heldPermissionReplies: Array<() => void> = []
 let forksCreated = 0
 let forksRemoved = 0
 let heldForks = 0
@@ -859,6 +865,21 @@ const server = createServer((req, res) => {
       failPermissionReplies = body.value !== false
       return empty(res, 204)
     }
+    if (req.method === "POST" && path === "/e2e/fail-abort") {
+      const body = await readBody(req)
+      failAbort = body.value !== false
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/hold-permission-replies") {
+      const body = await readBody(req)
+      stallPermissionReplies = body.value !== false
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/release-permission-replies") {
+      stallPermissionReplies = false
+      for (const release of heldPermissionReplies.splice(0)) release()
+      return empty(res, 204)
+    }
     // Simulates another device (or the opencode TUI) sending a message to a
     // session: appends the user message and announces a turn, so the client
     // refetches the history. Used to prove delivery reconciliation never
@@ -886,6 +907,16 @@ const server = createServer((req, res) => {
       messageOrders.delete(sessionID)
       activeRuns.delete(sessionID)
       broadcast("session.deleted", { sessionID }, session.location.directory)
+      return empty(res, 204)
+    }
+    // Simulates a dev server that exits on its own: drops the managed PTY so
+    // the next status poll reports `stopped` (#89).
+    if (req.method === "POST" && path === "/e2e/stop-run") {
+      const body = await readBody(req)
+      const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
+      for (const [id, pty] of ptys) {
+        if (!sessionID || pty.title === `masterhand:${sessionID}`) ptys.delete(id)
+      }
       return empty(res, 204)
     }
     if (req.method === "GET" && path === "/e2e/state") {
@@ -1147,6 +1178,7 @@ const server = createServer((req, res) => {
         return empty(res, 204)
       }
       if (req.method === "POST" && segments[3] === "interrupt") {
+        if (failAbort) return json(res, 500, { error: "abort_failed" })
         return json(res, 200, { interrupted: true })
       }
       if (req.method === "POST" && segments[3] === "permission" && segments[4] && segments[5] === "reply") {
