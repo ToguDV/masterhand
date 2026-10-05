@@ -267,6 +267,14 @@ export function createEventHandler(
 
   return (raw) => {
     if (!raw || typeof raw !== "object") return
+    const type = (raw as { type?: unknown }).type
+    if (type === "hub.connected" || type === "hub.disconnected") {
+      // Synthetic frame from the BFF hub: it gained/lost its upstream
+      // connection. Refresh the health status now instead of waiting for the
+      // next poll so the status indicator reacts immediately.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+      return
+    }
     const event = raw as V2Event
     // Single timestamp per event: the tool cases stamp live timing with it.
     const eventNow = Date.now()
