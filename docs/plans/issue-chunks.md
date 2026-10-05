@@ -21,7 +21,7 @@ surface they share, so a chunk can be implemented in one work session without ch
 
 | Chunk | Issues | Status |
 |---|---|---|
-| C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | In progress (2026-10-05) |
+| C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | ✅ Implemented 2026-10-05 — PRs #102 → #103 → #104 → #105 (stacked; merge in order after #101) |
 | C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | Pending |
 | C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | Pending |
 | C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | Pending |
