@@ -425,18 +425,48 @@ components:
   dialog-overlay:
     backgroundColor: "{colors.overlay}"
     backdrop: "blur(2px)"
-  permission-dialog:
+  permission-card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
-    rounded: "{rounded.xl}"
-    padding: "{spacing.lg}"
-    border: "1px solid {colors.hairline}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.md}"
+    border: "1px solid {colors.warning-line}"
+    placement: "inline in the transcript, in the agent block that raised it"
+  permission-card-resolved:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.xs} 0"
   question-card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
     rounded: "{rounded.lg}"
     padding: "{spacing.md}"
     border: "1px solid {colors.accent-line}"
+    placement: "inline in the transcript, in the agent block that raised it"
+  question-index:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    padding: "0 2px"
+    border: "2px solid transparent (bottom)"
+  question-index-active:
+    backgroundColor: "transparent"
+    textColor: "{colors.text}"
+    typography: "{typography.caption}"
+    border: "2px solid {colors.accent} (bottom)"
+  option-row:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.md}"
+    padding: "10px 12px"
+    border: "1px solid {colors.hairline-strong}"
+  option-row-selected:
+    backgroundColor: "{colors.accent-soft}"
+    textColor: "{colors.text}"
+    border: "1px solid {colors.accent}"
   choice-modal:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -495,7 +525,8 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 - Editorial type pairing: **Fraunces** for display and the wordmark, **Instrument Sans** for all UI and body, **JetBrains Mono** for code — all swappable through three CSS variables
 - Organic decoration in empty rooms only: `{components.deco-blob}`, `{components.deco-dots}`, `{components.deco-hatch}`, `{components.deco-curve}`
 - Flat depth: hairlines and surface steps do the work; shadows reserved for overlays
-- Mobile-first: 44px touch targets, bottom sheets, drawer navigation — then progressively enhanced for desktop
+- Mobile-first: 44px touch targets, bottom sheets for management dialogs, drawer navigation — then progressively enhanced for desktop
+- Blocking requests live in the flow: permission requests and agent questions render inline in the transcript (never as modals), and a multi-question form carries a tab index on top
 - The chat transcript is sacred: full width of a 768px column, zero decoration behind messages
 
 ## Colors
@@ -592,7 +623,8 @@ Fonts are intentionally easy to replace: the whole system references three CSS c
 - **Chat column**: 768px max, centered, 16px gutters on mobile — the product's most important measurement.
 - **Sidebar**: 272px, collapses to a drawer below 768px.
 - **Docs / preview container**: 1200px max, 24px gutters.
-- **Dialogs**: 440px max, become bottom sheets below 640px.
+- **Management dialogs** (workspace add/remove, choice modal): 440px max, become bottom sheets below 640px.
+- **Blocking cards** (permission, questions): never dialogs; they live in the 768px chat column at every size.
 - **Side panels** (side question, run, preview, audit): 360px, become full-width sheets on mobile.
 
 ### Whitespace Philosophy
@@ -678,9 +710,13 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`user-bubble`** — right-aligned, inverted: `{colors.text}` background, `{colors.canvas}` text, `{rounded.lg}`, max 85% width. The inversion mirrors "ink" in both themes.
 
-**`assistant-block`** — no bubble. Agent label in `{typography.micro}` uppercase + `{colors.text-muted}`, body in `{typography.body-md}`, max 68ch. Code, tool cards and question cards stack inside the block at full column width.
+**`assistant-block`** — no bubble. Agent label in `{typography.micro}` uppercase + `{colors.text-muted}`, body in `{typography.body-md}`, max 68ch. Code, tool cards and blocking-request cards stack inside the block at full column width.
 
 **`agent-label`** / **`session-meta`** — micro-label and mono metadata as described in Typography.
+
+**`permission-card`** — a permission request renders **inline in the transcript**, inside the agent block that raised it: `{colors.surface}`, `{colors.warning-line}` border, `{rounded.lg}`. Header = busy dot + "Permission requested"; body = one-line context + the command in a `code-block`; actions = Allow once (`button-primary`), Always allow (`button-secondary`), Reject (`button-danger`). Once answered it collapses to `permission-card-resolved`: a quiet caption row (state dot + "Allowed once · 2m ago") that stays in the flow as history. It is never a modal — the request belongs to the agent turn that asked for it.
+
+**`question-card`** — an agent question renders **inline in the transcript**, same placement rules: `{colors.surface}`, `{colors.accent-line}` border, `{rounded.lg}`. A single question shows the prompt plus `option-row`s; a **multi-question form shows a top index** (`question-index` tabs — one per question plus a final Submit step) so the user can jump straight to any question, with the active tab underlined in `{colors.accent}` and an error dot on questions that fail validation. The footer is Next/Submit (`button-primary`) plus Dismiss (`button-ghost`).
 
 ### Tools
 
@@ -704,9 +740,9 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Overlays
 
-**`dialog`** — `{components.dialog-overlay}` scrim + surface card, `{rounded.xl}`, max 440px. **`permission-dialog`** is the most important instance: command summary in a `code-block`, three actions (Allow once = primary, Always = secondary, Reject = danger). On mobile it is a bottom sheet with 44px actions.
+**`dialog`** — `{components.dialog-overlay}` scrim + surface card, `{rounded.xl}`, max 440px. Reserved for **management flows the agent cannot raise**: add/remove workspace, plus the `choice-modal`. On mobile it is a bottom sheet with 44px actions. Blocking agent requests (permission, questions) are never dialogs — they render inline in the transcript.
 
-**`question-card`** — inline card in the transcript (agent asked something): accent-line border, options as selectable rows, submit as `button-primary`. **`choice-modal`** — the same content as a modal when raised outside the open session.
+**`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
 **`side-panel`** — right sheet (360px) for side questions, run, preview and audit; full-width on mobile.
 
@@ -720,6 +756,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Use Fraunces for display moments only, at 26px and above
 - Reserve decoration (blob, dots, hatch, curve) for genuinely empty surfaces: login, empty states, first-run, hero
 - Keep the chat column at 768px with 68ch assistant text — set transcripts for reading
+- Keep blocking requests in the flow: permission requests and agent questions render inline in the transcript, inside the agent turn that raised them
+- Give multi-question forms a top index of tabs (one per question + Submit) so any question is one tap away
 - Design at 360–430px first; every component must be usable with one thumb and 44px targets
 - Test both themes on every component; dark is not an afterthought
 - Keep the three font variables as the only place typefaces are named
@@ -733,13 +771,14 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Don't use pill radii for cards, inputs or buttons — pills are only filters, chips and dots
 - Don't animate decoration; only functional pulses (busy dot) and 150–200ms state transitions
 - Don't invent a separate mobile look: same tokens, same components, adaptive layout
+- Don't turn a permission request or an agent question into a modal or bottom sheet — only a question raised in a *different* session uses `choice-modal`
 
 ## Responsive Behavior
 
 ### Breakpoints
 | Name | Width | Key Changes |
 |---|---|---|
-| Mobile | < 640px | Single column. Sidebar becomes a drawer. Dialogs and side panels become bottom sheets. Display hero 40px, display-lg 32px, heading-1 26px. Decoration reduced to one element per screen. |
+| Mobile | < 640px | Single column. Sidebar becomes a drawer. Management dialogs and side panels become bottom sheets; permission and question cards stay inline. Display hero 40px, display-lg 32px, heading-1 26px. Decoration reduced to one element per screen. |
 | Large mobile | 640–767px | Message column takes full width with 24px gutters; submission rows gain secondary actions. |
 | Tablet | 768–1023px | Sidebar docks at 272px. Two-column form rows. Chat column centers with 32px gutters. Top-bar secondary info appears. |
 | Desktop | 1024–1279px | Preview/docs grid 3-up. Panels dock to the right at 360px. Full decoration composition on hero/login/empty states. |
@@ -754,7 +793,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - **Sidebar**: drawer below 768px, opened from the top-bar workspace button; scrim uses `{components.dialog-overlay}`
 - **Chat**: same DOM — the transcript is single-column on all sizes; only gutters and the side-panel dock change
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code
-- **Dialogs**: bottom sheets below 640px, centered cards above
+- **Question index**: tabs scroll horizontally when they overflow (never wrap to a second row); the active question stays visible
+- **Management dialogs** (workspace add/remove, choice modal): bottom sheets below 640px, centered cards above
 - **Panels** (side question / run / preview / audit): full-width sheet on mobile, 360px dock on desktop
 - **Frames in the preview page**: phone and browser frames stack vertically below 1024px; the mock app inside the browser frame responds to **container width**, not viewport
 

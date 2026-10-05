@@ -707,10 +707,75 @@
             </div>
 
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>question-card</span><span>inline</span></div>
+              <div class="mh-demo__label"><span>permission-card</span><span>inline · pending + resolved</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-permission">
+                  <div class="mh-permission__head">
+                    <span class="mh-dot mh-dot--busy"></span>
+                    <span class="mh-heading-4">Permission requested</span>
+                  </div>
+                  <p class="mh-body-sm mh-permission__context">
+                    opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
+                  </p>
+                  <div class="mh-code">
+                    <div class="mh-code__header">bash</div>
+                    <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                  </div>
+                  <div class="mh-permission__actions">
+                    <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                    <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
+                    <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                  </div>
+                </div>
+                <div class="mh-permission is-resolved">
+                  <span class="mh-dot mh-dot--connected"></span>
+                  <span>Allowed once · 2m ago</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>question-card · multi</span><span>tab index</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-question">
-                  <div class="mh-msg__label mh-micro">Question from build</div>
+                  <div class="mh-question__head">
+                    <span class="mh-msg__label mh-micro">Question from build</span>
+                    <span class="mh-caption mh-muted">2 of 3</span>
+                  </div>
+                  <div class="mh-tabindex" role="tablist" aria-label="Questions">
+                    <button class="mh-tabindex__tab is-done" type="button" role="tab">1 · Store</button>
+                    <button class="mh-tabindex__tab is-active" type="button" role="tab" aria-selected="true">
+                      2 · Migration
+                    </button>
+                    <button class="mh-tabindex__tab" type="button" role="tab">
+                      3 · Rollout <span class="mh-tabindex__dot" title="Needs an answer"></span>
+                    </button>
+                    <button class="mh-tabindex__tab" type="button" role="tab">Submit</button>
+                  </div>
+                  <div class="mh-heading-3">Run the migration on boot or behind a flag?</div>
+                  <div class="mh-options">
+                    <button class="mh-option is-selected" type="button">
+                      <span class="mh-option__mark"></span>Behind a feature flag
+                    </button>
+                    <button class="mh-option" type="button">
+                      <span class="mh-option__mark"></span>On boot, automatically
+                    </button>
+                  </div>
+                  <div class="mh-question__actions">
+                    <button class="mh-btn mh-btn--primary" type="button">Next</button>
+                    <button class="mh-btn mh-btn--ghost" type="button">Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>question-card · single</span><span>no index</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-question">
+                  <div class="mh-question__head">
+                    <span class="mh-msg__label mh-micro">Question from plan</span>
+                  </div>
                   <div class="mh-heading-3">Which store should sessions use?</div>
                   <div class="mh-options">
                     <button class="mh-option is-selected" type="button">
@@ -720,8 +785,8 @@
                       <span class="mh-option__mark"></span>Keep JSON files
                     </button>
                   </div>
-                  <div class="mh-dialog__actions" style="margin-top: 0">
-                    <button class="mh-btn mh-btn--primary" type="button">Answer</button>
+                  <div class="mh-question__actions">
+                    <button class="mh-btn mh-btn--primary" type="button">Submit</button>
                     <button class="mh-btn mh-btn--ghost" type="button">Dismiss</button>
                   </div>
                 </div>
@@ -759,23 +824,23 @@
           <h3 class="mh-heading-4" style="margin: 40px 0 12px">Overlays &amp; panels</h3>
           <div class="mh-demos">
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>permission-dialog</span><span>the important one</span></div>
+              <div class="mh-demo__label"><span>dialog · add workspace</span><span>management only</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-dialog">
-                  <div class="mh-dialog__title mh-heading-4">
-                    <span class="mh-dot mh-dot--busy"></span> Permission requested
-                  </div>
+                  <div class="mh-dialog__title mh-heading-4">Add workspace</div>
                   <p class="mh-body-sm mh-muted">
-                    opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
+                    Creates an isolated project folder under the workspaces root.
                   </p>
-                  <div class="mh-code">
-                    <div class="mh-code__header">bash</div>
-                    <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                  <div style="margin-top: 12px">
+                    <label class="mh-label" for="workspace-name">Name</label>
+                    <input class="mh-input" id="workspace-name" type="text" value="masterhand" />
+                    <p class="mh-field-help mh-caption">
+                      → <span class="mh-mono-sm">/workspace/masterhand</span>
+                    </p>
                   </div>
                   <div class="mh-dialog__actions">
-                    <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
-                    <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
-                    <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                    <button class="mh-btn mh-btn--primary" type="button">Create</button>
+                    <button class="mh-btn mh-btn--secondary" type="button">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -1028,22 +1093,23 @@
                           <div class="mh-msg--agent">
                             <div class="mh-msg__label mh-micro">build · agent</div>
                             <div class="mh-msg__body">Reinstalling dependencies to pick up the driver…</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="mh-app__scrim">
-                        <div class="mh-sheet">
-                          <div class="mh-heading-4">Permission requested</div>
-                          <p class="mh-body-sm mh-muted">
-                            opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
-                          </p>
-                          <div class="mh-code mh-code--tight">
-                            <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
-                          </div>
-                          <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
-                          <div class="mh-demo__row">
-                            <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button" style="flex: 1">Always</button>
-                            <button class="mh-btn mh-btn--danger mh-btn--sm" type="button" style="flex: 1">Reject</button>
+                            <div class="mh-permission">
+                              <div class="mh-permission__head">
+                                <span class="mh-dot mh-dot--busy"></span>
+                                <span class="mh-heading-4">Permission requested</span>
+                              </div>
+                              <p class="mh-body-sm mh-permission__context">
+                                Run in <span class="mh-mono-sm">MasterHand/</span>
+                              </p>
+                              <div class="mh-code mh-code--tight">
+                                <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                              </div>
+                              <div class="mh-permission__actions">
+                                <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Allow once</button>
+                                <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Always</button>
+                                <button class="mh-btn mh-btn--danger mh-btn--sm" type="button">Reject</button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1062,30 +1128,43 @@
                         <div class="mh-thread">
                           <div class="mh-msg--agent">
                             <div class="mh-msg__label mh-micro">plan · agent</div>
-                            <div class="mh-msg__body">One decision before I touch the composer layout.</div>
+                            <div class="mh-msg__body">Two decisions before I touch the composer layout.</div>
+                            <div class="mh-question">
+                              <div class="mh-question__head">
+                                <span class="mh-msg__label mh-micro">Question from plan</span>
+                                <span class="mh-caption mh-muted">1 of 2</span>
+                              </div>
+                              <div class="mh-tabindex" role="tablist" aria-label="Questions">
+                                <button class="mh-tabindex__tab is-active" type="button" role="tab" aria-selected="true">
+                                  1 · Picker
+                                </button>
+                                <button class="mh-tabindex__tab" type="button" role="tab">
+                                  2 · Layout <span class="mh-tabindex__dot"></span>
+                                </button>
+                                <button class="mh-tabindex__tab" type="button" role="tab">Submit</button>
+                              </div>
+                              <div class="mh-heading-4">Where should the model picker live?</div>
+                              <div class="mh-options">
+                                <button class="mh-option is-selected" type="button">
+                                  <span class="mh-option__mark"></span>Inline, above the input
+                                </button>
+                                <button class="mh-option" type="button">
+                                  <span class="mh-option__mark"></span>In the top bar
+                                </button>
+                              </div>
+                              <div class="mh-question__actions">
+                                <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Next</button>
+                                <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Dismiss</button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      <div class="mh-app__scrim">
-                        <div class="mh-sheet">
-                          <div class="mh-msg__label mh-micro">Question from plan</div>
-                          <div class="mh-heading-3">Where should the model picker live?</div>
-                          <div class="mh-options">
-                            <button class="mh-option is-selected" type="button">
-                              <span class="mh-option__mark"></span>Inline, above the input
-                            </button>
-                            <button class="mh-option" type="button">
-                              <span class="mh-option__mark"></span>In the top bar
-                            </button>
-                          </div>
-                          <button class="mh-btn mh-btn--primary" type="button">Answer</button>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <figcaption class="mh-frame__caption">Mobile · 360×720 · bottom sheets and drawer navigation</figcaption>
+              <figcaption class="mh-frame__caption">Mobile · 360×720 · inline blocking cards and drawer navigation</figcaption>
             </figure>
 
             <!-- --------------------------- Browser --------------------------- -->
@@ -1313,27 +1392,26 @@
                                 <div class="mh-msg--agent">
                                   <div class="mh-msg__label mh-micro">build · agent</div>
                                   <div class="mh-msg__body">Reinstalling dependencies to pick up the driver…</div>
+                                  <div class="mh-permission">
+                                    <div class="mh-permission__head">
+                                      <span class="mh-dot mh-dot--busy"></span>
+                                      <span class="mh-heading-4">Permission requested</span>
+                                    </div>
+                                    <p class="mh-body-sm mh-permission__context">
+                                      Run in <span class="mh-mono-sm">MasterHand/</span>
+                                    </p>
+                                    <div class="mh-code">
+                                      <div class="mh-code__header">bash</div>
+                                      <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
+                                    </div>
+                                    <div class="mh-permission__actions">
+                                      <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
+                                      <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
+                                      <button class="mh-btn mh-btn--danger" type="button">Reject</button>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="mh-app__scrim mh-app__scrim--center">
-                          <div class="mh-dialog">
-                            <div class="mh-dialog__title mh-heading-4">
-                              <span class="mh-dot mh-dot--busy"></span> Permission requested
-                            </div>
-                            <p class="mh-body-sm mh-muted">
-                              opencode wants to run a command in <span class="mh-mono-sm">MasterHand/</span>
-                            </p>
-                            <div class="mh-code" style="margin-top: 12px">
-                              <div class="mh-code__header">bash</div>
-                              <pre>rm -rf node_modules &amp;&amp; npm ci</pre>
-                            </div>
-                            <div class="mh-dialog__actions">
-                              <button class="mh-btn mh-btn--primary" type="button">Allow once</button>
-                              <button class="mh-btn mh-btn--secondary" type="button">Always allow</button>
-                              <button class="mh-btn mh-btn--danger" type="button">Reject</button>
                             </div>
                           </div>
                         </div>
@@ -1360,26 +1438,37 @@
                               <div class="mh-thread">
                                 <div class="mh-msg--agent">
                                   <div class="mh-msg__label mh-micro">plan · agent</div>
-                                  <div class="mh-msg__body">One decision before I touch the composer layout.</div>
+                                  <div class="mh-msg__body">Two decisions before I touch the composer layout.</div>
+                                  <div class="mh-question">
+                                    <div class="mh-question__head">
+                                      <span class="mh-msg__label mh-micro">Question from plan</span>
+                                      <span class="mh-caption mh-muted">1 of 2</span>
+                                    </div>
+                                    <div class="mh-tabindex" role="tablist" aria-label="Questions">
+                                      <button class="mh-tabindex__tab is-active" type="button" role="tab" aria-selected="true">
+                                        1 · Picker
+                                      </button>
+                                      <button class="mh-tabindex__tab" type="button" role="tab">
+                                        2 · Layout <span class="mh-tabindex__dot"></span>
+                                      </button>
+                                      <button class="mh-tabindex__tab" type="button" role="tab">Submit</button>
+                                    </div>
+                                    <div class="mh-heading-4">Where should the model picker live?</div>
+                                    <div class="mh-options">
+                                      <button class="mh-option is-selected" type="button">
+                                        <span class="mh-option__mark"></span>Inline, above the input
+                                      </button>
+                                      <button class="mh-option" type="button">
+                                        <span class="mh-option__mark"></span>In the top bar
+                                      </button>
+                                    </div>
+                                    <div class="mh-question__actions">
+                                      <button class="mh-btn mh-btn--primary" type="button">Next</button>
+                                      <button class="mh-btn mh-btn--ghost" type="button">Dismiss</button>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="mh-app__scrim mh-app__scrim--center">
-                          <div class="mh-dialog">
-                            <div class="mh-msg__label mh-micro">Question from plan</div>
-                            <div class="mh-heading-3" style="margin: 4px 0 12px">Where should the model picker live?</div>
-                            <div class="mh-options">
-                              <button class="mh-option is-selected" type="button">
-                                <span class="mh-option__mark"></span>Inline, above the input
-                              </button>
-                              <button class="mh-option" type="button">
-                                <span class="mh-option__mark"></span>In the top bar
-                              </button>
-                            </div>
-                            <div class="mh-dialog__actions">
-                              <button class="mh-btn mh-btn--primary" type="button">Answer</button>
                             </div>
                           </div>
                         </div>
