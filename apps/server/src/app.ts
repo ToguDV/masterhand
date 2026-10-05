@@ -68,10 +68,22 @@ export interface AppDeps {
   runs?: RunManager
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
+  /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
+  sseQueueMax?: number
 }
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** Frames a single SSE client may fall behind before it is dropped. */
+const MAX_SSE_QUEUE = 1024
+
+/** An internal opencode call exceeded `OPENCODE_TIMEOUT_MS`. */
+export class OpencodeTimeoutError extends Error {
+  constructor() {
+    super("opencode call timed out")
+    this.name = "OpencodeTimeoutError"
+  }
+}
 
 interface OpencodeSession {
   id: string
@@ -85,6 +97,26 @@ function clientIp(c: Context): string {
     return getConnInfo(c).remote.address ?? "unknown"
   } catch {
     return "unknown"
+  }
+}
+
+/**
+ * Metadata key under which MasterHand persists a client's session-create
+ * marker (must match `CREATE_MARKER_KEY` in `client-core`). opencode returns
+ * it from the session list, so a lost create response can be reconciled.
+ */
+const CREATE_MARKER_KEY = "masterhand.create"
+
+/** Opaque, bounded marker; anything else is ignored (best effort). */
+function normalizeCreateMarker(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{8,128}$/.test(value) ? value : null
+}
+
+/** Session create body, with the reconciliation marker attached when present. */
+function sessionCreateBody(directory: string, marker: string | null) {
+  return {
+    location: { directory },
+    ...(marker ? { metadata: { [CREATE_MARKER_KEY]: marker } } : {}),
   }
 }
 
@@ -209,6 +241,26 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   /**
+   * Bounded fetch to opencode: a stalled upstream (TCP accepted, no response)
+   * must never hold the route forever. The timeout is normalized so routes can
+   * answer 504 `opencode_timeout` instead of an opaque 500.
+   */
+  async function fetchOpencode(target: URL, init: RequestInit = {}): Promise<Response> {
+    try {
+      return await fetchImpl(target, { ...init, signal: AbortSignal.timeout(config.opencodeTimeoutMs) })
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === "TimeoutError") throw new OpencodeTimeoutError()
+      throw error
+    }
+  }
+
+  /** 504 for a missed deadline, 502 for any other upstream failure. */
+  function opencodeFailure(c: Context, error: unknown, fallback = "opencode_unreachable"): Response {
+    if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
+    return c.json({ error: fallback }, 502)
+  }
+
+  /**
    * Calls opencode directly (injecting basic auth). The `directory` override
    * travels as a query parameter exactly like the clients' proxy calls.
    */
@@ -229,7 +281,7 @@ export function createApp(deps: AppDeps): Hono {
       // nested `location[directory]` query, unlike the flat `/api/session`.
       target.searchParams.set("location[directory]", options.location)
     }
-    return fetchImpl(target, {
+    return fetchOpencode(target, {
       method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -248,7 +300,7 @@ export function createApp(deps: AppDeps): Hono {
       target.searchParams.set("directory", directory)
       target.searchParams.set("limit", "200")
       if (cursor) target.searchParams.set("cursor", cursor)
-      const response = await fetchImpl(target, {
+      const response = await fetchOpencode(target, {
         headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
       })
       if (!response.ok) throw new Error(`opencode ${response.status}`)
@@ -478,36 +530,73 @@ export function createApp(deps: AppDeps): Hono {
   api.get("/events", (c) => {
     c.header("cache-control", "no-cache")
     c.header("x-accel-buffering", "no")
+    const maxQueue = deps.sseQueueMax ?? MAX_SSE_QUEUE
     return streamSSE(c, async (stream) => {
+      interface SseFrame {
+        event?: string
+        data: string
+      }
+
       let closed = false
-      const unsubscribe = deps.hub.subscribe((event) => {
+      let draining = false
+      const queue: SseFrame[] = []
+      let unsubscribe = (): void => {}
+
+      const teardown = (): void => {
         if (closed) return
-        // A rejected write means the client disconnected mid-frame; drop the
-        // subscription instead of leaking an unhandled rejection.
-        stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {
-          closed = true
-          unsubscribe()
-        })
-      })
-      stream.onAbort(() => {
         closed = true
         unsubscribe()
+      }
+
+      // One writer per client: each frame awaits the stream, so a slow client
+      // applies natural backpressure to the queue instead of forking an
+      // unbounded promise chain.
+      const drain = async (): Promise<void> => {
+        if (draining) return
+        draining = true
+        try {
+          while (!closed) {
+            const frame = queue.shift()
+            if (!frame) break
+            await stream.writeSSE(frame)
+          }
+        } catch {
+          // the client disconnected
+        } finally {
+          draining = false
+          if (!closed && queue.length > 0) void drain()
+        }
+      }
+
+      const enqueue = (frame: SseFrame): void => {
+        if (closed) return
+        if (queue.length >= maxQueue) {
+          // Zero-window/slow client: drop it instead of buffering every event in
+          // memory. It reconnects (SSE has no replay) and reconciles state.
+          teardown()
+          stream.abort()
+          return
+        }
+        queue.push(frame)
+        void drain()
+      }
+
+      unsubscribe = deps.hub.subscribe((event) => {
+        enqueue({ data: JSON.stringify(event) })
       })
+      stream.onAbort(teardown)
 
       try {
-        await stream.writeSSE({
-          event: "hello",
-          data: JSON.stringify({ connected: deps.hub.connected }),
-        })
+        enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
         while (!closed) {
           await stream.sleep(KEEPALIVE_MS)
-          if (!closed) await stream.writeSSE({ event: "ping", data: "{}" })
+          if (closed) break
+          enqueue({ event: "ping", data: "{}" })
         }
       } catch {
         // client disconnected
       } finally {
-        closed = true
-        unsubscribe()
+        teardown()
       }
     })
   })
@@ -542,8 +631,8 @@ export function createApp(deps: AppDeps): Hono {
     let commandResponse: Response
     try {
       commandResponse = await callOpencode("/api/command", { location: directory })
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
     if (!commandResponse.ok) return c.json({ error: "opencode_error" }, 502)
 
@@ -647,8 +736,8 @@ export function createApp(deps: AppDeps): Hono {
         sessionsInDirectory(workspace.path),
         ...records.map((record) => sessionsInDirectory(record.path).catch(() => [])),
       ])
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
 
     const byID = new Map(records.map((record) => [record.sessionID, record]))
@@ -665,12 +754,13 @@ export function createApp(deps: AppDeps): Hono {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
 
-    let body: { isolated?: unknown } = {}
+    let body: { isolated?: unknown; marker?: unknown } = {}
     try {
       body = await c.req.json()
     } catch {
       // an empty body means a standard (non-isolated) session
     }
+    const marker = normalizeCreateMarker(body.marker)
 
     if (body.isolated !== true) {
       ensureWorkspaceRepo(workspace.path)
@@ -678,10 +768,10 @@ export function createApp(deps: AppDeps): Hono {
       try {
         response = await callOpencode("/api/session", {
           method: "POST",
-          body: { location: { directory: workspace.path } },
+          body: sessionCreateBody(workspace.path, marker),
         })
-      } catch {
-        return c.json({ error: "opencode_unreachable" }, 502)
+      } catch (error) {
+        return opencodeFailure(c, error)
       }
       if (!response.ok) return c.json({ error: "opencode_error" }, 502)
       const session = ((await response.json()) as { data: OpencodeSession }).data
@@ -710,7 +800,7 @@ export function createApp(deps: AppDeps): Hono {
 
       const response = await callOpencode("/api/session", {
         method: "POST",
-        body: { location: { directory: path } },
+        body: sessionCreateBody(path, marker),
       })
       if (!response.ok) throw new Error("opencode_error")
       const session = ((await response.json()) as { data: OpencodeSession }).data
@@ -740,6 +830,9 @@ export function createApp(deps: AppDeps): Hono {
       } catch {
         // the worktree may not exist if creation failed early
       }
+      // A deadline means the session may still have been created upstream; the
+      // client reconciles against the list (see #66) instead of blind retrying.
+      if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
       return c.json(
         { error: "isolation_failed", detail: error instanceof Error ? error.message : "unknown" },
         500,
@@ -757,8 +850,8 @@ export function createApp(deps: AppDeps): Hono {
     let response: Response
     try {
       response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" })
-    } catch {
-      return c.json({ error: "opencode_unreachable" }, 502)
+    } catch (error) {
+      return opencodeFailure(c, error)
     }
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
