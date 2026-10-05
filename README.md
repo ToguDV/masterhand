@@ -29,6 +29,7 @@ npm run dev:server    # opencode + BFF only
 npm run dev:desktop   # the Docker stack + Electron on the host
 npm run dev:mobile    # the Docker stack + Expo dev server on the host
 npm run dev:logs      # follow the stack logs
+npm run dev:restart   # restart the BFF/Vite container (sources and data are kept)
 npm run dev:stop      # stop the stack (volumes and data are kept)
 
 npm test              # tests (vitest: BFF + client-core)

@@ -25,6 +25,14 @@ services:
       MASTERHAND_SKIP_OPENCODE: "1"
       # Which front end scripts/dev.mjs starts (web | server).
       MASTERHAND_DEV_TARGET: ${MASTERHAND_DEV_TARGET:-web}
+      # Bind mounts from Windows drives (WSL2 / Docker Desktop) do not deliver
+      # inotify events into the container, so Vite and `tsx watch` never see
+      # edits and keep serving stale modules ("doesn't provide an export
+      # named…") until the container restarts. Both use chokidar, which polls
+      # when CHOKIDAR_USEPOLLING is set (300 ms is a good latency/CPU balance).
+      # On a native Linux filesystem set MASTERHAND_DEV_POLL=0 to use inotify.
+      CHOKIDAR_USEPOLLING: ${MASTERHAND_DEV_POLL:-1}
+      CHOKIDAR_INTERVAL: ${MASTERHAND_DEV_POLL_INTERVAL:-300}
     command:
       - sh
       - -c

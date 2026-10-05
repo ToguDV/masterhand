@@ -65,6 +65,7 @@ npm run dev:mobile     # the Docker stack (detached) + Expo dev server on the ho
 # deploy/docker-compose.dev.yml (hot-reloading BFF/web) and deploy/.env.dev.
 # The opencode image, sandbox, network, paths and env contract match production.
 npm run dev:logs       # follow the stack logs
+npm run dev:restart    # restart the BFF/Vite container (keeps the stack)
 npm run dev:stop       # stop the stack (keeps volumes)
 # Native fallback (no Docker, needs opencode v2 on PATH, apps/server/.env.local):
 npm run dev:native:web # | dev:native:server | dev:native:desktop | dev:native:mobile

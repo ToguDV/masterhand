@@ -21,6 +21,7 @@
     "dev:desktop": "node scripts/dev-docker.mjs desktop",
     "dev:mobile": "node scripts/dev-docker.mjs mobile",
     "dev:stop": "node scripts/dev-docker.mjs stop",
+    "dev:restart": "node scripts/dev-docker.mjs restart",
     "dev:logs": "node scripts/dev-docker.mjs logs",
     "dev:native:web": "node scripts/dev.mjs web",
     "dev:native:server": "node scripts/dev.mjs server",
