@@ -231,6 +231,51 @@ describe("createRunManager", () => {
     expect(opencode.ptys).toHaveLength(0)
   })
 
+  it("coalesces concurrent starts into a single PTY", async () => {
+    const opencode = createFakeOpencode()
+    const create = opencode.createPty.bind(opencode)
+    let release: (() => void) | null = null
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    opencode.createPty = async (input) => {
+      await gate
+      return create(input)
+    }
+    const manager = createRunManager({ opencode })
+
+    const first = manager.start("ses_1", "/ws", config, 3200)
+    const second = manager.start("ses_1", "/ws", config, 3200)
+    release!()
+    const [a, b] = await Promise.all([first, second])
+
+    expect(a.pid).toBe(b.pid)
+    expect(opencode.calls.filter((call) => call.op === "create")).toHaveLength(1)
+    expect(opencode.ptys).toHaveLength(1)
+  })
+
+  it("stops a run that is still being created", async () => {
+    const opencode = createFakeOpencode()
+    const create = opencode.createPty.bind(opencode)
+    let release: (() => void) | null = null
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    opencode.createPty = async (input) => {
+      await gate
+      return create(input)
+    }
+    const manager = createRunManager({ opencode })
+
+    const starting = manager.start("ses_1", "/ws", config, 3200)
+    const stopping = manager.stop("ses_1", "/ws")
+    release!()
+    await Promise.all([starting, stopping])
+
+    expect(opencode.ptys).toHaveLength(0)
+    expect(await manager.status("ses_1", "/ws", 3200)).toMatchObject({ status: "stopped" })
+  })
+
   it("reports stopped when listing PTYs fails and stop is a no-op without a run", async () => {
     const opencode = createFakeOpencode()
     opencode.listPtys = async () => {
