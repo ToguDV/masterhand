@@ -5,7 +5,7 @@ surface they share, so a chunk can be implemented in one work session without ch
 
 **Last updated:** 2026-10-05 — session batch #107–#114 merged (#79, #75, #76, #83, #81, #69, #66,
 #70); workflow switched to one branch per session. Then the lifecycle session batch closed C2/C3
-(#84, #85, #89, #73, #67, #65).
+(#84, #85, #89, #73, #67, #65) and interleaved C7 (#78, #90) in PR #116.
 
 ## How to use this document
 
@@ -32,7 +32,7 @@ surface they share, so a chunk can be implemented in one work session without ch
 | C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | ✅ Merged 2026-10-05 — #108 → #109 → #110 |
 | C5 — Storage and process resilience (BFF) | #88 #86 #87 #80 #91 | Pending |
 | C6 — Worktrees and git | #79 #77 #94 | In progress — #79 merged (#107); #77 #94 pending |
-| C7 — Deploy/ops | #78 #90 | Pending |
+| C7 — Deploy/ops | #78 #90 | ✅ Merged 2026-10-05 — interleaved in the lifecycle session batch (#116) |
 | C8 — Web unified run/preview panel + bubble | #97 #98 | Pending |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | Pending |
 

@@ -98,7 +98,13 @@ export interface Store {
 
 export function createSqliteStore(file: string): Store {
   const db = new Database(file)
+  // Single BFF instance over one SQLite file (ARCHITECTURE.md ADR-26). WAL
+  // keeps readers non-blocking while a write is in flight, NORMAL avoids an
+  // fsync per commit on the audit/touch path, and busy_timeout absorbs a
+  // concurrent writer briefly instead of failing with SQLITE_BUSY.
   db.pragma("journal_mode = WAL")
+  db.pragma("synchronous = NORMAL")
+  db.pragma("busy_timeout = 5000")
   db.exec(`
     CREATE TABLE IF NOT EXISTS devices (
       id TEXT PRIMARY KEY,

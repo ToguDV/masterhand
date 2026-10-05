@@ -71,7 +71,10 @@ describe("request validation", () => {
 describe("/api/status", () => {
   it("reports a healthy opencode upstream", async () => {
     upstream = await startMockOpencode()
-    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      diskFreeBytes: () => 10 * 1024 ** 3,
+    })
     const cookie = await login(app.url)
 
     const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
@@ -80,7 +83,26 @@ describe("/api/status", () => {
       ok: true,
       opencode: { healthy: true, version: "1.2.3" },
       preview: { enabled: true, available: true, portRange: { min: 32900, max: 32999 } },
+      storage: { freeBytes: 10 * 1024 ** 3, low: false },
     })
+  })
+
+  it("flags a data volume below the low-disk watermark", async () => {
+    app = await startTestApp({ diskFreeBytes: () => 100 * 1024 ** 2 })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({
+      storage: { freeBytes: 100 * 1024 ** 2, low: true },
+    })
+  })
+
+  it("reports storage as unknown when the volume cannot be read", async () => {
+    app = await startTestApp({ diskFreeBytes: () => null })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({ storage: { freeBytes: null, low: false } })
   })
 
   it("reports previews as disabled when configured off", async () => {

@@ -114,6 +114,12 @@ export interface BffStatus {
     error?: "unauthorized" | "unreachable"
   }
   preview?: PreviewAvailability
+  /** Data-volume headroom, when the BFF could read it. */
+  storage?: {
+    freeBytes: number | null
+    /** Free space below the configured watermark: clients warn the user. */
+    low: boolean
+  }
 }
 
 export interface PreviewPortRange {

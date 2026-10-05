@@ -245,6 +245,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     previewPortRange: { min: 32900, max: 32999 },
     previewReadinessMs: 25_000,
     cloudflaredBin: "cloudflared",
+    diskLowWatermarkMb: 512,
     ...overrides,
   }
 }
@@ -372,6 +373,7 @@ export async function startTestApp(
     preview?: PreviewManager
     sessionsCacheMs?: number
     sseQueueMax?: number
+    diskFreeBytes?: (path: string) => number | null
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -415,6 +417,7 @@ export async function startTestApp(
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
+    diskFreeBytes: options.diskFreeBytes,
   })
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
   await new Promise<void>((resolve) => server.once("listening", resolve))

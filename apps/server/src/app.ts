@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { statfsSync } from "node:fs"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
@@ -70,6 +71,8 @@ export interface AppDeps {
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
   sseQueueMax?: number
+  /** Overridable for tests: free bytes on the data volume, or null when unknown. */
+  diskFreeBytes?: (path: string) => number | null
 }
 
 const KEEPALIVE_MS = 25_000
@@ -97,6 +100,16 @@ function clientIp(c: Context): string {
     return getConnInfo(c).remote.address ?? "unknown"
   } catch {
     return "unknown"
+  }
+}
+
+/** Free bytes on the filesystem holding `path`; null when it cannot be read. */
+function defaultDiskFreeBytes(path: string): number | null {
+  try {
+    const stats = statfsSync(path)
+    return Number(stats.bavail) * Number(stats.bsize)
+  } catch {
+    return null
   }
 }
 
@@ -537,6 +550,13 @@ export function createApp(deps: AppDeps): Hono {
       available: config.previewEnabled && preview.available(),
       portRange: config.previewPortRange,
     }
+    // Free space on the data volume: a full disk takes SQLite and git down
+    // with it, so clients surface a warning before that happens (issue #78).
+    const freeBytes = (deps.diskFreeBytes ?? defaultDiskFreeBytes)(config.dataDir)
+    const storage = {
+      freeBytes,
+      low: freeBytes !== null && freeBytes < config.diskLowWatermarkMb * 1024 * 1024,
+    }
     try {
       const health = await fetchImpl(new URL("/api/info", config.opencodeUrl), {
         headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
@@ -544,16 +564,22 @@ export function createApp(deps: AppDeps): Hono {
       })
       if (!health.ok) {
         const error = health.status === 401 || health.status === 403 ? "unauthorized" : "unreachable"
-        return c.json({ ok: true, opencode: { healthy: false, error }, preview: previewStatus })
+        return c.json({ ok: true, opencode: { healthy: false, error }, preview: previewStatus, storage })
       }
       const data = (await health.json()) as { version?: string }
       return c.json({
         ok: true,
         opencode: { healthy: true, version: data.version },
         preview: previewStatus,
+        storage,
       })
     } catch {
-      return c.json({ ok: true, opencode: { healthy: false, error: "unreachable" }, preview: previewStatus })
+      return c.json({
+        ok: true,
+        opencode: { healthy: false, error: "unreachable" },
+        preview: previewStatus,
+        storage,
+      })
     }
   })
 

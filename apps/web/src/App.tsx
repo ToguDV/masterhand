@@ -68,6 +68,13 @@ function loadAutoAcceptSessions(): string[] {
   }
 }
 
+/** Compact free-space label for the low-disk banner. */
+function formatFreeBytes(bytes: number | null): string {
+  if (bytes === null) return "unknown"
+  const gb = bytes / 1024 ** 3
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(0, Math.round(bytes / 1024 ** 2))} MB`
+}
+
 export default function App() {
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -848,6 +855,13 @@ export default function App() {
 
       {statusQuery.data?.opencode?.error === "unreachable" && (
         <div className="mh-banner mh-banner--danger">opencode is not reachable. Is its server running?</div>
+      )}
+
+      {statusQuery.data?.storage?.low && (
+        <div className="mh-banner mh-banner--warning">
+          The server disk is almost full ({formatFreeBytes(statusQuery.data.storage.freeBytes)} free). Free space, or
+          the database and git may fail.
+        </div>
       )}
 
       {choiceForm ? null : waitingForm ? (

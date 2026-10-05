@@ -8,6 +8,20 @@ services:
       args:
         CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.9.3}
     restart: unless-stopped
+    # Bound container logs: a long agent turn can produce gigabytes, and the
+    # host disk is shared with SQLite and the workspaces.
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-3}"
+    # Protect neighboring processes from a runaway workload (an agent build can
+    # otherwise OOM the host). Raise via deploy/.env when a build needs more.
+    deploy:
+      resources:
+        limits:
+          cpus: "${MASTERHAND_CPUS_LIMIT:-1}"
+          memory: "${MASTERHAND_MEMORY_LIMIT:-1g}"
     env_file:
       - .env
     environment:
@@ -50,6 +64,19 @@ services:
       args:
         OPENCODE_VERSION: ${OPENCODE_VERSION:-2.0.6}
     restart: unless-stopped
+    # Same log cap as the BFF: opencode and every agent shell write here.
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-3}"
+    # Agent builds are the heaviest workload; the cap protects the BFF, SQLite
+    # and the host. Raise it in deploy/.env for memory-hungry builds.
+    deploy:
+      resources:
+        limits:
+          cpus: "${OPENCODE_CPUS_LIMIT:-2}"
+          memory: "${OPENCODE_MEMORY_LIMIT:-4g}"
     environment:
       # Only the opencode credentials are shared with this container; the BFF
       # secrets (MASTERHAND_PASSWORD, SESSION_SECRET) stay out of it.

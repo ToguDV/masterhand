@@ -31,6 +31,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 10. **Correlate mutations with a server-persisted marker, not text + time.** Matching by text + time is fragile: identical consecutive sends, another device sending the same text, or server-side text normalization produce false positives (and false negatives). Prefer a correlation the server stores and returns verbatim — the prompt body accepts `metadata` and opencode persists it on the created user message, so MasterHand sends a per-send marker there (`delivery.ts`) and confirms only on it. When no marker channel exists, document the accepted residual risk with tests.
 11. **Destructive cleanup only on a demonstrably healthy store.** Before deleting (or even moving) worktree records or folders, confirm the volume is real: the sentinel written by a previous successful pass, or live evidence that recorded paths still exist. When it cannot be confirmed — late/failed mount, DB restored from an older backup — skip the pass and log why. Prefer quarantine (rename, keep the branch) over delete, so uncommitted work stays recoverable, and never drop a record on a single `existsSync` observation alone.
 12. **Serialize non-idempotent check→create on the server.** A client-side guard cannot stop two devices (or a retry racing the first request) from both passing a status check and creating two resources. Coalesce per entity with an in-flight promise (the architecture assumes a single BFF instance; see §4.6) and make stop/cleanup wait for it.
+13. **Cap and observe the resources you share.** Unbounded container logs and memory are a full-disk/OOM incident waiting to happen when SQLite and the workspaces live on the same host: cap them (`LOG_MAX_SIZE`, `deploy.resources.limits`) and surface exhaustion (`/api/status.storage.low`) so the user acts before storage fails.
 
 ## Checklist for a new mutating operation
 
@@ -43,6 +44,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - [ ] Created/partial resources are removed on failure and unmount.
 - [ ] In-flight guard uses a ref, not state alone.
 - [ ] Concurrent identical mutations coalesce server-side (no duplicate PTY, process or record).
+- [ ] Resource growth (logs, memory) is bounded and exhaustion is surfaced to clients.
 - [ ] Destructive cleanup paths confirm storage health first and quarantine rather than delete irreplaceable data.
 - [ ] Tests cover: lost response, timeout, slow success, double submit, unmount mid-flight.
 

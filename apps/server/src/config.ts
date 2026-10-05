@@ -42,6 +42,8 @@ export interface Config {
   previewReadinessMs: number
   /** `cloudflared` executable name or path. */
   cloudflaredBin: string
+  /** Free space on the data volume below which `/api/status` reports `storage.low`. */
+  diskLowWatermarkMb: number
 }
 
 function intFromEnv(value: string | undefined, fallback: number): number {
@@ -134,5 +136,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     previewPortRange: portRangeFromEnv(env.PREVIEW_PORT_RANGE),
     previewReadinessMs: intFromEnv(env.PREVIEW_READINESS_MS, 25_000),
     cloudflaredBin: env.CLOUDFLARED_BIN?.trim() || "cloudflared",
+    // A runaway build or agent workspace filling the shared disk takes SQLite
+    // and git down with it; surface headroom below this watermark (0 disables).
+    diskLowWatermarkMb: Math.max(0, intFromEnv(env.DISK_LOW_WATERMARK_MB, 512)),
   }
 }
