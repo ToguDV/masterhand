@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
+import type { Config } from "../src/config.js"
+import { createOpencodeProxy } from "../src/proxy.js"
 import { login, readUntil, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
 
 const TEST_AUTH = `Basic ${Buffer.from("opencode:oc-secret").toString("base64")}`
@@ -123,6 +125,32 @@ describe("opencode proxy", () => {
     expect(response.status).toBe(200)
     expect(seen).toHaveLength(1)
     expect(new URL(seen[0]!).host).toBe("127.0.0.1:4096")
+  })
+
+  it("answers 504 when the upstream stalls past its deadline", async () => {
+    const stall: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")))
+      })
+    const proxy = createOpencodeProxy(
+      { opencodeUrl: "http://127.0.0.1:4096", opencodeAuth: null } as unknown as Config,
+      stall,
+      20,
+    )
+    const context = {
+      req: {
+        url: "http://test/api/oc/api/info",
+        path: "/api/oc/api/info",
+        method: "GET",
+        header: () => undefined,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      },
+      json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+    }
+
+    const response = await proxy(context as never)
+    expect(response.status).toBe(504)
+    expect(await response.json()).toEqual({ error: "opencode_timeout" })
   })
 })
 

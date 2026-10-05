@@ -1,5 +1,5 @@
 export * from "./types"
-export { ApiError, createClient, type Client, type ClientOptions } from "./client"
+export { ApiError, RequestTimeoutError, createClient, type Client, type ClientOptions } from "./client"
 export { conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"

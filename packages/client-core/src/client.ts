@@ -40,6 +40,14 @@ export class ApiError extends Error {
   }
 }
 
+/** A request that stalled past the client deadline (see `ClientOptions.timeoutMs`). */
+export class RequestTimeoutError extends Error {
+  constructor(message = "Request timed out") {
+    super(message)
+    this.name = "RequestTimeoutError"
+  }
+}
+
 export interface ClientOptions {
   /** Base server URL (e.g. "https://masterhand.example.com"). Empty means same-origin. */
   baseUrl?: string
@@ -48,6 +56,12 @@ export interface ClientOptions {
   /** Called when a request fails with 401. */
   onUnauthorized?: () => void
   fetchImpl?: typeof fetch
+  /**
+   * Aborts requests that stall for longer than this, so a hung socket (paused
+   * or unreachable server, lost mobile network) rejects instead of latching
+   * the UI forever. `0` disables the deadline.
+   */
+  timeoutMs?: number
 }
 
 export interface Client {
@@ -169,6 +183,37 @@ function resolveOrigin(baseUrl: string): string {
 export function createClient(options: ClientOptions = {}): Client {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "")
   const fetchImpl = options.fetchImpl ?? fetch
+  const timeoutMs = options.timeoutMs ?? 30_000
+
+  /**
+   * Every request is bounded: a stalled socket (paused container, lost
+   * network, suspended host) rejects with `RequestTimeoutError` instead of
+   * hanging forever — which used to latch the composer's `sending` state.
+   */
+  async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    if (timeoutMs <= 0) return fetchImpl(input, init)
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
+    const external = init.signal
+    const forwardAbort = () => controller.abort()
+    if (external) {
+      if (external.aborted) controller.abort()
+      else external.addEventListener("abort", forwardAbort, { once: true })
+    }
+    try {
+      return await fetchImpl(input, { ...init, signal: controller.signal })
+    } catch (error) {
+      if (timedOut) throw new RequestTimeoutError()
+      throw error
+    } finally {
+      clearTimeout(timer)
+      external?.removeEventListener("abort", forwardAbort)
+    }
+  }
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
@@ -178,7 +223,7 @@ export function createClient(options: ClientOptions = {}): Client {
     const token = await options.getToken?.()
     if (token) headers.set("authorization", `Bearer ${token}`)
 
-    const response = await fetchImpl(`${baseUrl}${path}`, { ...init, headers, credentials: "same-origin" })
+    const response = await fetchWithTimeout(`${baseUrl}${path}`, { ...init, headers, credentials: "same-origin" })
     if (!response.ok) {
       if (response.status === 401) options.onUnauthorized?.()
       const text = await response.text().catch(() => "")
@@ -197,7 +242,7 @@ export function createClient(options: ClientOptions = {}): Client {
     const headers = new Headers(init?.headers)
     const token = await options.getToken?.()
     if (token) headers.set("authorization", `Bearer ${token}`)
-    const response = await fetchImpl(input, { ...init, headers, credentials: "same-origin" })
+    const response = await fetchWithTimeout(input, { ...init, headers, credentials: "same-origin" })
     if (!response.ok) {
       if (response.status === 401) options.onUnauthorized?.()
       const text = await response.text().catch(() => "")
@@ -213,15 +258,15 @@ export function createClient(options: ClientOptions = {}): Client {
 
   /**
    * The generated client wraps everything `fetch` throws (including our
-   * `ApiError`) in its own transport error. Unwrap it so callers keep the
-   * `ApiError` contract (status + body) used across the BFF calls.
+   * `ApiError` and `RequestTimeoutError`) in its own transport error. Unwrap
+   * it so callers keep the typed error contract used across the BFF calls.
    */
   async function opencodeRequest<T>(call: () => Promise<T>): Promise<T> {
     try {
       return await call()
     } catch (error) {
       const cause = (error as { cause?: unknown } | null)?.cause
-      if (cause instanceof ApiError) throw cause
+      if (cause instanceof ApiError || cause instanceof RequestTimeoutError) throw cause
       throw error
     }
   }

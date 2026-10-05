@@ -111,6 +111,7 @@ Technical design. For scope and requirements see `SPEC.md`; for status see `PROG
 - The statuses poll merges its snapshot into the event-set cache (`mergeStatuses`): a status set by an event at/after the poll started wins over the snapshot, so a poll that raced `execution.started` cannot hide the Stop button; statuses missing from the snapshot with no fresh event are dropped as idle.
 - Pending permissions are reconciled too (`GET /api/oc/api/permission/request` per workspace): a `permission.asked` lost while offline would otherwise leave the agent blocked with no prompt.
 - Fallback without SSE: connection down → polling (messages every 5s, statuses every 4s); active turn → messages every 3s.
+- Every client request has a deadline (configurable `timeoutMs`, default 30s; the BFF proxy bounds its upstream fetch at 60s with `504 opencode_timeout`), so a stalled socket rejects with a typed `RequestTimeoutError` instead of leaving a mutation latched in the UI. The composer shows "Sending…" while a prompt is in flight, keeps text typed meanwhile and, on timeout, warns and asks to check the chat before retrying: prompts are not idempotent, so there is no automatic retry.
 
 ### 4.6 Workspaces (isolated project folders)
 
