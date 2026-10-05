@@ -28,7 +28,7 @@
 3. Relevant technical decisions are recorded in `ARCHITECTURE.md` (Decisions section).
 4. Do not document APIs "from memory": verify against the server OpenAPI (`/doc`) or `types.generated.ts`.
 5. Before finishing a task, run the gates (`npm run typecheck`, `npm run test:coverage`, `npm run test:e2e`, `npm run build`) and follow `WORKFLOW.md`.
-6. Finishing a task **includes shipping it**: create the branch, commit, push and open the PR **without asking** (see `WORKFLOW.md` §"Finishing a task"). Asking first is only correct when the user explicitly asked for a plan/review only.
+6. Finishing a task **includes shipping it**: create the branch, commit, push and open the PR **without asking** (see `WORKFLOW.md` §"Finishing a task"). One branch/PR covers the whole work session (batch every issue it resolves — `WORKFLOW.md` §1). Asking first is only correct when the user explicitly asked for a plan/review only.
 7. Every operation that mutates server state must be checked against `docs/past-mistakes.md` (deadlines, ambiguity, reconciliation, cleanup) before finishing, and every fix must record its failure class there. Non-idempotent mutations are never auto-retried.
 
 ## Repository layout (target)
