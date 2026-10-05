@@ -14,7 +14,7 @@ MasterHand accepts two credential types on protected routes:
 
 Other rules:
 
-- Rate limit: 5 attempts per IP every 15 minutes (`429` when exceeded) shared by both login routes. Keyed on the real socket peer address (`getConnInfo`), not `X-Forwarded-For`: that header is client-controlled and would let an attacker rotate the key (`unknown` when the socket address is unavailable).
+- Rate limit: 5 attempts per IP every 15 minutes (`429` when exceeded) shared by both login routes. Keyed on the real socket peer address (`getConnInfo`), not `X-Forwarded-For`: that header is client-controlled and would let an attacker rotate the key (`unknown` when the socket address is unavailable). The limiter is **in-memory**: a BFF restart clears the window (accepted for a single-user self-hosted tool).
 - Mutations (`POST`/`PATCH`/...) with an `Origin` header must match the `Host`; otherwise `403`. Origins listed in `ALLOWED_ORIGINS` are also allowed (in development the Vite origins are added automatically). Bearer requests are exempt: browsers never attach tokens automatically, so they carry no CSRF risk.
 - Protected routes: everything under `/api/*` except `/api/health`, `/api/login`, `/api/logout` and `POST /api/devices`.
 
@@ -22,7 +22,7 @@ Other rules:
 
 | Method | Route | Response | Notes |
 |---|---|---|---|
-| `GET` | `/api/health` | `{ ok: true }` | BFF healthcheck (no auth) |
+| `GET` | `/api/health` | `{ ok: true }` or `503 { ok: false, error: "storage_unavailable" }` | BFF healthcheck (no auth). Readiness includes the database (`SELECT 1`); Docker marks the container unhealthy on a 503 but does **not** restart it (only a crash triggers `restart: unless-stopped`) |
 | `POST` | `/api/login` | `{ ok: true }` + `Set-Cookie` | Body: `{ "password": "..." }`; `400` without body, `401` wrong password, `429` rate limit |
 | `POST` | `/api/devices` | `201 { token, device }` | Body: `{ "password": "...", "name": "Pixel 9" }`; issues a device token. `400` invalid, `401` wrong password, `429` rate limit |
 | `POST` | `/api/logout` | `{ ok: true }` | Clears the session cookie |
@@ -35,7 +35,7 @@ Other rules:
 
 | Method | Route | Response | Notes |
 |---|---|---|---|
-| `GET` | `/api/status` | `{ ok: true, opencode: { healthy, version?, error? }, preview: { enabled, available, portRange }, storage: { freeBytes, low } }` | Calls opencode's `/api/info` with a 3s timeout; on failure returns `healthy: false` plus `error: "unauthorized"` (opencode rejected the BFF credentials) or `"unreachable"`. `preview.available` reports whether the `cloudflared` binary can be executed. `storage.freeBytes` is the data-volume headroom (`null` when unreadable) and `storage.low` is true below `DISK_LOW_WATERMARK_MB` |
+| `GET` | `/api/status` | `{ ok: true, opencode: { healthy, version?, error? }, preview: { enabled, available, portRange }, storage: { ok, freeBytes, low } }` | Calls opencode's `/api/info` with a 3s timeout; on failure returns `healthy: false` plus `error: "unauthorized"` (opencode rejected the BFF credentials) or `"unreachable"`. `preview.available` reports whether the `cloudflared` binary can be executed. `storage.ok` is false when the database does not answer, `storage.freeBytes` is the data-volume headroom (`null` when unreadable) and `storage.low` is true below `DISK_LOW_WATERMARK_MB` |
 | `GET` | `/api/events` | SSE | Re-emits opencode v2 events from **all locations** (hub on `/api/event`); first event `hello` with `{ connected }`; `ping` every 25s; synthetic `hub.connected` / `hub.disconnected` events (`data: { connected }`) whenever the hub's upstream connection changes, so clients refresh the status indicator without waiting for a poll; each client has a bounded frame queue (1024): a slow/zero-window client that falls behind is dropped instead of buffering the stream in memory — it reconnects and reconciles (SSE has no replay) |
 | `GET` | `/api/audit` | `{ events: AuditEvent[] }` | Blocked actions, newest first (`?limit=`, max 500, default 100). `permission_denied` events come from opencode tool failures with `error.type = "permission.rejected"`, correlated with the command from the preceding `session.tool.called` event |
 | `DELETE` | `/api/audit` | `{ ok: true }` | Clears the log |
@@ -128,6 +128,12 @@ curl 'https://your-origin.example/api/oc/api/permission/request?location%5Bdirec
 curl -X POST https://your-origin.example/api/devices \
   -H 'content-type: application/json' -d '{"password":"...","name":"Pixel 9"}'
 ```
+
+## Error shapes
+
+- Any uncaught route failure answers JSON instead of a bare 500: `500 { error: "internal_error" }` (method/path logged) or `503 { error: "storage_unavailable" }` when the failure is a SQLite error (disk full, read-only, corrupt).
+- Expected conflicts are mapped: `POST /api/workspaces` answers `409 already_exists` when the insert races the path pre-check, and preview-port allocation retries a `UNIQUE(port)` race before giving up.
+- Advisory writes (device `lastUsedAt`, the audit log) never fail the request; the first failure is logged once.
 
 ## Relevant environment variables
 

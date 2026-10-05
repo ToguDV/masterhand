@@ -181,3 +181,7 @@ MasterHand's BFF and `opencode serve` must share the same `OPENCODE_SERVER_PASSW
 - **Native fallback (`npm run dev:native:*`):** the script starts opencode itself with the environment from `apps/server/.env.local` and, when no password is configured, generates one shared by both processes. If you start opencode yourself, give the BFF the same value (export it or set it in `apps/server/.env.local`) and restart both; the dev script probes a reused opencode and warns on a mismatch.
 
 Symptoms of a mismatch: every conversation shows a red `opencode rejected MasterHand's credentials…` message, a banner under the header repeats the hint, the sessions list is empty and `/api/status` returns `opencode: { healthy: false, error: "unauthorized" }`. Fix the password and restart both processes (a BFF restart is required: it reads the password at boot).
+
+## 10. Clock and auth notes
+
+Keep the host clock synchronized (NTP / `systemd-timesyncd`). Session cookies and device tokens are HMAC-signed with `iat`/`exp`: a **backward** jump beyond 60 s makes existing tokens fail verification (users sign in again), and a forward jump can expire them early. Tokens whose `iat` is more than 60 s in the future are rejected outright. The login rate limiter is in-memory, so a BFF restart clears its 15-minute window; acceptable for a single-user instance.

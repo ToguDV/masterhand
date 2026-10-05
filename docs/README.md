@@ -20,7 +20,7 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 | [`plans/issue-chunks.md`](plans/issue-chunks.md) | Batched follow-up plan: the open issues grouped in 9 chunks by shared code surface, with order and dependencies per chunk | 🔄 2026-10-05 |
 | [`runbooks/development.md`](runbooks/development.md) | Development with the deployment Docker Compose stack (hot reload) | ✅ 2026-10-04 |
 | [`runbooks/deployment.md`](runbooks/deployment.md) | Deployment with Docker Compose and TLS options for the deployer | ✅ 2026-09-27 |
+| [`runbooks/backups.md`](runbooks/backups.md) | Volume backups, online SQLite backup, restore and corruption behavior | ✅ 2026-10-05 |
 | [`runbooks/mobile-e2e.md`](runbooks/mobile-e2e.md) | Mobile E2E with Maestro (emulator/simulator and CI) | ✅ 2026-10-01 |
 | [`reviews/2026-10-01-pr-24-25-code-review.md`](reviews/2026-10-01-pr-24-25-code-review.md) | Code review of PR #24/#25: open findings, evidence and fix plan | ✅ 2026-10-01 |
 | `runbooks/host-setup.md` | Host preparation: Docker, DNS, user and firewall | ⬜ Phase 0 |
-| `runbooks/backups.md` | Volume backups (sessions, config, devices) and restore | ⬜ Phase 5 |
