@@ -19,7 +19,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 
 ## Rules
 
-1. **Every request has a deadline.** All BFF/opencode calls go through `client-core`'s `request`/`authedFetch`, which apply `ClientOptions.timeoutMs` (default 30 s) and raise `RequestTimeoutError`. Never call `fetch` directly for server state, and never await a promise whose rejection can leave a flag set. `timeoutMs: 0` only for deliberately unbounded streams.
+1. **Every request has a deadline.** All BFF/opencode calls go through `client-core`'s `request`/`authedFetch`, which apply `ClientOptions.timeoutMs` (default 30 s) and raise `RequestTimeoutError`. On the server, every internal opencode call is bounded too (`OPENCODE_TIMEOUT_MS`, default 10 s, normalized to `OpencodeTimeoutError` and answered `504 opencode_timeout`) and the public proxy keeps a 60 s budget: no BFF route may await an upstream promise forever. Never call `fetch` directly for server state, and never await a promise whose rejection can leave a flag set. `timeoutMs: 0` only for deliberately unbounded streams.
 2. **A deadline that is too short for a legitimate operation is a bug.** Long operations (`finish` = commit + push + PR; run/preview readiness) need their own budget or a documented override, not the generic 30 s. Note the BFF proxy bounds upstream calls at 60 s; treat the client deadline as intentionally shorter for interactive calls.
 3. **Only clear/overwrite local state that is still what you sent.** Compare against the value captured at submit time (web composer uses `textRef`); never blow away edits the user made while the request was in flight.
 4. **Distinguish "timed out / unknown" from "failed".** A `RequestTimeoutError` means the operation **may have succeeded**. Show an ambiguity message, never a hard failure, and never auto-retry a non-idempotent mutation (prompts, create session, answer form/permission, start run/preview, PR creation).
@@ -47,6 +47,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 ## Already-established patterns (reuse, don't reinvent)
 
 - `client-core` `RequestTimeoutError` + `timeoutMs` (PR #62).
+- BFF `fetchOpencode`/`OpencodeTimeoutError` + `OPENCODE_TIMEOUT_MS`: one bounded entry point for internal opencode calls, mapped to `504 opencode_timeout` (#75).
 - Synchronous send lock in both composers: `pendingSend`/`startingSideQuestionRef` (web) and `sendLock` (mobile) refs, set before the first `await` (#72).
 - Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Worktree reconciliation volume gate + quarantine: `reconcileWorktrees` requires `VOLUME_SENTINEL` or a live recorded path before dropping records, and `manager.quarantine` renames orphan worktrees (branch kept, git admin pruned) instead of deleting them (#79).

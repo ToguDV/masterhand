@@ -228,6 +228,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     port: 0,
     opencodeUrl: "http://127.0.0.1:1",
     opencodeAuth: null,
+    opencodeTimeoutMs: 10_000,
     masterhandPassword: "secret",
     sessionSecret: "test-secret",
     sessionTtlHours: 720,
