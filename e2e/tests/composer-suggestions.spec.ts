@@ -1,5 +1,22 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type APIRequestContext } from "@playwright/test"
 import { addWorkspace, login, newSession } from "./helpers"
+
+const MOCK_URL = "http://127.0.0.1:4097"
+
+interface MockState {
+  stalledForks: number
+  forks: { created: number; removed: number }
+}
+
+async function mockState(request: APIRequestContext): Promise<MockState> {
+  return (await (await request.get(`${MOCK_URL}/e2e/state`)).json()) as MockState
+}
+
+test.afterEach(async ({ request }) => {
+  // Never leave a stalled fork or failing prompt behind for the next spec.
+  await request.post(`${MOCK_URL}/e2e/release-prompt`).catch(() => {})
+  await request.post(`${MOCK_URL}/e2e/fail-prompts`, { data: { value: false } }).catch(() => {})
+})
 
 test("opens the command list on / and runs the selected command", async ({ page }) => {
   await login(page)
@@ -114,4 +131,47 @@ test("/btw answers a side question in a temporary session", async ({ page }) => 
 
   await page.getByRole("button", { name: "Close" }).click()
   await expect(page.getByText("Side question")).toBeHidden()
+})
+
+// A `/btw` fork is created before the question is prompted: if the prompt fails
+// the fork used to leak as a hidden session (#68).
+test("removes the /btw fork when the side question cannot be started", async ({ page, request }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  const before = await mockState(request)
+  await request.post(`${MOCK_URL}/e2e/fail-prompts`, { data: { value: true } })
+
+  const composer = page.getByPlaceholder("Write a message…")
+  await composer.fill("/btw what?")
+  await page.getByRole("button", { name: "Send" }).click()
+
+  await expect(page.getByText(/Could not start the side question/)).toBeVisible()
+  await expect
+    .poll(async () => (await mockState(request)).forks.removed - before.forks.removed)
+    .toBe(1)
+})
+
+// The composer can unmount (session switch, reload) while the fork request is in
+// flight; its cleanup already ran, so the resolved fork must be removed by the
+// in-flight handler (#68).
+test("removes the /btw fork when the composer unmounts while it is in flight", async ({ page, request }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  const composer = page.getByPlaceholder("Write a message…")
+  const before = await mockState(request)
+  await request.post(`${MOCK_URL}/e2e/stall-fork`)
+  await composer.fill("/btw what?")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect.poll(async () => (await mockState(request)).stalledForks).toBe(1)
+
+  // Switching sessions unmounts the composer before the fork resolves.
+  await newSession(page)
+  await request.post(`${MOCK_URL}/e2e/release-prompt`)
+  await expect
+    .poll(async () => (await mockState(request)).forks.removed - before.forks.removed)
+    .toBe(1)
 })

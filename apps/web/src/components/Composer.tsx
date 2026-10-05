@@ -145,8 +145,10 @@ export function Composer({
   // (#72). `pendingSend` and the side-question flag are set/cleared
   // synchronously around every non-idempotent send.
   const startingSideQuestionRef = useRef(false)
-  const sideQuestionRef = useRef(sideQuestion)
-  sideQuestionRef.current = sideQuestion
+  /** Fork created by this composer that must be removed if it is never shown. */
+  const ownedForkRef = useRef<string | null>(null)
+  /** False once the composer unmounted, so a fork in flight is removed later. */
+  const aliveRef = useRef(true)
 
   const variants = useMemo(
     () => modelOptions.find((option) => option.value === model)?.variants ?? [],
@@ -211,13 +213,14 @@ export function Composer({
   }, [caretTick])
 
   // A side-question fork must not outlive the composer (session switch/reload).
-  useEffect(
-    () => () => {
-      const current = sideQuestionRef.current
-      if (current) void client.api.removeSession(current.sessionID).catch(() => {})
-    },
-    [],
-  )
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+      const fork = ownedForkRef.current
+      if (fork) void client.api.removeSession(fork).catch(() => {})
+    }
+  }, [])
 
   /** Releases the composer and clears the text that was actually sent. */
   function completeSend(pending: PendingSend): void {
@@ -335,8 +338,24 @@ export function Composer({
     setStartingSideQuestion(true)
     startingSideQuestionRef.current = true
     setError(null)
+    let created: string | null = null
     try {
       const fork = await client.api.forkSession(sessionID)
+      created = fork.id
+      // The composer unmounted while the fork was in flight: its cleanup
+      // already ran and never saw this id, so remove it here (#68).
+      if (!aliveRef.current) {
+        void client.api.removeSession(fork.id).catch(() => {})
+        return
+      }
+      // Register the fork before the prompt: if the prompt fails (or the
+      // composer unmounts) it must still be removable (#68).
+      const previous = ownedForkRef.current
+      ownedForkRef.current = fork.id
+      if (previous && previous !== fork.id) {
+        // A second /btw replaces the open panel; the previous fork must not leak.
+        void client.api.removeSession(previous).catch(() => {})
+      }
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
       await client.api.prompt(fork.id, {
         text: question,
@@ -350,6 +369,11 @@ export function Composer({
       }
       setDismissed(false)
     } catch (err) {
+      // A fork created in this attempt must not leak when the prompt fails.
+      if (created) {
+        if (ownedForkRef.current === created) ownedForkRef.current = null
+        void client.api.removeSession(created).catch(() => {})
+      }
       setError(composerErrorMessage(err, "side question"))
     } finally {
       startingSideQuestionRef.current = false
@@ -358,9 +382,10 @@ export function Composer({
   }
 
   function closeSideQuestion() {
-    const current = sideQuestion
     setSideQuestion(null)
-    if (current) void client.api.removeSession(current.sessionID).catch(() => {})
+    const fork = ownedForkRef.current
+    ownedForkRef.current = null
+    if (fork) void client.api.removeSession(fork).catch(() => {})
   }
 
   async function stop() {
