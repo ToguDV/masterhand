@@ -110,6 +110,13 @@ const heldPrompts: Array<() => void> = []
 let promptRequests = 0
 /** Session the last prompt request targeted, used by the message-injection control. */
 let lastPromptSessionID: string | null = null
+// E2E control: hold `/fork` responses, fail prompt requests, and count forks so
+// the /btw orphan tests can prove created forks are removed.
+let stallForks = false
+let failPrompts = false
+let forksCreated = 0
+let forksRemoved = 0
+let heldForks = 0
 
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
 // persistent SQLite DATA_DIR locally, so restarting at `ses_1` every time
@@ -807,12 +814,19 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && path.startsWith("/e2e/stall")) {
       stallPrompts = path === "/e2e/stall-prompt"
       stallResponses = path === "/e2e/stall-response"
+      if (path === "/e2e/stall-fork") stallForks = true
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/release-prompt") {
       stallPrompts = false
       stallResponses = false
+      stallForks = false
       for (const release of heldPrompts.splice(0)) release()
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/fail-prompts") {
+      const body = await readBody(req)
+      failPrompts = body.value !== false
       return empty(res, 204)
     }
     // Simulates another device (or the opencode TUI) sending a message to a
@@ -830,7 +844,15 @@ const server = createServer((req, res) => {
       return json(res, 200, { data: message })
     }
     if (req.method === "GET" && path === "/e2e/state") {
-      return json(res, 200, { offline, stalled: heldPrompts.length, prompts: promptRequests, ...catalogRequests })
+      return json(res, 200, {
+        offline,
+        stalled: heldPrompts.length,
+        prompts: promptRequests,
+        failPrompts,
+        stalledForks: heldForks,
+        forks: { created: forksCreated, removed: forksRemoved },
+        ...catalogRequests,
+      })
     }
 
     // E2E controls for missed-events scenarios.
@@ -979,14 +1001,21 @@ const server = createServer((req, res) => {
       }
       if (req.method === "POST" && segments[3] === "fork") {
         if (!session) return json(res, 404, { error: "not_found" })
+        if (stallForks) {
+          heldForks += 1
+          await new Promise<void>((resolve) => heldPrompts.push(resolve))
+          heldForks -= 1
+        }
         const forked = createSession({ directory: session.location.directory })
         forked.fork = { sessionID, boundary: { type: "through", messageID: "msg_fork" } }
+        forksCreated += 1
         return json(res, 200, { data: forked })
       }
       if (req.method === "POST" && segments[3] === "prompt") {
         if (!session) return json(res, 404, { error: "not_found" })
         promptRequests += 1
         lastPromptSessionID = sessionID
+        if (failPrompts) return json(res, 500, { error: "prompt_failed" })
         const body = await readBody(req)
         // E2E control: hold this response until the release route runs, so the
         // client's fetch stays pending exactly like a stalled network request.
@@ -1119,6 +1148,7 @@ const server = createServer((req, res) => {
         return empty(res, 204)
       }
       if (req.method === "DELETE" && segments.length === 3) {
+        if (session?.fork) forksRemoved += 1
         sessions.delete(sessionID)
         conversations.delete(sessionID)
         messageOrders.delete(sessionID)

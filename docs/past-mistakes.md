@@ -57,7 +57,6 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 | [#65](https://github.com/ToguDV/masterhand/issues/65) | "Finish & PR" long non-idempotent operation |
 | [#66](https://github.com/ToguDV/masterhand/issues/66) | Session creation recoverable after an ambiguous response |
 | [#67](https://github.com/ToguDV/masterhand/issues/67) | Ambiguous permission/form responses and duplicate retries |
-| [#68](https://github.com/ToguDV/masterhand/issues/68) | Orphaned `/btw` forks on partial failure and unmount races |
 | [#69](https://github.com/ToguDV/masterhand/issues/69) | Open session not closed when deleted from another device |
 | [#70](https://github.com/ToguDV/masterhand/issues/70) | Auto-accept permission stalls on failure |
 | [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |

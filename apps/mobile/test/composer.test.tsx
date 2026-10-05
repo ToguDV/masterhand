@@ -48,7 +48,7 @@ async function setup(
   client.api.agents.mockResolvedValue(agents)
   client.api.commands.mockResolvedValue(options.commands ?? [])
   client.api.models.mockResolvedValue({ models, providers, defaultModel: models[0] })
-  await render(
+  const view = await render(
     <Composer
       client={client}
       sessionID="s1"
@@ -60,7 +60,7 @@ async function setup(
     />,
     { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client, queryClient }
+  return { client, queryClient, view }
 }
 
 describe("Composer", () => {
@@ -410,5 +410,54 @@ describe("Composer", () => {
 
     expect(await screen.findByText(/side question may not have started/)).toBeOnTheScreen()
     expect(input.props.value).toBe("/btw what changed?")
+  })
+
+  it("deletes the fork when the side question cannot be started", async () => {
+    const { client } = await setup()
+    client.api.prompt.mockRejectedValue(new ApiError(500, "x"))
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "/btw why?")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText("Could not start the side question (HTTP 500)")).toBeOnTheScreen()
+    expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
+  })
+
+  it("deletes the fork when the composer unmounts while it is in flight", async () => {
+    const { client, view } = await setup()
+    let resolveFork: ((session: { id: string }) => void) | undefined
+    client.api.forkSession.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFork = resolve
+        }),
+    )
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "/btw why?")
+    await fireEvent.press(screen.getByText("Send"))
+
+    await act(async () => {
+      view.unmount()
+    })
+    await act(async () => {
+      resolveFork?.({ id: "fork_1" })
+    })
+
+    expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
+  })
+
+  it("removes the previous fork when a second /btw replaces the panel", async () => {
+    const { client } = await setup()
+    client.api.forkSession.mockResolvedValueOnce({ id: "fork_1" }).mockResolvedValueOnce({ id: "fork_2" })
+
+    const input = await screen.findByPlaceholderText("Write a message…")
+    await fireEvent.changeText(input, "/btw first?")
+    await fireEvent.press(screen.getByText("Send"))
+    await screen.findByText("Side question")
+
+    await fireEvent.changeText(input, "/btw second?")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
   })
 })
