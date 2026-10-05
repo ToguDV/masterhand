@@ -18,6 +18,7 @@
 | `docs/opencode/` | Verified reference for opencode's API (SSE events, HTTP endpoints) | When integrating/verifying APIs |
 | `docs/bff/` | MasterHand backend API (endpoints, auth, proxy) | When the BFF changes |
 | `docs/runbooks/` | Operational procedures: host, deploy, TLS, backups | When operating or deploying |
+| `docs/edge-cases.md` | Mutation-reliability edge cases and the rules every client change must honor | When a reliability class changes or a new mutating operation is added |
 
 ### Maintenance rules
 
@@ -27,6 +28,7 @@
 4. Do not document APIs "from memory": verify against the server OpenAPI (`/doc`) or `types.generated.ts`.
 5. Before finishing a task, run the gates (`npm run typecheck`, `npm run test:coverage`, `npm run test:e2e`, `npm run build`) and follow `WORKFLOW.md`.
 6. Finishing a task **includes shipping it**: create the branch, commit, push and open the PR **without asking** (see `WORKFLOW.md` §"Finishing a task"). Asking first is only correct when the user explicitly asked for a plan/review only.
+7. Every operation that mutates server state must be checked against `docs/edge-cases.md` (deadlines, ambiguity, reconciliation, cleanup) before finishing. Non-idempotent mutations are never auto-retried.
 
 ## Repository layout (target)
 
