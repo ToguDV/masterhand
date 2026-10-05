@@ -56,20 +56,17 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Event-hub stall watchdog: `parseSseStream`'s `onActivity` reports raw chunks (heartbeats/comments included), the hub aborts/reconnects past `stallMs` (opencode heartbeats every 15 s, default window 45 s) and pushes `hub.connected`/`hub.disconnected` downstream so clients refresh `/api/status` immediately (#76).
 - SSE watchdog + reconnect (`createEventStream`) and the BFF heartbeat.
 - Open-entity reconciliation by list diff: keep the ids of the previous list snapshot and close/replace the open entity only when it **was present before and disappeared** from a fresh fetch (web open session on `session.deleted`, #69). Never close on an absent id that was never seen: a just-created entity or a stale in-flight response must not be dropped.
+- Bounded per-client SSE queue: `/api/events` writes through one serialized drain loop and drops a client that falls more than `MAX_SSE_QUEUE` frames behind, instead of forking an unbounded promise/string chain (#83).
+- Terminal startup state: `/api/status` resolves the shell on **every** outcome — success → app, 401 → login, transport error → login + banner, any other HTTP error → retry screen (`statusFailed`) — so a 5xx can never leave "Loading…" forever (#81).
+- Session-create reconciliation by marker: `createSession` sends `marker`, the BFF persists it as opencode session metadata (`masterhand.create`) and returns it from the list; on a timeout/504 the client walks the list (bounded: three attempts) and opens the marked session instead of reporting a failure (#66). No blind retry.
+- Auto-accept retry: bounded attempts with backoff (`AUTO_ACCEPT_MAX_ATTEMPTS`/`AUTO_ACCEPT_RETRY_DELAYS_MS`, web + mobile), tracked per permission in a pending set that `permission.replied` clears; after the cap the session is never left silently blocked — the inline card plus an actionable banner let the user answer manually (#70).
 
 ## Open issues in this family
 
 | Issue | Area |
 |---|---|
 | [#65](https://github.com/ToguDV/masterhand/issues/65) | "Finish & PR" long non-idempotent operation |
-| [#66](https://github.com/ToguDV/masterhand/issues/66) | Session creation recoverable after an ambiguous response |
 | [#67](https://github.com/ToguDV/masterhand/issues/67) | Ambiguous permission/form responses and duplicate retries |
-| [#69](https://github.com/ToguDV/masterhand/issues/69) | Open session not closed when deleted from another device |
-| [#70](https://github.com/ToguDV/masterhand/issues/70) | Auto-accept permission stalls on failure |
 | [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |
 
 Track them with `gh issue list --label reliability`.
-- Bounded per-client SSE queue: `/api/events` writes through one serialized drain loop and drops a client that falls more than `MAX_SSE_QUEUE` frames behind, instead of forking an unbounded promise/string chain (#83).
-- Terminal startup state: `/api/status` resolves the shell on **every** outcome — success → app, 401 → login, transport error → login + banner, any other HTTP error → retry screen (`statusFailed`) — so a 5xx can never leave "Loading…" forever (#81).
-- Session-create reconciliation by marker: `createSession` sends `marker`, the BFF persists it as opencode session metadata (`masterhand.create`) and returns it from the list; on a timeout/504 the client walks the list (bounded: three attempts) and opens the marked session instead of reporting a failure (#66). No blind retry.
-- Auto-accept retry: bounded attempts with backoff (`AUTO_ACCEPT_MAX_ATTEMPTS`/`AUTO_ACCEPT_RETRY_DELAYS_MS`, web + mobile), tracked per permission in a pending set that `permission.replied` clears; after the cap the session is never left silently blocked — the inline card plus an actionable banner let the user answer manually (#70).

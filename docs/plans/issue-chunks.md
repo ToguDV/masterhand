@@ -3,18 +3,21 @@
 **Snapshot:** 2026-10-05. The 34 open issues at that date, grouped into **9 chunks** by the code
 surface they share, so a chunk can be implemented in one work session without changing context.
 
+**Last updated:** 2026-10-05 — session batch #107–#114 merged (#79, #75, #76, #83, #81, #69, #66,
+#70); workflow switched to one branch per session.
+
 ## How to use this document
 
-- A chunk is a **queue of independent issues**, not a single PR. `WORKFLOW.md` §1 still applies:
-  one feature per branch/PR, red test first, `docs/past-mistakes.md` trace, full gates.
+- A chunk is a **queue of independent issues**. `WORKFLOW.md` §1 now applies per **session**, not
+  per issue: reproduce first, red test first, `docs/past-mistakes.md` trace, full gates, and every
+  issue the session resolves ships in **one branch and one PR** (one commit per issue with its own
+  red → green evidence).
+- Batching is the maintainer's explicit preference (2026-10-05): the earlier one-PR-per-issue rule
+  produced 8 concurrent PRs in a single session and repeated conflicts on the shared docs
+  (`PROGRESS.md`, `docs/past-mistakes.md`) plus CI/up-to-date churn. Coupled pairs (e.g. #71+#72,
+  #79+#77) no longer need separate approval — the whole session batch goes together.
 - Reproduce before implementing (`WORKFLOW.md` §"Working from an issue"): an issue may be stale,
   already fixed or misdiagnosed. Close/relabel what does not reproduce.
-- Two coupled pairs may be merged into one PR **only with the maintainer's explicit approval**:
-  [#71](https://github.com/ToguDV/masterhand/issues/71) +
-  [#72](https://github.com/ToguDV/masterhand/issues/72) (same `send`) and
-  [#79](https://github.com/ToguDV/masterhand/issues/79) +
-  [#77](https://github.com/ToguDV/masterhand/issues/77) (same git runner/reconcile). C1 kept one PR
-  per issue; the pairs above are still unapproved.
 - Update the status table when a chunk lands, and remove the issue rows from the open-findings
   table in `docs/past-mistakes.md` as each issue closes.
 
@@ -23,21 +26,21 @@ surface they share, so a chunk can be implemented in one work session without ch
 | Chunk | Issues | Status |
 |---|---|---|
 | C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | ✅ Merged 2026-10-05 — #101 → #102 → #103 → #104 → #105 |
-| C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | Pending |
+| C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | In progress — #81 #69 #66 #70 merged (batch PRs #111–#114); #67 #65 pending |
 | C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | Pending |
-| C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | Pending |
+| C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | ✅ Merged 2026-10-05 — #108 → #109 → #110 |
 | C5 — Storage and process resilience (BFF) | #88 #86 #87 #80 #91 | Pending |
-| C6 — Worktrees and git | #79 #77 #94 | Pending |
+| C6 — Worktrees and git | #79 #77 #94 | In progress — #79 merged (#107); #77 #94 pending |
 | C7 — Deploy/ops | #78 #90 | Pending |
 | C8 — Web unified run/preview panel + bubble | #97 #98 | Pending |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | Pending |
 
-**Highest severity in the queue:** [#79](https://github.com/ToguDV/masterhand/issues/79) (deletes
-uncommitted agent work on a stale volume), [#85](https://github.com/ToguDV/masterhand/issues/85)
-(orphaned quick tunnels stay publicly exposed), [#83](https://github.com/ToguDV/masterhand/issues/83)
-(unbounded SSE buffer), [#84](https://github.com/ToguDV/masterhand/issues/84) (duplicate dev-server
-PTYs) and [#65](https://github.com/ToguDV/masterhand/issues/65) (duplicate PRs on retry). If the
-next session is short, do #79 first regardless of chunk order.
+**Highest severity in the queue:** [#85](https://github.com/ToguDV/masterhand/issues/85) (orphaned
+quick tunnels stay publicly exposed), [#84](https://github.com/ToguDV/masterhand/issues/84)
+(duplicate dev-server PTYs) and [#65](https://github.com/ToguDV/masterhand/issues/65) (duplicate
+PRs on retry). [#79](https://github.com/ToguDV/masterhand/issues/79),
+[#83](https://github.com/ToguDV/masterhand/issues/83) and the C4 transport trio merged on
+2026-10-05.
 
 ## Chunks
 
@@ -70,9 +73,10 @@ next session is short, do #79 first regardless of chunk order.
   (`useBffStatus`, `session.deleted`), server finish route.
 - **Why together:** all are the same ambiguous-mutation/reconciliation family (rules C–E in
   `docs/past-mistakes.md`) driven from the same `App` state.
-- **Order:** #81 → #69 → #66 → #67 → #70 → #65.
-- **Dependencies:** #65 needs a per-operation server budget; either implement it locally or land
-  [#75](https://github.com/ToguDV/masterhand/issues/75) (C4) first.
+- **Order:** ~~#81 → #69 → #66 → #70~~ (merged 2026-10-05) → #67 → #65.
+- **Dependencies:** satisfied — [#75](https://github.com/ToguDV/masterhand/issues/75) (C4) landed,
+  so #65 can rely on the server's bounded budget (`OPENCODE_TIMEOUT_MS`) plus its own long-operation
+  client deadline.
 
 ### C3 — Run/preview lifecycle (client + server)
 

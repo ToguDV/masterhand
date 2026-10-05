@@ -4,12 +4,12 @@ How we develop, test and merge. Commit format details live in `CONTRIBUTING.md`.
 
 ## Principles
 
-1. **One feature per branch and per PR.** No unrelated changes mixed in.
+1. **One branch and one PR per work session.** A session may resolve several issues; they all ship in the **same branch**, with one commit per issue (each keeping its own red → green evidence) and a PR body that lists every `Closes #N`. Standalone hotfixes may still take their own branch. Batching matters for agent sessions in particular: one-PR-per-issue stacked 8 concurrent branches in a single session and forced repeated conflict resolution and CI runs on the shared docs (`PROGRESS.md`, `docs/past-mistakes.md`) plus a merge-order dance with the "branch up to date" protection.
 2. **Test-driven, always.** Every behavioral change starts with a test that fails against current `main` for the right reason; then the minimum code to make it pass. Unit tests for logic, end-to-end tests for user flows. Tests are never a follow-up.
 3. **Issues are hypotheses, not truth.** A published issue (or review finding) may be stale, wrong or already fixed. Reproduce it deterministically before implementing (see [Working from an issue](#working-from-an-issue-mandatory)).
 4. **Every fix leaves a trace.** The failure class is recorded in `docs/past-mistakes.md` — a rule, a checklist item or an established pattern — so the same mistake cannot be reintroduced in another feature.
 5. **Nothing is committed or merged while a gate is red.** `main` is always green.
-6. **Squash merge** into `main`: one clean commit per feature.
+6. **Squash merge** into `main`: one clean commit per PR. A session batch lands as a single squash commit (title = primary issue; the body carries the per-issue red → green evidence).
 7. **Finishing means shipping**: an agent that completes a task creates the branch, commits, pushes and opens the PR on its own. Do **not** ask for permission first; only stop to ask when the user explicitly requested a plan or a review with no changes.
 
 ## Working from an issue (mandatory)
@@ -22,7 +22,7 @@ A published issue is a **hypothesis**: it may be based on a stale revision, a mi
 4. **Freeze the reproduction as a failing test (red).** That test is the definition of the bug: it must fail for the right reason against the pre-fix revision.
 5. **Implement the minimum until green**, then refactor with the suite green.
 6. **Record the failure class in `docs/past-mistakes.md`.** Add or update the rule, the checklist item and the established pattern so the same class cannot silently return in another feature. A fix without this trace is not done.
-7. **Link the PR to the issue** (`Closes #N` when it fully resolves it, `Refs #N` otherwise) and update the issue if the diagnosis shifted.
+7. **Link the PR to every issue it resolves** (`Closes #N` per issue, `Refs #N` otherwise) and update any issue whose diagnosis shifted.
 
 Docs-only and formatting-only changes are exempt from the red test and the playbook trace (there is no behavior to reproduce); they still pass the gates.
 
@@ -31,7 +31,7 @@ Docs-only and formatting-only changes are exempt from the red test and the playb
 - `main` is protected: no direct pushes, only pull requests.
 - Branch names use the same prefixes as Conventional Commits:
   - `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `refactor/<slug>`, `test/<slug>`, `chore/<slug>`.
-- Keep branches short-lived: branch → tests green → PR → squash → delete.
+- Keep branches short-lived: branch → tests green → PR → squash → delete. One branch per work session (Principle 1); do not open a new branch mid-session for another issue the same session resolves.
 
 ## Local loop (TDD)
 
@@ -97,8 +97,8 @@ npm run e2e:browsers     # downloads the Chromium used by Playwright
 
 When the implementation and its tests are done and the gates are green, **ship it without asking**:
 
-1. `git switch -c <prefix>/<slug>` from an up-to-date `main`.
-2. Check `git status` / `git diff`: stage only the intended files, one feature per branch. Do not commit unrelated changes, secrets or generated artifacts.
+1. `git switch -c <prefix>/<slug>` from an up-to-date `main` — **one branch for the whole session** (Principle 1). Commit each resolved issue separately on it with its own red → green evidence; the PR body lists all of them.
+2. Check `git status` / `git diff`: stage only the intended files for this session's issues. Do not commit unrelated changes, secrets or generated artifacts.
 3. Commit with a Conventional Commits message in English (the hooks will run the fast gate).
 4. `git push -u origin <branch>` (the `pre-push` hook runs the full gate).
 5. Open the PR against `main` with `gh pr create`, filling `.github/pull_request_template.md`, and return the PR URL.
