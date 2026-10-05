@@ -4,7 +4,8 @@
 surface they share, so a chunk can be implemented in one work session without changing context.
 
 **Last updated:** 2026-10-05 — session batch #107–#114 merged (#79, #75, #76, #83, #81, #69, #66,
-#70); workflow switched to one branch per session.
+#70); workflow switched to one branch per session. Then the lifecycle session batch closed C2/C3
+(#84, #85, #89, #73, #67, #65), C5 (#88, #86, #87, #80, #91) and interleaved C7 (#78, #90) in PR #116.
 
 ## How to use this document
 
@@ -26,21 +27,22 @@ surface they share, so a chunk can be implemented in one work session without ch
 | Chunk | Issues | Status |
 |---|---|---|
 | C1 — Composer send hardening (web + mobile) | #72 #71 #64 #68 | ✅ Merged 2026-10-05 — #101 → #102 → #103 → #104 → #105 |
-| C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | In progress — #81 #69 #66 #70 merged (batch PRs #111–#114); #67 #65 pending |
-| C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | Pending |
+| C2 — Web session, permission and mutation lifecycle | #81 #69 #66 #67 #70 #65 | ✅ Merged 2026-10-05 — #81 #69 #66 #70 (#111–#114); #67 #65 in the lifecycle session batch (#116) |
+| C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | ✅ Merged 2026-10-05 — lifecycle session batch (#116) |
 | C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | ✅ Merged 2026-10-05 — #108 → #109 → #110 |
-| C5 — Storage and process resilience (BFF) | #88 #86 #87 #80 #91 | Pending |
+| C5 — Storage and process resilience (BFF) | #88 #86 #87 #80 #91 | ✅ Merged 2026-10-05 — lifecycle session batch (#116) |
 | C6 — Worktrees and git | #79 #77 #94 | In progress — #79 merged (#107); #77 #94 pending |
-| C7 — Deploy/ops | #78 #90 | Pending |
+| C7 — Deploy/ops | #78 #90 | ✅ Merged 2026-10-05 — interleaved in the lifecycle session batch (#116) |
 | C8 — Web unified run/preview panel + bubble | #97 #98 | Pending |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | Pending |
 
-**Highest severity in the queue:** [#85](https://github.com/ToguDV/masterhand/issues/85) (orphaned
-quick tunnels stay publicly exposed), [#84](https://github.com/ToguDV/masterhand/issues/84)
-(duplicate dev-server PTYs) and [#65](https://github.com/ToguDV/masterhand/issues/65) (duplicate
-PRs on retry). [#79](https://github.com/ToguDV/masterhand/issues/79),
-[#83](https://github.com/ToguDV/masterhand/issues/83) and the C4 transport trio merged on
-2026-10-05.
+**Highest severity in the queue:** the trio [#85](https://github.com/ToguDV/masterhand/issues/85),
+[#84](https://github.com/ToguDV/masterhand/issues/84) and
+[#65](https://github.com/ToguDV/masterhand/issues/65) landed 2026-10-05 in the lifecycle session
+batch, together with C2, C5 and C7. What remains: **C6** ([#77](https://github.com/ToguDV/masterhand/issues/77)
+async git runner, then [#94](https://github.com/ToguDV/masterhand/issues/94) branch picker — the
+largest feature left), **C8** (web run/preview panel + bubble) and **C9** (mobile ink-on-paper and
+parity).
 
 ## Chunks
 

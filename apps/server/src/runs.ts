@@ -217,6 +217,10 @@ export interface RunManagerDeps {
 
 export function createRunManager(deps: RunManagerDeps): RunManager {
   const running = new Map<string, RunningRun>()
+  // In-flight starts, keyed per session: `start` is a non-idempotent
+  // check→create, so two devices pressing Start in the same tick must share one
+  // PTY instead of racing into two dev servers on the same port.
+  const starting = new Map<string, Promise<RunStatus>>()
 
   async function findAdoptable(sessionID: string, directory: string): Promise<RunPty | null> {
     const ptys = await deps.opencode.listPtys(directory)
@@ -253,7 +257,12 @@ export function createRunManager(deps: RunManagerDeps): RunManager {
     return { status: "running", command: null, args: [], port, pid: adoptable.pid, error: null }
   }
 
-  async function start(sessionID: string, directory: string, config: RunConfig, port: number): Promise<RunStatus> {
+  async function startOnce(
+    sessionID: string,
+    directory: string,
+    config: RunConfig,
+    port: number,
+  ): Promise<RunStatus> {
     const current = await status(sessionID, directory, port)
     if (current.status === "running") return current
 
@@ -277,7 +286,24 @@ export function createRunManager(deps: RunManagerDeps): RunManager {
     return { status: "running", command: config.command, args, port, pid: pty.pid, error: null }
   }
 
+  function start(sessionID: string, directory: string, config: RunConfig, port: number): Promise<RunStatus> {
+    const pending = starting.get(sessionID)
+    if (pending) return pending
+    const task = startOnce(sessionID, directory, config, port).finally(() => {
+      if (starting.get(sessionID) === task) starting.delete(sessionID)
+    })
+    starting.set(sessionID, task)
+    return task
+  }
+
+  /** Waits for an in-flight create so stop/forget act on the PTY it produced. */
+  async function settled(sessionID: string): Promise<void> {
+    const pending = starting.get(sessionID)
+    if (pending) await pending.catch(() => {})
+  }
+
   async function stop(sessionID: string, directory: string): Promise<void> {
+    await settled(sessionID)
     let active = running.get(sessionID)
     if (!active) {
       const adoptable = await findAdoptable(sessionID, directory).catch(() => null)
@@ -291,6 +317,18 @@ export function createRunManager(deps: RunManagerDeps): RunManager {
   }
 
   function forget(sessionID: string): void {
+    const pending = starting.get(sessionID)
+    if (pending) {
+      void pending
+        .catch(() => {})
+        .then(() => {
+          const active = running.get(sessionID)
+          if (!active) return
+          void deps.opencode.removePty(active.directory, active.ptyID).catch(() => {})
+          running.delete(sessionID)
+        })
+      return
+    }
     const active = running.get(sessionID)
     if (!active) return
     void deps.opencode.removePty(active.directory, active.ptyID).catch(() => {})

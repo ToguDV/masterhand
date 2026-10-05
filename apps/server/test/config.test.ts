@@ -47,6 +47,14 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PORT: "not-a-number" })).port).toBe(8787)
   })
 
+  it("defaults the low-disk watermark and accepts overrides including zero", () => {
+    expect(loadConfig(env()).diskLowWatermarkMb).toBe(512)
+    expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "2048" })).diskLowWatermarkMb).toBe(2048)
+    expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "0" })).diskLowWatermarkMb).toBe(0)
+    expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "-5" })).diskLowWatermarkMb).toBe(0)
+    expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "nope" })).diskLowWatermarkMb).toBe(512)
+  })
+
   it("parses boolean overrides", () => {
     expect(loadConfig(env({ COOKIE_SECURE: "true" })).cookieSecure).toBe(true)
     expect(loadConfig(env({ COOKIE_SECURE: "1" })).cookieSecure).toBe(true)

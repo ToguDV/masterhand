@@ -2,7 +2,12 @@ import { createClient } from "@masterhand/client-core"
 
 // Deployments may tune the request deadline; E2E shortens it to keep specs fast.
 const configured = Number(import.meta.env.VITE_REQUEST_TIMEOUT_MS ?? "")
+// `finish` (commit + push + PR) has its own, longer budget.
+const finishConfigured = Number(import.meta.env.VITE_FINISH_TIMEOUT_MS ?? "")
 
-export const client = createClient(
-  Number.isFinite(configured) && configured > 0 ? { timeoutMs: configured } : {},
-)
+export const client = createClient({
+  ...(Number.isFinite(configured) && configured > 0 ? { timeoutMs: configured } : {}),
+  ...(Number.isFinite(finishConfigured) && finishConfigured > 0
+    ? { finishTimeoutMs: finishConfigured }
+    : {}),
+})

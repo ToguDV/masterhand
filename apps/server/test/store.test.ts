@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
-import { createMemoryStore, createSqliteStore } from "../src/store.js"
+import { backupDatabase, createMemoryStore, createSqliteStore } from "../src/store.js"
 
 describe("sqlite device store", () => {
   it("persists, touches and removes devices", () => {
@@ -37,6 +37,42 @@ describe("memory device store", () => {
     store.remove("dev_1")
     expect(store.list()).toHaveLength(0)
     store.close()
+  })
+})
+
+describe("sqlite integrity and backup", () => {
+  it("reports readiness and backs up a live database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const source = join(dir, "test.sqlite")
+    const store = createSqliteStore(source)
+    try {
+      expect(store.ping()).toBe(true)
+      store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+
+      const destination = join(dir, "backup.sqlite")
+      backupDatabase(source, destination)
+
+      const restored = createSqliteStore(destination)
+      try {
+        expect(restored.get("dev_1")).toMatchObject({ name: "Laptop" })
+      } finally {
+        restored.close()
+      }
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("fails loudly at boot when the file is not a database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    try {
+      const corrupt = join(dir, "corrupt.sqlite")
+      writeFileSync(corrupt, "this is not a sqlite database")
+      expect(() => createSqliteStore(corrupt)).toThrow()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
-  RequestTimeoutError,
   createEventHandler,
   createSessionMarker,
   formIsQuestion,
   invalidateOnReconnect,
+  isAmbiguousError,
   reconcileForms,
   reconcilePermissions,
   sessionCreateMarker,
@@ -68,6 +68,13 @@ function loadAutoAcceptSessions(): string[] {
   }
 }
 
+/** Compact free-space label for the low-disk banner. */
+function formatFreeBytes(bytes: number | null): string {
+  if (bytes === null) return "unknown"
+  const gb = bytes / 1024 ** 3
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(0, Math.round(bytes / 1024 ** 2))} MB`
+}
+
 export default function App() {
   const queryClient = useQueryClient()
   const toast = useToast()
@@ -93,6 +100,10 @@ export default function App() {
   const [forms, setForms] = useState<FormInfo[]>([])
   const [answeredForms, setAnsweredForms] = useState<Array<{ form: FormInfo; answer: FormAnswer }>>([])
   const [busyFormID, setBusyFormID] = useState<string | null>(null)
+  // Same-tick double submit is a ref guard, not state (rule 7): two clicks can
+  // both read `busy` as false before React re-renders.
+  const respondingPermissionRef = useRef(new Set<string>())
+  const busyFormRef = useRef(new Set<string>())
   const [dismissedChoiceFormIDs, setDismissedChoiceFormIDs] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
@@ -490,9 +501,7 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["directories"] })
       openSession(session.id)
     } catch (error) {
-      const ambiguous =
-        error instanceof RequestTimeoutError || (error instanceof ApiError && error.status === 504)
-      if (ambiguous) {
+      if (isAmbiguousError(error)) {
         // Session creation is not idempotent: reconcile by the marker before
         // reporting anything, and never retry automatically.
         const created = await findCreatedSession(marker)
@@ -553,52 +562,138 @@ export default function App() {
     }
   }
 
+  /** The location of a session from the loaded list, or null when unknown. */
+  function directoryOfSession(id: string): string | null {
+    return (sessionsQuery.data ?? []).find((session) => session.id === id)?.location.directory ?? null
+  }
+
+  /**
+   * Confirms an ambiguous permission reply actually settled by checking
+   * opencode's pending list: a lost response may still have been applied.
+   * Bounded attempts; `false` means "still pending or unverifiable", so the
+   * user can retry without risking a double answer.
+   */
+  async function confirmPermissionSettled(permission: Permission): Promise<boolean> {
+    const directory = directoryOfSession(permission.sessionID)
+    if (!directory) return false
+    for (const delay of [0, 1000, 2500]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const pending = await client.api.permissions(directory)
+        if (!pending.some((item) => item.id === permission.id)) return true
+      } catch {
+        // keep trying: a transient failure must not read as "settled"
+      }
+    }
+    return false
+  }
+
+  /** Same reconciliation for forms (the `question` tool). */
+  async function confirmFormSettled(form: FormInfo): Promise<boolean> {
+    const directory = directoryOfSession(form.sessionID)
+    if (!directory) return false
+    for (const delay of [0, 1000, 2500]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const pending = await client.api.pendingForms(directory)
+        if (!pending.some((item) => item.id === form.id)) return true
+      } catch {
+        // keep trying
+      }
+    }
+    return false
+  }
+
+  function markPermissionAnswered(permission: Permission, response: PermissionResponse) {
+    setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
+    // Keep the answered request so it renders as resolved history inline.
+    setAnsweredPermissions((prev) =>
+      [...prev.filter((entry) => entry.permission.id !== permission.id), { permission, response, at: Date.now() }].slice(-50),
+    )
+  }
+
+  function markFormSettled(form: FormInfo, answer: FormAnswer | null) {
+    setForms((prev) => prev.filter((item) => item.id !== form.id))
+    setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== form.id))
+    if (answer) {
+      // Keep the local answer so the inline card can render it read-only.
+      setAnsweredForms((prev) =>
+        [...prev.filter((entry) => entry.form.id !== form.id), { form, answer }].slice(-50),
+      )
+    }
+  }
+
   async function respondPermission(permission: Permission, response: PermissionResponse) {
+    if (respondingPermissionRef.current.has(permission.id)) return
+    respondingPermissionRef.current.add(permission.id)
     setRespondingPermissionID(permission.id)
     try {
       // The session id resolves the request regardless of the active workspace.
       await client.api.respondPermission(permission.sessionID, permission.id, response)
-      setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
-      // Keep the answered request so it renders as resolved history inline.
-      setAnsweredPermissions((prev) =>
-        [...prev.filter((entry) => entry.permission.id !== permission.id), { permission, response, at: Date.now() }].slice(-50),
-      )
-    } catch {
-      // Keep the inline card so the user can retry.
-      setBanner("Could not answer the permission request")
+      markPermissionAnswered(permission, response)
+    } catch (error) {
+      if (isAmbiguousError(error)) {
+        // The reply may have been applied: reconcile before reporting, and
+        // only invite a retry when the request is provably still pending.
+        if (await confirmPermissionSettled(permission)) {
+          markPermissionAnswered(permission, response)
+        } else {
+          setBanner("The server did not answer in time — the permission may not have been answered. Try again.")
+        }
+      } else {
+        // Keep the inline card so the user can retry.
+        setBanner("Could not answer the permission request")
+      }
     } finally {
+      respondingPermissionRef.current.delete(permission.id)
       setRespondingPermissionID(null)
     }
   }
 
   async function respondForm(form: FormInfo, answer: FormAnswer) {
+    if (busyFormRef.current.has(form.id)) return
+    busyFormRef.current.add(form.id)
     setBusyFormID(form.id)
     setBanner(null)
     try {
       // The form id resolves the question regardless of the active workspace.
       await client.api.respondForm(form.sessionID, form.id, answer)
-      setForms((prev) => prev.filter((item) => item.id !== form.id))
-      setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== form.id))
-      // Keep the local answer so the inline card can render it read-only.
-      setAnsweredForms((prev) =>
-        [...prev.filter((entry) => entry.form.id !== form.id), { form, answer }].slice(-50),
-      )
-    } catch {
-      setBanner("Could not answer the question")
+      markFormSettled(form, answer)
+    } catch (error) {
+      if (isAmbiguousError(error)) {
+        if (await confirmFormSettled(form)) {
+          markFormSettled(form, answer)
+        } else {
+          setBanner("The server did not answer in time — the answer may not have been applied. Try again.")
+        }
+      } else {
+        setBanner("Could not answer the question")
+      }
     } finally {
+      busyFormRef.current.delete(form.id)
       setBusyFormID(null)
     }
   }
 
   async function cancelForm(form: FormInfo) {
+    if (busyFormRef.current.has(form.id)) return
+    busyFormRef.current.add(form.id)
     setBusyFormID(form.id)
     try {
       await client.api.cancelForm(form.sessionID, form.id)
-      setForms((prev) => prev.filter((item) => item.id !== form.id))
-      setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== form.id))
-    } catch {
-      setBanner("Could not dismiss the question")
+      markFormSettled(form, null)
+    } catch (error) {
+      if (isAmbiguousError(error)) {
+        if (await confirmFormSettled(form)) {
+          markFormSettled(form, null)
+        } else {
+          setBanner("The server did not answer in time — the question may not have been dismissed. Try again.")
+        }
+      } else {
+        setBanner("Could not dismiss the question")
+      }
     } finally {
+      busyFormRef.current.delete(form.id)
       setBusyFormID(null)
     }
   }
@@ -760,6 +855,20 @@ export default function App() {
 
       {statusQuery.data?.opencode?.error === "unreachable" && (
         <div className="mh-banner mh-banner--danger">opencode is not reachable. Is its server running?</div>
+      )}
+
+      {statusQuery.data?.storage?.ok === false && (
+        <div className="mh-banner mh-banner--danger">
+          The server cannot read its database (storage unavailable). Check the server disk and logs, then restore from a
+          backup if needed.
+        </div>
+      )}
+
+      {statusQuery.data?.storage?.low && (
+        <div className="mh-banner mh-banner--warning">
+          The server disk is almost full ({formatFreeBytes(statusQuery.data.storage.freeBytes)} free). Free space, or
+          the database and git may fail.
+        </div>
       )}
 
       {choiceForm ? null : waitingForm ? (

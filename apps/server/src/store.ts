@@ -1,5 +1,30 @@
 import Database from "better-sqlite3"
 
+/** True when the error is a SQLite failure (disk full, read-only, corrupt, …). */
+export function isStorageError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === "string" && code.startsWith("SQLITE_")
+}
+
+/** True when the error is a UNIQUE/PRIMARY KEY/FOREIGN KEY constraint violation. */
+export function isStorageConflict(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT")
+}
+
+/**
+ * Online copy of a live database (`VACUUM INTO`). The destination must not
+ * exist; the result is a consistent, compacted snapshot safe to restore.
+ */
+export function backupDatabase(source: string, destination: string): void {
+  const db = new Database(source)
+  try {
+    db.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`)
+  } finally {
+    db.close()
+  }
+}
+
 export interface DeviceRecord {
   id: string
   name: string
@@ -93,12 +118,30 @@ export interface Store {
   getWorkspaceRun(workspaceID: string): WorkspaceRunRecord | null
   saveWorkspaceRun(record: WorkspaceRunRecord): void
   removeWorkspaceRun(workspaceID: string): void
+  /** True when the database answers a trivial read (readiness/health). */
+  ping(): boolean
   close(): void
 }
 
 export function createSqliteStore(file: string): Store {
   const db = new Database(file)
+  // Single BFF instance over one SQLite file (ARCHITECTURE.md ADR-26). WAL
+  // keeps readers non-blocking while a write is in flight, NORMAL avoids an
+  // fsync per commit on the audit/touch path, and busy_timeout absorbs a
+  // concurrent writer briefly instead of failing with SQLITE_BUSY.
   db.pragma("journal_mode = WAL")
+  db.pragma("synchronous = NORMAL")
+  db.pragma("busy_timeout = 5000")
+
+  // A corrupt file must fail loudly at boot with a pointer to the restore
+  // procedure, not throw opaque errors per request later (issue #80).
+  const integrity = db.pragma("quick_check", { simple: true })
+  if (integrity !== "ok") {
+    db.close()
+    throw new Error(
+      `masterhand database failed its integrity check (${String(integrity)}); restore it from a backup — see docs/runbooks/backups.md`,
+    )
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS devices (
       id TEXT PRIMARY KEY,
@@ -355,6 +398,14 @@ export function createSqliteStore(file: string): Store {
     removeWorkspaceRun(workspaceID) {
       removeWorkspaceRunStatement.run(workspaceID)
     },
+    ping() {
+      try {
+        db.prepare("SELECT 1").get()
+        return true
+      } catch {
+        return false
+      }
+    },
     close() {
       db.close()
     },
@@ -453,6 +504,9 @@ export function createMemoryStore(): Store {
     },
     removeWorkspaceRun(workspaceID) {
       workspaceRuns.delete(workspaceID)
+    },
+    ping() {
+      return true
     },
     close() {},
   }

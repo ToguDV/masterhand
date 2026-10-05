@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  createDevice,
   createFakeTunnel,
   createFakeWorktreeManager,
   login,
@@ -12,6 +13,7 @@ import {
   type MockOpencode,
   type TestApp,
 } from "./helpers.js"
+import { createMemoryStore, type Store } from "../src/store.js"
 
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
@@ -71,7 +73,10 @@ describe("request validation", () => {
 describe("/api/status", () => {
   it("reports a healthy opencode upstream", async () => {
     upstream = await startMockOpencode()
-    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      diskFreeBytes: () => 10 * 1024 ** 3,
+    })
     const cookie = await login(app.url)
 
     const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
@@ -80,7 +85,26 @@ describe("/api/status", () => {
       ok: true,
       opencode: { healthy: true, version: "1.2.3" },
       preview: { enabled: true, available: true, portRange: { min: 32900, max: 32999 } },
+      storage: { ok: true, freeBytes: 10 * 1024 ** 3, low: false },
     })
+  })
+
+  it("flags a data volume below the low-disk watermark", async () => {
+    app = await startTestApp({ diskFreeBytes: () => 100 * 1024 ** 2 })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({
+      storage: { freeBytes: 100 * 1024 ** 2, low: true },
+    })
+  })
+
+  it("reports storage as unknown when the volume cannot be read", async () => {
+    app = await startTestApp({ diskFreeBytes: () => null })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({ storage: { freeBytes: null, low: false } })
   })
 
   it("reports previews as disabled when configured off", async () => {
@@ -111,6 +135,109 @@ describe("/api/status", () => {
     expect(await response.json()).toMatchObject({
       opencode: { healthy: false, error: "unreachable" },
     })
+  })
+})
+
+describe("storage resilience", () => {
+  function failingStore(patch: Partial<Store>): Store {
+    return { ...createMemoryStore(), ...patch }
+  }
+
+  it("answers 503 on /api/health when storage does not answer", async () => {
+    app = await startTestApp({ store: failingStore({ ping: () => false }) })
+
+    const response = await fetch(`${app.url}/api/health`)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ ok: false, error: "storage_unavailable" })
+  })
+
+  it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {
+    const sqliteError = () => Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+    app = await startTestApp({
+      store: failingStore({
+        listWorkspaces: () => {
+          throw sqliteError()
+        },
+      }),
+    })
+    const cookie = await login(app.url)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await fetch(`${app.url}/api/workspaces`, { headers: { cookie } })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+      expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("GET /api/workspaces"), expect.anything())
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
+  it("reports storage.ok in /api/status", async () => {
+    app = await startTestApp({ store: failingStore({ ping: () => false }) })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({ storage: { ok: false } })
+  })
+
+  it("keeps authenticated reads working when the advisory device touch fails", async () => {
+    const store = failingStore({
+      touch: () => {
+        throw Object.assign(new Error("read-only"), { code: "SQLITE_READONLY" })
+      },
+    })
+    app = await startTestApp({ store })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const device = await createDevice(app.url)
+      const response = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${device.token}` },
+      })
+      expect(response.status).toBe(200)
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("device last-used update failed"),
+        expect.anything(),
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("deduplicates devices by name on repeated logins", async () => {
+    app = await startTestApp()
+    const first = await createDevice(app.url, "Pixel")
+    const second = await createDevice(app.url, "Pixel")
+
+    expect(app.store.list()).toHaveLength(1)
+    expect(second.device.id).toBe(first.device.id)
+    expect(second.device.name).toBe("Pixel")
+    // Both tokens authenticate the same device record.
+    const response = await fetch(`${app.url}/api/status`, {
+      headers: { authorization: `Bearer ${second.token}` },
+    })
+    expect(response.status).toBe(200)
+  })
+
+  it("answers 409 when the workspace insert races the path pre-check", async () => {
+    app = await startTestApp({
+      store: failingStore({
+        createWorkspace: () => {
+          throw Object.assign(new Error("UNIQUE constraint failed: workspaces.path"), {
+            code: "SQLITE_CONSTRAINT_UNIQUE",
+          })
+        },
+      }),
+      createDir: () => {},
+    })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "dup" }),
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "already_exists" })
   })
 })
 
@@ -780,5 +907,60 @@ describe("login rate limiting", () => {
 
     expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
     expect(statuses[5]).toBe(429)
+  })
+})
+
+describe("out-of-band session deletion", () => {
+  it("cleans up the preview, the run PTY, the reserved port and the worktree record", async () => {
+    upstream = await startMockOpencode()
+    const worktrees = createFakeWorktreeManager()
+    const tunnel = createFakeTunnel()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      worktrees,
+      previewOptions: { spawnImpl: tunnel.spawnImpl },
+    })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "{port}"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+    app.store.createIsolatedSession({
+      sessionID: "ses_out",
+      workspaceID: "ws",
+      path: "/tmp/masterhand-worktrees/ws/abc",
+      branch: "masterhand/ws-abc",
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt: 1,
+    })
+
+    // Start both managed resources, then let opencode report the session gone
+    // (as the TUI/API would).
+    const preview = await fetch(`${app.url}/api/sessions/ses_out/preview`, { method: "POST", headers: { cookie } })
+    expect(preview.status).toBe(200)
+    const started = await fetch(`${app.url}/api/sessions/ses_out/run?workspace=ws`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(started.status).toBe(200)
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    upstream.emit({ id: "evt_out", type: "session.deleted", data: { sessionID: "ses_out" } })
+
+    await waitFor(() => app!.store.getIsolatedSession("ses_out") === null)
+    await waitFor(() =>
+      upstream!.requests.some((request) => request.method === "DELETE" && request.path.startsWith("/api/pty/")),
+    )
+    expect(worktrees.calls).toContain("remove:/tmp/masterhand-workspaces/ws:/tmp/masterhand-worktrees/ws/abc:masterhand/ws-abc")
+    expect(app.store.getPreviewPort("ses_out")).toBeNull()
+    expect(app.preview.status("ses_out")).toMatchObject({ status: "stopped" })
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
   })
 })

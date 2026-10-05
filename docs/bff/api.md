@@ -14,7 +14,7 @@ MasterHand accepts two credential types on protected routes:
 
 Other rules:
 
-- Rate limit: 5 attempts per IP every 15 minutes (`429` when exceeded) shared by both login routes. Keyed on the real socket peer address (`getConnInfo`), not `X-Forwarded-For`: that header is client-controlled and would let an attacker rotate the key (`unknown` when the socket address is unavailable).
+- Rate limit: 5 attempts per IP every 15 minutes (`429` when exceeded) shared by both login routes. Keyed on the real socket peer address (`getConnInfo`), not `X-Forwarded-For`: that header is client-controlled and would let an attacker rotate the key (`unknown` when the socket address is unavailable). The limiter is **in-memory**: a BFF restart clears the window (accepted for a single-user self-hosted tool).
 - Mutations (`POST`/`PATCH`/...) with an `Origin` header must match the `Host`; otherwise `403`. Origins listed in `ALLOWED_ORIGINS` are also allowed (in development the Vite origins are added automatically). Bearer requests are exempt: browsers never attach tokens automatically, so they carry no CSRF risk.
 - Protected routes: everything under `/api/*` except `/api/health`, `/api/login`, `/api/logout` and `POST /api/devices`.
 
@@ -22,7 +22,7 @@ Other rules:
 
 | Method | Route | Response | Notes |
 |---|---|---|---|
-| `GET` | `/api/health` | `{ ok: true }` | BFF healthcheck (no auth) |
+| `GET` | `/api/health` | `{ ok: true }` or `503 { ok: false, error: "storage_unavailable" }` | BFF healthcheck (no auth). Readiness includes the database (`SELECT 1`); Docker marks the container unhealthy on a 503 but does **not** restart it (only a crash triggers `restart: unless-stopped`) |
 | `POST` | `/api/login` | `{ ok: true }` + `Set-Cookie` | Body: `{ "password": "..." }`; `400` without body, `401` wrong password, `429` rate limit |
 | `POST` | `/api/devices` | `201 { token, device }` | Body: `{ "password": "...", "name": "Pixel 9" }`; issues a device token. `400` invalid, `401` wrong password, `429` rate limit |
 | `POST` | `/api/logout` | `{ ok: true }` | Clears the session cookie |
@@ -35,7 +35,7 @@ Other rules:
 
 | Method | Route | Response | Notes |
 |---|---|---|---|
-| `GET` | `/api/status` | `{ ok: true, opencode: { healthy, version?, error? }, preview: { enabled, available, portRange } }` | Calls opencode's `/api/info` with a 3s timeout; on failure returns `healthy: false` plus `error: "unauthorized"` (opencode rejected the BFF credentials) or `"unreachable"`. `preview.available` reports whether the `cloudflared` binary can be executed |
+| `GET` | `/api/status` | `{ ok: true, opencode: { healthy, version?, error? }, preview: { enabled, available, portRange }, storage: { ok, freeBytes, low } }` | Calls opencode's `/api/info` with a 3s timeout; on failure returns `healthy: false` plus `error: "unauthorized"` (opencode rejected the BFF credentials) or `"unreachable"`. `preview.available` reports whether the `cloudflared` binary can be executed. `storage.ok` is false when the database does not answer, `storage.freeBytes` is the data-volume headroom (`null` when unreadable) and `storage.low` is true below `DISK_LOW_WATERMARK_MB` |
 | `GET` | `/api/events` | SSE | Re-emits opencode v2 events from **all locations** (hub on `/api/event`); first event `hello` with `{ connected }`; `ping` every 25s; synthetic `hub.connected` / `hub.disconnected` events (`data: { connected }`) whenever the hub's upstream connection changes, so clients refresh the status indicator without waiting for a poll; each client has a bounded frame queue (1024): a slow/zero-window client that falls behind is dropped instead of buffering the stream in memory — it reconnects and reconciles (SSE has no replay) |
 | `GET` | `/api/audit` | `{ events: AuditEvent[] }` | Blocked actions, newest first (`?limit=`, max 500, default 100). `permission_denied` events come from opencode tool failures with `error.type = "permission.rejected"`, correlated with the command from the preceding `session.tool.called` event |
 | `DELETE` | `/api/audit` | `{ ok: true }` | Clears the log |
@@ -49,7 +49,7 @@ Other rules:
 | `GET` | `/api/workspaces/:id/sessions` | `{ sessions: Session[] }` | Aggregates opencode sessions from the workspace folder and every worktree. Isolated sessions (and subagent children) carry `isolation: { isolated: true, worktreePath, branch, baseRef, pushed, prUrl }`. `502` when opencode is unreachable |
 | `POST` | `/api/workspaces/:id/sessions` | `201 { session, isolation }` | Body: `{ "isolated": true, "marker": "session_..." }` both optional. Standard sessions are created in the workspace folder (`isolation: null`); legacy workspaces are made their own git root first. Isolated sessions `git init` the workspace when needed, create a worktree under `WORKTREES_ROOT`, create the opencode session there and return the `isolation` metadata. A valid `marker` (8–128 chars of `[A-Za-z0-9._-]`) is persisted as opencode session metadata `masterhand.create`, so a client whose create response was lost can reconcile against the list; invalid markers are ignored. In both cases the BFF then writes the `masterhand.workspace` and `masterhand.process` instructions and sets the write/process permission guards (see below). On failure the worktree is rolled back (`500 isolation_failed`) |
 | `DELETE` | `/api/workspaces/:id/sessions/:sessionID` | `{ ok: true }` | Deletes the opencode session (the session id resolves its location; no `directory` needed). For isolated sessions it also removes the worktree and the branch. `404` unknown workspace |
-| `POST` | `/api/isolated-sessions/:sessionID/finish` | `{ committed, pushed, prUrl, branch, path, error }` | Commits everything in the worktree. With a remote it pushes the branch and tries `gh`/`glab` for the PR, falling back to a provider compare URL; `error` reports a failed push. `404` for unknown/non-isolated sessions |
+| `POST` | `/api/isolated-sessions/:sessionID/finish` | `{ committed, pushed, prUrl, branch, path, error }` | Commits everything in the worktree. With a remote it pushes the branch and tries `gh`/`glab` for the PR, falling back to a provider compare URL; `error` reports a failed push. Retrying is safe: the commit is idempotent and a recorded `pr_url` wins, so a retry never creates a second PR. `404` for unknown/non-isolated sessions |
 | `GET` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Current preview state for the session. `404 preview_disabled` when `PREVIEW_ENABLED=false` |
 | `POST` | `/api/sessions/:sessionID/preview` | `{ preview: PreviewStatus }` | Starts a Cloudflare quick tunnel to the session's reserved port. `409 preview_not_running` when nothing listens on the port, `503 preview_unavailable` when `cloudflared` is missing, `503 preview_ports_exhausted` when the pool is drained, `502` on tunnel failure. Idempotent while running |
 | `DELETE` | `/api/sessions/:sessionID/preview` | `{ ok: true }` | Stops the tunnel (the reserved port is kept for a later restart) |
@@ -68,7 +68,7 @@ Other rules:
 
 Each session gets a **fixed port** from `PREVIEW_PORT_RANGE` on session creation (persisted in SQLite so it survives BFF restarts and the same dev server can be re-exposed). While previews are enabled, the BFF writes a session instruction entry (`PUT /api/experimental/session/:id/instructions/entries/masterhand.preview`) telling the agent to bind any web server to `0.0.0.0:<port>`; opencode includes it in the model's system context on every turn. The BFF then starts `cloudflared tunnel --no-autoupdate --url http://<PREVIEW_ORIGIN>:<port> --http-host-header localhost:<port>` (a Cloudflare **quick tunnel**, see `deploy/server.Dockerfile`) and captures the random `https://<name>.trycloudflare.com` URL from its output. The `--http-host-header` rewrite is required: framework dev servers reject the public hostname (Vite's `server.allowedHosts` returns `403 Blocked request`), and `localhost` is always allowed. Once the URL is captured, the BFF polls it for up to `PREVIEW_READINESS_MS` until it answers (the edge can take a few seconds to serve a new hostname), so `running` means the preview really loads.
 
-`PreviewStatus` shape: `{ status: "stopped" | "starting" | "running" | "error", url, port, error }`. The tunnel process lives in the BFF container; `PREVIEW_ORIGIN` is the host where the dev server listens as seen from there (`opencode` in Compose, `127.0.0.1` in native dev). Tunnels stop on `DELETE`, on session deletion and on BFF shutdown.
+`PreviewStatus` shape: `{ status: "stopped" | "starting" | "running" | "error", url, port, error }`. The tunnel process lives in the BFF container; `PREVIEW_ORIGIN` is the host where the dev server listens as seen from there (`opencode` in Compose, `127.0.0.1` in native dev). Tunnels stop on `DELETE`, on session deletion — including `session.deleted` events emitted by opencode when the session disappears outside MasterHand — and on BFF shutdown. Live tunnel PIDs are persisted (`preview-tunnels.json` in `DATA_DIR`); startup reaps orphaned ones left by a hard crash, killing only PIDs still confirmed to be `cloudflared`.
 
 > Quick tunnels are **public and ephemeral**: anyone with the random URL can reach the preview, and the URL changes on every start. Use them for testing only.
 
@@ -79,7 +79,7 @@ MasterHand owns the dev-server process so agents never start or kill servers the
 - The agent declares the command in `<workspace>/.masterhand/run.json` (`{ "command": "npm", "args": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "{port}"] }`); the BFF validates it (`POST /run/detect`) and the user applies or edits it in the UI. A saved config carries `source: "agent" | "user"`.
 - The command is **argv, no shell**: `command` is a single executable and `args` a bounded list, so a shell string cannot smuggle anything. Shells and process-killers (`sh`, `bash`, `pkill`, `killall`, `xargs`, `docker`, `systemctl`, …) are rejected; `cwd` must resolve inside the workspace.
 - On Start the BFF calls opencode's `POST /api/pty` with the session's reserved preview port substituted for `{port}` (and `PORT` in the env), in the session's directory (worktree for isolated sessions). On Stop it calls `DELETE /api/pty/:id`, which kills exactly that process tree — no `pkill`, no port sweeps.
-- The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Deleting the session forgets it.
+- The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Concurrent starts coalesce per session (one PTY even if two devices press Start at once). Deleting the session — or an out-of-band `session.deleted` event — forgets it.
 - Session creation writes a `masterhand.run` instruction telling the agent not to manage servers itself; the `masterhand.preview` instruction still carries the reserved port and the tunnel-host allowlist advice.
 
 ## Workspace isolation & guardrails
@@ -128,6 +128,12 @@ curl 'https://your-origin.example/api/oc/api/permission/request?location%5Bdirec
 curl -X POST https://your-origin.example/api/devices \
   -H 'content-type: application/json' -d '{"password":"...","name":"Pixel 9"}'
 ```
+
+## Error shapes
+
+- Any uncaught route failure answers JSON instead of a bare 500: `500 { error: "internal_error" }` (method/path logged) or `503 { error: "storage_unavailable" }` when the failure is a SQLite error (disk full, read-only, corrupt).
+- Expected conflicts are mapped: `POST /api/workspaces` answers `409 already_exists` when the insert races the path pre-check, and preview-port allocation retries a `UNIQUE(port)` race before giving up.
+- Advisory writes (device `lastUsedAt`, the audit log) never fail the request; the first failure is logged once.
 
 ## Relevant environment variables
 

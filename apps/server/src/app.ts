@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { statfsSync } from "node:fs"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
@@ -33,6 +34,7 @@ import {
   type RunOpencode,
 } from "./runs.js"
 import type { IsolatedSessionRecord, Store, WorkspaceRunRecord } from "./store.js"
+import { isStorageConflict, isStorageError } from "./store.js"
 import {
   createWorktreeManager,
   pullRequestUrl,
@@ -70,6 +72,8 @@ export interface AppDeps {
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
   sseQueueMax?: number
+  /** Overridable for tests: free bytes on the data volume, or null when unknown. */
+  diskFreeBytes?: (path: string) => number | null
 }
 
 const KEEPALIVE_MS = 25_000
@@ -97,6 +101,16 @@ function clientIp(c: Context): string {
     return getConnInfo(c).remote.address ?? "unknown"
   } catch {
     return "unknown"
+  }
+}
+
+/** Free bytes on the filesystem holding `path`; null when it cannot be read. */
+function defaultDiskFreeBytes(path: string): number | null {
+  try {
+    const stats = statfsSync(path)
+    return Number(stats.bavail) * Number(stats.bsize)
+  } catch {
+    return null
   }
 }
 
@@ -138,6 +152,15 @@ export function createApp(deps: AppDeps): Hono {
   const createDir = deps.createDir ?? createWorkspaceDir
   const removeDir = deps.removeDir ?? removeWorkspaceDir
   const app = new Hono()
+  // One structured error path for every uncaught route/middleware failure:
+  // method + path in the log, a typed JSON body for clients, and storage
+  // failures mapped to an actionable 503 (issue #88/#86).
+  app.onError((error, c) => {
+    const storage = isStorageError(error)
+    console.error(`[masterhand] ${c.req.method} ${c.req.path} failed${storage ? " (storage)" : ""}:`, error)
+    if (storage) return c.json({ error: "storage_unavailable" }, 503)
+    return c.json({ error: "internal_error" }, 500)
+  })
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
   const worktrees =
     deps.worktrees ??
@@ -181,6 +204,29 @@ export function createApp(deps: AppDeps): Hono {
   }
   const runs = deps.runs ?? createRunManager({ opencode: runOpencode })
 
+  /**
+   * Drops every MasterHand-managed resource tied to a session id: its quick
+   * tunnel (a leaked one would stay publicly exposed), its dev-server PTY, its
+   * reserved port and its worktree record/branch. Used when a session is
+   * deleted by a client and, critically, when opencode reports it deleted
+   * outside MasterHand (TUI/API), where no route runs.
+   */
+  function releaseSession(sessionID: string): void {
+    preview.forget(sessionID)
+    runs.forget(sessionID)
+    const record = deps.store.getIsolatedSession(sessionID)
+    if (!record) return
+    const workspace = deps.store.getWorkspace(record.workspaceID)
+    if (workspace) {
+      try {
+        worktrees.remove(workspace.path, record.path, record.branch)
+      } catch {
+        // best effort: never block dropping the record
+      }
+    }
+    deps.store.removeIsolatedSession(sessionID)
+  }
+
   // Clients poll the workspace session list every 10 s and each poll walks the
   // v2 cursor pages per directory (base + worktrees). A short-lived per-directory
   // cache absorbs concurrent devices and repeated polls; session mutations clear
@@ -188,6 +234,8 @@ export function createApp(deps: AppDeps): Hono {
   // (e.g. subagent children) show up immediately.
   const sessionsCacheMs = deps.sessionsCacheMs ?? 5_000
   const sessionsCache = new Map<string, { at: number; sessions: OpencodeSession[] }>()
+  // Advisory-write failures are logged once per app instance (issue #86).
+  let warnedAuditFailure = false
   // Audit: correlate a tool call with its failure, because the failure event
   // carries the permission error but not the command it tried to run.
   const toolCommands = new Map<string, { sessionID: string; command: string }>()
@@ -196,6 +244,13 @@ export function createApp(deps: AppDeps): Hono {
     if (type === "session.created" || type === "session.deleted") invalidateSessionsCache()
 
     const data = (event as { data?: Record<string, unknown> } | null)?.data
+    if (type === "session.deleted") {
+      // Out-of-band deletion: nothing else would stop the tunnel/PTY or drop
+      // the worktree record (issue #85).
+      const sessionID = typeof data?.sessionID === "string" ? data.sessionID : ""
+      if (sessionID) releaseSession(sessionID)
+      return
+    }
     if (!data) return
 
     if (type === "session.tool.called") {
@@ -228,15 +283,24 @@ export function createApp(deps: AppDeps): Hono {
       const denied = error?.type === "permission.rejected" || /permission denied/i.test(message)
       if (!denied) return
       const input = data.input as { command?: unknown } | undefined
-      deps.store.recordAudit({
-        at: Date.now(),
-        sessionID: pending?.sessionID ?? (typeof data.sessionID === "string" ? data.sessionID : null),
-        workspaceID: null,
-        kind: "permission_denied",
-        command: pending?.command ?? (typeof input?.command === "string" ? input.command : null),
-        reason: message || "Permission denied",
-        source: "opencode",
-      })
+      // Audit is advisory: a failed write (full/read-only disk) must not kill
+      // the event subscription (issue #86). Log the first failure once.
+      try {
+        deps.store.recordAudit({
+          at: Date.now(),
+          sessionID: pending?.sessionID ?? (typeof data.sessionID === "string" ? data.sessionID : null),
+          workspaceID: null,
+          kind: "permission_denied",
+          command: pending?.command ?? (typeof input?.command === "string" ? input.command : null),
+          reason: message || "Permission denied",
+          source: "opencode",
+        })
+      } catch (error) {
+        if (!warnedAuditFailure) {
+          warnedAuditFailure = true
+          console.warn("[masterhand] audit write failed (continuing):", error)
+        }
+      }
     }
   })
 
@@ -432,7 +496,12 @@ export function createApp(deps: AppDeps): Hono {
 
   app.use("/api/*", requireSameOrigin(config))
 
-  app.get("/api/health", (c) => c.json({ ok: true }))
+  app.get("/api/health", (c) => {
+    // Readiness includes storage: an unreachable/corrupt database means the
+    // instance cannot serve, and Docker surfaces it as unhealthy.
+    if (!deps.store.ping()) return c.json({ ok: false, error: "storage_unavailable" }, 503)
+    return c.json({ ok: true })
+  })
 
   app.post("/api/login", async (c) => {
     const ip = clientIp(c)
@@ -484,8 +553,14 @@ export function createApp(deps: AppDeps): Hono {
       typeof body.name === "string" && body.name.trim()
         ? body.name.trim().slice(0, MAX_DEVICE_NAME_LENGTH)
         : "Device"
-    const device = { id: randomUUID(), name, createdAt: now, lastUsedAt: now }
-    deps.store.create(device)
+    // One row per device name: a login from a known device refreshes its
+    // record instead of accumulating duplicates (issue #87c).
+    const existing = deps.store.list().find((record) => record.name === name)
+    const device = existing
+      ? { ...existing, lastUsedAt: now }
+      : { id: randomUUID(), name, createdAt: now, lastUsedAt: now }
+    if (existing) deps.store.touch(existing.id, now)
+    else deps.store.create(device)
     const token = createDeviceToken(config.sessionSecret, device.id, config.sessionTtlHours * 3600)
     return c.json({ token, device }, 201)
   })
@@ -507,6 +582,14 @@ export function createApp(deps: AppDeps): Hono {
       available: config.previewEnabled && preview.available(),
       portRange: config.previewPortRange,
     }
+    // Free space on the data volume: a full disk takes SQLite and git down
+    // with it, so clients surface a warning before that happens (issue #78).
+    const freeBytes = (deps.diskFreeBytes ?? defaultDiskFreeBytes)(config.dataDir)
+    const storage = {
+      ok: deps.store.ping(),
+      freeBytes,
+      low: freeBytes !== null && freeBytes < config.diskLowWatermarkMb * 1024 * 1024,
+    }
     try {
       const health = await fetchImpl(new URL("/api/info", config.opencodeUrl), {
         headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
@@ -514,16 +597,22 @@ export function createApp(deps: AppDeps): Hono {
       })
       if (!health.ok) {
         const error = health.status === 401 || health.status === 403 ? "unauthorized" : "unreachable"
-        return c.json({ ok: true, opencode: { healthy: false, error }, preview: previewStatus })
+        return c.json({ ok: true, opencode: { healthy: false, error }, preview: previewStatus, storage })
       }
       const data = (await health.json()) as { version?: string }
       return c.json({
         ok: true,
         opencode: { healthy: true, version: data.version },
         preview: previewStatus,
+        storage,
       })
     } catch {
-      return c.json({ ok: true, opencode: { healthy: false, error: "unreachable" }, preview: previewStatus })
+      return c.json({
+        ok: true,
+        opencode: { healthy: false, error: "unreachable" },
+        preview: previewStatus,
+        storage,
+      })
     }
   })
 
@@ -681,7 +770,14 @@ export function createApp(deps: AppDeps): Hono {
     createDir(path)
     ensureWorkspaceRepo(path)
     const workspace = { id: randomUUID(), name: result.slug, path, createdAt: Date.now() }
-    deps.store.createWorkspace(workspace)
+    try {
+      deps.store.createWorkspace(workspace)
+    } catch (error) {
+      // Two concurrent creates can pass the pre-check; the UNIQUE(path)
+      // violation is still a conflict, not a 500 (issue #87).
+      if (isStorageConflict(error)) return c.json({ error: "already_exists" }, 409)
+      throw error
+    }
     return c.json({ workspace }, 201)
   })
 
@@ -844,8 +940,6 @@ export function createApp(deps: AppDeps): Hono {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
     const sessionID = c.req.param("sessionID")
-    const record = deps.store.getIsolatedSession(sessionID)
-    const isolated = record && record.workspaceID === workspace.id
 
     let response: Response
     try {
@@ -856,16 +950,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    if (isolated) {
-      try {
-        worktrees.remove(workspace.path, record.path, record.branch)
-      } catch {
-        // best effort: never block deleting the session record
-      }
-      deps.store.removeIsolatedSession(sessionID)
-    }
-    preview.forget(sessionID)
-    runs.forget(sessionID)
+    releaseSession(sessionID)
     return c.json({ ok: true })
   })
 
@@ -898,8 +983,10 @@ export function createApp(deps: AppDeps): Hono {
       }
       if (pushed) {
         // Prefer the provider CLI when authenticated; otherwise hand back a
-        // ready-to-open compare URL.
+        // ready-to-open compare URL. A retry after a lost response must never
+        // create a second PR: the recorded URL wins.
         prUrl =
+          record.prUrl ??
           worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef) ??
           pullRequestUrl(remoteUrl, record.branch, record.baseRef)
       }

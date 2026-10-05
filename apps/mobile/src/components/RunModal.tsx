@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Modal,
@@ -11,6 +11,7 @@ import {
 } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  isAmbiguousError,
   queryKeys,
   useSessionRun,
   useWorkspaceRun,
@@ -46,8 +47,20 @@ export function RunModal({
   const [command, setCommand] = useState("")
   const [argsText, setArgsText] = useState("")
   const [detected, setDetected] = useState<RunCandidate | null>(null)
+  // A run that dies on its own must not keep showing "running" (#89).
+  const [notice, setNotice] = useState<string | null>(null)
+  const previousStatus = useRef<RunStatus["status"]>("stopped")
 
   const run = runQuery.data ?? STOPPED
+
+  useEffect(() => {
+    const before = previousStatus.current
+    previousStatus.current = run.status
+    if (before === "running" && run.status === "stopped") setNotice("The dev server stopped.")
+    else if (before === "running" && run.status === "error") setNotice(run.error ?? "The dev server stopped.")
+    else if (run.status === "running") setNotice(null)
+  }, [run.status, run.error])
+
   const config = configQuery.data ?? null
   const running = run.status === "running"
   const shownCommand = run.command ?? config?.command ?? null
@@ -60,13 +73,27 @@ export function RunModal({
     setEditing(true)
   }
 
+  /** Reconciles a start/stop whose response was lost against a fresh status. */
+  async function reconcile(): Promise<RunStatus | null> {
+    const fresh = await runQuery.refetch().catch(() => null)
+    return fresh?.data ?? null
+  }
+
   async function start() {
     setBusy(true)
     setError(null)
+    setNotice(null)
     try {
       queryClient.setQueryData(queryKeys.sessionRun(sessionID), await client.api.startSessionRun(sessionID, workspaceID))
-    } catch {
-      setError("Could not start the run server. Check the command, then try again.")
+    } catch (startError) {
+      const fresh = await reconcile()
+      if (fresh?.status === "running" || fresh?.status === "starting") {
+        setError(null)
+      } else if (isAmbiguousError(startError)) {
+        setError("The server did not answer in time — the run may still start. Check the status before retrying.")
+      } else {
+        setError("Could not start the run server. Check the command, then try again.")
+      }
     } finally {
       setBusy(false)
     }
@@ -78,8 +105,15 @@ export function RunModal({
     try {
       await client.api.stopSessionRun(sessionID, workspaceID)
       queryClient.setQueryData(queryKeys.sessionRun(sessionID), STOPPED)
-    } catch {
-      setError("Could not stop the run server")
+    } catch (stopError) {
+      const fresh = await reconcile()
+      if (fresh?.status === "stopped") {
+        queryClient.setQueryData(queryKeys.sessionRun(sessionID), fresh)
+      } else if (isAmbiguousError(stopError)) {
+        setError("The server did not answer in time — the dev server may still be stopping. Check the status.")
+      } else {
+        setError("Could not stop the run server")
+      }
     } finally {
       setBusy(false)
     }
@@ -164,6 +198,9 @@ export function RunModal({
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {!error && (notice || (run.status === "error" && run.error)) ? (
+          <Text style={styles.notice}>{notice ?? run.error}</Text>
+        ) : null}
 
         <ScrollView contentContainerStyle={styles.body}>
           {shownCommand ? (
@@ -268,6 +305,7 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   buttonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
   error: { color: colors.danger, fontSize: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  notice: { color: colors.warning, fontSize: 12, paddingHorizontal: 12, paddingVertical: 8 },
   body: { padding: 16, gap: 12 },
   command: { color: colors.text, fontFamily: "monospace", fontSize: 12 },
   placeholderText: { color: colors.muted, fontSize: 14 },

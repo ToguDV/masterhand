@@ -74,6 +74,14 @@ describe("verifyToken", () => {
     const signature = createHmac("sha256", secret).update(encoded).digest("base64url")
     expect(verifyToken(secret, `${encoded}.${signature}`, now)).toBeNull()
   })
+
+  it("rejects a token issued implausibly in the future (clock jump)", () => {
+    const future = createSessionToken(secret, 3600, now + 10 * 60_000)
+    expect(verifyToken(secret, future, now)).toBeNull()
+    // A small skew (NTP correction) is still accepted.
+    const skewed = createSessionToken(secret, 3600, now + 30_000)
+    expect(verifyToken(secret, skewed, now)).toMatchObject({ kind: "session" })
+  })
 })
 
 describe("createRateLimiter", () => {

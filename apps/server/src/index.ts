@@ -5,14 +5,29 @@ import { serveStatic } from "@hono/node-server/serve-static"
 import { createApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
-import { createPreviewManager } from "./preview.js"
+import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
 import { createSqliteStore } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
 const config = loadConfig()
 mkdirSync(config.dataDir, { recursive: true })
 
-const store = createSqliteStore(join(config.dataDir, "masterhand.sqlite"))
+let store: ReturnType<typeof createSqliteStore>
+try {
+  store = createSqliteStore(join(config.dataDir, "masterhand.sqlite"))
+} catch (error) {
+  // Corrupt database, unreadable volume, …: fail loudly with the restore
+  // pointer instead of serving broken requests (issue #80/#88).
+  console.error("[masterhand] storage unavailable at boot:", error)
+  process.exit(1)
+}
+
+// A hard crash (SIGKILL, power loss) can leave cloudflared running with its
+// tunnel publicly exposed; reap only PIDs still confirmed to be cloudflared.
+const orphanTunnels = cleanupOrphanTunnels({ pidFile: tunnelPidFile(config.dataDir) })
+if (orphanTunnels.length > 0) {
+  console.log(`[masterhand] stopped ${orphanTunnels.length} orphaned preview tunnel(s)`)
+}
 
 const hub = createEventHub({
   url: new URL("/api/event", config.opencodeUrl).toString(),
@@ -60,14 +75,14 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`[masterhand] listening on :${info.port} → opencode ${config.opencodeUrl}`)
 })
 
-function shutdown(): void {
+function shutdown(code = 0): void {
   preview.stopAll()
   hub.stop()
   store.close()
-  server.close(() => process.exit(0))
+  server.close(() => process.exit(code))
   // `server.close` waits for open connections, and the SSE stream to every
   // connected client is long-lived; never hang a SIGTERM (docker stop, tests).
-  setTimeout(() => process.exit(0), 3000).unref()
+  setTimeout(() => process.exit(code), 3000).unref()
 }
 
 let shuttingDown = false
@@ -77,5 +92,19 @@ function handleSignal(): void {
   shutdown()
 }
 
+/**
+ * Unexpected failures get a structured diagnostic and a deliberate exit;
+ * `restart: unless-stopped` brings the container back (issue #88). Logging
+ * beats a silent drop, and exiting beats serving requests in an unknown state.
+ */
+function handleFatal(kind: "uncaughtException" | "unhandledRejection", error: unknown): void {
+  console.error(`[masterhand] fatal ${kind}:`, error)
+  if (shuttingDown) return
+  shuttingDown = true
+  shutdown(1)
+}
+
 process.on("SIGTERM", handleSignal)
 process.on("SIGINT", handleSignal)
+process.on("uncaughtException", (error) => handleFatal("uncaughtException", error))
+process.on("unhandledRejection", (reason) => handleFatal("unhandledRejection", reason))

@@ -245,6 +245,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     previewPortRange: { min: 32900, max: 32999 },
     previewReadinessMs: 25_000,
     cloudflaredBin: "cloudflared",
+    diskLowWatermarkMb: 512,
     ...overrides,
   }
 }
@@ -313,6 +314,7 @@ export interface FakeTunnel {
 }
 
 interface FakeChildProcess extends EventEmitter {
+  pid?: number
   stdout: PassThrough
   stderr: PassThrough
   exitCode: number | null
@@ -326,13 +328,14 @@ interface FakeChildProcess extends EventEmitter {
  */
 export function createFakeTunnel(
   url = "https://fake-preview.trycloudflare.com",
-  options: { fail?: boolean; silent?: boolean } = {},
+  options: { fail?: boolean; silent?: boolean; pid?: number } = {},
 ): FakeTunnel {
   const children: ChildProcess[] = []
   const calls: FakeTunnel["calls"] = []
   const spawnImpl = ((command: string, args: string[]): ChildProcess => {
     calls.push({ command, args })
     const child = new EventEmitter() as unknown as FakeChildProcess
+    child.pid = options.pid
     child.stdout = new PassThrough()
     child.stderr = new PassThrough()
     child.exitCode = null
@@ -363,6 +366,7 @@ export function createFakeTunnel(
 export async function startTestApp(
   options: {
     config?: Partial<Config>
+    store?: Store
     createDir?: (path: string) => void
     removeDir?: (path: string) => void
     worktrees?: WorktreeManager
@@ -370,6 +374,7 @@ export async function startTestApp(
     preview?: PreviewManager
     sessionsCacheMs?: number
     sseQueueMax?: number
+    diskFreeBytes?: (path: string) => number | null
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -382,7 +387,7 @@ export async function startTestApp(
   } = {},
 ): Promise<TestApp> {
   const config = testConfig(options.config)
-  const store = createMemoryStore()
+  const store = options.store ?? createMemoryStore()
   const hub = createEventHub({
     url: new URL("/api/event", config.opencodeUrl).toString(),
     authHeader: config.opencodeAuth,
@@ -413,6 +418,7 @@ export async function startTestApp(
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
+    diskFreeBytes: options.diskFreeBytes,
   })
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
   await new Promise<void>((resolve) => server.once("listening", resolve))

@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest"
 import { ApiError, RequestTimeoutError } from "../src/client"
-import { composerErrorMessage, conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "../src/errors"
+import {
+  composerErrorMessage,
+  conversationErrorMessage,
+  isAmbiguousError,
+  opencodeErrorMessage,
+  previewErrorMessage,
+} from "../src/errors"
 import type { SessionStructuredError } from "../src/types"
+
+describe("isAmbiguousError", () => {
+  it("treats a deadline and a 504 as possibly applied", () => {
+    expect(isAmbiguousError(new RequestTimeoutError())).toBe(true)
+    expect(isAmbiguousError(new ApiError(504, "opencode_timeout"))).toBe(true)
+  })
+
+  it("treats real failures as definite", () => {
+    expect(isAmbiguousError(new ApiError(500, "boom"))).toBe(false)
+    expect(isAmbiguousError(new ApiError(409, "conflict"))).toBe(false)
+    expect(isAmbiguousError(new Error("offline"))).toBe(false)
+    expect(isAmbiguousError(null)).toBe(false)
+  })
+})
 
 describe("opencodeErrorMessage", () => {
   it("returns the first line of the error message", () => {
