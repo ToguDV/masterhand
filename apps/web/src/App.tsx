@@ -509,16 +509,14 @@ export default function App() {
             <ChevronLeftIcon size={18} />
           </button>
         )}
-        {(sessionID || sessions.length > 0) && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="mh-btn mh-btn--quiet md:hidden"
-            aria-label="Sessions"
-          >
-            <MenuIcon size={18} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className="mh-btn mh-btn--quiet md:hidden"
+          aria-label="Sessions"
+        >
+          <MenuIcon size={18} />
+        </button>
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
           {selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
@@ -648,6 +646,11 @@ export default function App() {
             }}
             onDelete={setRemoveSessionID}
             hasWorkspace={Boolean(workspaceID)}
+            onCreateSession={(isolated) => {
+              setDrawerOpen(false)
+              void createSession(isolated)
+            }}
+            creating={creating}
           />
         </aside>
 
@@ -668,8 +671,6 @@ export default function App() {
               onSelectWorkspace={switchWorkspace}
               onAddWorkspace={() => setAddingWorkspace(true)}
               onRemoveWorkspace={setRemoveWorkspaceID}
-              onCreateSession={(isolated) => void createSession(isolated)}
-              creating={creating}
               forms={forms}
               answeredForms={answeredForms}
               busyFormID={busyFormID}
@@ -688,8 +689,6 @@ export default function App() {
                 onSelectWorkspace={switchWorkspace}
                 onAddWorkspace={() => setAddingWorkspace(true)}
                 onRemoveWorkspace={setRemoveWorkspaceID}
-                onCreateSession={(isolated) => void createSession(isolated)}
-                creating={creating}
               />
               <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
                 <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />

@@ -106,6 +106,8 @@ test("opens the session list as a drawer on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page)
   await addWorkspace(page)
+  // On mobile the list (and its new-session action) lives in the drawer.
+  await page.getByRole("button", { name: "Sessions" }).click()
   await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
 

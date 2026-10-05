@@ -10,6 +10,7 @@ import {
 } from "@masterhand/client-core"
 import { Deco } from "./Deco"
 import { XIcon } from "./icons"
+import { NewSessionMenu } from "./NewSessionMenu"
 
 const FILTERS: Array<{ value: SessionFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -27,14 +28,18 @@ export function SessionList({
   onSelect,
   onDelete,
   hasWorkspace,
+  onCreateSession,
+  creating,
 }: {
   sessions: Session[]
   statuses: Record<string, SessionStatus>
   selectedID: string | null
   onSelect: (id: string) => void
   onDelete: (id: string) => void
-  /** False before any workspace exists; only changes the empty-state copy. */
+  /** False before any workspace exists; disables creation and changes the copy. */
   hasWorkspace: boolean
+  onCreateSession: (isolated: boolean) => void
+  creating: boolean
 }) {
   const [filter, setFilter] = useState<SessionFilter>("all")
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
@@ -53,6 +58,7 @@ export function SessionList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-2">
         <h2 className="mh-heading-4">Sessions</h2>
+        <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
       </div>
 
       <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-3">

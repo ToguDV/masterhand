@@ -20,8 +20,8 @@ export async function addWorkspace(page: Page, name?: string): Promise<string> {
 }
 
 /**
- * Creates a session through the composer's top bar (the sidebar no longer has
- * the action). `isolated` checks the worktree option inside the popover.
+ * Creates a session through the Sessions header's `+` menu, whose popover
+ * hosts the isolated-worktree option.
  */
 export async function newSession(page: Page, options: { isolated?: boolean } = {}): Promise<void> {
   await page.getByRole("button", { name: "New session" }).click()

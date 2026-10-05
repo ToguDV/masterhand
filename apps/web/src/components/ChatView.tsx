@@ -37,8 +37,6 @@ export function ChatView({
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
-  onCreateSession,
-  creating,
   forms,
   answeredForms,
   busyFormID,
@@ -62,8 +60,6 @@ export function ChatView({
   onSelectWorkspace: (id: string | null) => void
   onAddWorkspace: () => void
   onRemoveWorkspace: (id: string) => void
-  onCreateSession: (isolated: boolean) => void
-  creating: boolean
   forms: FormInfo[]
   answeredForms: Array<{ form: FormInfo; answer: FormAnswer }>
   busyFormID: string | null
@@ -264,8 +260,6 @@ export function ChatView({
             onSelectWorkspace={onSelectWorkspace}
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
-            onCreateSession={onCreateSession}
-            creating={creating}
             trailing={<SessionStats usage={usage} />}
           />
         }
