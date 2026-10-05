@@ -98,6 +98,11 @@ const ptys = new Map<string, { id: string; title: string; status: string; pid: n
 let offline = false
 const catalogRequests = { agent: 0, model: 0 }
 
+// E2E control: holds prompt responses so a test can reproduce a stalled send
+// (the request never settles). `/e2e/release-prompt` flushes held responses.
+let stallPrompts = false
+const heldPrompts: Array<() => void> = []
+
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
 // persistent SQLite DATA_DIR locally, so restarting at `ses_1` every time
 // collided with the `isolated_sessions.session_id` primary key.
@@ -789,8 +794,13 @@ const server = createServer((req, res) => {
       if (offline) closeStreams()
       return empty(res, 204)
     }
+    if (req.method === "POST" && (path === "/e2e/stall-prompt" || path === "/e2e/release-prompt")) {
+      stallPrompts = path === "/e2e/stall-prompt"
+      if (!stallPrompts) for (const release of heldPrompts.splice(0)) release()
+      return empty(res, 204)
+    }
     if (req.method === "GET" && path === "/e2e/state") {
-      return json(res, 200, { offline, ...catalogRequests })
+      return json(res, 200, { offline, stalled: heldPrompts.length, ...catalogRequests })
     }
 
     // E2E controls for missed-events scenarios.
@@ -946,6 +956,9 @@ const server = createServer((req, res) => {
       if (req.method === "POST" && segments[3] === "prompt") {
         if (!session) return json(res, 404, { error: "not_found" })
         const body = await readBody(req)
+        // E2E control: hold this response until the release route runs, so the
+        // client's fetch stays pending exactly like a stalled network request.
+        if (stallPrompts) await new Promise<void>((resolve) => heldPrompts.push(resolve))
         const text = typeof body.text === "string" ? body.text : ""
         const message = appendUserMessage(sessionID, text)
         // E2E helper: `/seed N` fills the conversation with N more messages and

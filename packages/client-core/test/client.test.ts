@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ApiError, createClient } from "../src/client"
+import { ApiError, RequestTimeoutError, createClient } from "../src/client"
 import { createEventStream } from "../src/events"
 import type { SessionMessageInfo, SessionMessageUser } from "../src/types"
 
@@ -76,6 +76,26 @@ describe("createClient", () => {
     const headers = new Headers(calls[0]?.init?.headers)
     expect(headers.get("authorization")).toBe("Bearer tok_123")
     expect(calls[0]?.url).toBe("/api/status")
+  })
+
+  it("rejects with RequestTimeoutError when a request stalls past the deadline", async () => {
+    const stall: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      })
+    const client = createClient({ baseUrl: "", fetchImpl: stall, timeoutMs: 20 })
+
+    await expect(client.auth.status()).rejects.toBeInstanceOf(RequestTimeoutError)
+  })
+
+  it("unwraps the timeout through the generated opencode client", async () => {
+    const stall: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      })
+    const client = createClient({ baseUrl: "http://localhost", fetchImpl: stall, timeoutMs: 20 })
+
+    await expect(client.api.prompt("ses_1", { text: "hi" })).rejects.toBeInstanceOf(RequestTimeoutError)
   })
 
   it("sets a JSON content-type for bodies", async () => {

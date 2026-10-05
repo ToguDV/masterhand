@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ApiError,
+  RequestTimeoutError,
   buildComposerPopover,
   collectAgentMentions,
   composerTrigger,
@@ -27,6 +28,21 @@ import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
+
+/** Maps a failed composer request to a user-facing message. */
+function composerErrorMessage(error: unknown, kind: "send" | "side question"): string {
+  if (error instanceof RequestTimeoutError) {
+    return kind === "send"
+      ? "The server did not respond — your message may not have been sent. Check the chat before retrying."
+      : "The server did not respond — the side question may not have started. Try again."
+  }
+  if (error instanceof ApiError) {
+    return kind === "send"
+      ? `Could not send (HTTP ${error.status})`
+      : `Could not start the side question (HTTP ${error.status})`
+  }
+  return kind === "send" ? "Could not send" : "Could not start the side question"
+}
 
 interface SessionPreferences {
   agent: string
@@ -103,6 +119,8 @@ export function Composer({
   // and written back so switching sessions or reloading keeps them.
   const stored = useMemo(() => readPreferences(sessionID), [sessionID])
   const [text, setText] = useState("")
+  const textRef = useRef(text)
+  textRef.current = text
   const [agent, setAgent] = useState(stored.agent ?? "")
   const [model, setModel] = useState(stored.model ?? "")
   const [variant, setVariant] = useState(stored.variant ?? "")
@@ -248,11 +266,15 @@ export function Composer({
           { agent: session?.agent, model: session?.model },
         )
       }
-      setText("")
-      setCaret(0)
+      // Only clear what was actually sent: text typed while the request was in
+      // flight (slow network) must survive instead of being wiped.
+      if (textRef.current.trim() === trimmed) {
+        setText("")
+        setCaret(0)
+      }
       setDismissed(false)
     } catch (err) {
-      setError(err instanceof ApiError ? `Could not send (HTTP ${err.status})` : "Could not send")
+      setError(composerErrorMessage(err, "send"))
     } finally {
       setSending(false)
     }
@@ -275,15 +297,13 @@ export function Composer({
         ...(modelValue ? { model: modelValue } : {}),
       })
       setSideQuestion({ sessionID: fork.id, question })
-      setText("")
-      setCaret(0)
+      if (textRef.current.trim() === question) {
+        setText("")
+        setCaret(0)
+      }
       setDismissed(false)
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Could not start the side question (HTTP ${err.status})`
-          : "Could not start the side question",
-      )
+      setError(composerErrorMessage(err, "side question"))
     } finally {
       setStartingSideQuestion(false)
     }
@@ -440,7 +460,7 @@ export function Composer({
                 disabled={!text.trim() || sending || startingSideQuestion}
                 className="mh-btn mh-btn--primary h-11 shrink-0"
               >
-                {startingSideQuestion ? "Starting…" : "Send"}
+                {startingSideQuestion ? "Starting…" : sending ? "Sending…" : "Send"}
               </button>
             )}
           </div>

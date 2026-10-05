@@ -9,7 +9,11 @@ const FORWARD_REQUEST_HEADERS = [
 ]
 const FORWARD_RESPONSE_HEADERS = ["content-type", "cache-control", "etag", "last-modified"]
 
-export function createOpencodeProxy(config: Config, fetchImpl: typeof fetch = fetch) {
+export function createOpencodeProxy(
+  config: Config,
+  fetchImpl: typeof fetch = fetch,
+  upstreamTimeoutMs = 60_000,
+) {
   return async (c: Context): Promise<Response> => {
     const requestUrl = new URL(c.req.url)
     const path = c.req.path.replace(/^\/api\/oc/, "") || "/"
@@ -41,8 +45,18 @@ export function createOpencodeProxy(config: Config, fetchImpl: typeof fetch = fe
 
     let upstream: Response
     try {
-      upstream = await fetchImpl(target, { method, headers, body })
-    } catch {
+      // Bounded fetch: a stalled opencode must never hold the proxy request
+      // (and its socket) forever; the clients' own deadline fires sooner.
+      upstream = await fetchImpl(target, {
+        method,
+        headers,
+        body,
+        signal: AbortSignal.timeout(upstreamTimeoutMs),
+      })
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === "TimeoutError") {
+        return c.json({ error: "opencode_timeout" }, 504)
+      }
       return c.json({ error: "opencode_unreachable" }, 502)
     }
 

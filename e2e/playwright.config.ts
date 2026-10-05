@@ -39,6 +39,8 @@ export default defineConfig({
         PORT: String(BFF_PORT),
         OPENCODE_URL: `http://127.0.0.1:${MOCK_PORT}`,
         MASTERHAND_PASSWORD: "e2e-password",
+        // Shorten the client's request deadline so the stalled-send spec is fast.
+        VITE_REQUEST_TIMEOUT_MS: "5000",
         SESSION_SECRET: "e2e-secret",
         COOKIE_SECURE: "false",
         DATA_DIR: "/tmp/masterhand-e2e",
