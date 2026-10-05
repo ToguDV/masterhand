@@ -118,6 +118,10 @@ let failPrompts = false
 let forksCreated = 0
 let forksRemoved = 0
 let heldForks = 0
+// E2E control for auto-accept retries: fail every permission reply and count
+// attempts (read via `/e2e/state`), so tests can prove the client retried.
+let failPermissionReplies = false
+let permissionReplyAttempts = 0
 // E2E controls for session-creation reconciliation: `stall-create` holds the
 // response after creating (the response is lost), `stall-create-before` holds
 // before creating (nothing exists to reconcile). `/e2e/release-create` flushes.
@@ -850,6 +854,11 @@ const server = createServer((req, res) => {
       failPrompts = body.value !== false
       return empty(res, 204)
     }
+    if (req.method === "POST" && path === "/e2e/fail-permission-replies") {
+      const body = await readBody(req)
+      failPermissionReplies = body.value !== false
+      return empty(res, 204)
+    }
     // Simulates another device (or the opencode TUI) sending a message to a
     // session: appends the user message and announces a turn, so the client
     // refetches the history. Used to prove delivery reconciliation never
@@ -885,6 +894,7 @@ const server = createServer((req, res) => {
         stalled: heldPrompts.length,
         prompts: promptRequests,
         failPrompts,
+        permissionReplies: permissionReplyAttempts,
         stalledForks: heldForks,
         forks: { created: forksCreated, removed: forksRemoved },
         ...catalogRequests,
@@ -1141,6 +1151,8 @@ const server = createServer((req, res) => {
       }
       if (req.method === "POST" && segments[3] === "permission" && segments[4] && segments[5] === "reply") {
         const body = await readBody(req)
+        permissionReplyAttempts += 1
+        if (failPermissionReplies) return json(res, 503, { error: "try_again" })
         const pending = pendingPermissions.get(segments[4])
         if (pending) {
           pendingPermissions.delete(segments[4])
