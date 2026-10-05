@@ -1,10 +1,15 @@
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, realpathSync } from "node:fs"
-import { dirname, resolve, sep } from "node:path"
+import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
+import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Store } from "./store.js"
 
 const GIT_TIMEOUT_MS = 60_000
 const MAX_BRANCH_SEGMENT = 40
+
+/** Marker written by a successful reconciliation; its absence flags an unconfirmed volume. */
+export const VOLUME_SENTINEL = ".masterhand-volume"
+/** Suffix of a quarantined orphan worktree (kept on disk, never re-quarantined). */
+export const ORPHAN_SUFFIX = ".orphaned-"
 
 export interface GitResult {
   status: number
@@ -38,6 +43,8 @@ export interface WorktreeManager {
   headBranch(path: string): string
   create(repoPath: string, worktreePath: string, branch: string, baseRef: string): void
   remove(repoPath: string, worktreePath: string, branch: string): void
+  /** Renames an orphan worktree out of the way (data kept) and prunes git's admin entry. */
+  quarantine(repoPath: string, worktreePath: string): string
   list(repoPath: string): WorktreeInfo[]
   /** Stages and commits everything; false when the tree was already clean. */
   commitAll(worktreePath: string, message: string): boolean
@@ -127,6 +134,13 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       git(["worktree", "remove", "--force", worktreePath], repoPath)
       git(["branch", "-D", branch], repoPath)
       git(["worktree", "prune"], repoPath)
+    },
+
+    quarantine(repoPath, worktreePath) {
+      const target = `${worktreePath}${ORPHAN_SUFFIX}${Date.now()}`
+      renameSync(worktreePath, target)
+      git(["worktree", "prune"], repoPath)
+      return target
     },
 
     list(repoPath) {
@@ -314,15 +328,22 @@ export function pullRequestUrl(
   return `${web}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}`
 }
 
+export type ReconcileSkipReason = "worktrees_root_missing" | "volume_unconfirmed"
+
 export interface ReconcileResult {
+  /** Reason no worktree data was touched, or null when reconciliation ran. */
+  skipped: ReconcileSkipReason | null
   droppedRecords: string[]
-  removedWorktrees: string[]
+  quarantinedWorktrees: string[]
 }
 
 /**
- * Startup cleanup:
- * - Records whose worktree folder disappeared are dropped.
- * - Worktrees under `root` without a record are removed (orphans from crashes).
+ * Startup cleanup, gated on a demonstrably healthy volume:
+ * - Skips entirely when the worktree root is missing (late/failed mount) or no
+ *   record/sentinel confirms the volume (DB restored from an older backup).
+ * - Records whose worktree folder disappeared are dropped only then.
+ * - Worktrees under `root` without a record are quarantined (renamed on disk,
+ *   branch kept) instead of deleted, so uncommitted agent work stays recoverable.
  */
 export function reconcileWorktrees(
   store: Pick<Store, "listWorkspaces" | "listIsolatedSessions" | "removeIsolatedSession">,
@@ -330,14 +351,37 @@ export function reconcileWorktrees(
   root: string,
 ): ReconcileResult {
   const normalizedRoot = resolve(root)
-  const result: ReconcileResult = { droppedRecords: [], removedWorktrees: [] }
+  const result: ReconcileResult = {
+    skipped: null,
+    droppedRecords: [],
+    quarantinedWorktrees: [],
+  }
   const records = store.listIsolatedSessions()
 
-  for (const record of records) {
-    if (!existsSync(record.path)) {
-      store.removeIsolatedSession(record.sessionID)
-      result.droppedRecords.push(record.sessionID)
+  const rootExists = existsSync(normalizedRoot)
+  if (!rootExists && records.length === 0) return result // fresh install: nothing to clean or protect
+  const sentinel = join(normalizedRoot, VOLUME_SENTINEL)
+  const confirmed =
+    rootExists &&
+    (existsSync(sentinel) ||
+      records.length === 0 ||
+      records.some((record) => existsSync(record.path)))
+  if (!confirmed) {
+    result.skipped = rootExists ? "volume_unconfirmed" : "worktrees_root_missing"
+    return result
+  }
+  if (!existsSync(sentinel)) {
+    try {
+      writeFileSync(sentinel, new Date().toISOString(), "utf8")
+    } catch {
+      // A read-only volume still reconciles; the sentinel is best effort.
     }
+  }
+
+  for (const record of records) {
+    if (existsSync(record.path)) continue
+    store.removeIsolatedSession(record.sessionID)
+    result.droppedRecords.push(record.sessionID)
   }
 
   const known = new Set(
@@ -350,9 +394,9 @@ export function reconcileWorktrees(
       if (path === resolve(workspace.path)) continue
       if (!path.startsWith(normalizedRoot + sep)) continue
       if (known.has(path)) continue
+      if (basename(path).includes(ORPHAN_SUFFIX)) continue
       try {
-        manager.remove(workspace.path, path, entry.branch ?? "")
-        result.removedWorktrees.push(path)
+        result.quarantinedWorktrees.push(manager.quarantine(workspace.path, path))
       } catch {
         // best effort: a locked worktree should not block startup
       }
