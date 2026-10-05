@@ -366,6 +366,7 @@ export function createFakeTunnel(
 export async function startTestApp(
   options: {
     config?: Partial<Config>
+    store?: Store
     createDir?: (path: string) => void
     removeDir?: (path: string) => void
     worktrees?: WorktreeManager
@@ -386,7 +387,7 @@ export async function startTestApp(
   } = {},
 ): Promise<TestApp> {
   const config = testConfig(options.config)
-  const store = createMemoryStore()
+  const store = options.store ?? createMemoryStore()
   const hub = createEventHub({
     url: new URL("/api/event", config.opencodeUrl).toString(),
     authHeader: config.opencodeAuth,

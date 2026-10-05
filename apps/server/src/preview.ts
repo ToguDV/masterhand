@@ -3,7 +3,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { connect } from "node:net"
 import { join } from "node:path"
 import type { Config } from "./config.js"
-import type { Store } from "./store.js"
+import { isStorageConflict, type Store } from "./store.js"
 
 export type PreviewStatus = "stopped" | "starting" | "running" | "error"
 
@@ -60,6 +60,8 @@ const URL_TIMEOUT_MS = 30_000
 const READINESS_INTERVAL_MS = 1_500
 const READINESS_REQUEST_TIMEOUT_MS = 5_000
 const KILL_GRACE_MS = 3000
+/** Port-allocation retries on a UNIQUE(port) race before giving up. */
+const MAX_PORT_ATTEMPTS = 5
 
 interface RunningPreview {
   child: ChildProcess
@@ -254,9 +256,19 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   function portFor(sessionID: string): number {
     const existing = store.getPreviewPort(sessionID)
     if (existing !== null) return existing
-    const port = allocatePort()
-    store.assignPreviewPort({ sessionID, port, createdAt: Date.now() })
-    return port
+    // Listing the pool and inserting are not atomic: a concurrent session can
+    // take the port in between, violating UNIQUE(port). Retry with a fresh
+    // choice instead of failing session creation/run start (issue #87b).
+    for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt += 1) {
+      const port = allocatePort()
+      try {
+        store.assignPreviewPort({ sessionID, port, createdAt: Date.now() })
+        return port
+      } catch (error) {
+        if (!isStorageConflict(error)) throw error
+      }
+    }
+    throw new PreviewError("preview_ports_exhausted")
   }
 
   function state(sessionID: string): PreviewState {

@@ -48,6 +48,33 @@ describe("preview port reservation", () => {
     expect(store.getPreviewPort("ses_a")).toBeNull()
     expect(store.getPreviewPort("ses_c")).toBe(33000)
   })
+
+  it("retries allocation when a concurrent session takes the port", () => {
+    const store = createMemoryStore()
+    const original = store.assignPreviewPort.bind(store)
+    let conflicts = 0
+    const racing = {
+      ...store,
+      assignPreviewPort: (record: Parameters<typeof original>[0]) => {
+        if (conflicts++ === 0) {
+          throw Object.assign(new Error("UNIQUE constraint failed: preview_ports.port"), {
+            code: "SQLITE_CONSTRAINT_UNIQUE",
+          })
+        }
+        original(record)
+      },
+    }
+    const manager = createPreviewManager({
+      config: testConfig({ previewPortRange: { min: 33000, max: 33002 } }),
+      store: racing,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => true,
+    })
+
+    expect(manager.portFor("ses_a")).toBe(33000)
+    expect(store.getPreviewPort("ses_a")).toBe(33000)
+  })
 })
 
 describe("preview tunnel lifecycle", () => {

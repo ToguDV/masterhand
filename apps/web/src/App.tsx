@@ -857,6 +857,13 @@ export default function App() {
         <div className="mh-banner mh-banner--danger">opencode is not reachable. Is its server running?</div>
       )}
 
+      {statusQuery.data?.storage?.ok === false && (
+        <div className="mh-banner mh-banner--danger">
+          The server cannot read its database (storage unavailable). Check the server disk and logs, then restore from a
+          backup if needed.
+        </div>
+      )}
+
       {statusQuery.data?.storage?.low && (
         <div className="mh-banner mh-banner--warning">
           The server disk is almost full ({formatFreeBytes(statusQuery.data.storage.freeBytes)} free). Free space, or

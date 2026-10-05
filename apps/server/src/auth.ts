@@ -6,6 +6,13 @@ import type { Store } from "./store.js"
 
 export const SESSION_COOKIE = "mh_session"
 
+/**
+ * Tokens whose `iat` lies further in the future than this are rejected: the
+ * host clock jumped backwards after signing, so the token's intended lifetime
+ * can no longer be trusted (issue #91). Small NTP corrections are tolerated.
+ */
+export const TOKEN_CLOCK_SKEW_MS = 60_000
+
 export interface SessionTokenPayload {
   kind: "session"
   iat: number
@@ -67,6 +74,10 @@ export function verifyToken(secret: string, token: string | undefined, now = Dat
     }
     if (typeof data.exp !== "number" || data.exp <= now) return null
     const iat = typeof data.iat === "number" ? data.iat : 0
+    // A token issued "in the future" means the host clock jumped backwards
+    // after signing; accepting it would keep it valid past its intended life
+    // (issue #91). Allow a small skew for NTP corrections.
+    if (iat > now + TOKEN_CLOCK_SKEW_MS) return null
     if (data.kind === "session") return { kind: "session", iat, exp: data.exp }
     if (data.kind === "device" && typeof data.deviceID === "string") {
       return { kind: "device", deviceID: data.deviceID, iat, exp: data.exp }
@@ -127,6 +138,9 @@ function bearerToken(header: string | undefined): string | null {
   return value.trim() || null
 }
 
+/** Only the first advisory-write failure is logged, to avoid a log flood. */
+let warnedTouchFailure = false
+
 export function requireAuth(config: Config, store: Store): MiddlewareHandler {
   return async (c, next) => {
     const token = bearerToken(c.req.header("authorization"))
@@ -135,7 +149,16 @@ export function requireAuth(config: Config, store: Store): MiddlewareHandler {
       if (!payload || payload.kind !== "device" || !store.get(payload.deviceID)) {
         return c.json({ error: "unauthorized" }, 401)
       }
-      store.touch(payload.deviceID)
+      // Advisory write: a read-only/full disk must not 500 an authenticated
+      // read (issue #86). Logged once; the request proceeds.
+      try {
+        store.touch(payload.deviceID)
+      } catch (error) {
+        if (!warnedTouchFailure) {
+          warnedTouchFailure = true
+          console.warn("[masterhand] device last-used update failed (continuing):", error)
+        }
+      }
       await next()
       return
     }

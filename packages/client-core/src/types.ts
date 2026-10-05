@@ -116,6 +116,8 @@ export interface BffStatus {
   preview?: PreviewAvailability
   /** Data-volume headroom, when the BFF could read it. */
   storage?: {
+    /** False when the database does not answer a trivial read. */
+    ok: boolean
     freeBytes: number | null
     /** Free space below the configured watermark: clients warn the user. */
     low: boolean

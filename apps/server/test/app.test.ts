@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  createDevice,
   createFakeTunnel,
   createFakeWorktreeManager,
   login,
@@ -12,6 +13,7 @@ import {
   type MockOpencode,
   type TestApp,
 } from "./helpers.js"
+import { createMemoryStore, type Store } from "../src/store.js"
 
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
@@ -83,7 +85,7 @@ describe("/api/status", () => {
       ok: true,
       opencode: { healthy: true, version: "1.2.3" },
       preview: { enabled: true, available: true, portRange: { min: 32900, max: 32999 } },
-      storage: { freeBytes: 10 * 1024 ** 3, low: false },
+      storage: { ok: true, freeBytes: 10 * 1024 ** 3, low: false },
     })
   })
 
@@ -133,6 +135,109 @@ describe("/api/status", () => {
     expect(await response.json()).toMatchObject({
       opencode: { healthy: false, error: "unreachable" },
     })
+  })
+})
+
+describe("storage resilience", () => {
+  function failingStore(patch: Partial<Store>): Store {
+    return { ...createMemoryStore(), ...patch }
+  }
+
+  it("answers 503 on /api/health when storage does not answer", async () => {
+    app = await startTestApp({ store: failingStore({ ping: () => false }) })
+
+    const response = await fetch(`${app.url}/api/health`)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ ok: false, error: "storage_unavailable" })
+  })
+
+  it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {
+    const sqliteError = () => Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+    app = await startTestApp({
+      store: failingStore({
+        listWorkspaces: () => {
+          throw sqliteError()
+        },
+      }),
+    })
+    const cookie = await login(app.url)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await fetch(`${app.url}/api/workspaces`, { headers: { cookie } })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+      expect(errorLog).toHaveBeenCalledWith(expect.stringContaining("GET /api/workspaces"), expect.anything())
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
+  it("reports storage.ok in /api/status", async () => {
+    app = await startTestApp({ store: failingStore({ ping: () => false }) })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
+    expect(await response.json()).toMatchObject({ storage: { ok: false } })
+  })
+
+  it("keeps authenticated reads working when the advisory device touch fails", async () => {
+    const store = failingStore({
+      touch: () => {
+        throw Object.assign(new Error("read-only"), { code: "SQLITE_READONLY" })
+      },
+    })
+    app = await startTestApp({ store })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const device = await createDevice(app.url)
+      const response = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${device.token}` },
+      })
+      expect(response.status).toBe(200)
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("device last-used update failed"),
+        expect.anything(),
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("deduplicates devices by name on repeated logins", async () => {
+    app = await startTestApp()
+    const first = await createDevice(app.url, "Pixel")
+    const second = await createDevice(app.url, "Pixel")
+
+    expect(app.store.list()).toHaveLength(1)
+    expect(second.device.id).toBe(first.device.id)
+    expect(second.device.name).toBe("Pixel")
+    // Both tokens authenticate the same device record.
+    const response = await fetch(`${app.url}/api/status`, {
+      headers: { authorization: `Bearer ${second.token}` },
+    })
+    expect(response.status).toBe(200)
+  })
+
+  it("answers 409 when the workspace insert races the path pre-check", async () => {
+    app = await startTestApp({
+      store: failingStore({
+        createWorkspace: () => {
+          throw Object.assign(new Error("UNIQUE constraint failed: workspaces.path"), {
+            code: "SQLITE_CONSTRAINT_UNIQUE",
+          })
+        },
+      }),
+      createDir: () => {},
+    })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "dup" }),
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "already_exists" })
   })
 })
 
