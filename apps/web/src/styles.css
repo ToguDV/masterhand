@@ -159,7 +159,9 @@
    2. Base
    -------------------------------------------------------------------------- */
 
-@layer base {
+/* Unlayered on purpose: unlayered rules beat `@layer base`, and the base
+   `:root` sets `color-scheme: light dark`. If these live inside the layer, the
+   `light-dark()` tokens always follow the system and the toggle does nothing. */
 :root[data-theme="light"] {
   color-scheme: light;
 }
@@ -168,6 +170,7 @@
   color-scheme: dark;
 }
 
+@layer base {
 html,
 body,
 #root {
