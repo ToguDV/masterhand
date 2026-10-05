@@ -83,7 +83,14 @@ export {
   type ComposerPopoverItem,
   type ComposerTrigger,
 } from "./commands"
-export { filterSessions, rootSessions, type SessionFilter } from "./sessions"
+export {
+  CREATE_MARKER_KEY,
+  createSessionMarker,
+  filterSessions,
+  rootSessions,
+  sessionCreateMarker,
+  type SessionFilter,
+} from "./sessions"
 export { reconcilePermissions } from "./permissions"
 export {
   countDiffLines,

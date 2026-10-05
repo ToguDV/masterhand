@@ -100,6 +100,26 @@ function clientIp(c: Context): string {
   }
 }
 
+/**
+ * Metadata key under which MasterHand persists a client's session-create
+ * marker (must match `CREATE_MARKER_KEY` in `client-core`). opencode returns
+ * it from the session list, so a lost create response can be reconciled.
+ */
+const CREATE_MARKER_KEY = "masterhand.create"
+
+/** Opaque, bounded marker; anything else is ignored (best effort). */
+function normalizeCreateMarker(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9._-]{8,128}$/.test(value) ? value : null
+}
+
+/** Session create body, with the reconciliation marker attached when present. */
+function sessionCreateBody(directory: string, marker: string | null) {
+  return {
+    location: { directory },
+    ...(marker ? { metadata: { [CREATE_MARKER_KEY]: marker } } : {}),
+  }
+}
+
 /** Fields MasterHand adds to an isolated session for the clients. */
 function isolationOf(record: IsolatedSessionRecord) {
   return {
@@ -734,12 +754,13 @@ export function createApp(deps: AppDeps): Hono {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
 
-    let body: { isolated?: unknown } = {}
+    let body: { isolated?: unknown; marker?: unknown } = {}
     try {
       body = await c.req.json()
     } catch {
       // an empty body means a standard (non-isolated) session
     }
+    const marker = normalizeCreateMarker(body.marker)
 
     if (body.isolated !== true) {
       ensureWorkspaceRepo(workspace.path)
@@ -747,7 +768,7 @@ export function createApp(deps: AppDeps): Hono {
       try {
         response = await callOpencode("/api/session", {
           method: "POST",
-          body: { location: { directory: workspace.path } },
+          body: sessionCreateBody(workspace.path, marker),
         })
       } catch (error) {
         return opencodeFailure(c, error)
@@ -779,7 +800,7 @@ export function createApp(deps: AppDeps): Hono {
 
       const response = await callOpencode("/api/session", {
         method: "POST",
-        body: { location: { directory: path } },
+        body: sessionCreateBody(path, marker),
       })
       if (!response.ok) throw new Error("opencode_error")
       const session = ((await response.json()) as { data: OpencodeSession }).data

@@ -244,6 +244,38 @@ describe("preview routes", () => {
     })
   })
 
+  it("persists the client's create marker as session metadata, ignoring invalid ones", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    const created = await fetch(`${app.url}/api/workspaces/ws/sessions`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ marker: "session_abc123" }),
+    })
+    expect(created.status).toBe(201)
+    const bodies = upstream.requests
+      .filter((request) => request.method === "POST" && request.path === "/api/session")
+      .map((request) => JSON.parse(request.body ?? "{}") as Record<string, unknown>)
+    expect(bodies[0]).toMatchObject({ metadata: { "masterhand.create": "session_abc123" } })
+
+    // A malformed marker is dropped instead of reaching opencode.
+    const invalid = await fetch(`${app.url}/api/workspaces/ws/sessions`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ marker: "not valid!!" }),
+    })
+    expect(invalid.status).toBe(201)
+    const lastBody = (
+      upstream.requests
+        .filter((request) => request.method === "POST" && request.path === "/api/session")
+        .at(-1)?.body ?? "{}"
+    ) as string
+    expect(JSON.parse(lastBody)).not.toHaveProperty("metadata")
+  })
+
   it("keeps session creation working when the preview instruction is rejected", async () => {
     upstream = await startMockOpencode()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
