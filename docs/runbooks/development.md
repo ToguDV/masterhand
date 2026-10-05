@@ -49,6 +49,7 @@ run is slow) and starts the stack in the foreground; `Ctrl+C` stops it.
 | `npm run dev:desktop` | the stack **detached**, then Electron on the host against `http://localhost:8787` |
 | `npm run dev:mobile` | the stack **detached**, then the Expo dev server on the host |
 | `npm run dev:logs` | follow the stack logs |
+| `npm run dev:restart` | restart the BFF/Vite container (sources and data are kept; compose/env changes need `npm run dev`) |
 | `npm run dev:stop` | stop the stack (volumes and data are kept) |
 
 Desktop and mobile cannot run inside a container (they need a GUI/device), so
@@ -69,6 +70,9 @@ npm run dev:native:stop
 ```
 
 It uses `apps/server/.env.local` and `127.0.0.1:4096`, **not** `deploy/.env.dev`.
+On Windows-drive mounts (WSL2 `/mnt/...`) the watchers need polling there too:
+export `CHOKIDAR_USEPOLLING=1` before starting it (the Docker stack sets it for
+you, see §5).
 
 ## 4. Configuration
 
@@ -103,6 +107,14 @@ that file for the full list. The most relevant ones:
   `apps/web/vite.config.ts` and `packages/client-core/src` are bind-mounted on
   top of the image. `tsx watch` and Vite reload on save; dependencies stay in
   the image (no host/container ABI mismatch for `better-sqlite3`).
+- **File watching polls by default** (`CHOKIDAR_USEPOLLING=1`,
+  `CHOKIDAR_INTERVAL=300`): bind mounts from Windows drives (WSL2 / Docker
+  Desktop) do not deliver inotify events into the container, so event-based
+  watchers never see edits and keep serving stale modules (e.g. *"doesn't
+  provide an export named…"* after switching branches) until a restart. Set
+  `MASTERHAND_DEV_POLL=0` in `deploy/.env.dev` on a native Linux filesystem to
+  go back to inotify. If something still looks wedged, restart only the BFF/web
+  container with `npm run dev:restart` (sources and data are kept).
 
 Adding a dependency requires a rebuild: `npm run dev` (it runs
 `docker compose ... build`).
@@ -147,6 +159,12 @@ file under `apps/server/src` or `apps/web/src` to confirm the hot reload.
 
 - **Port already in use:** another dev stack (native or Docker) is running.
   `npm run dev:stop` and, for the native one, `npm run dev:native:stop`.
+- **HMR shows stale code or "doesn't provide an export named…":** the dev
+  container polls for changes by default; if the watcher still looks wedged
+  (for example right after a branch switch), run `npm run dev:restart` and
+  reload the browser. No full stack restart or rebuild is needed. (The restart
+  keeps the existing container; changes to `docker-compose.dev.yml` or
+  `deploy/.env.dev` require `npm run dev` to recreate it.)
 - **`permission denied` writing `./data`:** see the permissions note above.
 - **opencode unreachable / 401:** the BFF and the container must share
   `OPENCODE_SERVER_PASSWORD`. It comes from `deploy/.env.dev`; restart the stack

@@ -4,6 +4,7 @@
 //   node scripts/dev-docker.mjs web|server      foreground stack (Ctrl+C stops it)
 //   node scripts/dev-docker.mjs desktop|mobile  stack detached + host front end
 //   node scripts/dev-docker.mjs stop            stop the stack (keeps volumes)
+//   node scripts/dev-docker.mjs restart         restart the BFF/web container
 //   node scripts/dev-docker.mjs logs            follow the stack logs
 //
 // It wraps exactly the deployment Compose files plus docker-compose.dev.yml, so
@@ -20,7 +21,9 @@ const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..")
 
 export const COMPOSE_FILES = ["-f", "deploy/docker-compose.yml", "-f", "deploy/docker-compose.dev.yml"]
 export const ENV_FILE = "deploy/.env.dev"
-export const ACTIONS = ["web", "server", "desktop", "mobile", "stop", "logs"]
+export const ACTIONS = ["web", "server", "desktop", "mobile", "stop", "restart", "logs"]
+/** Service that runs the hot-reloading BFF + Vite during development. */
+export const DEV_SERVICE = "masterhand"
 
 /** Compose arguments for a subcommand, always with the base + dev files and env file. */
 export function composeArgs(args) {
@@ -116,6 +119,10 @@ async function main() {
 
   if (action === "stop") {
     process.exit(await runCompose(["down"]))
+  }
+  if (action === "restart") {
+    console.log(`[dev] restarting ${DEV_SERVICE} (Vite + BFF); sources and data are kept`)
+    process.exit(await runCompose(["restart", DEV_SERVICE]))
   }
   if (action === "logs") {
     process.exit(await runCompose(["logs", "-f"]))
