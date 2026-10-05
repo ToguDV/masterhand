@@ -81,6 +81,9 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [sideQuestion, setSideQuestion] = useState<{ sessionID: string; question: string } | null>(null)
   const [startingSideQuestion, setStartingSideQuestion] = useState(false)
+  // Synchronous in-flight guard: the `sending` state is not a lock, so two
+  // presses dispatched in the same tick would both fire a prompt (#72).
+  const sendLock = useRef(false)
   const modelTouched = useRef(false)
   const loaded = useRef(false)
   const sideQuestionRef = useRef(sideQuestion)
@@ -174,44 +177,51 @@ export function Composer({
 
   async function send() {
     const trimmed = text.trim()
-    if (!trimmed || sending) return
-    const command = splitCommand(trimmed, commands)
-    if (command?.command.name === "btw") {
-      await askSideQuestion(command.text)
-      return
-    }
-    setSending(true)
-    setError(null)
+    // Refs, not the `sending` state: two events in the same tick must not both
+    // pass this check and fire two prompts (#72).
+    if (!trimmed || sendLock.current) return
+    sendLock.current = true
     try {
-      const modelValue = model ? parseModel(model, variant || undefined) : undefined
-      const mentionText = command ? command.text : trimmed
-      const mentions = collectAgentMentions(mentionText, subagents)
-      const context = {
-        ...(agent ? { agent } : {}),
-        ...(modelValue ? { model: modelValue } : {}),
-        ...(mentions.length > 0 ? { agents: mentions } : {}),
+      const command = splitCommand(trimmed, commands)
+      if (command?.command.name === "btw") {
+        await askSideQuestion(command.text)
+        return
       }
-      if (command) {
-        await client.api.runCommand(
-          sessionID,
-          { name: command.command.name, text: command.text, ...context },
-          { agent: session?.agent, model: session?.model },
-        )
-      } else {
-        await client.api.prompt(
-          sessionID,
-          { text: trimmed, ...context },
-          { agent: session?.agent, model: session?.model },
-        )
+      setSending(true)
+      setError(null)
+      try {
+        const modelValue = model ? parseModel(model, variant || undefined) : undefined
+        const mentionText = command ? command.text : trimmed
+        const mentions = collectAgentMentions(mentionText, subagents)
+        const context = {
+          ...(agent ? { agent } : {}),
+          ...(modelValue ? { model: modelValue } : {}),
+          ...(mentions.length > 0 ? { agents: mentions } : {}),
+        }
+        if (command) {
+          await client.api.runCommand(
+            sessionID,
+            { name: command.command.name, text: command.text, ...context },
+            { agent: session?.agent, model: session?.model },
+          )
+        } else {
+          await client.api.prompt(
+            sessionID,
+            { text: trimmed, ...context },
+            { agent: session?.agent, model: session?.model },
+          )
+        }
+        setText("")
+        setCaret(0)
+        setForcedSelection(undefined)
+        setDismissed(false)
+      } catch (err) {
+        setError(err instanceof ApiError ? `Could not send (HTTP ${err.status})` : "Could not send")
+      } finally {
+        setSending(false)
       }
-      setText("")
-      setCaret(0)
-      setForcedSelection(undefined)
-      setDismissed(false)
-    } catch (err) {
-      setError(err instanceof ApiError ? `Could not send (HTTP ${err.status})` : "Could not send")
     } finally {
-      setSending(false)
+      sendLock.current = false
     }
   }
 

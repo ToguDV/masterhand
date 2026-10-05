@@ -164,6 +164,11 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [sideQuestion, setSideQuestion] = useState<{ sessionID: string; question: string } | null>(null)
   const [startingSideQuestion, setStartingSideQuestion] = useState(false)
+  // Synchronous in-flight guards: a React state flag is not a lock, so two
+  // submits dispatched in the same tick would both read `sending === false`
+  // (#72). `pendingSend` and the side-question flag are set/cleared
+  // synchronously around every non-idempotent send.
+  const startingSideQuestionRef = useRef(false)
   const sideQuestionRef = useRef(sideQuestion)
   sideQuestionRef.current = sideQuestion
 
@@ -302,7 +307,9 @@ export function Composer({
 
   async function send() {
     const trimmed = text.trim()
-    if (!trimmed || sending) return
+    // Refs, not the `sending` state: two events in the same tick must not both
+    // pass this check and fire two prompts (#72).
+    if (!trimmed || pendingSend.current || startingSideQuestionRef.current) return
     const command = splitCommand(trimmed, commands)
     if (command?.command.name === "btw") {
       await askSideQuestion(command.text)
@@ -361,6 +368,7 @@ export function Composer({
       return
     }
     setStartingSideQuestion(true)
+    startingSideQuestionRef.current = true
     setError(null)
     try {
       const fork = await client.api.forkSession(sessionID)
@@ -379,6 +387,7 @@ export function Composer({
     } catch (err) {
       setError(composerErrorMessage(err, "side question"))
     } finally {
+      startingSideQuestionRef.current = false
       setStartingSideQuestion(false)
     }
   }

@@ -91,3 +91,40 @@ test("keeps text typed while a slow send is in flight", async ({ page, request }
   await expect(page.getByText("Seed message 1")).toBeVisible()
   await expect(composer).toHaveValue("follow up")
 })
+
+// Two submits in the same tick (key repeat, a fast double Enter, Enter plus a
+// click) race the `sending` state flag: the second handler reads
+// `sending === false` before React commits the first and fires a second
+// prompt. Prompts are not idempotent (#72).
+test("ignores a second submit dispatched in the same tick", async ({ page, request }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  const composer = page.getByPlaceholder("Write a message…")
+  const send = page.getByRole("button", { name: "Send" })
+  const prompts = async (): Promise<number> =>
+    ((await (await request.get(`${MOCK_URL}/e2e/state`)).json()) as { prompts: number }).prompts
+
+  const before = await prompts()
+  await composer.fill("/seed 0")
+  await page.evaluate(() => {
+    const textarea = document.querySelector("textarea")
+    if (!textarea) throw new Error("composer textarea not found")
+    // Two keydowns synchronously, so no React render can run between them.
+    const press = { key: "Enter", code: "Enter", bubbles: true, cancelable: true }
+    textarea.dispatchEvent(new KeyboardEvent("keydown", press))
+    textarea.dispatchEvent(new KeyboardEvent("keydown", press))
+  })
+
+  // The one send is delivered and its text cleared; give the mock a moment to
+  // receive a stray duplicate before sampling the counter.
+  await expect(composer).toHaveValue("")
+  await page.waitForTimeout(300)
+
+  expect((await prompts()) - before).toBe(1)
+  await expect(page.getByText("/seed 0", { exact: true })).toHaveCount(1)
+  // The one send was delivered and released; an empty composer stays disabled.
+  await expect(send).toHaveText("Send")
+  await expect(send).toBeDisabled()
+})

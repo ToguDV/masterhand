@@ -105,6 +105,8 @@ const catalogRequests = { agent: 0, model: 0 }
 let stallPrompts = false
 let stallResponses = false
 const heldPrompts: Array<() => void> = []
+/** How many prompt requests reached the mock (read via `/e2e/state`). */
+let promptRequests = 0
 
 // Seed from the clock so ids never repeat across runs: the BFF reuses a
 // persistent SQLite DATA_DIR locally, so restarting at `ses_1` every time
@@ -810,7 +812,7 @@ const server = createServer((req, res) => {
       return empty(res, 204)
     }
     if (req.method === "GET" && path === "/e2e/state") {
-      return json(res, 200, { offline, stalled: heldPrompts.length, ...catalogRequests })
+      return json(res, 200, { offline, stalled: heldPrompts.length, prompts: promptRequests, ...catalogRequests })
     }
 
     // E2E controls for missed-events scenarios.
@@ -965,6 +967,7 @@ const server = createServer((req, res) => {
       }
       if (req.method === "POST" && segments[3] === "prompt") {
         if (!session) return json(res, 404, { error: "not_found" })
+        promptRequests += 1
         const body = await readBody(req)
         // E2E control: hold this response until the release route runs, so the
         // client's fetch stays pending exactly like a stalled network request.

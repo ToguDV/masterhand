@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react-native"
+import { act, fireEvent, render, screen } from "@testing-library/react-native"
 import { ApiError, type AgentInfo, type ModelInfo, type ProviderInfo, type SlashCommand } from "@masterhand/client-core"
 import { Composer } from "../src/components/Composer"
 import { loadSessionPreferences } from "../src/storage"
@@ -80,6 +80,30 @@ describe("Composer", () => {
     await fireEvent.press(await screen.findByText("Send"))
 
     expect(client.api.prompt).not.toHaveBeenCalled()
+  })
+
+  it("ignores a second submit dispatched in the same tick", async () => {
+    const { client } = await setup()
+    let resolvePrompt: (() => void) | undefined
+    client.api.prompt.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolvePrompt = resolve
+        }),
+    )
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hello")
+    const send = screen.getByText("Send")
+
+    // Two presses without React committing `sending` in between: the state flag
+    // alone lets both through, so the composer must hold a synchronous lock.
+    await act(async () => {
+      fireEvent.press(send)
+      fireEvent.press(send)
+    })
+
+    expect(client.api.prompt).toHaveBeenCalledTimes(1)
+    await act(async () => resolvePrompt?.())
   })
 
   it("shows Stop while busy and aborts the session", async () => {
