@@ -3,6 +3,7 @@ import {
   CREATE_MARKER_KEY,
   createSessionMarker,
   filterSessions,
+  finishResultFromIsolation,
   rootSessions,
   sessionCreateMarker,
 } from "../src/sessions"
@@ -64,5 +65,34 @@ describe("rootSessions", () => {
       fork: { sessionID: "ses_parent", boundary: { type: "through" as const, messageID: "msg_1" } },
     } as Session
     expect(rootSessions([parent, fork]).map((item) => item.id)).toEqual(["ses_parent"])
+  })
+})
+
+describe("finishResultFromIsolation", () => {
+  it("rebuilds the result once the record shows the push happened", () => {
+    expect(
+      finishResultFromIsolation({
+        ...isolated.isolation!,
+        pushed: true,
+        prUrl: "https://github.com/acme/app/pull/1",
+      }),
+    ).toEqual({
+      committed: true,
+      pushed: true,
+      prUrl: "https://github.com/acme/app/pull/1",
+      branch: "masterhand/app-abc",
+      path: "/workspace/.worktrees/app/abc",
+      error: null,
+    })
+  })
+
+  it("accepts a PR URL without a push flag and rejects records without evidence", () => {
+    expect(finishResultFromIsolation({ ...isolated.isolation!, prUrl: "https://example.com/pr/1" })).toMatchObject({
+      pushed: false,
+      prUrl: "https://example.com/pr/1",
+    })
+    expect(finishResultFromIsolation(isolated.isolation)).toBeNull()
+    expect(finishResultFromIsolation(undefined)).toBeNull()
+    expect(finishResultFromIsolation(null)).toBeNull()
   })
 })

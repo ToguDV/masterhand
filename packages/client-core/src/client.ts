@@ -62,7 +62,16 @@ export interface ClientOptions {
    * the UI forever. `0` disables the deadline.
    */
   timeoutMs?: number
+  /**
+   * Deadline for `finish` (commit + push + PR): a legitimate run exceeds the
+   * interactive deadline, so it gets its own budget (rule 2 in
+   * `docs/past-mistakes.md`). Defaults to `FINISH_TIMEOUT_MS`.
+   */
+  finishTimeoutMs?: number
 }
+
+/** Commit (60 s) + push (60 s) + PR (60 s) server-side, plus headroom. */
+export const FINISH_TIMEOUT_MS = 240_000
 
 export interface Client {
   readonly baseUrl: string
@@ -184,20 +193,26 @@ export function createClient(options: ClientOptions = {}): Client {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "")
   const fetchImpl = options.fetchImpl ?? fetch
   const timeoutMs = options.timeoutMs ?? 30_000
+  const finishTimeoutMs = options.finishTimeoutMs ?? FINISH_TIMEOUT_MS
 
   /**
    * Every request is bounded: a stalled socket (paused container, lost
    * network, suspended host) rejects with `RequestTimeoutError` instead of
    * hanging forever — which used to latch the composer's `sending` state.
    */
-  async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-    if (timeoutMs <= 0) return fetchImpl(input, init)
+  async function fetchWithTimeout(
+    input: RequestInfo | URL,
+    init: RequestInit = {},
+    overrideMs?: number,
+  ): Promise<Response> {
+    const budget = overrideMs ?? timeoutMs
+    if (budget <= 0) return fetchImpl(input, init)
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
       controller.abort()
-    }, timeoutMs)
+    }, budget)
     const external = init.signal
     const forwardAbort = () => controller.abort()
     if (external) {
@@ -215,7 +230,7 @@ export function createClient(options: ClientOptions = {}): Client {
     }
   }
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function request<T>(path: string, init: RequestInit = {}, overrideMs?: number): Promise<T> {
     const headers = new Headers(init.headers)
     if (init.body !== undefined && !headers.has("content-type")) {
       headers.set("content-type", "application/json")
@@ -223,7 +238,11 @@ export function createClient(options: ClientOptions = {}): Client {
     const token = await options.getToken?.()
     if (token) headers.set("authorization", `Bearer ${token}`)
 
-    const response = await fetchWithTimeout(`${baseUrl}${path}`, { ...init, headers, credentials: "same-origin" })
+    const response = await fetchWithTimeout(
+      `${baseUrl}${path}`,
+      { ...init, headers, credentials: "same-origin" },
+      overrideMs,
+    )
     if (!response.ok) {
       if (response.status === 401) options.onUnauthorized?.()
       const text = await response.text().catch(() => "")
@@ -350,6 +369,7 @@ export function createClient(options: ClientOptions = {}): Client {
           request<FinishSessionResult>(
             `/api/isolated-sessions/${encodeURIComponent(sessionID)}/finish`,
             { method: "POST" },
+            finishTimeoutMs,
           ),
         directories: (workspaceID) =>
           request<{ directories: string[] }>(

@@ -1,12 +1,25 @@
 export * from "./types"
-export { ApiError, RequestTimeoutError, createClient, type Client, type ClientOptions } from "./client"
+export {
+  ApiError,
+  RequestTimeoutError,
+  createClient,
+  FINISH_TIMEOUT_MS,
+  type Client,
+  type ClientOptions,
+} from "./client"
 export {
   DELIVERY_MARKER_KEY,
   createDeliveryMarker,
   deliveryMarkerOf,
   deliveryMetadata,
 } from "./delivery"
-export { conversationErrorMessage, composerErrorMessage, opencodeErrorMessage, previewErrorMessage } from "./errors"
+export {
+  conversationErrorMessage,
+  composerErrorMessage,
+  isAmbiguousError,
+  opencodeErrorMessage,
+  previewErrorMessage,
+} from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
 export {
@@ -50,6 +63,10 @@ export {
   createEventHandler,
   invalidateOnReconnect,
   queryKeys,
+  RUNNING_POLL_INTERVAL_MS,
+  STARTING_POLL_INTERVAL_MS,
+  STARTING_TIMEOUT_MS,
+  transitionPollInterval,
   useAgents,
   useAudit,
   useBffStatus,
@@ -65,6 +82,7 @@ export {
   useWorkspaceRun,
   useWorkspaces,
   type EventHandlerCallbacks,
+  type TransitionQuery,
   type UseEventStreamOptions,
 } from "./hooks"
 export {
@@ -87,6 +105,7 @@ export {
   CREATE_MARKER_KEY,
   createSessionMarker,
   filterSessions,
+  finishResultFromIsolation,
   rootSessions,
   sessionCreateMarker,
   type SessionFilter,

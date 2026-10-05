@@ -88,6 +88,24 @@ describe("createClient", () => {
     await expect(client.auth.status()).rejects.toBeInstanceOf(RequestTimeoutError)
   })
 
+  it("gives finish a longer deadline than interactive requests", async () => {
+    const stall: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      })
+    const client = createClient({ baseUrl: "", fetchImpl: stall, timeoutMs: 20, finishTimeoutMs: 80 })
+
+    const pending = client.api.sessions.finish("ses_1")
+    const outcome = pending.then(
+      () => "resolved",
+      () => "rejected",
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    // Still in flight past the interactive deadline: the long budget applies.
+    expect(await Promise.race([outcome, Promise.resolve("pending")])).toBe("pending")
+    await expect(pending).rejects.toBeInstanceOf(RequestTimeoutError)
+  })
+
   it("unwraps the timeout through the generated opencode client", async () => {
     const stall: typeof fetch = (_input, init) =>
       new Promise((_resolve, reject) => {

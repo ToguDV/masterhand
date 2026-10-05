@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from "react"
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
 import type { Client } from "./client"
 import {
   appendDelta,
@@ -15,6 +15,8 @@ import type {
   ChatMessage,
   FormInfo,
   Permission,
+  PreviewStatus,
+  RunStatus,
   SessionStatuses,
   SessionStructuredError,
   V2Event,
@@ -145,13 +147,54 @@ export function useModels(client: Client) {
   return useQuery({ queryKey: queryKeys.models, queryFn: () => client.api.models(), staleTime: 5 * 60_000 })
 }
 
-export function usePreview(client: Client, sessionID: string | null, enabled = true) {
-  return useQuery({
+/** How often a `running` run/preview is re-checked so a dead process surfaces (#89). */
+export const RUNNING_POLL_INTERVAL_MS = 5_000
+/** `starting` poll interval, bounded by `STARTING_TIMEOUT_MS` (#73). */
+export const STARTING_POLL_INTERVAL_MS = 1_500
+/** After this long in `starting` the poll stops and the UI shows a timeout. */
+export const STARTING_TIMEOUT_MS = 45_000
+
+/**
+ * Refetch cadence for a run/preview status: bounded while `starting`, slow
+ * while `running` (to notice a process that died), none otherwise.
+ */
+export function transitionPollInterval(
+  status: string | undefined,
+  timedOut: boolean,
+): number | false {
+  if (status === "starting") return timedOut ? false : STARTING_POLL_INTERVAL_MS
+  if (status === "running") return RUNNING_POLL_INTERVAL_MS
+  return false
+}
+
+/** A run/preview query plus its bounded-`starting` state. */
+export type TransitionQuery<T> = UseQueryResult<T> & { timedOut: boolean }
+
+/** True once a transition has stayed active past the timeout; resets with it. */
+function useBoundedStarting(active: boolean, timeoutMs: number): boolean {
+  const [timedOut, setTimedOut] = useState(false)
+  useEffect(() => {
+    if (!active) {
+      setTimedOut(false)
+      return
+    }
+    const timer = setTimeout(() => setTimedOut(true), timeoutMs)
+    return () => clearTimeout(timer)
+  }, [active, timeoutMs])
+  return timedOut
+}
+
+export function usePreview(client: Client, sessionID: string | null, enabled = true): TransitionQuery<PreviewStatus> {
+  const timedOutRef = useRef(false)
+  const query = useQuery({
     queryKey: queryKeys.preview(sessionID ?? ""),
     queryFn: () => client.api.preview(sessionID!),
     enabled: enabled && Boolean(sessionID),
-    refetchInterval: (query) => (query.state.data?.status === "starting" ? 1500 : false),
+    refetchInterval: (query) => transitionPollInterval(query.state.data?.status, timedOutRef.current),
   })
+  const timedOut = useBoundedStarting(query.data?.status === "starting", STARTING_TIMEOUT_MS)
+  timedOutRef.current = timedOut
+  return { ...query, timedOut }
 }
 
 /**
@@ -177,13 +220,21 @@ export function useWorkspaceRun(client: Client, workspaceID?: string | null) {
 }
 
 /** Live state of a session's managed dev server. */
-export function useSessionRun(client: Client, sessionID: string | null, workspaceID?: string | null) {
-  return useQuery({
+export function useSessionRun(
+  client: Client,
+  sessionID: string | null,
+  workspaceID?: string | null,
+): TransitionQuery<RunStatus> {
+  const timedOutRef = useRef(false)
+  const query = useQuery({
     queryKey: queryKeys.sessionRun(sessionID ?? ""),
     queryFn: () => client.api.sessionRun(sessionID!, workspaceID!),
     enabled: Boolean(sessionID) && Boolean(workspaceID),
-    refetchInterval: (query) => (query.state.data?.status === "starting" ? 1500 : false),
+    refetchInterval: (query) => transitionPollInterval(query.state.data?.status, timedOutRef.current),
   })
+  const timedOut = useBoundedStarting(query.data?.status === "starting", STARTING_TIMEOUT_MS)
+  timedOutRef.current = timedOut
+  return { ...query, timedOut }
 }
 
 export interface EventHandlerCallbacks {

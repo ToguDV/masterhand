@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { toChatMessage } from "../src/chat"
-import { createEventHandler, invalidateOnReconnect, mergeStatuses, queryKeys } from "../src/hooks"
+import { createEventHandler, invalidateOnReconnect, mergeStatuses, queryKeys, transitionPollInterval } from "../src/hooks"
 import type { ChatMessage, ChatPart, ChatToolPart, Permission, SessionStatuses, TokenUsageInfo } from "../src/types"
 
 const SESSION = "ses_1"
@@ -662,5 +662,17 @@ describe("invalidateOnReconnect", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["directories"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.agents })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.models })
+  })
+})
+
+describe("transitionPollInterval", () => {
+  it("polls starting fast, stops at the timeout and polls running slowly", () => {
+    expect(transitionPollInterval("starting", false)).toBe(1500)
+    expect(transitionPollInterval("starting", true)).toBe(false)
+    expect(transitionPollInterval("running", false)).toBe(5000)
+    expect(transitionPollInterval("running", true)).toBe(5000)
+    expect(transitionPollInterval("stopped", false)).toBe(false)
+    expect(transitionPollInterval("error", false)).toBe(false)
+    expect(transitionPollInterval(undefined, false)).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-import type { Session } from "./types"
+import type { FinishSessionResult, Session, SessionIsolation } from "./types"
 
 /**
  * Session metadata key opencode persists on sessions MasterHand creates. The
@@ -37,4 +37,24 @@ export function filterSessions(sessions: Session[], filter: SessionFilter): Sess
  */
 export function rootSessions(sessions: Session[]): Session[] {
   return sessions.filter((session) => !session.parentID && !session.fork)
+}
+
+/**
+ * Rebuilds a `finish` result from the isolated-session record when a lost
+ * response is confirmed by it (`pushed`/`prUrl` set by the server). Returns
+ * `null` when the record carries no evidence the operation completed, so the
+ * UI reports the ambiguity instead of a false success.
+ */
+export function finishResultFromIsolation(
+  isolation: SessionIsolation | null | undefined,
+): FinishSessionResult | null {
+  if (!isolation || (!isolation.pushed && !isolation.prUrl)) return null
+  return {
+    committed: true,
+    pushed: Boolean(isolation.pushed),
+    prUrl: isolation.prUrl ?? null,
+    branch: isolation.branch,
+    path: isolation.worktreePath,
+    error: null,
+  }
 }

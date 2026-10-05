@@ -1,6 +1,16 @@
 import { ApiError, RequestTimeoutError } from "./client"
 import type { SessionStructuredError } from "./types"
 
+/**
+ * True when a failed request may still have been applied: the client deadline
+ * expired (`RequestTimeoutError`) or the BFF answered `504` for a missed
+ * upstream deadline. Callers must reconcile with a second channel and must
+ * never auto-retry a non-idempotent mutation (rule 4 in `docs/past-mistakes.md`).
+ */
+export function isAmbiguousError(error: unknown): boolean {
+  return error instanceof RequestTimeoutError || (error instanceof ApiError && error.status === 504)
+}
+
 /** Maps a failed composer request to a user-facing message (web + mobile). */
 export function composerErrorMessage(error: unknown, kind: "send" | "side question"): string {
   if (error instanceof RequestTimeoutError) {
