@@ -69,6 +69,40 @@ export function conversationErrorMessage(error: unknown): string {
   return "Could not load the conversation"
 }
 
+/**
+ * Human-readable message for a failed branch create/checkout. A timeout is
+ * surfaced as "may have applied": the caller must refresh the branch list and
+ * never auto-retry (the mutation is not idempotent).
+ */
+export function branchErrorMessage(error: unknown): string {
+  if (isAmbiguousError(error)) {
+    return "The server did not respond — the branch may have changed. The list was refreshed; check it before retrying."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "git_timeout":
+        return "git timed out — the branch may have changed. The list was refreshed; check it before retrying."
+      case "workspace_busy":
+        return "A session is running in this workspace. Stop it before switching branches."
+      case "dirty_worktree":
+        return "The workspace has uncommitted changes. Commit or stash them before switching branches."
+      case "branch_exists":
+        return "That branch already exists."
+      case "branch_not_found":
+        return "Branch not found."
+      case "invalid_branch_name":
+        return "That is not a valid branch name."
+      case "busy_check_failed":
+        return "Could not check the running sessions. Try again."
+      case "git_failed":
+        return "git failed. Check the server logs for the exact error."
+      default:
+        return "Could not update the branch"
+    }
+  }
+  return "Could not update the branch"
+}
+
 /** Human-readable message for a failed preview Start. */
 export function previewErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {

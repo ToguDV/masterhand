@@ -358,6 +358,18 @@ function realpathSyncSafe(path: string): string {
   }
 }
 
+/** Branch names git accepts; mirrors `git check-ref-format --branch` closely. */
+export function isValidBranchName(name: string): boolean {
+  if (!name || name.length > 255) return false
+  if (name.startsWith("-") || name.endsWith("/") || name.endsWith(".") || name.endsWith(".lock")) return false
+  if (name === "@" || name.includes("..") || name.includes("@{") || name.includes("//")) return false
+  if (/[\s~^:?*\[\]\\\u0000-\u001f\u007f]/.test(name)) return false
+  const segments = name.split("/")
+  return segments.every(
+    (segment) => segment.length > 0 && !segment.startsWith(".") && !segment.endsWith(".lock"),
+  )
+}
+
 /** Git-safe single path/branch segment derived from a workspace name. */
 export function gitSlug(value: string): string {
   const slug = value

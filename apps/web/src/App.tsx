@@ -30,6 +30,7 @@ import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
+import { BranchPicker } from "./components/BranchPicker"
 import { PreviewSheet, PreviewTrigger } from "./components/PreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
@@ -956,6 +957,7 @@ export default function App() {
                 onSelectWorkspace={switchWorkspace}
                 onAddWorkspace={() => setAddingWorkspace(true)}
                 onRemoveWorkspace={setRemoveWorkspaceID}
+                branch={workspaceID ? <BranchPicker workspaceID={workspaceID} /> : undefined}
               />
               <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
                 <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />

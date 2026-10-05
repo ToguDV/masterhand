@@ -13,6 +13,7 @@ import type {
   FormAnswer,
   FormDetail,
   FormInfo,
+  GitBranches,
   ModelsCatalog,
   Permission as PermissionType,
   PreviewStatus,
@@ -68,10 +69,18 @@ export interface ClientOptions {
    * `docs/past-mistakes.md`). Defaults to `FINISH_TIMEOUT_MS`.
    */
   finishTimeoutMs?: number
+  /**
+   * Deadline for branch create/checkout (busy check + git status + git
+   * mutation server-side). Defaults to `BRANCH_TIMEOUT_MS`.
+   */
+  branchTimeoutMs?: number
 }
 
 /** Commit (60 s) + push (60 s) + PR (60 s) server-side, plus headroom. */
 export const FINISH_TIMEOUT_MS = 240_000
+
+/** Busy check (10 s) + git status + create/checkout (60 s each) server-side. */
+export const BRANCH_TIMEOUT_MS = 150_000
 
 export interface Client {
   readonly baseUrl: string
@@ -112,6 +121,16 @@ export interface Client {
     removeSession(sessionID: string): Promise<void>
     /** Interrupts the running turn; returns whether anything was interrupted. */
     abortSession(sessionID: string): Promise<boolean>
+    /**
+     * Local-branch access of a workspace folder. `create`/`checkout` are
+     * non-idempotent mutations: on `RequestTimeoutError` the branch operation
+     * may have applied — reconcile, never auto-retry (rule 4).
+     */
+    branches: {
+      list(workspaceID: string): Promise<GitBranches>
+      create(workspaceID: string, name: string, base?: string): Promise<GitBranches>
+      checkout(workspaceID: string, name: string): Promise<GitBranches>
+    }
     /** Blocked actions (denied commands) kept for diagnosis, newest first. */
     audit(limit?: number): Promise<AuditEvent[]>
     clearAudit(): Promise<void>
@@ -194,6 +213,7 @@ export function createClient(options: ClientOptions = {}): Client {
   const fetchImpl = options.fetchImpl ?? fetch
   const timeoutMs = options.timeoutMs ?? 30_000
   const finishTimeoutMs = options.finishTimeoutMs ?? FINISH_TIMEOUT_MS
+  const branchTimeoutMs = options.branchTimeoutMs ?? BRANCH_TIMEOUT_MS
 
   /**
    * Every request is bounded: a stalled socket (paused container, lost
@@ -405,6 +425,22 @@ export function createClient(options: ClientOptions = {}): Client {
         opencodeRequest(() =>
           opencode.session.interrupt({ sessionID }).then((response) => response.interrupted),
         ),
+      branches: {
+        list: (workspaceID) =>
+          request<GitBranches>(`/api/workspaces/${encodeURIComponent(workspaceID)}/branches`),
+        create: (workspaceID, name, base) =>
+          request<GitBranches>(
+            `/api/workspaces/${encodeURIComponent(workspaceID)}/branches`,
+            { method: "POST", body: JSON.stringify({ name, ...(base ? { base } : {}) }) },
+            branchTimeoutMs,
+          ),
+        checkout: (workspaceID, name) =>
+          request<GitBranches>(
+            `/api/workspaces/${encodeURIComponent(workspaceID)}/checkout`,
+            { method: "POST", body: JSON.stringify({ name }) },
+            branchTimeoutMs,
+          ),
+      },
       audit: (limit) =>
         request<{ events: AuditEvent[] }>(`/api/audit${limit ? `?limit=${limit}` : ""}`).then(
           (response) => response.events,

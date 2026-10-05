@@ -3,8 +3,9 @@ import type { WorkspaceRecord } from "@masterhand/client-core"
 import { WorkspacePicker } from "./WorkspacePicker"
 
 /**
- * The composer's top bar: the workspace menu and an optional trailing slot
- * (the session stats). Session creation lives in the Sessions header.
+ * The composer's top bar: the workspace menu, an optional branch control and
+ * an optional trailing slot (the session stats). Session creation lives in the
+ * Sessions header.
  */
 export function SessionToolbar({
   workspaces,
@@ -12,6 +13,7 @@ export function SessionToolbar({
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
+  branch,
   trailing,
 }: {
   workspaces: WorkspaceRecord[]
@@ -19,6 +21,8 @@ export function SessionToolbar({
   onSelectWorkspace: (id: string | null) => void
   onAddWorkspace: () => void
   onRemoveWorkspace: (id: string) => void
+  /** Branch picker (standard sessions) or read-only chip (isolated sessions). */
+  branch?: ReactNode
   trailing?: ReactNode
 }) {
   return (
@@ -30,6 +34,7 @@ export function SessionToolbar({
         onAdd={onAddWorkspace}
         onDelete={onRemoveWorkspace}
       />
+      {branch}
       {trailing ? <div className="ml-auto flex min-w-0 items-center">{trailing}</div> : null}
     </div>
   )

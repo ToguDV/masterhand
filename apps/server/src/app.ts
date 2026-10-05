@@ -37,6 +37,7 @@ import type { IsolatedSessionRecord, Store, WorkspaceRunRecord } from "./store.j
 import { isStorageConflict, isStorageError } from "./store.js"
 import {
   createWorktreeManager,
+  isValidBranchName,
   pullRequestUrl,
   worktreeBranch,
   worktreeDir,
@@ -357,10 +358,7 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /** Lists every session in a directory, following opencode's v2 cursor pagination. */
-  async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
-    const cached = sessionsCache.get(directory)
-    if (cached && Date.now() - cached.at < sessionsCacheMs) return cached.sessions
-
+  async function fetchSessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
     const sessions: OpencodeSession[] = []
     let cursor: string | undefined
     for (let page = 0; page < 50; page += 1) {
@@ -381,6 +379,14 @@ export function createApp(deps: AppDeps): Hono {
       if (!next) break
       cursor = next
     }
+    return sessions
+  }
+
+  async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
+    const cached = sessionsCache.get(directory)
+    if (cached && Date.now() - cached.at < sessionsCacheMs) return cached.sessions
+
+    const sessions = await fetchSessionsInDirectory(directory)
     sessionsCache.set(directory, { at: Date.now(), sessions })
     return sessions
   }
@@ -821,6 +827,136 @@ export function createApp(deps: AppDeps): Hono {
       ...deps.store.listIsolatedSessions(workspace.id).map((record) => record.path),
     ]
     return c.json({ directories })
+  })
+
+  /**
+   * Branch/history access over git (opencode's VCS API is read-only). A timeout
+   * means the git command may still have applied, so it is answered `504
+   * git_timeout` — clients surface it as "unknown" and never auto-retry a
+   * non-idempotent checkout/create (docs/past-mistakes.md rules 4 and 15).
+   */
+  function gitFailure(c: Context, error: unknown) {
+    const detail = error instanceof Error ? error.message : "unknown"
+    const status = detail.includes("timed out") ? 504 : 502
+    return c.json({ error: status === 504 ? "git_timeout" : "git_failed", detail }, status)
+  }
+
+  /**
+   * A branch switch under a running turn would move the files beneath it, and
+   * a branch operation on a dirty tree can lose the user's work: refuse both.
+   * The busy check fails closed — when it cannot confirm, the mutation is not
+   * attempted.
+   */
+  async function branchGuard(
+    c: Context,
+    workspacePath: string,
+    options: { requireClean: boolean },
+  ): Promise<Response | null> {
+    try {
+      // Fresh list: a session created moments ago (not yet in the 5 s cache)
+      // may already be running, and a branch switch under it would corrupt it.
+      const sessions = await fetchSessionsInDirectory(workspacePath)
+      if (sessions.length > 0) {
+        const response = await callOpencode("/api/session/active")
+        if (!response.ok) throw new Error(`opencode ${response.status}`)
+        const body = (await response.json()) as { data?: Record<string, unknown> }
+        const active = new Set(Object.keys(body.data ?? {}))
+        if (sessions.some((session) => active.has(session.id))) {
+          return c.json({ error: "workspace_busy" }, 409)
+        }
+      }
+    } catch (error) {
+      return c.json(
+        { error: "busy_check_failed", detail: error instanceof Error ? error.message : "unknown" },
+        502,
+      )
+    }
+    if (options.requireClean) {
+      try {
+        if (await worktrees.isDirty(workspacePath)) {
+          return c.json({ error: "dirty_worktree" }, 409)
+        }
+      } catch (error) {
+        return gitFailure(c, error)
+      }
+    }
+    return null
+  }
+
+  api.get("/workspaces/:id/branches", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    try {
+      return c.json(await worktrees.branches(workspace.path))
+    } catch (error) {
+      return gitFailure(c, error)
+    }
+  })
+
+  api.post("/workspaces/:id/branches", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+
+    let body: { name?: unknown; base?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "bad_request" }, 400)
+    }
+    if (typeof body.name !== "string" || !isValidBranchName(body.name)) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+    if (body.base !== undefined && (typeof body.base !== "string" || !isValidBranchName(body.base))) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+
+    // Creating from a dirty tree is safe (the changes travel with you), but a
+    // running turn must never have its files swapped underneath it.
+    const guard = await branchGuard(c, workspace.path, { requireClean: false })
+    if (guard) return guard
+
+    try {
+      const info = await worktrees.branches(workspace.path)
+      if (info.branches.includes(body.name)) return c.json({ error: "branch_exists" }, 409)
+      if (body.base && !info.branches.includes(body.base)) {
+        return c.json({ error: "branch_not_found" }, 404)
+      }
+      await worktrees.createBranch(workspace.path, body.name, body.base)
+      invalidateSessionsCache()
+      return c.json(await worktrees.branches(workspace.path), 201)
+    } catch (error) {
+      return gitFailure(c, error)
+    }
+  })
+
+  api.post("/workspaces/:id/checkout", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+
+    let body: { name?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "bad_request" }, 400)
+    }
+    if (typeof body.name !== "string" || !isValidBranchName(body.name)) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+
+    // Switching branches is destructive for uncommitted work: dirty trees are
+    // rejected before any git mutation runs.
+    const guard = await branchGuard(c, workspace.path, { requireClean: true })
+    if (guard) return guard
+
+    try {
+      const info = await worktrees.branches(workspace.path)
+      if (info.current === body.name) return c.json(info)
+      if (!info.branches.includes(body.name)) return c.json({ error: "branch_not_found" }, 404)
+      await worktrees.checkout(workspace.path, body.name)
+      return c.json(await worktrees.branches(workspace.path))
+    } catch (error) {
+      return gitFailure(c, error)
+    }
   })
 
   api.get("/workspaces/:id/sessions", async (c) => {

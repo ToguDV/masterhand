@@ -7,6 +7,7 @@ import {
   createPullRequest,
   createWorktreeManager,
   gitSlug,
+  isValidBranchName,
   pullRequestUrl,
   reconcileWorktrees,
   remoteProvider,
@@ -35,6 +36,32 @@ describe("gitSlug / worktreeBranch / worktreeDir", () => {
     expect(gitSlug("...")).toBe("workspace")
     expect(gitSlug("Ünïcode")).toBe("n-code")
     expect(gitSlug("a".repeat(80)).length).toBeLessThanOrEqual(40)
+  })
+
+  it("validates user-provided branch names", () => {
+    expect(isValidBranchName("feature/my-branch")).toBe(true)
+    expect(isValidBranchName("fix_123.x")).toBe(true)
+    expect(isValidBranchName("")).toBe(false)
+    expect(isValidBranchName(" leading")).toBe(false)
+    expect(isValidBranchName("-flag")).toBe(false)
+    expect(isValidBranchName("a..b")).toBe(false)
+    expect(isValidBranchName("a//b")).toBe(false)
+    expect(isValidBranchName("a/")).toBe(false)
+    expect(isValidBranchName("/a")).toBe(false)
+    expect(isValidBranchName("a.")).toBe(false)
+    expect(isValidBranchName("a.lock")).toBe(false)
+    expect(isValidBranchName("a@{b")).toBe(false)
+    expect(isValidBranchName("a b")).toBe(false)
+    expect(isValidBranchName("a~b")).toBe(false)
+    expect(isValidBranchName("a^b")).toBe(false)
+    expect(isValidBranchName("a:b")).toBe(false)
+    expect(isValidBranchName("a?b")).toBe(false)
+    expect(isValidBranchName("a*b")).toBe(false)
+    expect(isValidBranchName("a[b")).toBe(false)
+    expect(isValidBranchName("a\\b")).toBe(false)
+    expect(isValidBranchName("a\u0000b")).toBe(false)
+    expect(isValidBranchName("@")).toBe(false)
+    expect(isValidBranchName("a".repeat(256))).toBe(false)
   })
 
   it("builds the branch and directory under the root", () => {

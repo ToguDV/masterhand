@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { ApiError, RequestTimeoutError } from "../src/client"
 import {
+  branchErrorMessage,
   composerErrorMessage,
   conversationErrorMessage,
   isAmbiguousError,
@@ -120,5 +121,28 @@ describe("composerErrorMessage", () => {
     )
     expect(composerErrorMessage(new Error("offline"), "send")).toBe("Could not send")
     expect(composerErrorMessage(new Error("offline"), "side question")).toBe("Could not start the side question")
+  })
+})
+
+describe("branchErrorMessage", () => {
+  function apiError(status: number, body: unknown): ApiError {
+    return new ApiError(status, JSON.stringify(body))
+  }
+
+  it("maps every server-side guard to an actionable message", () => {
+    expect(branchErrorMessage(apiError(409, { error: "workspace_busy" }))).toContain("session is running")
+    expect(branchErrorMessage(apiError(409, { error: "dirty_worktree" }))).toContain("uncommitted changes")
+    expect(branchErrorMessage(apiError(409, { error: "branch_exists" }))).toContain("already exists")
+    expect(branchErrorMessage(apiError(404, { error: "branch_not_found" }))).toContain("not found")
+    expect(branchErrorMessage(apiError(400, { error: "invalid_branch_name" }))).toContain("valid branch name")
+    expect(branchErrorMessage(apiError(502, { error: "busy_check_failed" }))).toContain("running sessions")
+    expect(branchErrorMessage(apiError(502, { error: "git_failed" }))).toContain("git failed")
+    expect(branchErrorMessage(apiError(500, { error: "weird" }))).toBe("Could not update the branch")
+  })
+
+  it("frames a deadline as ambiguous, never as a definite failure", () => {
+    expect(branchErrorMessage(new RequestTimeoutError())).toContain("may have changed")
+    expect(branchErrorMessage(apiError(504, { error: "git_timeout" }))).toContain("may have changed")
+    expect(branchErrorMessage(new Error("offline"))).toBe("Could not update the branch")
   })
 })
