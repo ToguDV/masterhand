@@ -44,6 +44,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 ## Already-established patterns (reuse, don't reinvent)
 
 - `client-core` `RequestTimeoutError` + `timeoutMs` (PR #62).
+- Synchronous send lock in both composers: `pendingSend`/`startingSideQuestionRef` (web) and `sendLock` (mobile) refs, set before the first `await` (#72).
 - Web composer delivery reconciliation via `queryKeys.messages`, with known-ids + clock tolerance (PR #63).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
 - Cache merge to avoid event/poll races: `mergeStatuses`, `mergeLiveMessages`, `reconcilePermissions`, `reconcileForms`.
@@ -61,7 +62,6 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 | [#69](https://github.com/ToguDV/masterhand/issues/69) | Open session not closed when deleted from another device |
 | [#70](https://github.com/ToguDV/masterhand/issues/70) | Auto-accept permission stalls on failure |
 | [#71](https://github.com/ToguDV/masterhand/issues/71) | Composer delivery-match heuristic false positives |
-| [#72](https://github.com/ToguDV/masterhand/issues/72) | Double-submit guard for non-idempotent prompts |
 | [#73](https://github.com/ToguDV/masterhand/issues/73) | Run/preview lifecycle ambiguity and bounded `starting` poll |
 
 Track them with `gh issue list --label reliability`.
