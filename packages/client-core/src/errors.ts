@@ -1,5 +1,20 @@
-import { ApiError } from "./client"
+import { ApiError, RequestTimeoutError } from "./client"
 import type { SessionStructuredError } from "./types"
+
+/** Maps a failed composer request to a user-facing message (web + mobile). */
+export function composerErrorMessage(error: unknown, kind: "send" | "side question"): string {
+  if (error instanceof RequestTimeoutError) {
+    return kind === "send"
+      ? "The server did not respond — your message may not have been sent. Check the chat before retrying."
+      : "The server did not respond — the side question may not have started. Try again."
+  }
+  if (error instanceof ApiError) {
+    return kind === "send"
+      ? `Could not send (HTTP ${error.status})`
+      : `Could not start the side question (HTTP ${error.status})`
+  }
+  return kind === "send" ? "Could not send" : "Could not start the side question"
+}
 
 /**
  * Turns an opencode structured error (`session.execution.failed`, assistant

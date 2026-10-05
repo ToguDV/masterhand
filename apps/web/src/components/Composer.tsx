@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  ApiError,
-  RequestTimeoutError,
   buildComposerPopover,
   collectAgentMentions,
+  composerErrorMessage,
   composerTrigger,
   createDeliveryMarker,
   defaultModelValue,
@@ -36,21 +35,6 @@ import { SideQuestionPanel } from "./SideQuestionPanel"
 import { BrainIcon, ShieldCheckIcon, SlidersIcon } from "./icons"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
-
-/** Maps a failed composer request to a user-facing message. */
-function composerErrorMessage(error: unknown, kind: "send" | "side question"): string {
-  if (error instanceof RequestTimeoutError) {
-    return kind === "send"
-      ? "The server did not respond — your message may not have been sent. Check the chat before retrying."
-      : "The server did not respond — the side question may not have started. Try again."
-  }
-  if (error instanceof ApiError) {
-    return kind === "send"
-      ? `Could not send (HTTP ${error.status})`
-      : `Could not start the side question (HTTP ${error.status})`
-  }
-  return kind === "send" ? "Could not send" : "Could not start the side question"
-}
 
 /** A send waiting for its HTTP response, kept for delivery reconciliation. */
 interface PendingSend {

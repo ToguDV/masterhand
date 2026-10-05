@@ -6,7 +6,7 @@ export {
   deliveryMarkerOf,
   deliveryMetadata,
 } from "./delivery"
-export { conversationErrorMessage, opencodeErrorMessage, previewErrorMessage } from "./errors"
+export { conversationErrorMessage, composerErrorMessage, opencodeErrorMessage, previewErrorMessage } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
 export {

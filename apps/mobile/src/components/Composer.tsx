@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import {
-  ApiError,
   buildComposerPopover,
   collectAgentMentions,
+  composerErrorMessage,
   composerTrigger,
+  createDeliveryMarker,
   defaultModelValue,
+  deliveryMarkerOf,
+  deliveryMetadata,
   flattenModels,
   mentionableAgents,
   mergeCommands,
   parseModel,
+  queryKeys,
   recentModelValue,
   selectableAgents,
   sessionModelValue,
@@ -19,6 +24,7 @@ import {
   useModels,
   useSessions,
   variantLabel,
+  type ChatMessage,
   type Client,
   type ComposerPopover,
 } from "@masterhand/client-core"
@@ -70,6 +76,9 @@ export function Composer({
   }, [catalog, modelOptions, sessionsQuery.data, session])
 
   const [text, setText] = useState("")
+  const textRef = useRef(text)
+  textRef.current = text
+  const queryClient = useQueryClient()
   const [agent, setAgent] = useState("")
   const [model, setModel] = useState("")
   const [variant, setVariant] = useState("")
@@ -81,9 +90,12 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [sideQuestion, setSideQuestion] = useState<{ sessionID: string; question: string } | null>(null)
   const [startingSideQuestion, setStartingSideQuestion] = useState(false)
-  // Synchronous in-flight guard: the `sending` state is not a lock, so two
+  // Synchronous in-flight guards: the `sending` state is not a lock, so two
   // presses dispatched in the same tick would both fire a prompt (#72).
-  const sendLock = useRef(false)
+  // `pendingSend` is set before the first `await` and cleared by the request
+  // outcome or by the delivery reconciliation.
+  const pendingSend = useRef<{ text: string; marker: string } | null>(null)
+  const startingSideQuestionRef = useRef(false)
   const modelTouched = useRef(false)
   const loaded = useRef(false)
   const sideQuestionRef = useRef(sideQuestion)
@@ -175,53 +187,84 @@ export function Composer({
     setDismissed(false)
   }
 
+  /** Releases the composer and clears the text that was actually sent. */
+  function completeSend(pending: { text: string; marker: string }): void {
+    pendingSend.current = null
+    setSending(false)
+    // Only clear what was actually sent: text typed while the request was in
+    // flight (slow network) must survive instead of being wiped.
+    if (textRef.current.trim() === pending.text) {
+      setText("")
+      setCaret(0)
+      setForcedSelection(undefined)
+    }
+    setDismissed(false)
+  }
+
+  // Delivery reconciliation (parity with web): the prompt response can be lost
+  // while opencode already processed the message. As soon as the live history
+  // shows the message carrying this send's marker, the composer releases; the
+  // request deadline stays as the fallback.
+  useEffect(() => {
+    if (!sending) return
+    const pending = pendingSend.current
+    if (!pending) return
+    const check = (): void => {
+      const messages = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID))
+      const delivered = messages?.some((message) => deliveryMarkerOf(message) === pending.marker)
+      if (delivered) completeSend(pending)
+    }
+    check()
+    return queryClient.getQueryCache().subscribe(check)
+  }, [sending, queryClient, sessionID])
+
   async function send() {
     const trimmed = text.trim()
     // Refs, not the `sending` state: two events in the same tick must not both
     // pass this check and fire two prompts (#72).
-    if (!trimmed || sendLock.current) return
-    sendLock.current = true
+    if (!trimmed || pendingSend.current || startingSideQuestionRef.current) return
+    const command = splitCommand(trimmed, commands)
+    if (command?.command.name === "btw") {
+      await askSideQuestion(command.text)
+      return
+    }
+    setSending(true)
+    setError(null)
+    const marker = createDeliveryMarker()
+    const pending = { text: trimmed, marker }
+    pendingSend.current = pending
     try {
-      const command = splitCommand(trimmed, commands)
-      if (command?.command.name === "btw") {
-        await askSideQuestion(command.text)
-        return
+      const modelValue = model ? parseModel(model, variant || undefined) : undefined
+      const mentionText = command ? command.text : trimmed
+      const mentions = collectAgentMentions(mentionText, subagents)
+      const context = {
+        ...(agent ? { agent } : {}),
+        ...(modelValue ? { model: modelValue } : {}),
+        ...(mentions.length > 0 ? { agents: mentions } : {}),
       }
-      setSending(true)
-      setError(null)
-      try {
-        const modelValue = model ? parseModel(model, variant || undefined) : undefined
-        const mentionText = command ? command.text : trimmed
-        const mentions = collectAgentMentions(mentionText, subagents)
-        const context = {
-          ...(agent ? { agent } : {}),
-          ...(modelValue ? { model: modelValue } : {}),
-          ...(mentions.length > 0 ? { agents: mentions } : {}),
-        }
-        if (command) {
-          await client.api.runCommand(
-            sessionID,
-            { name: command.command.name, text: command.text, ...context },
-            { agent: session?.agent, model: session?.model },
-          )
-        } else {
-          await client.api.prompt(
-            sessionID,
-            { text: trimmed, ...context },
-            { agent: session?.agent, model: session?.model },
-          )
-        }
-        setText("")
-        setCaret(0)
-        setForcedSelection(undefined)
-        setDismissed(false)
-      } catch (err) {
-        setError(err instanceof ApiError ? `Could not send (HTTP ${err.status})` : "Could not send")
-      } finally {
+      if (command) {
+        await client.api.runCommand(
+          sessionID,
+          { name: command.command.name, text: command.text, ...context },
+          { agent: session?.agent, model: session?.model },
+        )
+      } else {
+        await client.api.prompt(
+          sessionID,
+          { text: trimmed, metadata: deliveryMetadata(marker), ...context },
+          { agent: session?.agent, model: session?.model },
+        )
+      }
+      if (pendingSend.current === pending) completeSend(pending)
+    } catch (err) {
+      // A delivery already confirmed through the history wins over a lost or
+      // timed-out response: never surface a false failure then.
+      if (pendingSend.current === pending) setError(composerErrorMessage(err, "send"))
+    } finally {
+      if (pendingSend.current === pending) {
+        pendingSend.current = null
         setSending(false)
       }
-    } finally {
-      sendLock.current = false
     }
   }
 
@@ -232,6 +275,7 @@ export function Composer({
       return
     }
     setStartingSideQuestion(true)
+    startingSideQuestionRef.current = true
     setError(null)
     try {
       const fork = await client.api.forkSession(sessionID)
@@ -242,17 +286,16 @@ export function Composer({
         ...(modelValue ? { model: modelValue } : {}),
       })
       setSideQuestion({ sessionID: fork.id, question })
-      setText("")
-      setCaret(0)
-      setForcedSelection(undefined)
+      if (textRef.current.trim() === question) {
+        setText("")
+        setCaret(0)
+        setForcedSelection(undefined)
+      }
       setDismissed(false)
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? `Could not start the side question (HTTP ${err.status})`
-          : "Could not start the side question",
-      )
+      setError(composerErrorMessage(err, "side question"))
     } finally {
+      startingSideQuestionRef.current = false
       setStartingSideQuestion(false)
     }
   }
