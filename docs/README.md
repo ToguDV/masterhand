@@ -17,6 +17,7 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 | [`opencode/http-api.md`](opencode/http-api.md) | opencode HTTP endpoints relevant to MasterHand | ✅ 2026-09-27 |
 | [`bff/api.md`](bff/api.md) | MasterHand BFF API (auth, proxy, SSE relay) | ✅ 2026-09-27 |
 | [`past-mistakes.md`](past-mistakes.md) | Past reliability mistakes: failure classes, rules and checklist for client changes | ✅ 2026-10-05 |
+| [`plans/issue-chunks.md`](plans/issue-chunks.md) | Batched follow-up plan: the open issues grouped in 9 chunks by shared code surface, with order and dependencies per chunk | 🔄 2026-10-05 |
 | [`runbooks/development.md`](runbooks/development.md) | Development with the deployment Docker Compose stack (hot reload) | ✅ 2026-10-04 |
 | [`runbooks/deployment.md`](runbooks/deployment.md) | Deployment with Docker Compose and TLS options for the deployer | ✅ 2026-09-27 |
 | [`runbooks/mobile-e2e.md`](runbooks/mobile-e2e.md) | Mobile E2E with Maestro (emulator/simulator and CI) | ✅ 2026-10-01 |
