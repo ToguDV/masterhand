@@ -273,6 +273,10 @@ export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = 
       calls.push(`remove:${repo}:${path}:${branch}`)
       branches.delete(branch)
     },
+    quarantine: (repo, path) => {
+      calls.push(`quarantine:${repo}:${path}`)
+      return `${path}.orphaned-test`
+    },
     list: () => [],
     commitAll: (path) => {
       calls.push(`commit:${path}`)
