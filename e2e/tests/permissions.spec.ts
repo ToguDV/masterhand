@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 const MOCK_URL = "http://127.0.0.1:4097"
 
 test("drops a pending permission answered elsewhere after reconnecting", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("hello agent")

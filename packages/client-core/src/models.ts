@@ -39,6 +39,11 @@ export function variantLabel(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1)
 }
 
+/** True when the variant id names a reasoning-effort level (brain glyph in the composer). */
+export function isEffortVariant(key: string): boolean {
+  return VARIANT_LABELS[key.toLowerCase()] !== undefined
+}
+
 export function defaultModelValue(
   defaultModel: ModelInfo | null,
   options: FlatModelOption[],

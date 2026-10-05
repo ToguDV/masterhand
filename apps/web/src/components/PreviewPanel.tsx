@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { previewErrorMessage, queryKeys, useBffStatus, usePreview, type PreviewStatus } from "@masterhand/client-core"
 import { client } from "../client"
 import { SidePanel } from "./SidePanel"
+import { ExternalLinkIcon } from "./icons"
 
 const STOPPED: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
 
@@ -76,7 +77,8 @@ export function PreviewSheet({ sessionID, onClose }: { sessionID: string; onClos
           {preview.port !== null && <span className="mh-chip mh-chip--mono">port {preview.port}</span>}
           {preview.status === "running" && preview.url && (
             <a href={preview.url} target="_blank" rel="noreferrer" className="mh-btn mh-btn--ghost mh-btn--sm">
-              Open ↗
+              Open
+              <ExternalLinkIcon size={12} />
             </a>
           )}
           {busy ? (

@@ -31,9 +31,10 @@ import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { RunSheet, RunTrigger } from "./components/RunPanel"
 import { SessionList } from "./components/SessionList"
+import { SessionToolbar } from "./components/SessionToolbar"
 import { ThemeToggle } from "./components/ThemeToggle"
 import { useToast } from "./components/Toast"
-import { WorkspacePicker } from "./components/WorkspacePicker"
+import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
@@ -484,10 +485,13 @@ export default function App() {
     return <Login onSuccess={() => setAuthed(true)} />
   }
 
+  // The session list is always the mobile drawer; the main column (empty state
+  // or chat) stays visible so the composer's workspace/new-session bar is
+  // reachable without a session. On desktop the aside docks beside it.
   const asideClass = [
     "min-h-0 flex-col border-r border-hairline bg-canvas md:flex md:w-[272px] md:shrink-0",
-    sessionID ? "hidden" : "flex w-full",
-    sessionID && drawerOpen
+    "hidden",
+    drawerOpen
       ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
       : "",
   ].join(" ")
@@ -502,19 +506,17 @@ export default function App() {
             className="mh-btn mh-btn--quiet md:hidden"
             aria-label="Back"
           >
-            ‹
+            <ChevronLeftIcon size={18} />
           </button>
         )}
-        {sessionID && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="mh-btn mh-btn--quiet md:hidden"
-            aria-label="Sessions"
-          >
-            ☰
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className="mh-btn mh-btn--quiet md:hidden"
+          aria-label="Sessions"
+        >
+          <MenuIcon size={18} />
+        </button>
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
           {selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
@@ -546,7 +548,7 @@ export default function App() {
             aria-label="More actions"
             aria-expanded={menuOpen}
           >
-            ⋯
+            <EllipsisIcon size={18} />
           </button>
           {menuOpen && (
             <>
@@ -634,13 +636,6 @@ export default function App() {
           />
         )}
         <aside className={asideClass}>
-          <WorkspacePicker
-            workspaces={workspaces}
-            selectedID={workspaceID}
-            onSelect={switchWorkspace}
-            onAdd={() => setAddingWorkspace(true)}
-            onDelete={setRemoveWorkspaceID}
-          />
           <SessionList
             sessions={sessions}
             statuses={statuses}
@@ -649,17 +644,17 @@ export default function App() {
               openSession(id)
               setDrawerOpen(false)
             }}
-            onNew={(isolated) => {
+            onDelete={setRemoveSessionID}
+            hasWorkspace={Boolean(workspaceID)}
+            onCreateSession={(isolated) => {
               setDrawerOpen(false)
               void createSession(isolated)
             }}
-            onDelete={setRemoveSessionID}
             creating={creating}
-            canCreate={Boolean(workspaceID)}
           />
         </aside>
 
-        <main className={`${sessionID ? "flex" : "hidden md:flex"} relative min-w-0 flex-1 flex-col`}>
+        <main className="relative flex min-w-0 flex-1 flex-col">
           {sessionID ? (
             <ChatView
               key={sessionID}
@@ -668,10 +663,14 @@ export default function App() {
               connected={connected}
               workspaceID={workspaceID}
               workspacePath={workspacePath}
+              workspaces={workspaces}
               isolation={selected?.isolation}
               autoAccept={autoAcceptSessions.includes(sessionID)}
               onToggleAutoAccept={(on) => toggleAutoAccept(sessionID, on)}
               onOpenSession={openSession}
+              onSelectWorkspace={switchWorkspace}
+              onAddWorkspace={() => setAddingWorkspace(true)}
+              onRemoveWorkspace={setRemoveWorkspaceID}
               forms={forms}
               answeredForms={answeredForms}
               busyFormID={busyFormID}
@@ -683,15 +682,19 @@ export default function App() {
               onRespondPermission={(permission, response) => void respondPermission(permission, response)}
             />
           ) : (
-            <div className="relative flex flex-1 items-center justify-center p-6">
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-5 p-6">
+              <SessionToolbar
+                workspaces={workspaces}
+                workspaceID={workspaceID}
+                onSelectWorkspace={switchWorkspace}
+                onAddWorkspace={() => setAddingWorkspace(true)}
+                onRemoveWorkspace={setRemoveWorkspaceID}
+              />
               <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
                 <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
                 <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
                 <h3 className="mh-heading-2">No session open</h3>
-                <p className="mh-empty__body mh-body-sm">Pick one from the sidebar or start a new one.</p>
-                <button type="button" onClick={() => void createSession(false)} className="mh-btn mh-btn--primary">
-                  New session
-                </button>
+                <p className="mh-empty__body mh-body-sm">Pick one from the session list or start a new one.</p>
               </div>
             </div>
           )}
@@ -702,7 +705,8 @@ export default function App() {
               onClick={() => openSession(parentSessionID)}
               className="mh-btn mh-btn--secondary mh-btn--sm absolute left-1/2 top-3 z-20 -translate-x-1/2 shadow-elev1"
             >
-              <span aria-hidden="true">←</span> Back to main agent
+              <ArrowLeftIcon size={14} />
+              Back to main agent
             </button>
           )}
         </main>

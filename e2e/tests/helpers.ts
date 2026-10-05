@@ -10,9 +10,21 @@ export async function login(page: Page): Promise<void> {
 export async function addWorkspace(page: Page, name?: string): Promise<string> {
   // The BFF creates the folder under WORKSPACES_ROOT; a unique name per run avoids clashes.
   const workspaceName = name ?? `mh-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  await page.getByRole("button", { name: "Add workspace" }).click()
+  await page.getByRole("button", { name: "Workspace" }).click()
+  await page.getByRole("menuitem", { name: "Add workspace" }).click()
   await page.getByPlaceholder("my-project").fill(workspaceName)
   await page.getByRole("button", { name: "Add", exact: true }).click()
-  await expect(page.getByRole("option", { name: workspaceName })).toHaveCount(1)
+  // Regression guard: the new workspace is selected instead of silently ignored.
+  await expect(page.getByRole("button", { name: "Workspace" })).toContainText(workspaceName)
   return workspaceName
+}
+
+/**
+ * Creates a session through the Sessions header's `+` menu, whose popover
+ * hosts the isolated-worktree option.
+ */
+export async function newSession(page: Page, options: { isolated?: boolean } = {}): Promise<void> {
+  await page.getByRole("button", { name: "New session" }).click()
+  if (options.isolated) await page.getByRole("checkbox", { name: /Isolated session/ }).check()
+  await page.getByRole("button", { name: "Create session" }).click()
 }

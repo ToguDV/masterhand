@@ -7,6 +7,7 @@ import {
   selectableAgents,
   sessionModelValue,
   variantLabel,
+  isEffortVariant,
 } from "../src/models"
 import type { AgentInfo, ModelInfo, ModelVariant, ProviderInfo, Session } from "../src/types"
 
@@ -96,6 +97,19 @@ describe("variantLabel", () => {
   it("capitalizes unknown variants", () => {
     expect(variantLabel("turbo")).toBe("Turbo")
     expect(variantLabel("HIGH")).toBe("High")
+  })
+})
+
+describe("isEffortVariant", () => {
+  it("recognizes reasoning-effort levels, case-insensitively", () => {
+    expect(isEffortVariant("low")).toBe(true)
+    expect(isEffortVariant("XHIGH")).toBe(true)
+    expect(isEffortVariant("minimal")).toBe(true)
+  })
+
+  it("rejects provider-specific variants", () => {
+    expect(isEffortVariant("turbo")).toBe(false)
+    expect(isEffortVariant("thinking")).toBe(false)
   })
 })
 

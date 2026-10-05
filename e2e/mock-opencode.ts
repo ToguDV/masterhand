@@ -356,7 +356,8 @@ async function runSubagentPrompt(sessionID: string, text: string): Promise<void>
 
   completeAssistant(session, assistant, {
     cost: 0.001,
-    tokens: { input: 10, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    // Non-zero cache values prove the stats row does not render them.
+    tokens: { input: 10, output: 1, reasoning: 0, cache: { read: 5, write: 2 } },
   })
   activeRuns.delete(sessionID)
 }

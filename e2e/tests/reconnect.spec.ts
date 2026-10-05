@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 const MOCK_URL = "http://127.0.0.1:4097"
 
@@ -16,7 +16,7 @@ test.afterEach(async ({ request }) => {
 test("repopulates the composer catalogs when opencode reconnects upstream", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const agentButton = page.getByRole("button", { name: "Agent", exact: true })
   await expect(agentButton).toContainText("build")

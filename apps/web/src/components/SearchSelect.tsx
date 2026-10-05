@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useDismissable } from "./useDismissable"
+import { ChevronDownIcon } from "./icons"
 
 export interface SearchSelectOption {
   value: string
@@ -12,6 +14,9 @@ export function SearchSelect({
   ariaLabel,
   placeholder,
   previewCount = 6,
+  compact = false,
+  icon,
+  title,
 }: {
   value: string
   options: SearchSelectOption[]
@@ -19,6 +24,11 @@ export function SearchSelect({
   ariaLabel: string
   placeholder: string
   previewCount?: number
+  /** Condensed trigger (composer footer) instead of the full-width field. */
+  compact?: boolean
+  /** Optional leading glyph (kept out of the accessible name). */
+  icon?: ReactNode
+  title?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -29,6 +39,8 @@ export function SearchSelect({
   const selected = options.find((option) => option.value === value)
   const searchable = options.length > previewCount
 
+  useDismissable(open, rootRef, () => setOpen(false))
+
   useEffect(() => {
     if (!open) {
       setQuery("")
@@ -36,22 +48,6 @@ export function SearchSelect({
       return
     }
     inputRef.current?.focus()
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false)
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("mousedown", onPointerDown)
-    document.addEventListener("keydown", onKeyDown)
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown)
-      document.removeEventListener("keydown", onKeyDown)
-    }
   }, [open])
 
   const visible = useMemo(() => {
@@ -65,7 +61,7 @@ export function SearchSelect({
   const truncated = searchable && !expanded && !query.trim()
 
   return (
-    <div ref={rootRef} className="relative min-w-0 basis-full md:basis-32 md:flex-1">
+    <div ref={rootRef} className={`relative min-w-0 ${compact ? "" : "basis-full md:basis-32 md:flex-1"}`}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -75,17 +71,19 @@ export function SearchSelect({
             setOpen(true)
           }
         }}
-        className={triggerClass}
+        title={title ?? ariaLabel}
+        className={compact ? compactTriggerClass : triggerClass}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
       >
-        <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
-          {selected?.label ?? placeholder}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {icon}
+          <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
+            {selected?.label ?? placeholder}
+          </span>
         </span>
-        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 shrink-0 text-ink-muted">
-          <path d="M5.5 7.5 10 12l4.5-4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        <ChevronDownIcon size={14} className="shrink-0 text-ink-muted" />
       </button>
 
       {open && (
@@ -147,3 +145,6 @@ export function SearchSelect({
 
 const triggerClass =
   "flex w-full items-center justify-between gap-2 rounded-sm border border-hairline-strong bg-surface px-2.5 py-1.5 text-sm outline-none transition-colors hover:bg-surface-muted focus-visible:border-accent"
+
+const compactTriggerClass =
+  "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-sm border border-hairline-strong bg-surface px-2 py-1 text-xs outline-none transition-colors hover:bg-surface-muted focus-visible:border-accent"

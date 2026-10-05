@@ -1,5 +1,6 @@
 import { Fragment, useState, type ReactNode } from "react"
 import { truncateLines, type TodoItem } from "@masterhand/client-core"
+import { CheckIcon, ChevronRightIcon, CircleIcon, XIcon } from "../icons"
 
 /** Fallback body for unknown tools: readable key/value rows instead of raw JSON. */
 export function KeyValueList({ entries }: { entries: Array<{ key: string; value: string }> }) {
@@ -130,11 +131,11 @@ export function SearchBody({ pattern, matches }: { pattern: string; matches: str
   )
 }
 
-const TODO_STYLES: Record<string, { icon: string; className: string }> = {
-  completed: { icon: "✓", className: "text-accent" },
-  in_progress: { icon: "▸", className: "text-warning" },
-  cancelled: { icon: "✕", className: "text-ink-faint" },
-  pending: { icon: "○", className: "text-ink-muted" },
+const TODO_STYLES: Record<string, { icon: ReactNode; className: string }> = {
+  completed: { icon: <CheckIcon size={12} />, className: "text-accent" },
+  in_progress: { icon: <ChevronRightIcon size={12} />, className: "text-warning" },
+  cancelled: { icon: <XIcon size={12} />, className: "text-ink-faint" },
+  pending: { icon: <CircleIcon size={12} />, className: "text-ink-muted" },
 }
 
 /** Checklist for the todo tool. */
@@ -146,7 +147,7 @@ export function TodoBody({ todos }: { todos: TodoItem[] }) {
         const style = TODO_STYLES[todo.status] ?? TODO_STYLES.pending!
         return (
           <li key={index} className="flex items-start gap-2 text-xs">
-            <span className={`shrink-0 font-mono ${style.className}`}>{style.icon}</span>
+            <span className={`shrink-0 ${style.className}`}>{style.icon}</span>
             <span className={todo.status === "completed" ? "text-ink-muted line-through" : "text-ink-soft"}>
               {todo.content}
             </span>

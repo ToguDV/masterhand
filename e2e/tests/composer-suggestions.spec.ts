@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("opens the command list on / and runs the selected command", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/")
@@ -26,7 +26,7 @@ test("opens the command list on / and runs the selected command", async ({ page 
 test("opens the subagent list on @ and inserts the mention", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("@gen")
@@ -39,7 +39,7 @@ test("opens the subagent list on @ and inserts the mention", async ({ page }) =>
 test("lists every argument value while the parameter is empty", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/review ")
@@ -52,7 +52,7 @@ test("lists every argument value while the parameter is empty", async ({ page })
 test("suggests and inserts an argument that matches the typed content", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/review c")
@@ -73,7 +73,7 @@ test("suggests and inserts an argument that matches the typed content", async ({
 test("hides argument suggestions that do not match the typed content", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/review zzz")
@@ -84,7 +84,7 @@ test("hides argument suggestions that do not match the typed content", async ({ 
 test("closes the suggestions when the composer loses focus and reopens them on focus", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/rev")
@@ -103,7 +103,7 @@ test("closes the suggestions when the composer loses focus and reopens them on f
 test("/btw answers a side question in a temporary session", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/btw what is this?")

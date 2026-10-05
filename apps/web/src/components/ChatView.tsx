@@ -2,22 +2,23 @@ import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   conversationErrorMessage,
-  formatSpeed,
-  formatTokens,
   sessionUsage,
-  tokenSpeed,
   useMessages,
   type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
   type Permission,
   type SessionIsolation,
+  type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { Composer } from "./Composer"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
+import { SessionStats } from "./SessionStats"
+import { SessionToolbar } from "./SessionToolbar"
 import { Deco } from "./Deco"
+import { ExternalLinkIcon } from "./icons"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -28,10 +29,14 @@ export function ChatView({
   connected,
   workspaceID,
   workspacePath,
+  workspaces,
   isolation,
   autoAccept,
   onToggleAutoAccept,
   onOpenSession,
+  onSelectWorkspace,
+  onAddWorkspace,
+  onRemoveWorkspace,
   forms,
   answeredForms,
   busyFormID,
@@ -47,10 +52,14 @@ export function ChatView({
   connected: boolean
   workspaceID: string | null
   workspacePath: string | null
+  workspaces: WorkspaceRecord[]
   isolation?: SessionIsolation
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
   onOpenSession?: (id: string) => void
+  onSelectWorkspace: (id: string | null) => void
+  onAddWorkspace: () => void
+  onRemoveWorkspace: (id: string) => void
   forms: FormInfo[]
   answeredForms: Array<{ form: FormInfo; answer: FormAnswer }>
   busyFormID: string | null
@@ -69,8 +78,6 @@ export function ChatView({
 
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  const tokenBreakdown = formatTokens(usage)
-  const speed = formatSpeed(tokenSpeed(usage, usage.durationMs))
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
@@ -189,15 +196,6 @@ export function ChatView({
           ))}
         </div>
       </div>
-      {(usage.cost > 0 || tokenBreakdown) && (
-        <div className="px-3 pt-2 md:px-6">
-          <p className="mh-chat-col mh-msg__meta text-right">
-            Session · ${usage.cost.toFixed(4)}
-            {tokenBreakdown ? ` · ${tokenBreakdown}` : ""}
-            {speed ? ` · ${speed}` : ""}
-          </p>
-        </div>
-      )}
       {isolation && (
         <div className="border-t border-hairline px-3 py-2 md:px-6">
           <div className="mh-chat-col flex flex-wrap items-center gap-2 text-xs">
@@ -210,7 +208,8 @@ export function ChatView({
             </code>
             {isolation.prUrl && (
               <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                Pull request ↗
+                Pull request
+                <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
               </a>
             )}
             <span className="flex-1" />
@@ -236,7 +235,8 @@ export function ChatView({
                 <>
                   {" "}
                   <a href={finishResult.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                    Open pull request ↗
+                    Open pull request
+                    <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
                   </a>
                 </>
               )}
@@ -253,6 +253,16 @@ export function ChatView({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        header={
+          <SessionToolbar
+            workspaces={workspaces}
+            workspaceID={workspaceID}
+            onSelectWorkspace={onSelectWorkspace}
+            onAddWorkspace={onAddWorkspace}
+            onRemoveWorkspace={onRemoveWorkspace}
+            trailing={<SessionStats usage={usage} />}
+          />
+        }
       />
     </div>
   )

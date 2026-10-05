@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("renders the newest page of a long conversation and expands it on demand", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("/seed 250")
   await page.getByRole("button", { name: "Send" }).click()

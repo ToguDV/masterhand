@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 const MOCK_URL = "http://127.0.0.1:4097"
 
@@ -14,7 +14,7 @@ test.afterEach(async ({ request }) => {
 test("recovers the send button when the prompt response stalls", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   const send = page.getByRole("button", { name: "Send" })
@@ -43,7 +43,7 @@ test("recovers the send button when the prompt response stalls", async ({ page, 
 test("releases the send button as soon as the history confirms the delivery", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   const send = page.getByRole("button", { name: "Send" })
@@ -75,7 +75,7 @@ test("releases the send button as soon as the history confirms the delivery", as
 test("keeps text typed while a slow send is in flight", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const composer = page.getByPlaceholder("Write a message…")
   const send = page.getByRole("button", { name: "Send" })

@@ -1,10 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
-
-async function newSession(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "+ New" }).click()
-  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-}
+import { addWorkspace, login, newSession } from "./helpers"
 
 async function send(page: Page, text: string): Promise<void> {
   await page.getByPlaceholder("Write a message…").fill(text)
@@ -18,6 +13,8 @@ test("auto-accepts permission requests for the active session", async ({ page })
 
   await page.getByRole("button", { name: "Auto-accept", exact: true }).click()
   await expect(page.getByRole("button", { name: "Auto-accept: on" })).toBeVisible()
+  // Active state uses the emerald accent, not the warning amber.
+  await expect(page.getByRole("button", { name: "Auto-accept: on" })).toHaveCSS("color", "rgb(11, 107, 83)")
 
   await send(page, "hello agent")
 

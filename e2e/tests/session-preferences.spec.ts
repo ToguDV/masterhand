@@ -1,10 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
-
-async function newSession(page: import("@playwright/test").Page): Promise<void> {
-  await page.getByRole("button", { name: "+ New" }).click()
-  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-}
+import { addWorkspace, login, newSession } from "./helpers"
 
 async function pick(page: import("@playwright/test").Page, name: string, option: string): Promise<void> {
   await page.getByRole("button", { name, exact: true }).click()
@@ -35,7 +30,7 @@ test("remembers the effort for a session after a reload", async ({ page }) => {
   await newSession(page)
 
   await page.getByRole("button", { name: "Effort", exact: true }).click()
-  await page.getByRole("listbox", { name: "Effort" }).getByRole("option", { name: "Effort: High" }).click()
+  await page.getByRole("listbox", { name: "Effort" }).getByRole("option", { name: "High" }).click()
   await expect(page.getByRole("button", { name: "Effort", exact: true })).toContainText("High")
 
   await page.reload()

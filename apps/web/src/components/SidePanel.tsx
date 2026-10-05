@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { useModalFocus } from "./useModalFocus"
+import { XIcon } from "./icons"
 
 /**
  * Right sheet used by the run, preview, audit and side-question panels:
@@ -36,7 +37,7 @@ export function SidePanel({
           <span className="flex-1" />
           {actions}
           <button type="button" className="mh-btn mh-btn--quiet" aria-label={closeLabel} onClick={onClose}>
-            ✕
+            <XIcon size={16} />
           </button>
         </header>
         <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">{children}</div>

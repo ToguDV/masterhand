@@ -692,19 +692,19 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Forms
 
-**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort). **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is the sticky bottom surface holding the message textarea and its context selectors.
+**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is the sticky bottom surface: a context bar above the input — the workspace menu — and the message textarea with its context selectors (agent, model, effort, auto-accept) below it.
 
 ### Navigation
 
 **`top-bar`** — 56px, canvas background, bottom hairline. Mobile: back chevron when a session is open, truncated title, status dot, overflow menu. Desktop: title, connection state, sessions count.
 
-**`sidebar`** — 272px canvas column, right hairline. Contains `workspace-picker`, the session list and the New session action. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim.
+**`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim.
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface and draws a 2px `{colors.accent}` indicator on the left.
 
 **`filter-pill`** / **`filter-pill-active`** — All / Isolated / Standard. The active pill is filled with `{colors.text}` on `{colors.canvas}` (ink-on-paper inversion), not with emerald; emerald stays budgeted for actions.
 
-**`workspace-picker`** — compact select showing the current workspace name and path.
+**`workspace-picker`** — compact menu in the composer bar: shows the current workspace and, on click, the workspace list plus the add/remove management actions.
 
 ### Conversation
 
