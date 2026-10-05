@@ -39,7 +39,7 @@ test("finishes an isolated session and deletes its worktree", async ({ page }) =
   await page.getByRole("button", { name: "Finish & PR" }).click()
   await expect(page.getByText("No changes to commit.")).toBeVisible()
 
-  page.on("dialog", (dialog) => dialog.accept())
   await page.getByRole("button", { name: "Delete session" }).click()
+  await page.getByRole("button", { name: "Delete", exact: true }).click()
   await expect(page.getByText("No sessions yet.")).toBeVisible()
 })
