@@ -917,8 +917,10 @@ export function createApp(deps: AppDeps): Hono {
       }
       if (pushed) {
         // Prefer the provider CLI when authenticated; otherwise hand back a
-        // ready-to-open compare URL.
+        // ready-to-open compare URL. A retry after a lost response must never
+        // create a second PR: the recorded URL wins.
         prUrl =
+          record.prUrl ??
           worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef) ??
           pullRequestUrl(remoteUrl, record.branch, record.baseRef)
       }

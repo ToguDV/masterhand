@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   conversationErrorMessage,
+  finishResultFromIsolation,
+  isAmbiguousError,
   sessionUsage,
   useMessages,
   type FinishSessionResult,
@@ -75,6 +77,7 @@ export function ChatView({
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
   const [finishError, setFinishError] = useState<string | null>(null)
+  const [finishNotice, setFinishNotice] = useState<string | null>(null)
 
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
@@ -105,16 +108,52 @@ export function ChatView({
     (entry) => !(entry.permission.source?.id && callIDs.has(entry.permission.source.id)),
   )
 
+  /**
+   * Walks the workspace session list for the isolated-session record after an
+   * ambiguous finish. Bounded: the server may still be committing/pushing.
+   */
+  async function findIsolation(): Promise<SessionIsolation | null> {
+    if (!workspaceID) return null
+    for (const delay of [0, 1500, 3000]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const sessions = await client.api.sessions.list(workspaceID)
+        const isolation = sessions.find((session) => session.id === sessionID)?.isolation
+        if (finishResultFromIsolation(isolation)) return isolation ?? null
+      } catch {
+        // keep polling: a transient failure must not hide the confirmation
+      }
+    }
+    return null
+  }
+
   async function finish() {
     setFinishing(true)
     setFinishError(null)
+    setFinishNotice(null)
     try {
       const result = await client.api.sessions.finish(sessionID)
       setFinishResult(result)
       if (result.error) setFinishError(result.error)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-    } catch {
-      setFinishError("Could not finish the session")
+    } catch (error) {
+      if (isAmbiguousError(error)) {
+        // Commit + push + PR may still be running (or already done). Never a
+        // hard failure: reconcile against the isolated-session record.
+        const isolation = await findIsolation()
+        const reconciled = finishResultFromIsolation(isolation)
+        if (reconciled) {
+          setFinishResult(reconciled)
+          setFinishNotice("The server did not answer in time — this result comes from the session record.")
+        } else {
+          setFinishError(
+            "The server did not answer in time — the operation may still be running. Check the branch before retrying.",
+          )
+        }
+        void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+      } else {
+        setFinishError("Could not finish the session")
+      }
     } finally {
       setFinishing(false)
     }
@@ -223,7 +262,7 @@ export function ChatView({
               {finishing ? "Finishing…" : "Finish & PR"}
             </button>
           </div>
-          {(finishResult || finishError) && (
+          {(finishResult || finishError || finishNotice) && (
             <p className="mh-chat-col mt-1 text-[11px] text-ink-muted">
               {finishResult
                 ? finishResult.committed
@@ -241,6 +280,7 @@ export function ChatView({
                 </>
               )}
               {finishError ? <span className="text-danger">{finishError}</span> : null}
+              {finishNotice ? <span>{finishNotice}</span> : null}
             </p>
           )}
         </div>
