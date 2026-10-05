@@ -1,12 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("creates an isolated session in a git worktree", async ({ page }) => {
   await login(page)
   const workspaceName = await addWorkspace(page)
 
-  await page.getByRole("checkbox").check()
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page, { isolated: true })
 
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
   await expect(page.getByText("Isolated worktree")).toBeVisible()
@@ -17,7 +16,7 @@ test("filters isolated and standard sessions", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(page.locator("aside").getByText("Untitled")).toBeVisible()
   await expect(page.getByText("Isolated worktree")).toBeHidden()
 
@@ -32,8 +31,7 @@ test("finishes an isolated session and deletes its worktree", async ({ page }) =
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("checkbox").check()
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page, { isolated: true })
   await expect(page.getByText("Isolated worktree")).toBeVisible()
 
   await page.getByRole("button", { name: "Finish & PR" }).click()

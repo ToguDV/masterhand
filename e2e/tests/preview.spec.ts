@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("starts and stops a session preview through the tunnel", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
 
   await page.getByRole("button", { name: "Preview" }).click()
@@ -14,7 +14,7 @@ test("starts and stops a session preview through the tunnel", async ({ page }) =
   await page.getByRole("button", { name: "Start" }).click()
   const frame = page.locator('iframe[title="Session preview"]')
   await expect(frame).toHaveAttribute("src", "https://e2e-preview.trycloudflare.com")
-  await expect(page.getByRole("link", { name: "Open ↗" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Open" })).toHaveAttribute(
     "href",
     "https://e2e-preview.trycloudflare.com",
   )

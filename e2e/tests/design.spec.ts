@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("switches between light and dark themes and remembers the choice", async ({ page }) => {
   await login(page)
@@ -34,7 +34,7 @@ test("renders permission requests inline in the transcript, not as a modal", asy
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("hello agent")
   await page.getByRole("button", { name: "Send" }).click()
@@ -53,7 +53,7 @@ test("answers a question from another session through the choice modal", async (
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const composer = page.getByPlaceholder("Write a message…")
   await composer.fill("ask me a question")
   await page.getByRole("button", { name: "Send" }).click()
@@ -61,7 +61,7 @@ test("answers a question from another session through the choice modal", async (
 
   // A second session: the pending question now belongs to another session and
   // must stay reachable instead of blocking its agent invisibly.
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const dialog = page.getByRole("dialog", { name: "Question from another session" })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText("Which database should the project use?")).toBeVisible()
@@ -79,12 +79,12 @@ test("keeps later other-session questions reachable after dismissing one", async
   await addWorkspace(page)
 
   // Session A asks, and its modal is postponed from session B.
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await page.getByPlaceholder("Write a message…").fill("ask me a question")
   await page.getByRole("button", { name: "Send" }).click()
   await expect(page.getByTestId("question-card")).toBeVisible()
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const dialog = page.getByRole("dialog", { name: "Question from another session" })
   await expect(dialog).toBeVisible()
   await dialog.getByRole("button", { name: "Not now" }).click()
@@ -96,7 +96,7 @@ test("keeps later other-session questions reachable after dismissing one", async
   await page.getByRole("button", { name: "Send" }).click()
   await expect(page.getByTestId("question-card")).toBeVisible()
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(dialog).toBeVisible()
   await dialog.getByRole("button", { name: "Not now" }).click()
   await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
@@ -106,7 +106,7 @@ test("opens the session list as a drawer on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
 
   const drawer = page.locator("aside")

@@ -32,6 +32,7 @@ export {
 export {
   defaultModelValue,
   flattenModels,
+  isEffortVariant,
   parseModel,
   recentModelValue,
   selectableAgents,

@@ -16,6 +16,7 @@ import {
   type FormValue,
 } from "@masterhand/client-core"
 import { StatusDot } from "./tools/StatusDot"
+import { ExternalLinkIcon, XIcon } from "./icons"
 
 /**
  * Inline card for the agent's `question` tool. While the form is pending it
@@ -329,7 +330,8 @@ function Field({
           rel="noreferrer noopener"
           className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
         >
-          {field.url} ↗
+          {field.url}
+          <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
         </a>
       </div>
     )
@@ -528,7 +530,7 @@ function MultiInput({
             <span key={item} className="mh-chip mh-chip--accent">
               {item}
               <button type="button" onClick={() => toggle(item)} className="text-accent hover:text-accent-strong">
-                ×
+                <XIcon size={12} />
               </button>
             </span>
           ))}

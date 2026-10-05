@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("limits model options and searches the rest", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const modelButton = page.getByRole("button", { name: "Model", exact: true })
   await expect(modelButton).toBeVisible()
@@ -29,7 +29,7 @@ test("limits model options and searches the rest", async ({ page }) => {
 test("remembers the last used model for new sessions", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
 
   const modelButton = page.getByRole("button", { name: "Model", exact: true })
   await modelButton.click()
@@ -42,6 +42,6 @@ test("remembers the last used model for new sessions", async ({ page }) => {
   await page.getByRole("button", { name: "Once" }).click()
   await expect(page.getByText("Done!")).toBeVisible()
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Other · Flash")
 })

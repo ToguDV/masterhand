@@ -14,6 +14,7 @@ import { ToolIcon } from "./ToolIcon"
 import { CodeBlock, CopyButton } from "./CodeBlock"
 import { DiffView } from "./DiffView"
 import { KeyValueList, SearchBody, TerminalBody, TodoBody } from "./ToolBodies"
+import { ExternalLinkIcon } from "../icons"
 
 /**
  * Live duration for running tools: recomputes once per second while the tool
@@ -164,7 +165,8 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
               rel="noreferrer noopener"
               className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
             >
-              {summary.url} ↗
+              {summary.url}
+              <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
             </a>
           )}
           {summary.output && <CodeBlock text={summary.output} numbered={false} maxLines={20} />}

@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("configures, starts and stops the workspace dev server from the Run panel", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
 
   await page.getByRole("button", { name: "Run", exact: true }).click()

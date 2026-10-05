@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { addWorkspace, login } from "./helpers"
+import { addWorkspace, login, newSession } from "./helpers"
 
 test("renders agent questions inline and replies to them", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
 
-  await page.getByRole("button", { name: "+ New" }).click()
+  await newSession(page)
   const composer = page.getByPlaceholder("Write a message…")
   await expect(composer).toBeVisible()
   await composer.fill("ask me a question")

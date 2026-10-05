@@ -9,6 +9,7 @@ import {
   type SessionStatus,
 } from "@masterhand/client-core"
 import { Deco } from "./Deco"
+import { XIcon } from "./icons"
 
 const FILTERS: Array<{ value: SessionFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -24,29 +25,25 @@ export function SessionList({
   statuses,
   selectedID,
   onSelect,
-  onNew,
   onDelete,
-  creating,
-  canCreate,
+  hasWorkspace,
 }: {
   sessions: Session[]
   statuses: Record<string, SessionStatus>
   selectedID: string | null
   onSelect: (id: string) => void
-  onNew: (isolated: boolean) => void
   onDelete: (id: string) => void
-  creating: boolean
-  canCreate: boolean
+  /** False before any workspace exists; only changes the empty-state copy. */
+  hasWorkspace: boolean
 }) {
   const [filter, setFilter] = useState<SessionFilter>("all")
-  const [isolated, setIsolated] = useState(false)
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
   // Subagent children are reachable from their parent's card, not the list.
   const visible = filterSessions(rootSessions(sessions), filter)
   const shown = visible.slice(0, visibleCount)
   const remaining = visible.length - shown.length
 
-  const emptyText = canCreate
+  const emptyText = hasWorkspace
     ? filter === "all"
       ? "No sessions yet."
       : "No sessions match this filter."
@@ -56,29 +53,6 @@ export function SessionList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-2">
         <h2 className="mh-heading-4">Sessions</h2>
-        <div className="flex items-center gap-2">
-          <label
-            className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-muted"
-            title="Create the session in its own git worktree"
-          >
-            <input
-              type="checkbox"
-              checked={isolated}
-              onChange={(event) => setIsolated(event.target.checked)}
-              className="h-3.5 w-3.5 accent-[var(--mh-accent)]"
-            />
-            Isolated
-          </label>
-          <button
-            type="button"
-            onClick={() => onNew(isolated)}
-            disabled={creating || !canCreate}
-            title={canCreate ? undefined : "Add a workspace first"}
-            className="mh-btn mh-btn--primary mh-btn--sm"
-          >
-            {creating ? "Creating…" : "+ New"}
-          </button>
-        </div>
       </div>
 
       <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-3">
@@ -100,7 +74,7 @@ export function SessionList({
             <Deco variant="blob" style={{ top: -60, right: -70, width: 240, height: 220 }} />
             <Deco variant="dots" style={{ bottom: -14, left: -18 }} />
             <h3 className="mh-heading-2">{emptyText}</h3>
-            {canCreate && filter === "all" && (
+            {hasWorkspace && filter === "all" && (
               <p className="mh-empty__body mh-body-sm">Create a session to start working on a project.</p>
             )}
           </div>
@@ -140,7 +114,7 @@ export function SessionList({
                   title="Delete session"
                   className="mh-btn mh-btn--quiet absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-danger"
                 >
-                  ×
+                  <XIcon size={14} />
                 </button>
               </div>
             )

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
@@ -8,6 +8,7 @@ import {
   composerTrigger,
   defaultModelValue,
   flattenModels,
+  isEffortVariant,
   mentionableAgents,
   mergeCommands,
   parseModel,
@@ -29,6 +30,7 @@ import { client } from "../client"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
+import { BrainIcon, ShieldCheckIcon, SlidersIcon } from "./icons"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
 
@@ -106,6 +108,7 @@ export function Composer({
   directory = null,
   autoAccept,
   onToggleAutoAccept,
+  header,
 }: {
   sessionID: string
   busy: boolean
@@ -114,6 +117,8 @@ export function Composer({
   directory?: string | null
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
+  /** Composer top bar (workspace menu, new session, stats). */
+  header?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -392,49 +397,16 @@ export function Composer({
     }
   }
 
+  const effortIcon = variants.some(isEffortVariant) ? (
+    <BrainIcon size={14} className="shrink-0 text-ink-muted" />
+  ) : (
+    <SlidersIcon size={14} className="shrink-0 text-ink-muted" />
+  )
+
   return (
     <div className="pb-safe border-t border-hairline bg-canvas px-3 pt-2 md:px-6">
       <div className="mh-chat-col space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchSelect
-            value={agent}
-            options={agents.map((item) => ({ value: item.id, label: item.name }))}
-            onChange={setAgent}
-            ariaLabel="Agent"
-            placeholder="agent…"
-          />
-          <SearchSelect
-            value={model}
-            options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
-            onChange={(value) => {
-              modelTouched.current = true
-              setModel(value)
-            }}
-            ariaLabel="Model"
-            placeholder="model…"
-          />
-          {variants.length > 0 && (
-            <SearchSelect
-              value={variant}
-              options={[
-                { value: "", label: "Effort: default" },
-                ...variants.map((key) => ({ value: key, label: `Effort: ${variantLabel(key)}` })),
-              ]}
-              onChange={setVariant}
-              ariaLabel="Effort"
-              placeholder="Effort: default"
-            />
-          )}
-          <button
-            type="button"
-            aria-pressed={autoAccept}
-            onClick={() => onToggleAutoAccept(!autoAccept)}
-            title="Auto-accept permission requests for this session (answers “once”)"
-            className={`mh-chip shrink-0 cursor-pointer ${autoAccept ? "mh-chip--warning" : "mh-chip--outline"}`}
-          >
-            {autoAccept ? "Auto-accept: on" : "Auto-accept"}
-          </button>
-        </div>
+        {header}
 
         {sideQuestion && (
           <SideQuestionPanel
@@ -533,6 +505,52 @@ export function Composer({
               </button>
             )}
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchSelect
+            compact
+            value={agent}
+            options={agents.map((item) => ({ value: item.id, label: item.name }))}
+            onChange={setAgent}
+            ariaLabel="Agent"
+            placeholder="agent…"
+          />
+          <SearchSelect
+            compact
+            value={model}
+            options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
+            onChange={(value) => {
+              modelTouched.current = true
+              setModel(value)
+            }}
+            ariaLabel="Model"
+            placeholder="model…"
+          />
+          {variants.length > 0 && (
+            <SearchSelect
+              compact
+              icon={effortIcon}
+              value={variant}
+              options={[
+                { value: "", label: "Default" },
+                ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
+              ]}
+              onChange={setVariant}
+              ariaLabel="Effort"
+              placeholder="Default"
+            />
+          )}
+          <button
+            type="button"
+            aria-pressed={autoAccept}
+            onClick={() => onToggleAutoAccept(!autoAccept)}
+            title="Auto-accept permission requests for this session (answers “once”)"
+            className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--accent" : "mh-chip--outline"}`}
+          >
+            <ShieldCheckIcon size={13} />
+            {autoAccept ? "Auto-accept: on" : "Auto-accept"}
+          </button>
         </div>
 
         {error && <p className="text-xs text-danger">{error}</p>}
