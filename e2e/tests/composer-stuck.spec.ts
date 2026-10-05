@@ -38,9 +38,9 @@ test("recovers the send button when the prompt response stalls", async ({ page, 
   await expect(page.getByText(/server did not respond/)).toBeVisible()
 })
 
-// The variant the user reported: the message was sent and the agent already
-// finished, but the lost prompt response still leaves the button locked.
-test("recovers the send button after a lost response when the agent finished", async ({ page, request }) => {
+// The lost response is reconciled through the live history: as soon as the
+// sent message appears, the composer releases — no deadline wait, no warning.
+test("releases the send button as soon as the history confirms the delivery", async ({ page, request }) => {
   await login(page)
   await addWorkspace(page)
   await page.getByRole("button", { name: "+ New" }).click()
@@ -53,20 +53,21 @@ test("recovers the send button after a lost response when the agent finished", a
   await send.click()
   await expect(send).toHaveText("Sending…")
 
-  // The turn runs to completion while the response is still held.
+  // The turn runs to completion while the response is held; the history
+  // confirms the delivery and the composer releases well before the deadline
+  // (clearing the sent text, so an empty composer is disabled — expected).
   await expect(page.getByText("Seed message 1")).toBeVisible()
+  await expect(send).toHaveText("Send", { timeout: 2_000 })
+  await expect(composer).toHaveValue("")
 
-  // The user types the next message: the session is idle, yet the composer
-  // still looks empty (Sending…/disabled) — the reported stuck state.
+  // The lost response never surfaces as a timeout warning, and the next
+  // message typed meanwhile enables Send and is preserved.
   await composer.fill("follow up")
-  await expect(composer).toHaveValue("follow up")
-  await expect(send).toBeDisabled()
-
-  // The deadline releases it and keeps the new text.
-  await expect(send).toHaveText("Send", { timeout: 15_000 })
+  await expect(send).toBeEnabled()
+  await page.waitForTimeout(5_500)
   await expect(send).toBeEnabled()
   await expect(composer).toHaveValue("follow up")
-  await expect(page.getByText(/server did not respond/)).toBeVisible()
+  await expect(page.getByText(/server did not respond/)).toBeHidden()
 })
 
 // Text typed while a slow (but successful) send is in flight must survive:

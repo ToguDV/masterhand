@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
   RequestTimeoutError,
@@ -10,6 +11,7 @@ import {
   mentionableAgents,
   mergeCommands,
   parseModel,
+  queryKeys,
   recentModelValue,
   selectableAgents,
   sessionModelValue,
@@ -19,6 +21,7 @@ import {
   useModels,
   useSessions,
   variantLabel,
+  type ChatMessage,
   type ComposerPopover,
   type ComposerTrigger,
 } from "@masterhand/client-core"
@@ -43,6 +46,24 @@ function composerErrorMessage(error: unknown, kind: "send" | "side question"): s
   }
   return kind === "send" ? "Could not send" : "Could not start the side question"
 }
+
+/** Plain text of a chat message (user messages carry a single text part). */
+function chatMessageText(message: ChatMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n")
+}
+
+/** A send waiting for its HTTP response, kept for delivery reconciliation. */
+interface PendingSend {
+  text: string
+  at: number
+  /** User-message ids already known when the send started. */
+  known: Set<string>
+}
+
+/** Clock tolerance between the client and the server when matching the sent message. */
+const DELIVERY_SKEW_MS = 5_000
 
 interface SessionPreferences {
   agent: string
@@ -118,9 +139,11 @@ export function Composer({
   // Per-session selections: restored on mount (the view is keyed by session)
   // and written back so switching sessions or reloading keeps them.
   const stored = useMemo(() => readPreferences(sessionID), [sessionID])
+  const queryClient = useQueryClient()
   const [text, setText] = useState("")
   const textRef = useRef(text)
   textRef.current = text
+  const pendingSend = useRef<PendingSend | null>(null)
   const [agent, setAgent] = useState(stored.agent ?? "")
   const [model, setModel] = useState(stored.model ?? "")
   const [variant, setVariant] = useState(stored.variant ?? "")
@@ -210,6 +233,44 @@ export function Composer({
     [],
   )
 
+  /** Releases the composer and clears the text that was actually sent. */
+  function completeSend(pending: PendingSend): void {
+    pendingSend.current = null
+    setSending(false)
+    // Only clear what was actually sent: text typed while the request was in
+    // flight (slow network) must survive instead of being wiped.
+    if (textRef.current.trim() === pending.text) {
+      setText("")
+      setCaret(0)
+    }
+    setDismissed(false)
+  }
+
+  // Delivery reconciliation: the prompt response can be lost while opencode
+  // already processed the message, so waiting only for the request deadline
+  // would keep the button locked (and warn falsely) until it expires. As soon
+  // as the live history shows the sent message, the send is confirmed and the
+  // composer is released immediately; the deadline stays as the fallback for
+  // an unconfirmable send.
+  useEffect(() => {
+    if (!sending) return
+    const pending = pendingSend.current
+    if (!pending) return
+    const check = (): void => {
+      const messages = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID))
+      const delivered = messages?.some(
+        (message) =>
+          message.info.role === "user" &&
+          !pending.known.has(message.info.id) &&
+          message.info.time.created >= pending.at - DELIVERY_SKEW_MS &&
+          chatMessageText(message) === pending.text,
+      )
+      if (delivered) completeSend(pending)
+    }
+    check()
+    return queryClient.getQueryCache().subscribe(check)
+  }, [sending, queryClient, sessionID])
+
   function moveCaret(position: number): void {
     setCaret(position)
   }
@@ -244,6 +305,15 @@ export function Composer({
     }
     setSending(true)
     setError(null)
+    const known = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID)) ?? []
+    const pending: PendingSend = {
+      text: trimmed,
+      at: Date.now(),
+      known: new Set(
+        known.filter((message) => message.info.role === "user").map((message) => message.info.id),
+      ),
+    }
+    pendingSend.current = pending
     try {
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
       const mentionText = command ? command.text : trimmed
@@ -266,17 +336,16 @@ export function Composer({
           { agent: session?.agent, model: session?.model },
         )
       }
-      // Only clear what was actually sent: text typed while the request was in
-      // flight (slow network) must survive instead of being wiped.
-      if (textRef.current.trim() === trimmed) {
-        setText("")
-        setCaret(0)
-      }
-      setDismissed(false)
+      if (pendingSend.current === pending) completeSend(pending)
     } catch (err) {
-      setError(composerErrorMessage(err, "send"))
+      // A delivery already confirmed through the history wins over a lost or
+      // timed-out response: never surface a false failure then.
+      if (pendingSend.current === pending) setError(composerErrorMessage(err, "send"))
     } finally {
-      setSending(false)
+      if (pendingSend.current === pending) {
+        pendingSend.current = null
+        setSending(false)
+      }
     }
   }
 
