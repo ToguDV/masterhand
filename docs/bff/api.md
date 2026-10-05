@@ -140,6 +140,7 @@ curl -X POST https://your-origin.example/api/devices \
 | `ALLOWED_ORIGINS` | — | Comma-separated extra origins allowed on mutations (in dev the Vite origins are added) |
 | `PORT` | `8787` | BFF port |
 | `OPENCODE_URL` | `http://127.0.0.1:4096` | opencode upstream |
+| `OPENCODE_TIMEOUT_MS` | `10000` | Deadline for the BFF's internal opencode calls (session listing, `/api/commands`, session create/delete, instruction/permission writes, PTY/run control). A missed deadline answers `504 { error: "opencode_timeout" }` (minimum 1000 ms); the public `/api/oc/*` proxy keeps its own 60s budget |
 | `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | — / `opencode` | Basic auth to opencode |
 | `DATA_DIR` | `<repo-root>/data` | SQLite path (`/data` in Docker). Relative values resolve against the repo root |
 | `WORKSPACES_ROOT` | `<repo-root>/workspace` | Base directory where workspaces are created as subfolders. Point it at the same folder opencode sees (e.g. `/workspace` in Docker). Relative values resolve against the repo root |
