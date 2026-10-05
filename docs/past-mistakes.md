@@ -1,8 +1,10 @@
-# Mutation reliability — edge cases to keep in mind
+# Past mistakes — reliability edge cases to keep in mind
 
 **Read this before adding or changing any operation that mutates server state** (sending a prompt, creating/deleting a session or workspace, answering a permission/form, starting/stopping the run or preview, finishing an isolated session, revoking a device, …).
 
-PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github.com/ToguDV/masterhand/pull/63) fixed one family of failures in the web composer. The same root causes can reappear anywhere a client talks to the BFF/opencode over an unreliable transport. This document records the rules so new code does not reintroduce them; it is indexed in `docs/README.md` and the `AGENTS.md` documentation map.
+PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github.com/ToguDV/masterhand/pull/63) fixed one family of failures in the web composer. The same root causes can reappear anywhere a client talks to the BFF/opencode over an unreliable transport. This document records them — and the rules they produced — so new code does not reintroduce them or repeat a class of mistake we already paid for.
+
+**Every resolved issue must leave its failure class here** (see `WORKFLOW.md` §"Working from an issue"): a new/updated rule, checklist item or established pattern. A fix without that trace is not done.
 
 ## The failure family
 
