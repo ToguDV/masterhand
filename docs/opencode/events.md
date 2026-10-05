@@ -12,7 +12,7 @@ Verified on **2026-10-01** against a live **opencode v2.0.6** server and the gen
   `{ id, created?, type, location?: { directory }, data, durable?: { aggregateID, seq, version } }`.
   MasterHand's hub parses the JSON and re-emits the object unchanged on `/api/events` (see `docs/bff/api.md`).
 - `location.directory` tells which project the event belongs to; session-scoped events also carry `data.sessionID`.
-- The first event in the stream is `server.connected`; heartbeats are SSE comments (`: heartbeat`) and must be ignored.
+- The first event in the stream is `server.connected`; heartbeats are SSE comments (`: heartbeat`) and must be ignored. Re-verified on **2026-10-05** against a live **opencode v2.0.21**: one `: heartbeat` comment arrives **every 15 s** exactly, so MasterHand's hub treats any raw byte (comments included) as liveness and reconnects a socket that goes silent past 45 s.
 - **No replay guarantee**: if the connection drops, lost events are not re-emitted. Clients refetch history on reconnect (see `ARCHITECTURE.md` §4.5).
 - There is no `sync` stream anymore; every event is delivered once.
 

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
@@ -221,6 +221,28 @@ describe("createWorktreeManager", () => {
     }
   })
 
+  it("quarantines an orphan worktree by renaming it and pruning the repo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-quarantine-"))
+    try {
+      const worktree = join(dir, "orphan")
+      mkdirSync(worktree, { recursive: true })
+      writeFileSync(join(worktree, "uncommitted.txt"), "agent work")
+      const calls: string[][] = []
+      const run = vi.fn((args: string[]) => {
+        calls.push(args)
+        return ok()
+      })
+      const manager = createWorktreeManager({ run })
+      const target = manager.quarantine("/repo", worktree)
+      expect(existsSync(worktree)).toBe(false)
+      expect(existsSync(join(target, "uncommitted.txt"))).toBe(true)
+      expect(target.startsWith(`${worktree}.orphaned-`)).toBe(true)
+      expect(calls).toEqual([["worktree", "prune"]])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("throws a descriptive error when git fails", () => {
     const run = vi.fn(() => fail("fatal: nope"))
     const manager = createWorktreeManager({ run })
@@ -289,60 +311,197 @@ describe("createWorktreeManager", () => {
 })
 
 describe("reconcileWorktrees", () => {
-  it("drops stale records and removes orphan worktrees", () => {
+  const SENTINEL = ".masterhand-volume"
+
+  function fakeManager(overrides: Record<string, unknown> = {}) {
+    const quarantine = vi.fn((_repo: string, path: string) => `${path}.orphaned-1`)
+    const remove = vi.fn()
+    const manager = {
+      isRepoRoot: () => true,
+      list: () => [] as Array<{ path: string; head: string; branch: string }>,
+      ensureRepo: () => {},
+      headBranch: () => "main",
+      create: () => {},
+      remove,
+      quarantine,
+      commitAll: () => true,
+      hasRemote: () => false,
+      remoteUrl: () => null,
+      push: () => {},
+      pullRequest: () => null,
+      ...overrides,
+    }
+    return { manager, quarantine, remove }
+  }
+
+  function seedRecord(
+    store: ReturnType<typeof createMemoryStore>,
+    sessionID: string,
+    path: string,
+    createdAt: number,
+  ): void {
+    store.createIsolatedSession({
+      sessionID,
+      workspaceID: "ws_1",
+      path,
+      branch: `masterhand/app-${sessionID}`,
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt,
+    })
+  }
+
+  it("drops stale records and quarantines orphan worktrees when the volume is confirmed", () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
     try {
+      const root = join(dir, "root")
+      mkdirSync(root, { recursive: true })
+      writeFileSync(join(root, SENTINEL), "ok")
       const store = createMemoryStore()
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
-      store.createIsolatedSession({
-        sessionID: "ses_gone",
-        workspaceID: "ws_1",
-        path: join(dir, "missing"),
-        branch: "b",
-        baseRef: "main",
-        pushed: false,
-        prUrl: null,
-        createdAt: 1,
-      })
-      store.createIsolatedSession({
-        sessionID: "ses_alive",
-        workspaceID: "ws_1",
-        path: join(dir, "alive"),
-        branch: "b2",
-        baseRef: "main",
-        pushed: false,
-        prUrl: null,
-        createdAt: 2,
-      })
+      seedRecord(store, "ses_gone", join(dir, "missing"), 1)
+      seedRecord(store, "ses_alive", join(dir, "alive"), 2)
       const alivePath = join(dir, "alive")
       mkdirSync(alivePath, { recursive: true })
-      const orphanPath = join(dir, "root", "app", "orphan")
-      const removed: string[] = []
-      const manager = {
-        isRepoRoot: () => true,
+      const orphanPath = join(root, "app", "orphan")
+      const { manager, quarantine, remove } = fakeManager({
         list: () => [
           { path: join(dir, "app"), head: "a", branch: "main" },
           { path: alivePath, head: "b", branch: "b2" },
           { path: orphanPath, head: "c", branch: "c" },
         ],
-        remove: (_repo: string, path: string) => {
-          removed.push(path)
-        },
-        ensureRepo: () => {},
-        headBranch: () => "main",
-        create: () => {},
-        commitAll: () => true,
-        hasRemote: () => false,
-        remoteUrl: () => null,
-        push: () => {},
-        pullRequest: () => null,
-      }
-      const result = reconcileWorktrees(store, manager, join(dir, "root"))
+      })
+      const result = reconcileWorktrees(store, manager, root)
+      expect(result.skipped).toBeNull()
       expect(result.droppedRecords).toEqual(["ses_gone"])
-      expect(result.removedWorktrees).toEqual([orphanPath])
-      expect(removed).toEqual([orphanPath])
+      expect(result.quarantinedWorktrees).toEqual([`${orphanPath}.orphaned-1`])
+      expect(quarantine).toHaveBeenCalledTimes(1)
+      expect(quarantine).toHaveBeenCalledWith(join(dir, "app"), orphanPath)
+      expect(remove).not.toHaveBeenCalled()
       expect(store.getIsolatedSession("ses_gone")).toBeNull()
       expect(store.getIsolatedSession("ses_alive")).not.toBeNull()
+      expect(existsSync(alivePath)).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("skips reconciliation when the worktrees root is not mounted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const store = createMemoryStore()
+      store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
+      seedRecord(store, "ses_gone", join(dir, "missing"), 1)
+      const { manager, quarantine, remove } = fakeManager()
+      const result = reconcileWorktrees(store, manager, join(dir, "root"))
+      expect(result.skipped).toBe("worktrees_root_missing")
+      expect(result.droppedRecords).toEqual([])
+      expect(result.quarantinedWorktrees).toEqual([])
+      expect(store.getIsolatedSession("ses_gone")).not.toBeNull()
+      expect(quarantine).not.toHaveBeenCalled()
+      expect(remove).not.toHaveBeenCalled()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does nothing on a fresh install (no root, no records)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const store = createMemoryStore()
+      const { manager, quarantine, remove } = fakeManager()
+      const result = reconcileWorktrees(store, manager, join(dir, "root"))
+      expect(result.skipped).toBeNull()
+      expect(result.droppedRecords).toEqual([])
+      expect(result.quarantinedWorktrees).toEqual([])
+      expect(quarantine).not.toHaveBeenCalled()
+      expect(remove).not.toHaveBeenCalled()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("skips reconciliation when no recorded worktree confirms the volume", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const root = join(dir, "root")
+      mkdirSync(root, { recursive: true })
+      const store = createMemoryStore()
+      store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
+      seedRecord(store, "ses_gone", join(dir, "missing"), 1)
+      const { manager, quarantine, remove } = fakeManager()
+      const result = reconcileWorktrees(store, manager, root)
+      expect(result.skipped).toBe("volume_unconfirmed")
+      expect(result.droppedRecords).toEqual([])
+      expect(result.quarantinedWorktrees).toEqual([])
+      expect(store.getIsolatedSession("ses_gone")).not.toBeNull()
+      expect(quarantine).not.toHaveBeenCalled()
+      expect(remove).not.toHaveBeenCalled()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("confirms an existing volume from a live worktree and writes the sentinel", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const root = join(dir, "root")
+      mkdirSync(root, { recursive: true })
+      const store = createMemoryStore()
+      store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
+      seedRecord(store, "ses_alive", join(dir, "alive"), 1)
+      seedRecord(store, "ses_gone", join(dir, "missing"), 2)
+      mkdirSync(join(dir, "alive"), { recursive: true })
+      const { manager } = fakeManager()
+      const result = reconcileWorktrees(store, manager, root)
+      expect(result.skipped).toBeNull()
+      expect(result.droppedRecords).toEqual(["ses_gone"])
+      expect(store.getIsolatedSession("ses_alive")).not.toBeNull()
+      expect(existsSync(join(root, SENTINEL))).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("confirms an empty mounted volume and writes the sentinel", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const root = join(dir, "root")
+      mkdirSync(root, { recursive: true })
+      const store = createMemoryStore()
+      const { manager, quarantine } = fakeManager()
+      const result = reconcileWorktrees(store, manager, root)
+      expect(result.skipped).toBeNull()
+      expect(result.droppedRecords).toEqual([])
+      expect(result.quarantinedWorktrees).toEqual([])
+      expect(quarantine).not.toHaveBeenCalled()
+      expect(existsSync(join(root, SENTINEL))).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does not quarantine a folder that is already quarantined", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
+    try {
+      const root = join(dir, "root")
+      mkdirSync(root, { recursive: true })
+      writeFileSync(join(root, SENTINEL), "ok")
+      const store = createMemoryStore()
+      store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
+      const quarantined = join(root, "app", "dead.orphaned-1700000000000")
+      const orphanPath = join(root, "app", "live-orphan")
+      const { manager, quarantine } = fakeManager({
+        list: () => [
+          { path: quarantined, head: "a", branch: null },
+          { path: orphanPath, head: "b", branch: null },
+        ],
+      })
+      const result = reconcileWorktrees(store, manager, root)
+      expect(result.quarantinedWorktrees).toEqual([`${orphanPath}.orphaned-1`])
+      expect(quarantine).toHaveBeenCalledTimes(1)
+      expect(quarantine).toHaveBeenCalledWith(join(dir, "app"), orphanPath)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

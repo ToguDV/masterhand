@@ -90,6 +90,15 @@ describe("createEventHandler", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["commands"] })
   })
 
+  it("refreshes the health status when the BFF hub connection changes", () => {
+    const { qc, invalidate } = makeQueryClient()
+    const handler = createEventHandler(qc)
+    emit(handler, "hub.disconnected", { connected: false })
+    emit(handler, "hub.connected", { connected: true })
+    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.status })
+  })
+
   it("coalesces catalog refreshes when opencode hot-reloads them", () => {
     vi.useFakeTimers()
     try {
