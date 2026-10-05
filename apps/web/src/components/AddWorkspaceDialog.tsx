@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ApiError, type CreateWorkspaceInput } from "@masterhand/client-core"
+import { useModalFocus } from "./useModalFocus"
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -19,6 +20,7 @@ export function AddWorkspaceDialog({
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const dialogRef = useModalFocus<HTMLFormElement>(onClose)
 
   async function submit(): Promise<void> {
     const trimmed = name.trim()
@@ -34,48 +36,42 @@ export function AddWorkspaceDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center md:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center mh-overlay md:items-center md:p-4">
       <form
+        ref={dialogRef}
+        tabIndex={-1}
         onSubmit={(event) => {
           event.preventDefault()
           void submit()
         }}
-        className="pb-safe w-full max-w-lg space-y-3 rounded-t-2xl border border-zinc-800 bg-zinc-900 p-4 md:rounded-2xl"
+        className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
       >
-        <div>
-          <h3 className="text-base font-semibold">Add workspace</h3>
-          <p className="mt-1 text-xs text-zinc-500">
-            A new folder with this name is created inside the workspaces root, isolated from the others.
-          </p>
-        </div>
+        <h3 className="mh-dialog__title mh-heading-4">Add workspace</h3>
+        <p className="mh-body-sm text-ink-muted">
+          A new folder with this name is created inside the workspaces root, isolated from the others.
+        </p>
 
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-zinc-400">Name</span>
+        <div className="mt-4">
+          <label className="mh-label" htmlFor="workspace-name">
+            Name
+          </label>
           <input
+            id="workspace-name"
             autoFocus
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="my-project"
-            className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            className="mh-input"
           />
-        </label>
+        </div>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
-          >
+        <div className="mh-dialog__actions">
+          <button type="button" onClick={onClose} disabled={busy} className="mh-btn mh-btn--secondary">
             Cancel
           </button>
-          <button
-            type="submit"
-            disabled={!name.trim() || busy}
-            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-50"
-          >
+          <button type="submit" disabled={!name.trim() || busy} className="mh-btn mh-btn--primary">
             {busy ? "Adding…" : "Add"}
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { memo, useState } from "react"
+import { memo, useState, type ReactNode } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
@@ -11,7 +11,6 @@ import {
   subagentOutput,
   tokenCounts,
   tokenSpeed,
-  toolTitle,
   type ChatMessage,
   type ChatPart,
   type ChatReasoningPart,
@@ -19,44 +18,46 @@ import {
   type ChatToolPart,
   type FormAnswer,
   type FormInfo,
+  type Permission,
 } from "@masterhand/client-core"
 import { ToolCard } from "./tools/ToolCard"
 import { StatusDot } from "./tools/StatusDot"
 import { QuestionCard } from "./QuestionCard"
+import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 
 // Assistant output is markdown; render it as such (GFM + single newlines as
-// breaks, matching what the model expects to see). Tailwind has no typography
-// plugin installed, so every element is styled explicitly for the dark theme.
+// breaks, matching what the model expects to see). Every element maps to the
+// design tokens: hairlines, ink text and the single emerald accent.
 const markdownComponents: Components = {
   p: ({ node, ...props }) => <p className="my-2 break-words first:mt-0 last:mb-0" {...props} />,
   h1: ({ node, ...props }) => <h1 className="mt-4 mb-2 text-xl font-semibold first:mt-0" {...props} />,
   h2: ({ node, ...props }) => <h2 className="mt-4 mb-2 text-lg font-semibold first:mt-0" {...props} />,
   h3: ({ node, ...props }) => <h3 className="mt-3 mb-1.5 text-base font-semibold first:mt-0" {...props} />,
-  h4: ({ node, ...props }) => <h4 className="mt-3 mb-1.5 text-[15px] font-semibold first:mt-0" {...props} />,
-  h5: ({ node, ...props }) => <h5 className="mt-3 mb-1.5 text-[15px] font-semibold first:mt-0" {...props} />,
-  h6: ({ node, ...props }) => <h6 className="mt-3 mb-1.5 text-[15px] font-semibold text-zinc-400 first:mt-0" {...props} />,
+  h4: ({ node, ...props }) => <h4 className="mt-3 mb-1.5 text-base font-semibold first:mt-0" {...props} />,
+  h5: ({ node, ...props }) => <h5 className="mt-3 mb-1.5 text-base font-semibold first:mt-0" {...props} />,
+  h6: ({ node, ...props }) => <h6 className="mt-3 mb-1.5 text-base font-semibold text-ink-muted first:mt-0" {...props} />,
   ul: ({ node, ...props }) => (
     <ul className="my-2 list-disc space-y-1 pl-5 first:mt-0 last:mb-0 [&>li:has(>input)]:list-none" {...props} />
   ),
   ol: ({ node, ...props }) => <ol className="my-2 list-decimal space-y-1 pl-5 first:mt-0 last:mb-0" {...props} />,
   li: ({ node, ...props }) => <li className="break-words [&>p]:my-0 [&>ol]:my-1 [&>ul]:my-1" {...props} />,
   blockquote: ({ node, ...props }) => (
-    <blockquote className="my-2 border-l-2 border-zinc-700 pl-3 text-zinc-400 first:mt-0 last:mb-0" {...props} />
+    <blockquote className="my-2 border-l-2 border-hairline-strong pl-3 text-ink-muted first:mt-0 last:mb-0" {...props} />
   ),
   a: ({ node, ...props }) => (
     <a
-      className="text-indigo-400 underline decoration-indigo-400/40 underline-offset-2 hover:text-indigo-300"
+      className="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
       target="_blank"
       rel="noreferrer"
       {...props}
     />
   ),
   code: ({ node, ...props }) => (
-    <code className="rounded bg-zinc-800/80 px-1 py-0.5 font-mono text-[13px] text-zinc-100" {...props} />
+    <code className="rounded-xs bg-surface-muted px-1 py-0.5 font-mono text-[13px] text-ink" {...props} />
   ),
   pre: ({ node, ...props }) => (
     <pre
-      className="scroll-thin my-2 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-200 first:mt-0 last:mb-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
+      className="scroll-thin my-2 overflow-x-auto rounded-md bg-code p-3 font-mono text-[13px] leading-[1.6] text-code-text first:mt-0 last:mb-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
       {...props}
     />
   ),
@@ -66,12 +67,12 @@ const markdownComponents: Components = {
     </div>
   ),
   th: ({ node, ...props }) => (
-    <th className="border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-left font-semibold" {...props} />
+    <th className="border border-hairline bg-surface-muted px-2 py-1 text-left font-semibold" {...props} />
   ),
-  td: ({ node, ...props }) => <td className="border border-zinc-800 px-2 py-1 align-top" {...props} />,
-  hr: ({ node, ...props }) => <hr className="my-4 border-zinc-800" {...props} />,
-  img: ({ node, ...props }) => <img className="my-2 max-w-full rounded-lg" {...props} />,
-  input: ({ node, ...props }) => <input className="mr-1.5 accent-indigo-500" {...props} />,
+  td: ({ node, ...props }) => <td className="border border-hairline px-2 py-1 align-top" {...props} />,
+  hr: ({ node, ...props }) => <hr className="my-4 border-hairline" {...props} />,
+  img: ({ node, ...props }) => <img className="my-2 max-w-full rounded-md" {...props} />,
+  input: ({ node, ...props }) => <input className="mr-1.5 accent-[var(--mh-accent)]" {...props} />,
 }
 
 // Memoized: streaming updates rebuild the message list on every delta, but the
@@ -79,7 +80,7 @@ const markdownComponents: Components = {
 const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   if (!text.trim()) return null
   return (
-    <div data-testid="markdown" className="text-[15px] leading-relaxed">
+    <div data-testid="markdown" className="mh-msg__body">
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
         {text}
       </ReactMarkdown>
@@ -89,8 +90,8 @@ const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
 
 function ReasoningBlock({ part }: { part: ChatReasoningPart }) {
   return (
-    <details className="text-sm text-zinc-500">
-      <summary className="cursor-pointer select-none text-xs font-medium uppercase tracking-wide">Reasoning</summary>
+    <details className="text-sm text-ink-muted">
+      <summary className="mh-micro cursor-pointer select-none">Reasoning</summary>
       <p className="mt-1 break-words whitespace-pre-wrap">{part.text}</p>
     </details>
   )
@@ -109,52 +110,48 @@ function SubagentCall({
   const output = subagentOutput(part)
 
   return (
-    <div className="overflow-hidden rounded-xl border border-indigo-500/30 bg-indigo-500/5">
+    <div className={`mh-tool ${open ? "is-open" : ""}`}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-indigo-500/10"
+        className="mh-tool__header hover:bg-surface-muted"
       >
         <StatusDot status={state.status} />
-        <span className="shrink-0 rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-300">
-          Subagent
-        </span>
-        <span className="shrink-0 font-mono text-xs text-indigo-200">{info.name}</span>
-        <span className="min-w-0 flex-1 truncate text-zinc-300">{info.description}</span>
-        {info.background && (
-          <span className="shrink-0 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] text-zinc-300">background</span>
-        )}
-        <span className="shrink-0 text-xs text-zinc-500">{state.status}</span>
+        <span className="mh-chip mh-chip--outline">Subagent</span>
+        <span className="shrink-0 font-mono text-xs text-ink-soft">{info.name}</span>
+        <span className="min-w-0 flex-1 truncate text-ink-muted">{info.description}</span>
+        {info.background && <span className="mh-chip">background</span>}
+        <span className="shrink-0 text-xs text-ink-faint">{state.status}</span>
       </button>
 
       {open && (
-        <div className="mh-reveal space-y-2 border-t border-indigo-500/20 px-3 py-2">
+        <div className="mh-reveal mh-tool__body border-t border-hairline pt-2">
           {info.prompt && (
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Prompt</p>
-              <pre className="scroll-thin max-h-60 overflow-auto whitespace-pre-wrap text-xs text-zinc-400">
+              <p className="mh-micro text-ink-muted">Prompt</p>
+              <pre className="scroll-thin max-h-60 overflow-auto whitespace-pre-wrap text-xs text-ink-muted">
                 {info.prompt}
               </pre>
             </div>
           )}
           {output && (
-            <div className="border-t border-indigo-500/20 pt-2">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Result</p>
-              <pre className="scroll-thin max-h-60 overflow-auto whitespace-pre-wrap text-xs text-zinc-300">
+            <div className="border-t border-hairline pt-2">
+              <p className="mh-micro text-ink-muted">Result</p>
+              <pre className="scroll-thin max-h-60 overflow-auto whitespace-pre-wrap text-xs text-ink-soft">
                 {output}
               </pre>
             </div>
           )}
-          {state.status === "error" && <p className="text-xs text-red-400">{state.error}</p>}
+          {state.status === "error" && <p className="text-xs text-danger">{state.error}</p>}
         </div>
       )}
 
       {info.sessionID && onOpenSession && (
-        <div className="border-t border-indigo-500/20 px-3 py-1.5">
+        <div className="border-t border-hairline px-3 py-1.5">
           <button
             type="button"
             onClick={() => onOpenSession(info.sessionID!)}
-            className="text-xs font-medium text-indigo-300 hover:text-indigo-200"
+            className="text-xs font-medium text-accent hover:text-accent-strong"
           >
             Open session →
           </button>
@@ -162,6 +159,11 @@ function SubagentCall({
       )}
     </div>
   )
+}
+
+/** The permission raised by this tool call, when opencode reported its source. */
+function permissionForPart(permission: Permission, part: ChatToolPart): boolean {
+  return permission.source?.id === part.callID
 }
 
 interface PartViewProps {
@@ -172,18 +174,37 @@ interface PartViewProps {
   busyFormID: string | null
   onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
   onCancelForm?: (form: FormInfo) => void
+  permissions: Permission[]
+  answeredPermissions: AnsweredPermission[]
+  respondingPermissionID: string | null
+  onRespondPermission?: (permission: Permission, response: "once" | "always" | "reject") => void
 }
 
-function PartView({ part, onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm }: PartViewProps) {
+function PartView({
+  part,
+  onOpenSession,
+  forms,
+  answeredForms,
+  busyFormID,
+  onRespondForm,
+  onCancelForm,
+  permissions,
+  answeredPermissions,
+  respondingPermissionID,
+  onRespondPermission,
+}: PartViewProps) {
   switch (part.type) {
     case "text":
       return <MarkdownText text={part.text} />
     case "reasoning":
       return <ReasoningBlock part={part} />
-    case "tool":
-      if (isTaskTool(part)) return <SubagentCall part={part} onOpenSession={onOpenSession} />
-      if (isQuestionTool(part) && onRespondForm && onCancelForm) {
-        return (
+    case "tool": {
+      const pending = permissions.find((permission) => permissionForPart(permission, part))
+      const answered = answeredPermissions.find((entry) => permissionForPart(entry.permission, part))
+      let content: ReactNode
+      if (isTaskTool(part)) content = <SubagentCall part={part} onOpenSession={onOpenSession} />
+      else if (isQuestionTool(part) && onRespondForm && onCancelForm) {
+        content = (
           <QuestionCard
             part={part}
             forms={forms}
@@ -193,8 +214,21 @@ function PartView({ part, onOpenSession, forms, answeredForms, busyFormID, onRes
             onCancel={onCancelForm}
           />
         )
-      }
-      return <ToolCard part={part} />
+      } else content = <ToolCard part={part} />
+      return (
+        <>
+          {content}
+          {pending && (
+            <PermissionCard
+              permission={pending}
+              busy={respondingPermissionID === pending.id}
+              onRespond={(response) => onRespondPermission?.(pending, response)}
+            />
+          )}
+          {answered && <PermissionResolved entry={answered} />}
+        </>
+      )
+    }
     default:
       return null
   }
@@ -206,13 +240,7 @@ export function UserBubble({ entry }: { entry: ChatMessage }) {
     .map((part) => part.text)
     .join("\n")
   if (!text.trim()) return null
-  return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] break-words whitespace-pre-wrap rounded-2xl rounded-br-sm bg-indigo-600/20 px-3.5 py-2.5 text-[15px] leading-relaxed">
-        {text}
-      </div>
-    </div>
-  )
+  return <div className="mh-msg--user">{text}</div>
 }
 
 export function AssistantBlock({
@@ -223,6 +251,10 @@ export function AssistantBlock({
   busyFormID = null,
   onRespondForm,
   onCancelForm,
+  permissions = [],
+  answeredPermissions = [],
+  respondingPermissionID = null,
+  onRespondPermission,
 }: {
   entry: ChatMessage
   onOpenSession?: (id: string) => void
@@ -231,6 +263,10 @@ export function AssistantBlock({
   busyFormID?: string | null
   onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
   onCancelForm?: (form: FormInfo) => void
+  permissions?: Permission[]
+  answeredPermissions?: AnsweredPermission[]
+  respondingPermissionID?: string | null
+  onRespondPermission?: (permission: Permission, response: "once" | "always" | "reject") => void
 }) {
   const visible = entry.parts
   const info = entry.info
@@ -241,7 +277,9 @@ export function AssistantBlock({
   const speed = formatSpeed(tokenSpeed(counts, (info.time.completed ?? 0) - info.time.created))
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="mh-msg--agent">
+      {info.agent && <div className="mh-msg__label mh-micro">{info.agent} · agent</div>}
+
       {visible.map((part) => (
         <PartView
           key={part.id}
@@ -252,19 +290,23 @@ export function AssistantBlock({
           busyFormID={busyFormID}
           onRespondForm={onRespondForm}
           onCancelForm={onCancelForm}
+          permissions={permissions}
+          answeredPermissions={answeredPermissions}
+          respondingPermissionID={respondingPermissionID}
+          onRespondPermission={onRespondPermission}
         />
       ))}
 
       {streaming && visible.length === 0 && (
-        <p className="flex items-center gap-2 text-sm text-zinc-500">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-indigo-400" /> Thinking…
+        <p className="flex items-center gap-2 text-sm text-ink-muted">
+          <span className="mh-dot mh-dot--busy" /> Thinking…
         </p>
       )}
 
-      {errorMessage && <p className="text-sm text-red-400">{errorMessage}</p>}
+      {errorMessage && <p className="text-sm text-danger">{errorMessage}</p>}
 
       {info.time.completed !== undefined && (
-        <p className="text-xs text-zinc-600">
+        <p className="mh-msg__meta">
           {info.modelID}
           {(info.cost ?? 0) > 0 ? ` · $${(info.cost ?? 0).toFixed(4)}` : ""}
           {breakdown ? ` · ${breakdown}` : ""}

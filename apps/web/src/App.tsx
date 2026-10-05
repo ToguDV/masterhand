@@ -17,15 +17,23 @@ import {
   type FormAnswer,
   type FormInfo,
   type Permission,
+  type PermissionResponse,
 } from "@masterhand/client-core"
 import { client } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
+import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
 import { ChatView } from "./components/ChatView"
+import { ChoiceModal } from "./components/ChoiceModal"
+import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
-import { PermissionDialog } from "./components/PermissionDialog"
+import { PreviewSheet, PreviewTrigger } from "./components/PreviewPanel"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
+import { RunSheet, RunTrigger } from "./components/RunPanel"
 import { SessionList } from "./components/SessionList"
+import { ThemeToggle } from "./components/ThemeToggle"
+import { useToast } from "./components/Toast"
 import { WorkspacePicker } from "./components/WorkspacePicker"
+import type { AnsweredPermission } from "./components/PermissionCard"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
@@ -52,6 +60,7 @@ function loadAutoAcceptSessions(): string[] {
 
 export default function App() {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [sessionID, setSessionID] = useState<string | null>(
     () => new URLSearchParams(window.location.search).get("session"),
@@ -62,13 +71,18 @@ export default function App() {
   const [removingWorkspace, setRemovingWorkspace] = useState(false)
   const [connected, setConnected] = useState(false)
   const [permissions, setPermissions] = useState<Permission[]>([])
+  const [answeredPermissions, setAnsweredPermissions] = useState<AnsweredPermission[]>([])
+  const [respondingPermissionID, setRespondingPermissionID] = useState<string | null>(null)
   const [forms, setForms] = useState<FormInfo[]>([])
   const [answeredForms, setAnsweredForms] = useState<Array<{ form: FormInfo; answer: FormAnswer }>>([])
   const [busyFormID, setBusyFormID] = useState<string | null>(null)
-  const [responding, setResponding] = useState(false)
+  const [dismissedChoiceFormIDs, setDismissedChoiceFormIDs] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(loadAutoAcceptSessions)
+  const [panel, setPanel] = useState<"audit" | "run" | "preview" | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Mirrors for the memoized event handler: it must see the latest values
   // without being recreated (which would resubscribe the stream).
@@ -88,6 +102,10 @@ export default function App() {
     try {
       await client.api.respondPermission(permission.sessionID, permission.id, "once")
       setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
+      // Auto-answers stay in the transcript as resolved history.
+      setAnsweredPermissions((prev) =>
+        [...prev.filter((entry) => entry.permission.id !== permission.id), { permission, response: "once" as const, at: Date.now() }].slice(-50),
+      )
     } catch {
       setBanner("Could not answer the permission request")
     } finally {
@@ -120,11 +138,17 @@ export default function App() {
           }
           setPermissions((prev) => (prev.some((item) => item.id === permission.id) ? prev : [...prev, permission]))
         },
-        onPermissionReplied: (permissionID) =>
-          setPermissions((prev) => prev.filter((item) => item.id !== permissionID)),
+        onPermissionReplied: (permissionID) => {
+          // Answered elsewhere: the event carries no response, so no resolved
+          // row is recorded (the tool card still reflects the outcome).
+          setPermissions((prev) => prev.filter((item) => item.id !== permissionID))
+        },
         onForm: (form) =>
           setForms((prev) => (prev.some((item) => item.id === form.id) ? prev : [...prev, form])),
-        onFormSettled: (formID) => setForms((prev) => prev.filter((item) => item.id !== formID)),
+        onFormSettled: (formID) => {
+          setForms((prev) => prev.filter((item) => item.id !== formID))
+          setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== formID))
+        },
         onSessionError: (message) => setBanner(message),
         onServerConnected: () => void syncPendingRef.current(),
       }),
@@ -133,6 +157,7 @@ export default function App() {
 
   const openSession = useCallback((id: string | null) => {
     setSessionID(id)
+    if (!id) setDrawerOpen(false)
     const url = new URL(window.location.href)
     if (id) url.searchParams.set("session", id)
     else url.searchParams.delete("session")
@@ -308,15 +333,28 @@ export default function App() {
     if (next !== sessionID) openSession(next)
   }, [sessionsQuery.isSuccess, sessions, sessionID, openSession])
 
-  // A question raised in another session still blocks its agent: surface it.
-  const waitingForm = forms.find((form) => formIsQuestion(form) && form.sessionID !== sessionID) ?? null
+  // Questions raised in another session still block their agents: surface them
+  // as the choice-modal (the first not dismissed, so dismissing one reveals the
+  // next). Once every one is dismissed, the info banner stays as a fallback.
+  const otherForms = forms.filter((form) => formIsQuestion(form) && form.sessionID !== sessionID)
+  const choiceForm = otherForms.find((form) => !dismissedChoiceFormIDs.includes(form.id)) ?? null
+  const waitingForm = choiceForm ?? otherForms[0] ?? null
+  // A permission raised in another session is invisible in the transcript: one
+  // banner per affected session keeps it reachable.
+  const otherPermissionSessions = [
+    ...new Set(permissions.filter((permission) => permission.sessionID !== sessionID).map((p) => p.sessionID)),
+  ]
 
   const handleLogout = useCallback(async () => {
     await client.auth.logout().catch(() => {})
     queryClient.clear()
     setPermissions([])
+    setAnsweredPermissions([])
     setForms([])
     setAnsweredForms([])
+    setPanel(null)
+    setMenuOpen(false)
+    setDrawerOpen(false)
     setAuthed(false)
     openSession(null)
   }, [queryClient, openSession])
@@ -348,6 +386,7 @@ export default function App() {
       if (sessionID === id) openSession(null)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
       void queryClient.invalidateQueries({ queryKey: ["directories"] })
+      toast("✓ Session deleted")
     } catch {
       setBanner("Could not delete the session")
     }
@@ -376,19 +415,21 @@ export default function App() {
     }
   }
 
-  async function respondPermission(response: "once" | "always" | "reject") {
-    const permission = permissions[0]
-    if (!permission) return
-    setResponding(true)
+  async function respondPermission(permission: Permission, response: PermissionResponse) {
+    setRespondingPermissionID(permission.id)
     try {
       // The session id resolves the request regardless of the active workspace.
       await client.api.respondPermission(permission.sessionID, permission.id, response)
       setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
+      // Keep the answered request so it renders as resolved history inline.
+      setAnsweredPermissions((prev) =>
+        [...prev.filter((entry) => entry.permission.id !== permission.id), { permission, response, at: Date.now() }].slice(-50),
+      )
     } catch {
-      // Keep the dialog open so the user can retry.
+      // Keep the inline card so the user can retry.
       setBanner("Could not answer the permission request")
     } finally {
-      setResponding(false)
+      setRespondingPermissionID(null)
     }
   }
 
@@ -399,6 +440,7 @@ export default function App() {
       // The form id resolves the question regardless of the active workspace.
       await client.api.respondForm(form.sessionID, form.id, answer)
       setForms((prev) => prev.filter((item) => item.id !== form.id))
+      setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== form.id))
       // Keep the local answer so the inline card can render it read-only.
       setAnsweredForms((prev) =>
         [...prev.filter((entry) => entry.form.id !== form.id), { form, answer }].slice(-50),
@@ -415,6 +457,7 @@ export default function App() {
     try {
       await client.api.cancelForm(form.sessionID, form.id)
       setForms((prev) => prev.filter((item) => item.id !== form.id))
+      setDismissedChoiceFormIDs((prev) => prev.filter((id) => id !== form.id))
     } catch {
       setBanner("Could not dismiss the question")
     } finally {
@@ -424,8 +467,8 @@ export default function App() {
 
   if (authed === null) {
     return (
-      <main className="flex min-h-dvh items-center justify-center">
-        <p className="animate-pulse text-sm text-zinc-500">Loading…</p>
+      <main className="flex min-h-dvh items-center justify-center bg-canvas">
+        <p className="animate-pulse text-sm text-ink-muted">Loading…</p>
       </main>
     )
   }
@@ -434,45 +477,114 @@ export default function App() {
     return <Login onSuccess={() => setAuthed(true)} />
   }
 
+  const asideClass = [
+    "min-h-0 flex-col border-r border-hairline bg-canvas md:flex md:w-[272px] md:shrink-0",
+    sessionID ? "hidden" : "flex w-full",
+    sessionID && drawerOpen
+      ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
+      : "",
+  ].join(" ")
+
   return (
-    <div className="flex h-dvh flex-col">
-      <header className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+    <div className="flex h-dvh flex-col bg-canvas text-ink">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-hairline px-2 md:px-4">
         {sessionID && (
           <button
             type="button"
             onClick={() => openSession(null)}
-            className="rounded-lg px-2 py-1 text-lg leading-none text-zinc-400 hover:bg-zinc-900 md:hidden"
+            className="mh-btn mh-btn--quiet md:hidden"
             aria-label="Back"
           >
             ‹
           </button>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{selected?.title || "MasterHand"}</h1>
+        {sessionID && (
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="mh-btn mh-btn--quiet md:hidden"
+            aria-label="Sessions"
+          >
+            ☰
+          </button>
+        )}
+        <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
+          {selected ? selected.title || "Untitled" : "MasterHand"}
+        </h1>
         <span
-          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-400" : "animate-pulse bg-amber-400"}`}
+          className={`mh-dot ${connected ? "mh-dot--connected" : "mh-dot--busy"}`}
           title={connected ? "Connected to opencode" : "Reconnecting…"}
         />
+        {sessionID && (
+          <div className="hidden items-center gap-1 md:flex">
+            <AuditTrigger onOpen={() => setPanel("audit")} />
+            <RunTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
+            <PreviewTrigger sessionID={sessionID} onOpen={() => setPanel("preview")} />
+          </div>
+        )}
+        <div className="mx-1 hidden h-6 w-px bg-hairline md:block" />
+        <ThemeToggle />
         <button
           type="button"
           onClick={() => void handleLogout()}
-          className="rounded-lg px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-900"
+          className="mh-btn mh-btn--ghost hidden md:inline-flex"
         >
           Sign out
         </button>
+        <div className="relative md:hidden">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((value) => !value)}
+            className="mh-btn mh-btn--icon"
+            aria-label="More actions"
+            aria-expanded={menuOpen}
+          >
+            ⋯
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setMenuOpen(false)} />
+              <div
+                className="absolute right-0 top-full z-30 mt-1 w-60 rounded-md border border-hairline bg-surface p-1.5 shadow-elev3"
+                onClick={() => setMenuOpen(false)}
+              >
+                {sessionID && (
+                  <div className="mb-1.5 flex flex-col gap-0.5 border-b border-hairline pb-1.5">
+                    <AuditTrigger onOpen={() => setPanel("audit")} className="w-full justify-start" />
+                    <RunTrigger
+                      sessionID={sessionID}
+                      workspaceID={workspaceID}
+                      onOpen={() => setPanel("run")}
+                      className="w-full justify-start"
+                    />
+                    <PreviewTrigger
+                      sessionID={sessionID}
+                      onOpen={() => setPanel("preview")}
+                      className="w-full justify-start"
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="mh-btn mh-btn--ghost w-full justify-start"
+                >
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {banner && (
-        <button
-          type="button"
-          onClick={() => setBanner(null)}
-          className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-left text-xs text-amber-300"
-        >
+        <button type="button" onClick={() => setBanner(null)} className="mh-banner mh-banner--warning">
           {banner} · tap to dismiss
         </button>
       )}
 
       {statusQuery.data?.opencode?.error === "unauthorized" && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
+        <div className="mh-banner mh-banner--danger">
           opencode rejected MasterHand&apos;s credentials. MasterHand and opencode must share
           OPENCODE_SERVER_PASSWORD: set it in apps/server/.env.local (or unset it in opencode), then
           restart both.
@@ -480,26 +592,41 @@ export default function App() {
       )}
 
       {statusQuery.data?.opencode?.error === "unreachable" && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300">
-          opencode is not reachable. Is its server running?
-        </div>
+        <div className="mh-banner mh-banner--danger">opencode is not reachable. Is its server running?</div>
       )}
 
-      {waitingForm && (
+      {choiceForm ? null : waitingForm ? (
         <button
           type="button"
           onClick={() => openSession(waitingForm.sessionID)}
-          className="flex items-center gap-2 border-b border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-left text-xs text-indigo-200 hover:bg-indigo-500/15"
+          className="mh-banner mh-banner--info"
         >
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-indigo-400" />
+          <span className="mh-dot mh-dot--busy" />
           <span className="min-w-0 flex-1 truncate">The agent is waiting for your answer · Open session</span>
         </button>
-      )}
+      ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        <aside
-          className={`${sessionID ? "hidden md:flex" : "flex"} w-full min-h-0 flex-col border-r border-zinc-800 md:w-72 md:shrink-0`}
+      {otherPermissionSessions.map((permissionSessionID) => (
+        <button
+          key={permissionSessionID}
+          type="button"
+          onClick={() => openSession(permissionSessionID)}
+          className="mh-banner mh-banner--info"
         >
+          <span className="mh-dot mh-dot--busy" />
+          <span className="min-w-0 flex-1 truncate">Permission requested in another session · Open session</span>
+        </button>
+      ))}
+
+      <div className="relative flex min-h-0 flex-1">
+        {drawerOpen && (
+          <div
+            className="mh-overlay fixed inset-0 z-30 md:hidden"
+            aria-hidden="true"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+        <aside className={asideClass}>
           <WorkspacePicker
             workspaces={workspaces}
             selectedID={workspaceID}
@@ -511,8 +638,14 @@ export default function App() {
             sessions={sessions}
             statuses={statuses}
             selectedID={sessionID}
-            onSelect={openSession}
-            onNew={(isolated) => void createSession(isolated)}
+            onSelect={(id) => {
+              openSession(id)
+              setDrawerOpen(false)
+            }}
+            onNew={(isolated) => {
+              setDrawerOpen(false)
+              void createSession(isolated)
+            }}
             onDelete={(id) => void deleteSession(id)}
             creating={creating}
             canCreate={Boolean(workspaceID)}
@@ -537,10 +670,22 @@ export default function App() {
               busyFormID={busyFormID}
               onRespondForm={(form, answer) => void respondForm(form, answer)}
               onCancelForm={(form) => void cancelForm(form)}
+              permissions={permissions}
+              answeredPermissions={answeredPermissions}
+              respondingPermissionID={respondingPermissionID}
+              onRespondPermission={(permission, response) => void respondPermission(permission, response)}
             />
           ) : (
-            <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-zinc-500">
-              Select a session or create a new one.
+            <div className="relative flex flex-1 items-center justify-center p-6">
+              <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
+                <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
+                <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
+                <h3 className="mh-heading-2">No session open</h3>
+                <p className="mh-empty__body mh-body-sm">Pick one from the sidebar or start a new one.</p>
+                <button type="button" onClick={() => void createSession(false)} className="mh-btn mh-btn--primary">
+                  New session
+                </button>
+              </div>
             </div>
           )}
 
@@ -548,7 +693,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => openSession(parentSessionID)}
-              className="absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-indigo-500/40 bg-zinc-900/95 px-3 py-1.5 text-xs font-medium text-indigo-200 shadow-lg backdrop-blur hover:bg-zinc-800"
+              className="mh-btn mh-btn--secondary mh-btn--sm absolute left-1/2 top-3 z-20 -translate-x-1/2 shadow-elev1"
             >
               <span aria-hidden="true">←</span> Back to main agent
             </button>
@@ -556,11 +701,14 @@ export default function App() {
         </main>
       </div>
 
-      {permissions[0] && (
-        <PermissionDialog
-          permission={permissions[0]}
-          busy={responding}
-          onRespond={(response) => void respondPermission(response)}
+      {choiceForm && (
+        <ChoiceModal
+          form={choiceForm}
+          busy={busyFormID === choiceForm.id}
+          onRespond={(form, answer) => void respondForm(form, answer)}
+          onCancel={(form) => void cancelForm(form)}
+          onOpenSession={() => openSession(choiceForm.sessionID)}
+          onNotNow={() => setDismissedChoiceFormIDs((prev) => [...prev, choiceForm.id])}
         />
       )}
 
@@ -576,6 +724,12 @@ export default function App() {
           onClose={() => setRemoveWorkspaceID(null)}
         />
       )}
+
+      {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
+      {sessionID && panel === "run" && (
+        <RunSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
+      )}
+      {sessionID && panel === "preview" && <PreviewSheet sessionID={sessionID} onClose={() => setPanel(null)} />}
     </div>
   )
 }

@@ -1,0 +1,107 @@
+import { expect, test } from "@playwright/test"
+import { addWorkspace, login } from "./helpers"
+
+test("switches between light and dark themes and remembers the choice", async ({ page }) => {
+  await login(page)
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+
+  await page.getByRole("button", { name: "Switch to dark theme" }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+
+  await page.reload()
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+  await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible()
+
+  await page.getByRole("button", { name: "Switch to light theme" }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+})
+
+test("renders permission requests inline in the transcript, not as a modal", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+
+  await page.getByRole("button", { name: "+ New" }).click()
+  const composer = page.getByPlaceholder("Write a message…")
+  await composer.fill("hello agent")
+  await page.getByRole("button", { name: "Send" }).click()
+
+  const card = page.locator("main").getByTestId("permission-card")
+  await expect(card).toBeVisible()
+  await expect(card.getByText("Permission requested")).toBeVisible()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+
+  await card.getByRole("button", { name: "Allow once" }).click()
+  await expect(page.locator("main").getByTestId("permission-resolved")).toContainText("Allowed once")
+  await expect(page.getByText("Done!")).toBeVisible()
+})
+
+test("answers a question from another session through the choice modal", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+
+  await page.getByRole("button", { name: "+ New" }).click()
+  const composer = page.getByPlaceholder("Write a message…")
+  await composer.fill("ask me a question")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByTestId("question-card")).toBeVisible()
+
+  // A second session: the pending question now belongs to another session and
+  // must stay reachable instead of blocking its agent invisibly.
+  await page.getByRole("button", { name: "+ New" }).click()
+  const dialog = page.getByRole("dialog", { name: "Question from another session" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText("Which database should the project use?")).toBeVisible()
+
+  await dialog.getByRole("button", { name: "Not now" }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
+
+  await page.getByRole("button", { name: "Open session" }).click()
+  await expect(page.getByTestId("question-card")).toBeVisible()
+})
+
+test("keeps later other-session questions reachable after dismissing one", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+
+  // Session A asks, and its modal is postponed from session B.
+  await page.getByRole("button", { name: "+ New" }).click()
+  await page.getByPlaceholder("Write a message…").fill("ask me a question")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByTestId("question-card")).toBeVisible()
+
+  await page.getByRole("button", { name: "+ New" }).click()
+  const dialog = page.getByRole("dialog", { name: "Question from another session" })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("button", { name: "Not now" }).click()
+  await expect(dialog).toBeHidden()
+
+  // Session B asks too; the third session must surface B even though A was
+  // dismissed earlier — not stay wedged on the dismissed form.
+  await page.getByPlaceholder("Write a message…").fill("ask me a question")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByTestId("question-card")).toBeVisible()
+
+  await page.getByRole("button", { name: "+ New" }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("button", { name: "Not now" }).click()
+  await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
+})
+
+test("opens the session list as a drawer on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await login(page)
+  await addWorkspace(page)
+  await page.getByRole("button", { name: "+ New" }).click()
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+
+  const drawer = page.locator("aside")
+  await expect(drawer).toBeHidden()
+  await page.getByRole("button", { name: "Sessions" }).click()
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByText("Sessions")).toBeVisible()
+
+  await drawer.getByRole("button", { name: /Untitled/ }).click()
+  await expect(drawer).toBeHidden()
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+})

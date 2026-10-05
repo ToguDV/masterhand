@@ -1,6 +1,170 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   MasterHand — ink on paper
+   Tokens and component classes are the implementation of design/DESIGN.md
+   (mirrored 1:1 from design/design.css so both stay recognisable: --mh-*,
+   --r-*, --font-* names and component classes match the design preview).
+   Tailwind maps the tokens (see @theme blocks) so utilities and component
+   classes share a single source of truth.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
+
 :root {
+  color-scheme: light dark;
+
+  /* Type — swap the whole system by editing these three variables. */
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --font-ui: "Instrument Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "SF Mono", Menlo, Consolas, monospace;
+
+  /* Radii */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-xxl: 24px;
+  --r-full: 9999px;
+
+  /* Layout */
+  --chat-max: 768px;
+  --sidebar-w: 272px;
+  --dialog-max: 440px;
+  --panel-w: 360px;
+
+  /* Surfaces */
+  --mh-canvas: light-dark(#fafaf7, #0c0c0b);
+  --mh-surface: light-dark(#ffffff, #141413);
+  --mh-surface-muted: light-dark(#f2f2ee, #1c1c1a);
+
+  /* Text */
+  --mh-text: light-dark(#0c0c0b, #f2f2ed);
+  --mh-text-soft: light-dark(#4a4a46, #c9c9c2);
+  --mh-text-muted: light-dark(#6e6e6a, #8e8e88);
+  --mh-text-faint: light-dark(#8e8e88, #6a6a65);
+
+  /* Lines */
+  --mh-hairline: light-dark(#e8e8e2, #262624);
+  --mh-hairline-strong: light-dark(#d6d6d0, #3a3a37);
+
+  /* The one accent */
+  --mh-accent: light-dark(#0b6b53, #3ed8a8);
+  --mh-accent-strong: light-dark(#085041, #8be9c9);
+  --mh-accent-soft: light-dark(#d9eae3, rgba(62, 216, 168, 0.14));
+  --mh-accent-line: light-dark(rgba(11, 107, 83, 0.35), rgba(62, 216, 168, 0.35));
+  --mh-on-accent: light-dark(#ffffff, #04140e);
+
+  /* Semantic */
+  --mh-success: light-dark(#0b6b53, #3ed8a8);
+  --mh-warning: light-dark(#8a5a00, #e3b341);
+  --mh-warning-soft: light-dark(rgba(138, 90, 0, 0.09), rgba(227, 179, 65, 0.12));
+  --mh-warning-line: light-dark(rgba(138, 90, 0, 0.32), rgba(227, 179, 65, 0.35));
+  --mh-danger: light-dark(#b3261e, #f08a82);
+  --mh-danger-soft: light-dark(rgba(179, 38, 30, 0.08), rgba(240, 138, 130, 0.1));
+  --mh-danger-line: light-dark(rgba(179, 38, 30, 0.32), rgba(240, 138, 130, 0.35));
+
+  /* Code — dark in both themes */
+  --mh-code-surface: light-dark(#141413, #171716);
+  --mh-code-surface-soft: light-dark(#1c1c1a, #262624);
+  --mh-code-text: #ededE8;
+  --mh-code-muted: #8e8e88;
+
+  /* Overlay & depth */
+  --mh-overlay: light-dark(rgba(12, 12, 11, 0.45), rgba(0, 0, 0, 0.6));
+  --mh-shadow-1: 0 1px 2px light-dark(rgba(12, 12, 11, 0.05), rgba(0, 0, 0, 0.4));
+  --mh-shadow-3: 0 16px 48px -12px light-dark(rgba(12, 12, 11, 0.4), rgba(0, 0, 0, 0.7));
+
+  /* Decoration */
+  --mh-dot: light-dark(#d6d6d0, #3a3a37);
+  --mh-hatch: light-dark(#e8e8e2, #262624);
+  --mh-blob: light-dark(#d9eae3, #17302a);
+
+  --mh-selection: light-dark(rgba(11, 107, 83, 0.18), rgba(62, 216, 168, 0.25));
+}
+
+/* Tailwind tokens → utilities (bg-canvas, text-ink, border-hairline, …). */
+@theme inline {
+  --color-canvas: var(--mh-canvas);
+  --color-surface: var(--mh-surface);
+  --color-surface-muted: var(--mh-surface-muted);
+
+  --color-ink: var(--mh-text);
+  --color-ink-soft: var(--mh-text-soft);
+  --color-ink-muted: var(--mh-text-muted);
+  --color-ink-faint: var(--mh-text-faint);
+
+  --color-hairline: var(--mh-hairline);
+  --color-hairline-strong: var(--mh-hairline-strong);
+
+  --color-accent: var(--mh-accent);
+  --color-accent-strong: var(--mh-accent-strong);
+  --color-accent-soft: var(--mh-accent-soft);
+  --color-accent-line: var(--mh-accent-line);
+  --color-on-accent: var(--mh-on-accent);
+
+  --color-success: var(--mh-success);
+  --color-warning: var(--mh-warning);
+  --color-warning-soft: var(--mh-warning-soft);
+  --color-warning-line: var(--mh-warning-line);
+  --color-danger: var(--mh-danger);
+  --color-danger-soft: var(--mh-danger-soft);
+  --color-danger-line: var(--mh-danger-line);
+
+  --color-code: var(--mh-code-surface);
+  --color-code-soft: var(--mh-code-surface-soft);
+  --color-code-text: var(--mh-code-text);
+  --color-code-muted: var(--mh-code-muted);
+
+  --color-overlay: var(--mh-overlay);
+
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-xxl: var(--r-xxl);
+
+  --shadow-elev1: var(--mh-shadow-1);
+  --shadow-elev3: var(--mh-shadow-3);
+}
+
+@theme {
+  --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --font-ui: "Instrument Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: var(--font-ui);
+
+  /* The design body sizes, wired to the utility scale. */
+  --text-xs: 12px;
+  --text-xs--line-height: 1.45;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.5;
+  --text-base: 15px;
+  --text-base--line-height: 1.6;
+  --text-lg: 17px;
+  --text-lg--line-height: 1.6;
+  --text-xl: 20px;
+  --text-xl--line-height: 1.3;
+  --text-2xl: 26px;
+  --text-2xl--line-height: 1.2;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 1.15;
+}
+
+/* --------------------------------------------------------------------------
+   2. Base
+   -------------------------------------------------------------------------- */
+
+@layer base {
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
   color-scheme: dark;
 }
 
@@ -12,31 +176,82 @@ body,
 
 body {
   margin: 0;
-  background-color: #09090b;
-  color: #f4f4f5;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--mh-canvas);
+  color: var(--mh-text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--mh-selection);
+}
+
+:focus-visible {
+  outline: 2px solid var(--mh-accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mh-hairline-strong);
+  border-radius: var(--r-full);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+}
+
+/* --------------------------------------------------------------------------
+   3. Utilities & typography
+   -------------------------------------------------------------------------- */
+
+@layer utilities {
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mh-hairline-strong) transparent;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
 .pb-safe {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
-.scroll-thin {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
-}
-
-.scroll-thin::-webkit-scrollbar {
-  width: 6px;
-}
-
-.scroll-thin::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 999px;
-}
-
 /* Tool/question cards expand with a short lift; disabled for reduced motion. */
+.mh-reveal {
+  animation: mh-reveal 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mh-reveal {
+    animation: none;
+  }
+
+  .mh-dot--busy {
+    animation: none;
+  }
+
+  .mh-btn,
+  .mh-pill,
+  .mh-option,
+  .mh-session-item,
+  .mh-tool__chevron {
+    transition: none;
+  }
+}
+}
+
 @keyframes mh-reveal {
   from {
     opacity: 0;
@@ -48,12 +263,1071 @@ body {
   }
 }
 
-.mh-reveal {
-  animation: mh-reveal 160ms ease-out;
+@keyframes mh-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .mh-reveal {
-    animation: none;
+@layer components {
+.mh-heading-2 {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 4vw, 26px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.mh-heading-4 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.mh-body-sm {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mh-caption {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mh-micro {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mh-mono-sm {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mh-muted {
+  color: var(--mh-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   4. Decoration
+   -------------------------------------------------------------------------- */
+
+.mh-deco {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.mh-deco--blob {
+  width: 320px;
+  height: 300px;
+  background: var(--mh-blob);
+  border-radius: 61% 39% 46% 54% / 57% 48% 52% 43%;
+}
+
+.mh-deco--blob-2 {
+  width: 200px;
+  height: 190px;
+  background: var(--mh-accent-soft);
+  border-radius: 42% 58% 63% 37% / 51% 44% 56% 49%;
+  opacity: 0.8;
+}
+
+.mh-deco--dots {
+  width: 168px;
+  height: 128px;
+  background-image: radial-gradient(var(--mh-dot) 1.5px, transparent 1.6px);
+  background-size: 12px 12px;
+  opacity: 0.75;
+}
+
+.mh-deco--hatch {
+  width: 160px;
+  height: 72px;
+  background-image: repeating-linear-gradient(45deg, var(--mh-hatch) 0 1px, transparent 1px 7px);
+}
+
+.mh-deco--curve {
+  width: 220px;
+  height: 120px;
+  color: var(--mh-accent);
+  opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------------
+   5. Buttons
+   -------------------------------------------------------------------------- */
+
+.mh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--mh-text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.mh-btn--primary {
+  background: var(--mh-accent);
+  color: var(--mh-on-accent);
+}
+
+.mh-btn--primary:active {
+  background: var(--mh-accent-strong);
+}
+
+.mh-btn--secondary {
+  border-color: var(--mh-hairline-strong);
+  color: var(--mh-text);
+}
+
+.mh-btn--secondary:hover {
+  background: var(--mh-surface-muted);
+}
+
+.mh-btn--ghost {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  color: var(--mh-text-muted);
+}
+
+.mh-btn--ghost:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-btn--danger {
+  background: var(--mh-danger-soft);
+  border-color: var(--mh-danger-line);
+  color: var(--mh-danger);
+}
+
+.mh-btn--danger:hover {
+  background: color-mix(in srgb, var(--mh-danger) 15%, transparent);
+}
+
+.mh-btn--icon {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-color: var(--mh-hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--mh-text-muted);
+}
+
+.mh-btn--icon:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-btn--quiet {
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--mh-text-muted);
+}
+
+.mh-btn--quiet:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-btn--sm {
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.mh-btn--lg {
+  min-height: 48px;
+  padding: 12px 22px;
+  font-size: 15px;
+}
+
+.mh-btn:disabled,
+.mh-btn.is-disabled {
+  background: var(--mh-surface-muted);
+  border-color: transparent;
+  color: var(--mh-text-faint);
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   6. Forms
+   -------------------------------------------------------------------------- */
+
+.mh-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--mh-text-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mh-input,
+.mh-textarea {
+  width: 100%;
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline-strong);
+  border-radius: var(--r-md);
+  color: var(--mh-text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.4;
+  padding: 10px 12px;
+  min-height: 44px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.mh-input::placeholder,
+.mh-textarea::placeholder {
+  color: var(--mh-text-faint);
+}
+
+.mh-input:focus-visible,
+.mh-textarea:focus-visible,
+.mh-input.is-focused,
+.mh-textarea.is-focused {
+  outline: none;
+  border-color: var(--mh-accent);
+  box-shadow: 0 0 0 3px var(--mh-accent-soft);
+}
+
+.mh-textarea {
+  min-height: 92px;
+  border-radius: var(--r-lg);
+  resize: vertical;
+}
+
+.mh-select {
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--mh-text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  min-height: 40px;
+  padding: 6px 30px 6px 10px;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--mh-text-muted) 50%),
+    linear-gradient(135deg, var(--mh-text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.mh-select:focus-visible {
+  outline: none;
+  border-color: var(--mh-accent);
+  box-shadow: 0 0 0 3px var(--mh-accent-soft);
+}
+
+/* --------------------------------------------------------------------------
+   7. Chips, dots, badges
+   -------------------------------------------------------------------------- */
+
+.mh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  background: var(--mh-surface-muted);
+  color: var(--mh-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.mh-chip--accent {
+  background: var(--mh-accent-soft);
+  color: var(--mh-accent);
+}
+
+.mh-chip--warning {
+  background: var(--mh-warning-soft);
+  color: var(--mh-warning);
+}
+
+.mh-chip--mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mh-chip--outline {
+  background: transparent;
+  border: 1px solid var(--mh-hairline);
+}
+
+.mh-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mh-hairline-strong);
+  flex: none;
+  display: inline-block;
+}
+
+.mh-dot--busy {
+  background: var(--mh-warning);
+  animation: mh-pulse 1.6s ease-in-out infinite;
+}
+
+.mh-dot--connected {
+  background: var(--mh-success);
+}
+
+.mh-dot--danger {
+  background: var(--mh-danger);
+}
+
+/* --------------------------------------------------------------------------
+   8. Cards, panels, lists
+   -------------------------------------------------------------------------- */
+
+/* Sidebar session list */
+
+.mh-session {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mh-session-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-md);
+  padding: 10px 12px 10px 14px;
+  color: var(--mh-text);
+  font: inherit;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.mh-session-item:hover {
+  background: var(--mh-surface-muted);
+}
+
+.mh-session-item.is-active {
+  background: var(--mh-surface-muted);
+}
+
+.mh-session-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: var(--r-full);
+  background: var(--mh-accent);
+}
+
+.mh-session-item__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mh-session-item__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mh-session-item__meta {
+  margin-top: 2px;
+  padding-left: 16px;
+  color: var(--mh-text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* Filter pills */
+
+.mh-pill {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--mh-text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.mh-pill:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-pill.is-active {
+  background: var(--mh-text);
+  border-color: var(--mh-text);
+  color: var(--mh-canvas);
+}
+
+/* --------------------------------------------------------------------------
+   9. Conversation
+   -------------------------------------------------------------------------- */
+
+.mh-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mh-msg--user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--mh-text);
+  color: var(--mh-canvas);
+  border-radius: var(--r-lg);
+  padding: 10px 14px;
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.mh-msg--agent {
+  max-width: 68ch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mh-msg__label {
+  color: var(--mh-text-muted);
+}
+
+.mh-msg__body {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.mh-msg__body p + p {
+  margin-top: 12px;
+}
+
+.mh-msg__meta {
+  color: var(--mh-text-faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   10. Tools & code
+   -------------------------------------------------------------------------- */
+
+.mh-tool {
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.mh-tool.is-error {
+  border-color: var(--mh-danger-line);
+}
+
+.mh-tool__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  color: var(--mh-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mh-tool__glyph {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  background: var(--mh-surface-muted);
+  color: var(--mh-text-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mh-tool__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mh-text-soft);
+  font-size: 13px;
+}
+
+.mh-tool__title strong {
+  color: var(--mh-text);
+  font-weight: 600;
+}
+
+.mh-tool__chevron {
+  color: var(--mh-text-faint);
+  transition: transform 150ms ease;
+}
+
+.mh-tool.is-open .mh-tool__chevron {
+  transform: rotate(90deg);
+}
+
+.mh-tool__body {
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mh-tool__body > * {
+  margin: 0;
+}
+
+.mh-code {
+  background: var(--mh-code-surface);
+  color: var(--mh-code-text);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.mh-code__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--mh-code-surface-soft);
+  color: var(--mh-code-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mh-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.mh-diff {
+  background: var(--mh-code-surface);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mh-diff__line {
+  display: flex;
+  gap: 12px;
+  padding: 1px 14px;
+  color: var(--mh-code-text);
+  white-space: pre;
+}
+
+.mh-diff__line.is-add {
+  background: rgba(23, 166, 124, 0.16);
+  color: #8be9c9;
+}
+
+.mh-diff__line.is-remove {
+  background: rgba(179, 38, 30, 0.18);
+  color: #f0b4ae;
+}
+
+/* --------------------------------------------------------------------------
+   11. Feedback
+   -------------------------------------------------------------------------- */
+
+.mh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: left;
+}
+
+.mh-banner--warning {
+  background: var(--mh-warning-soft);
+  border-bottom-color: var(--mh-warning-line);
+  color: var(--mh-warning);
+}
+
+.mh-banner--danger {
+  background: var(--mh-danger-soft);
+  border-bottom-color: var(--mh-danger-line);
+  color: var(--mh-danger);
+}
+
+.mh-banner--info {
+  background: var(--mh-accent-soft);
+  border-bottom-color: var(--mh-accent-line);
+  color: var(--mh-accent);
+}
+
+.mh-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--mh-text);
+  color: var(--mh-canvas);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-size: 13px;
+  box-shadow: var(--mh-shadow-3);
+}
+
+.mh-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.mh-empty {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  min-height: 260px;
+  padding: 48px 16px;
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-lg);
+  background: var(--mh-canvas);
+}
+
+.mh-empty > :not(.mh-deco) {
+  position: relative;
+  z-index: 1;
+}
+
+.mh-empty__body {
+  color: var(--mh-text-muted);
+  max-width: 40ch;
+}
+
+.mh-empty .mh-btn {
+  margin-top: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   12. Overlays
+   -------------------------------------------------------------------------- */
+
+.mh-overlay {
+  background: var(--mh-overlay);
+  backdrop-filter: blur(2px);
+}
+
+.mh-dialog {
+  width: 100%;
+  max-width: var(--dialog-max);
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-xl);
+  padding: 20px;
+  box-shadow: var(--mh-shadow-3);
+}
+
+.mh-dialog__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mh-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mh-dialog__actions .mh-btn {
+  flex: 1 1 auto;
+}
+
+.mh-question {
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-accent-line);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mh-question__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Top index for multi-question forms: one tab per question + Submit. */
+.mh-tabindex {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--mh-hairline);
+  scrollbar-width: none;
+}
+
+.mh-tabindex::-webkit-scrollbar {
+  display: none;
+}
+
+.mh-tabindex__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 44px;
+  padding: 8px 2px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--mh-text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mh-tabindex__tab:hover {
+  color: var(--mh-text);
+}
+
+.mh-tabindex__tab.is-active {
+  color: var(--mh-text);
+  border-bottom-color: var(--mh-accent);
+  font-weight: 600;
+}
+
+.mh-tabindex__tab.is-done {
+  color: var(--mh-text-soft);
+}
+
+.mh-tabindex__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mh-danger);
+}
+
+.mh-question__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mh-question__actions .mh-btn--primary {
+  flex: 1 1 auto;
+}
+
+/* Permission requests render inline in the transcript, never as an overlay. */
+.mh-permission {
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-warning-line);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mh-permission__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mh-permission__head .mh-heading-4 {
+  flex: 1;
+}
+
+.mh-permission__context {
+  color: var(--mh-text-muted);
+}
+
+.mh-permission__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mh-permission__actions .mh-btn--primary {
+  flex: 1 1 auto;
+}
+
+.mh-permission.is-resolved {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mh-text-muted);
+  font-size: 12px;
+}
+
+.mh-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mh-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--mh-hairline-strong);
+  border-radius: var(--r-md);
+  background: var(--mh-surface);
+  color: var(--mh-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.mh-option:hover {
+  background: var(--mh-surface-muted);
+}
+
+.mh-option.is-selected {
+  border-color: var(--mh-accent);
+  background: var(--mh-accent-soft);
+}
+
+.mh-option__mark {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--mh-hairline-strong);
+  display: grid;
+  place-items: center;
+  background: var(--mh-surface);
+}
+
+.mh-option.is-selected .mh-option__mark {
+  border-color: var(--mh-accent);
+}
+
+.mh-option.is-selected .mh-option__mark::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mh-accent);
+}
+
+/* --------------------------------------------------------------------------
+   13. App shell
+   -------------------------------------------------------------------------- */
+
+/* The chat column: 768px, centered, the product's most important measurement. */
+.mh-chat-col {
+  width: 100%;
+  max-width: var(--chat-max);
+  margin-inline: auto;
+}
+
+/* Login: the single most decorated screen. */
+.mh-login {
+  position: relative;
+  overflow: hidden;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.mh-login .mh-login-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 360px;
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-xxl);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--mh-shadow-1);
+}
+
+.mh-login .mh-deco--blob {
+  top: -140px;
+  right: -120px;
+  width: 340px;
+  height: 320px;
+}
+
+.mh-login .mh-deco--dots {
+  bottom: 24px;
+  left: -36px;
+}
+
+@media (min-width: 1024px) {
+  .mh-login .mh-deco--blob {
+    top: -160px;
+    right: -120px;
+    width: 420px;
+    height: 380px;
   }
+}
+
+/* Right sheet for side questions, run, preview and audit: full width on
+   mobile over a scrim, docked 360px on desktop. */
+.mh-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  background: var(--mh-overlay);
+  backdrop-filter: blur(2px);
+}
+
+.mh-sheet {
+  margin-left: auto;
+  display: flex;
+  height: 100%;
+  width: 100%;
+  flex-direction: column;
+  background: var(--mh-surface);
+}
+
+@media (min-width: 768px) {
+  .mh-sheet-scrim {
+    background: transparent;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+
+  .mh-sheet {
+    width: var(--panel-w);
+    border-left: 1px solid var(--mh-hairline);
+    pointer-events: auto;
+  }
+}
+
+/* Composer textarea: one to five lines, 44px at rest. */
+.mh-composer-input {
+  min-height: 44px;
+  border-radius: var(--r-lg);
+  padding: 10px 12px 10px 14px;
+  resize: none;
+}
+
+/* The brand mark scales with the wordmark it sits next to. */
+.mh-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mh-brand__mark {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.mh-brand__name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
 }

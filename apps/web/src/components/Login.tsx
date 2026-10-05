@@ -2,6 +2,8 @@ import { useState } from "react"
 import type { FormEvent } from "react"
 import { ApiError } from "@masterhand/client-core"
 import { client } from "../client"
+import { BrandMark } from "./BrandMark"
+import { Deco } from "./Deco"
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState("")
@@ -31,31 +33,39 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-        <h1 className="text-xl font-bold">MasterHand</h1>
-        <p className="mt-1 text-sm text-zinc-500">Your opencode agents, from anywhere.</p>
-        <label htmlFor="password" className="mt-5 block text-xs font-medium text-zinc-400">
-          Password
-        </label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          autoComplete="current-password"
-          required
-          autoFocus
-          className="mt-1 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-[15px] outline-none focus:border-indigo-500"
-        />
-        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+    <main className="mh-login">
+      <Deco variant="blob" />
+      <Deco variant="dots" />
+      <form onSubmit={handleSubmit} className="mh-login-card">
+        <div className="mh-brand">
+          <BrandMark />
+          <span className="mh-brand__name">MasterHand</span>
+        </div>
+        <p className="mh-body-sm text-ink-muted">Sign in to your self-hosted server.</p>
+        <div>
+          <label htmlFor="password" className="mh-label">
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            required
+            autoFocus
+            className="mh-input"
+          />
+        </div>
+        {error && <p className="text-sm text-danger">{error}</p>}
         <button
           type="submit"
           disabled={busy || password.length === 0}
-          className="mt-4 w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-50"
+          className="mh-btn mh-btn--primary w-full"
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>
+        <p className="mh-caption text-ink-faint">Your data stays on your machine.</p>
       </form>
     </main>
   )

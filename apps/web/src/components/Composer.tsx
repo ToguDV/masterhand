@@ -304,9 +304,9 @@ export function Composer({
   }
 
   return (
-    <div className="pb-safe border-t border-zinc-800 bg-zinc-950/95 px-3 pt-2 md:px-6">
-      <div className="mx-auto w-full max-w-3xl space-y-2">
-        <div className="flex flex-wrap gap-2">
+    <div className="pb-safe border-t border-hairline bg-canvas px-3 pt-2 md:px-6">
+      <div className="mh-chat-col space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
           <SearchSelect
             value={agent}
             options={agents.map((item) => ({ value: item.id, label: item.name }))}
@@ -341,11 +341,7 @@ export function Composer({
             aria-pressed={autoAccept}
             onClick={() => onToggleAutoAccept(!autoAccept)}
             title="Auto-accept permission requests for this session (answers “once”)"
-            className={`shrink-0 rounded-lg border px-2 py-1 text-xs font-medium transition-colors ${
-              autoAccept
-                ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-                : "border-zinc-800 bg-zinc-900 text-zinc-500 hover:bg-zinc-800"
-            }`}
+            className={`mh-chip shrink-0 cursor-pointer ${autoAccept ? "mh-chip--warning" : "mh-chip--outline"}`}
           >
             {autoAccept ? "Auto-accept: on" : "Auto-accept"}
           </button>
@@ -431,14 +427,10 @@ export function Composer({
               }}
               rows={1}
               placeholder="Write a message…"
-              className="field-sizing-content max-h-40 min-h-11 flex-1 resize-none rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-[15px] outline-none focus:border-indigo-500"
+              className="mh-input mh-composer-input scroll-thin field-sizing-content max-h-40 flex-1"
             />
             {busy ? (
-              <button
-                type="button"
-                onClick={() => void stop()}
-                className="h-11 shrink-0 rounded-xl border border-red-500/40 bg-red-500/10 px-4 text-sm font-semibold text-red-300 hover:bg-red-500/20"
-              >
+              <button type="button" onClick={() => void stop()} className="mh-btn mh-btn--danger h-11 shrink-0">
                 Stop
               </button>
             ) : (
@@ -446,7 +438,7 @@ export function Composer({
                 type="button"
                 onClick={() => void send()}
                 disabled={!text.trim() || sending || startingSideQuestion}
-                className="h-11 shrink-0 rounded-xl bg-indigo-600 px-4 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-50"
+                className="mh-btn mh-btn--primary h-11 shrink-0"
               >
                 {startingSideQuestion ? "Starting…" : "Send"}
               </button>
@@ -454,7 +446,7 @@ export function Composer({
           </div>
         </div>
 
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && <p className="text-xs text-danger">{error}</p>}
       </div>
     </div>
   )

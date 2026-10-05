@@ -33,11 +33,11 @@ export function ComposerSuggestions({
       id={id}
       role="listbox"
       aria-label={title}
-      className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-xl"
+      className="absolute bottom-full left-0 right-0 z-30 mb-2 overflow-hidden rounded-md border border-hairline bg-surface shadow-elev3"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-1.5 text-[11px]">
-        <span className="truncate font-medium text-zinc-400">{title}</span>
-        {hint && <span className="shrink-0 text-zinc-500">{hint}</span>}
+      <div className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-1.5 text-[11px]">
+        <span className="truncate font-medium text-ink-muted">{title}</span>
+        {hint && <span className="shrink-0 text-ink-faint">{hint}</span>}
       </div>
       <ul className="max-h-64 overflow-y-auto p-1">
         {items.map((item, index) => (
@@ -50,16 +50,16 @@ export function ComposerSuggestions({
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => onActive(index)}
               onClick={() => onSelect(index)}
-              className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
-                index === activeIndex ? "bg-zinc-800" : "hover:bg-zinc-800/60"
+              className={`flex w-full items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-xs ${
+                index === activeIndex ? "bg-surface-muted" : "hover:bg-surface-muted/60"
               }`}
             >
-              <span className="shrink-0 font-medium text-zinc-200">{item.label}</span>
-              {item.detail && <span className="min-w-0 truncate text-[11px] text-zinc-500">{item.detail}</span>}
+              <span className="shrink-0 font-medium text-ink">{item.label}</span>
+              {item.detail && <span className="min-w-0 truncate text-[11px] text-ink-muted">{item.detail}</span>}
             </button>
           </li>
         ))}
-        {items.length === 0 && <li className="px-2 py-2 text-xs text-zinc-500">{emptyLabel}</li>}
+        {items.length === 0 && <li className="px-2 py-2 text-xs text-ink-muted">{emptyLabel}</li>}
       </ul>
     </div>
   )
