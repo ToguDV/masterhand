@@ -121,7 +121,7 @@ describe("design system", () => {
     const offenders = sourceFilesList
       .filter((file) => {
         const source = readFileSync(file, "utf8").toLowerCase()
-        return source.includes("#6366f1")
+        return source.includes("#6366f1") || source.includes("#312e81")
       })
       .map((file) => relative(appRoot, file))
     expect(offenders).toEqual([])

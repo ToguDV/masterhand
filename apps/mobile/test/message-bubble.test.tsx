@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react-native"
 import type { ChatMessage, ChatMessageInfo, ChatPart } from "@masterhand/client-core"
 import { MessageBubble } from "../src/components/MessageBubble"
+import { palettes } from "../src/theme"
 
 function message(info: Partial<ChatMessageInfo>, parts: ChatPart[]): ChatMessage {
   return {
@@ -62,6 +63,17 @@ describe("MessageBubble", () => {
     await render(bubble({ role: "user" }, [textPart("hello there")]))
 
     expect(screen.getByText("hello there")).toBeOnTheScreen()
+  })
+
+  it("uses the deep-emerald user bubble tokens (issue #100)", async () => {
+    await render(bubble({ role: "user" }, [textPart("hello there")]))
+
+    // The default test theme is light; the bubble is the deep emerald fill
+    // with the token text color, never the old indigo.
+    expect(screen.getByTestId("user-bubble")).toHaveStyle({
+      backgroundColor: palettes.light.bubbleUser,
+    })
+    expect(screen.getByText("hello there")).toHaveStyle({ color: palettes.light.bubbleUserText })
   })
 
   it("renders nothing for an empty user message", async () => {
