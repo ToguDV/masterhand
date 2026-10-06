@@ -11,6 +11,7 @@ import {
 } from "@masterhand/client-core"
 import { Composer } from "../src/components/Composer"
 import { loadSessionPreferences } from "../src/storage"
+import { palettes } from "../src/theme"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
 jest.mock("../src/storage", () => ({
@@ -152,7 +153,7 @@ describe("Composer", () => {
   it("offers the effort variants of the selected model", async () => {
     const { client } = await setup()
 
-    await fireEvent.press(await screen.findByText("effort: default"))
+    await fireEvent.press(await screen.findByLabelText("Effort"))
     await fireEvent.press(screen.getByText("High"))
     await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "go")
     await fireEvent.press(screen.getByText("Send"))
@@ -459,5 +460,35 @@ describe("Composer", () => {
     await fireEvent.press(screen.getByText("Send"))
 
     expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
+  })
+
+  it("uses the emerald accent for the active auto-accept state (#92)", async () => {
+    await setup({ autoAccept: true })
+
+    const label = await screen.findByText("auto-accept: on")
+    // Not the old warning amber: the active state is the single accent.
+    expect(label).not.toHaveStyle({ color: palettes.light.warning })
+    expect(label).not.toHaveStyle({ color: palettes.dark.warning })
+    const accent = [palettes.light.accent, palettes.dark.accent]
+    const matched = accent.some((color) => {
+      try {
+        expect(label).toHaveStyle({ color })
+        return true
+      } catch {
+        return false
+      }
+    })
+    expect(matched).toBe(true)
+  })
+
+  it("manages workspaces from the composer top bar (#92)", async () => {
+    await setup({
+      workspaceID: "ws1",
+      workspaces: [{ id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 }],
+      onSelectWorkspace: jest.fn(),
+    })
+
+    await fireEvent.press(await screen.findByLabelText("Workspace"))
+    expect(await screen.findByText("Remove workspace")).toBeOnTheScreen()
   })
 })

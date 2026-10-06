@@ -322,7 +322,8 @@ describe("App — sessions", () => {
   it("creates a standard session from the header", async () => {
     await renderAuthenticated()
 
-    await fireEvent.press(await screen.findByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: false })
   })
@@ -330,8 +331,9 @@ describe("App — sessions", () => {
   it("creates an isolated session when the toggle is on", async () => {
     await renderAuthenticated()
 
-    await fireEvent.press(screen.getAllByText("Isolated")[1]!)
-    await fireEvent.press(screen.getByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByLabelText("Isolated session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: true })
   })
@@ -342,7 +344,8 @@ describe("App — sessions", () => {
     createClientMock.mockReturnValue(client)
     await renderAuthenticated()
 
-    await fireEvent.press(await screen.findByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(await screen.findByText("Could not create the session")).toBeOnTheScreen()
   })

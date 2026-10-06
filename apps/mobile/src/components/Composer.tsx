@@ -11,6 +11,7 @@ import {
   deliveryMarkerOf,
   deliveryMetadata,
   flattenModels,
+  isEffortVariant,
   mentionableAgents,
   mergeCommands,
   parseModel,
@@ -27,10 +28,14 @@ import {
   type ChatMessage,
   type Client,
   type ComposerPopover,
+  type CreateWorkspaceInput,
+  type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { SideQuestionPanel } from "./SideQuestionPanel"
+import { WorkspaceModal } from "./WorkspaceModal"
+import { BrainIcon, ChevronDownIcon, FolderIcon, SlidersIcon } from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -45,6 +50,10 @@ export function Composer({
   directory = null,
   autoAccept,
   onToggleAutoAccept,
+  workspaces = [],
+  onSelectWorkspace,
+  onAddWorkspace,
+  onRemoveWorkspace,
 }: {
   client: Client
   sessionID: string
@@ -54,6 +63,11 @@ export function Composer({
   directory?: string | null
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
+  /** Workspace management lives in the composer top bar (web parity, #92). */
+  workspaces?: WorkspaceRecord[]
+  onSelectWorkspace?: (id: string) => void
+  onAddWorkspace?: (input: CreateWorkspaceInput) => Promise<void>
+  onRemoveWorkspace?: (id: string, options: { deleteFiles: boolean }) => void
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -85,6 +99,7 @@ export function Composer({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [picker, setPicker] = useState<OpenPicker>(null)
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [caret, setCaret] = useState(0)
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | undefined>(undefined)
   const [dismissed, setDismissed] = useState(false)
@@ -346,40 +361,24 @@ export function Composer({
   const agentChoices: ChoiceOption[] = agents.map((item) => ({ value: item.id, label: item.name }))
   const modelChoices: ChoiceOption[] = modelOptions.map((option) => ({ value: option.value, label: option.label }))
   const effortChoices: ChoiceOption[] = variants.map((key) => ({ value: key, label: variantLabel(key) }))
+  const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
+  // Effort variants get the brain glyph; provider-specific ones the sliders.
+  const effortIsBrain = variants.length > 0 && variants.every((key) => isEffortVariant(key))
 
   return (
     <View style={styles.container}>
-      <View style={styles.selectors}>
-        <Selector
-          label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
-          onPress={() => setPicker("agent")}
-          disabled={agentChoices.length === 0}
-        />
-        <Selector
-          label={modelOptions.find((option) => option.value === model)?.label ?? "model…"}
-          onPress={() => setPicker("model")}
-          disabled={modelChoices.length === 0}
-        />
-        {variants.length > 0 && (
-          <Selector
-            label={variant ? variantLabel(variant) : "effort: default"}
-            onPress={() => setPicker("effort")}
-            disabled={false}
-          />
-        )}
+      <View style={styles.topBar}>
         <Pressable
-          style={[styles.selector, styles.autoAccept, autoAccept && styles.autoAcceptOn]}
-          onPress={() => onToggleAutoAccept(!autoAccept)}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: autoAccept }}
-          accessibilityLabel="Auto-accept permission requests for this session"
+          style={styles.workspaceTrigger}
+          onPress={() => setWorkspaceOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Workspace"
         >
-          <Text
-            style={[styles.selectorText, autoAccept && styles.autoAcceptText]}
-            numberOfLines={1}
-          >
-            {autoAccept ? "auto-accept: on" : "auto-accept"}
+          <FolderIcon size={14} color={colors.textMuted} />
+          <Text style={styles.workspaceName} numberOfLines={1}>
+            {workspace?.name ?? "No workspace"}
           </Text>
+          <ChevronDownIcon size={14} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -440,6 +439,48 @@ export function Composer({
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      <View style={styles.selectors}>
+        <Selector
+          label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
+          onPress={() => setPicker("agent")}
+          disabled={agentChoices.length === 0}
+        />
+        <Selector
+          label={modelOptions.find((option) => option.value === model)?.label ?? "model…"}
+          onPress={() => setPicker("model")}
+          disabled={modelChoices.length === 0}
+        />
+        {variants.length > 0 && (
+          <Selector
+            icon={
+              effortIsBrain ? (
+                <BrainIcon size={14} color={colors.textMuted} />
+              ) : (
+                <SlidersIcon size={14} color={colors.textMuted} />
+              )
+            }
+            accessibilityLabel="Effort"
+            label={variant ? variantLabel(variant) : ""}
+            onPress={() => setPicker("effort")}
+            disabled={false}
+          />
+        )}
+        <Pressable
+          style={[styles.selector, styles.autoAccept, autoAccept && styles.autoAcceptOn]}
+          onPress={() => onToggleAutoAccept(!autoAccept)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: autoAccept }}
+          accessibilityLabel="Auto-accept permission requests for this session"
+        >
+          <Text
+            style={[styles.selectorText, autoAccept && styles.autoAcceptText]}
+            numberOfLines={1}
+          >
+            {autoAccept ? "auto-accept: on" : "auto-accept"}
+          </Text>
+        </Pressable>
+      </View>
+
       <ChoiceModal
         visible={picker === "agent"}
         title="Agent"
@@ -467,17 +508,53 @@ export function Composer({
         onSelect={setVariant}
         onClose={() => setPicker(null)}
       />
+
+      <WorkspaceModal
+        visible={workspaceOpen}
+        workspaces={workspaces}
+        selectedID={workspaceID}
+        onSelect={(id) => onSelectWorkspace?.(id)}
+        onAdd={async (input) => {
+          await onAddWorkspace?.(input)
+        }}
+        onRemove={(id, options) => {
+          setWorkspaceOpen(false)
+          onRemoveWorkspace?.(id, options)
+        }}
+        onClose={() => setWorkspaceOpen(false)}
+      />
     </View>
   )
 }
 
-function Selector({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) {
+function Selector({
+  label,
+  onPress,
+  disabled,
+  icon,
+  accessibilityLabel,
+}: {
+  label: string
+  onPress: () => void
+  disabled: boolean
+  icon?: React.ReactNode
+  accessibilityLabel?: string
+}) {
   const styles = useThemedStyles(createStyles)
   return (
-    <Pressable style={[styles.selector, disabled && styles.actionDisabled]} onPress={onPress} disabled={disabled}>
-      <Text style={styles.selectorText} numberOfLines={1}>
-        {label}
-      </Text>
+    <Pressable
+      style={[styles.selector, disabled && styles.actionDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+    >
+      {icon}
+      {label ? (
+        <Text style={styles.selectorText} numberOfLines={1}>
+          {label}
+        </Text>
+      ) : null}
     </Pressable>
   )
 }
@@ -493,6 +570,28 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingTop: 8,
       paddingBottom: 16,
     },
+    topBar: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    workspaceTrigger: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      maxWidth: "100%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    workspaceName: {
+      flexShrink: 1,
+      color: colors.textSoft,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
     selectors: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -501,6 +600,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     selector: {
       flexGrow: 1,
       flexBasis: "30%",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
@@ -518,11 +620,11 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexBasis: "auto",
     },
     autoAcceptOn: {
-      borderColor: colors.warningLine,
-      backgroundColor: colors.warningSoft,
+      borderColor: colors.accentLine,
+      backgroundColor: colors.accentSoft,
     },
     autoAcceptText: {
-      color: colors.warning,
+      color: colors.accent,
     },
     inputRow: {
       flexDirection: "row",

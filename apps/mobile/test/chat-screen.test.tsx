@@ -53,7 +53,13 @@ describe("ChatScreen", () => {
 
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
     expect(screen.getByText("My session")).toBeOnTheScreen()
-    expect(screen.getByText("Session · $0.0010 · 20 input · 5 output · 5 tok/s")).toBeOnTheScreen()
+    // Icons + numbers only; labels live in the accessibility names (#92).
+    expect(screen.getByLabelText("Cost: $0.0010")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Input tokens: 20")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Output tokens: 5")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Speed: 5 tok/s")).toBeOnTheScreen()
+    // Cache read/write are not shown even when the provider reports them.
+    expect(screen.queryByText(/cache/i)).toBeNull()
   })
 
   it("prompts to start when there are no messages", async () => {

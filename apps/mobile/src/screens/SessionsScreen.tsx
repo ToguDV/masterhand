@@ -12,6 +12,7 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Screen } from "../components/Screen"
+import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
 import { ThemeToggle } from "../components/ThemeToggle"
 import { Deco } from "../components/Deco"
@@ -57,7 +58,6 @@ export function SessionsScreen({
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
-  const [isolated, setIsolated] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
@@ -97,14 +97,11 @@ export function SessionsScreen({
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
           <ThemeToggle />
-          <Pressable
-            style={[styles.newButton, !canCreate && styles.disabled]}
-            testID="new-session-button"
-            onPress={() => onNew(isolated)}
-            disabled={creating || !canCreate}
-          >
-            <Text style={styles.newButtonText}>{creating ? "Creating…" : "+ New"}</Text>
-          </Pressable>
+          <NewSessionMenu
+            creating={creating}
+            disabled={!canCreate}
+            onCreate={onNew}
+          />
           <Pressable onPress={onSignOut} hitSlop={4}>
             <Text style={styles.signOut}>Sign out</Text>
           </Pressable>
@@ -125,12 +122,6 @@ export function SessionsScreen({
             </Pressable>
           ))}
         </View>
-        <Pressable style={styles.isolatedToggle} onPress={() => setIsolated((value) => !value)}>
-          <View style={[styles.checkbox, isolated && styles.checkboxChecked]}>
-            {isolated ? <Text style={styles.checkboxMark}>✓</Text> : null}
-          </View>
-          <Text style={styles.isolatedLabel}>Isolated</Text>
-        </Pressable>
       </View>
 
       <Pressable style={styles.workspaceBar} onPress={() => setWorkspaceOpen(true)}>
@@ -267,18 +258,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       width: 8,
       height: 8,
       borderRadius: 4,
-    },
-    newButton: {
-      backgroundColor: colors.accent,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    newButtonText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 13,
-      fontWeight: "500",
     },
     signOut: {
       color: colors.textMuted,
@@ -450,39 +429,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
     chipTextActive: {
       color: colors.canvas,
       fontWeight: "600",
-    },
-    isolatedToggle: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-    },
-    checkbox: {
-      width: 16,
-      height: 16,
-      borderRadius: 4,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    checkboxChecked: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent,
-    },
-    checkboxMark: {
-      color: colors.onAccent,
-      fontSize: 10,
-      lineHeight: 12,
-      fontWeight: "700",
-    },
-    isolatedLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-      fontWeight: "500",
-    },
-    disabled: {
-      opacity: 0.5,
     },
   })
 }

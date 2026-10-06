@@ -628,6 +628,10 @@ function AuthenticatedApp({
             onOpenWaiting={() => {
               if (waitingForm) setSessionID(waitingForm.sessionID)
             }}
+            workspaces={workspaces}
+            onSelectWorkspace={switchWorkspace}
+            onAddWorkspace={addWorkspace}
+            onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
           />
         </View>
       ) : (

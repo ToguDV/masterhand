@@ -2,18 +2,20 @@ import { useRef, useState } from "react"
 import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  formatCount,
   formatSpeed,
-  formatTokens,
   sessionUsage,
   tokenSpeed,
   useBffStatus,
   useMessages,
   type ChatMessage,
   type Client,
+  type CreateWorkspaceInput,
   type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
   type SessionIsolation,
+  type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
@@ -23,6 +25,7 @@ import { RunModal } from "../components/RunModal"
 import { Screen } from "../components/Screen"
 import { ThemeToggle } from "../components/ThemeToggle"
 import { Deco } from "../components/Deco"
+import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
@@ -46,6 +49,10 @@ export function ChatScreen({
   onCancelForm,
   waitingQuestion = false,
   onOpenWaiting,
+  workspaces = [],
+  onSelectWorkspace,
+  onAddWorkspace,
+  onRemoveWorkspace,
 }: {
   client: Client
   sessionID: string
@@ -68,6 +75,11 @@ export function ChatScreen({
   /** A question from another session is blocking its agent. */
   waitingQuestion?: boolean
   onOpenWaiting?: () => void
+  /** Workspace management for the composer top bar (#92). */
+  workspaces?: WorkspaceRecord[]
+  onSelectWorkspace?: (id: string) => void
+  onAddWorkspace?: (input: CreateWorkspaceInput) => Promise<void>
+  onRemoveWorkspace?: (id: string, options: { deleteFiles: boolean }) => void
 }) {
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
@@ -83,8 +95,9 @@ export function ChatScreen({
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  const tokenBreakdown = formatTokens(usage)
-  const speed = formatSpeed(tokenSpeed(usage, usage.durationMs))
+  const speedValue = tokenSpeed(usage, usage.durationMs)
+  const hasStats =
+    usage.cost > 0 || usage.input > 0 || usage.output > 0 || usage.reasoning > 0 || speedValue !== null
 
   async function finish() {
     setFinishing(true)
@@ -166,12 +179,33 @@ export function ChatScreen({
         )}
       />
 
-      {(usage.cost > 0 || tokenBreakdown) ? (
-        <Text style={styles.usage}>
-          Session · ${usage.cost.toFixed(4)}
-          {tokenBreakdown ? ` · ${tokenBreakdown}` : ""}
-          {speed ? ` · ${speed}` : ""}
-        </Text>
+      {hasStats ? (
+        <View style={styles.usageRow}>
+          <View style={styles.usageItem} accessibilityLabel={`Cost: $${usage.cost.toFixed(4)}`}>
+            <Text style={styles.usageDollar}>$</Text>
+            <Text style={styles.usageText}>{usage.cost.toFixed(4)}</Text>
+          </View>
+          <View style={styles.usageItem} accessibilityLabel={`Input tokens: ${usage.input}`}>
+            <ArrowUpIcon size={12} color={colors.textMuted} />
+            <Text style={styles.usageText}>{formatCount(usage.input)}</Text>
+          </View>
+          <View style={styles.usageItem} accessibilityLabel={`Output tokens: ${usage.output}`}>
+            <ArrowDownIcon size={12} color={colors.textMuted} />
+            <Text style={styles.usageText}>{formatCount(usage.output)}</Text>
+          </View>
+          {usage.reasoning > 0 ? (
+            <View style={styles.usageItem} accessibilityLabel={`Reasoning tokens: ${usage.reasoning}`}>
+              <SparkleIcon size={12} color={colors.textMuted} />
+              <Text style={styles.usageText}>{formatCount(usage.reasoning)}</Text>
+            </View>
+          ) : null}
+          {speedValue !== null ? (
+            <View style={styles.usageItem} accessibilityLabel={`Speed: ${formatSpeed(speedValue)}`}>
+              <BoltIcon size={12} color={colors.textMuted} />
+              <Text style={styles.usageText}>{formatCount(speedValue)}</Text>
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
       {isolation ? (
@@ -223,6 +257,10 @@ export function ChatScreen({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        workspaces={workspaces}
+        onSelectWorkspace={onSelectWorkspace}
+        onAddWorkspace={onAddWorkspace}
+        onRemoveWorkspace={onRemoveWorkspace}
       />
 
       {parentSessionID && onOpenSession ? (
@@ -355,13 +393,29 @@ function createStyles(colors: Palette, fonts: Fonts) {
       lineHeight: 31,
       textAlign: "center",
     },
-    usage: {
+    usageRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingTop: 8,
+    },
+    usageItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+    },
+    usageDollar: {
       color: colors.textMuted,
       fontFamily: fonts.mono,
       fontSize: 11,
-      textAlign: "right",
-      paddingHorizontal: 14,
-      paddingTop: 8,
+    },
+    usageText: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
     },
     isolationBar: {
       flexDirection: "row",
