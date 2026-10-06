@@ -42,6 +42,8 @@ export const queryKeys = {
   run: (workspaceID?: string | null) => ["run", workspaceID ?? null] as const,
   /** Managed dev-server state for a session. */
   sessionRun: (sessionID: string) => ["sessionRun", sessionID] as const,
+  /** Local git branches of a workspace folder (issue #94). */
+  branches: (workspaceID?: string | null) => ["branches", workspaceID ?? null] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -80,6 +82,18 @@ export function useWorkspaces(client: Client, enabled = true) {
     queryKey: queryKeys.workspaces,
     queryFn: () => client.workspaces.list(),
     enabled,
+  })
+}
+
+/**
+ * Local branches of the workspace folder. Mutations are not auto-retried by
+ * the UI; after a timeout the branch state is refetched to reconcile.
+ */
+export function useBranches(client: Client, enabled: boolean, workspaceID?: string | null) {
+  return useQuery({
+    queryKey: queryKeys.branches(workspaceID),
+    queryFn: () => client.api.branches.list(workspaceID!),
+    enabled: enabled && Boolean(workspaceID),
   })
 }
 

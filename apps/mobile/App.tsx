@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AppState, Platform, Pressable, StyleSheet, View } from "react-native"
+import { AppState, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fetch as expoFetch } from "expo/fetch"
+import { useFonts } from "expo-font"
+import { Fraunces_400Regular, Fraunces_500Medium, Fraunces_600SemiBold } from "@expo-google-fonts/fraunces"
+import {
+  InstrumentSans_400Regular,
+  InstrumentSans_500Medium,
+  InstrumentSans_600SemiBold,
+} from "@expo-google-fonts/instrument-sans"
+import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono"
 import {
   ApiError,
   createClient,
@@ -28,7 +36,15 @@ import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { Screen } from "./src/components/Screen"
 import { ActivityIndicator, Text } from "react-native"
-import { colors } from "./src/theme"
+import {
+  fonts as appFonts,
+  systemFonts,
+  ThemeProvider,
+  useTheme,
+  useThemedStyles,
+  type Fonts,
+  type Palette,
+} from "./src/theme"
 import {
   clearDevice,
   clearToken,
@@ -60,13 +76,35 @@ const AUTO_ACCEPT_MAX_ATTEMPTS = 3
 const AUTO_ACCEPT_RETRY_DELAYS_MS = [1_000, 3_000]
 
 export default function App() {
+  // Render even before the fonts resolve: the theme falls back to system
+  // families and swaps in the loaded ones when they are ready.
+  const [fontsLoaded] = useFonts({
+    InstrumentSans_400Regular,
+    InstrumentSans_500Medium,
+    InstrumentSans_600SemiBold,
+    Fraunces_400Regular,
+    Fraunces_500Medium,
+    Fraunces_600SemiBold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+  })
+
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <Root />
-      </QueryClientProvider>
+      <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
+        <ThemedStatusBar />
+        <QueryClientProvider client={queryClient}>
+          <Root />
+        </QueryClientProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   )
+}
+
+/** Keeps the native status bar legible on both themes. */
+function ThemedStatusBar() {
+  const { theme } = useTheme()
+  return <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
 }
 
 function Root() {
@@ -75,15 +113,28 @@ function Root() {
   const [token, setToken] = useState<string | null>(null)
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   useEffect(() => {
     void (async () => {
-      const [storedUrl, storedToken] = await Promise.all([loadServerUrl(), loadToken()])
-      tokenRef.current = storedToken
-      setServerUrl(storedUrl)
-      setToken(storedToken)
-      setReady(true)
+      try {
+        const [storedUrl, storedToken] = await Promise.all([loadServerUrl(), loadToken()])
+        tokenRef.current = storedToken
+        setServerUrl(storedUrl)
+        setToken(storedToken)
+      } catch {
+        // A SecureStore failure (keychain unavailable, corrupted access group)
+        // must never leave the app on a permanent spinner: fall back to the
+        // login screen with a storage-specific message (issue #82).
+        setLoginError(
+          "Could not read the saved session from this device's secure storage. Sign in again.",
+        )
+      } finally {
+        setReady(true)
+      }
     })()
   }, [])
 
@@ -109,7 +160,15 @@ function Root() {
       const candidate = createClient({ baseUrl: normalized, fetchImpl })
       const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
       const result = await candidate.auth.loginDevice(password, deviceName)
-      await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
+      try {
+        await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
+      } catch {
+        // The login worked but the device cannot persist it: keep the session
+        // usable in memory and say it will not survive a restart (issue #82).
+        setStorageWarning(
+          "Signed in, but this device could not save the session. You will need to sign in again after restarting.",
+        )
+      }
       tokenRef.current = result.token
       setServerUrl(normalized)
       setToken(result.token)
@@ -157,10 +216,24 @@ function Root() {
     )
   }
 
-  return <AuthenticatedApp client={client} onSignOut={() => void handleSignOut()} />
+  return (
+    <AuthenticatedApp
+      client={client}
+      initialBanner={storageWarning}
+      onSignOut={() => void handleSignOut()}
+    />
+  )
 }
 
-function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: () => void }) {
+function AuthenticatedApp({
+  client,
+  onSignOut,
+  initialBanner = null,
+}: {
+  client: Client
+  onSignOut: () => void
+  initialBanner?: string | null
+}) {
   const [sessionID, setSessionID] = useState<string | null>(null)
   const [workspaceID, setWorkspaceID] = useState<string | null>(null)
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -170,12 +243,13 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
   const [responding, setResponding] = useState(false)
   const [connected, setConnected] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [banner, setBanner] = useState<string | null>(null)
+  const [banner, setBanner] = useState<string | null>(initialBanner)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>([])
   const autoAcceptLoaded = useRef(false)
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -554,6 +628,10 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
             onOpenWaiting={() => {
               if (waitingForm) setSessionID(waitingForm.sessionID)
             }}
+            workspaces={workspaces}
+            onSelectWorkspace={switchWorkspace}
+            onAddWorkspace={addWorkspace}
+            onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
           />
         </View>
       ) : (
@@ -567,6 +645,7 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
           workspaces={workspaces}
           workspaceID={workspaceID}
           canCreate={Boolean(workspaceID)}
+          activeSessionID={sessionID}
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
           onSignOut={onSignOut}
@@ -588,23 +667,26 @@ function AuthenticatedApp({ client, onSignOut }: { client: Client; onSignOut: ()
   )
 }
 
-const styles = StyleSheet.create({
-  centered: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  screenWrap: {
-    flex: 1,
-  },
-  banner: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(245, 158, 11, 0.4)",
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  bannerText: {
-    color: "#fcd34d",
-    fontSize: 11,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    centered: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    screenWrap: {
+      flex: 1,
+    },
+    banner: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.warningLine,
+      backgroundColor: colors.warningSoft,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    bannerText: {
+      color: colors.warning,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+  })
+}

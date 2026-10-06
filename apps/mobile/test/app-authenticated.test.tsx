@@ -34,12 +34,14 @@ jest.mock("../src/storage", () => ({
   loadWorkspaceID: jest.fn(async () => null),
   loadAutoAcceptSessions: jest.fn(async () => []),
   loadSessionPreferences: jest.fn(async () => ({})),
+  loadTheme: jest.fn(async () => null),
   saveServerUrl: jest.fn(async () => {}),
   saveToken: jest.fn(async () => {}),
   saveDevice: jest.fn(async () => {}),
   saveWorkspaceID: jest.fn(async () => {}),
   saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
+  saveTheme: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
   clearDevice: jest.fn(async () => {}),
   clearWorkspaceID: jest.fn(async () => {}),
@@ -320,7 +322,8 @@ describe("App — sessions", () => {
   it("creates a standard session from the header", async () => {
     await renderAuthenticated()
 
-    await fireEvent.press(await screen.findByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: false })
   })
@@ -328,8 +331,9 @@ describe("App — sessions", () => {
   it("creates an isolated session when the toggle is on", async () => {
     await renderAuthenticated()
 
-    await fireEvent.press(screen.getAllByText("Isolated")[1]!)
-    await fireEvent.press(screen.getByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByLabelText("Isolated session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: true })
   })
@@ -340,7 +344,8 @@ describe("App — sessions", () => {
     createClientMock.mockReturnValue(client)
     await renderAuthenticated()
 
-    await fireEvent.press(await screen.findByText("+ New"))
+    await fireEvent.press(await screen.findByLabelText("New session"))
+    await fireEvent.press(screen.getByText("Create session"))
 
     expect(await screen.findByText("Could not create the session")).toBeOnTheScreen()
   })

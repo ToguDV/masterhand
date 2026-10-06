@@ -52,6 +52,8 @@ describe("queryKeys", () => {
     expect(queryKeys.commands("/app")).toEqual(["commands", "/app"])
     expect(queryKeys.commands()).toEqual(["commands", null])
     expect(queryKeys.preview("ses_1")).toEqual(["preview", "ses_1"])
+    expect(queryKeys.branches("ws_1")).toEqual(["branches", "ws_1"])
+    expect(queryKeys.branches()).toEqual(["branches", null])
   })
 })
 

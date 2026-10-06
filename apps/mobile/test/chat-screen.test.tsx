@@ -53,7 +53,13 @@ describe("ChatScreen", () => {
 
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
     expect(screen.getByText("My session")).toBeOnTheScreen()
-    expect(screen.getByText("Session · $0.0010 · 20 input · 5 output · 5 tok/s")).toBeOnTheScreen()
+    // Icons + numbers only; labels live in the accessibility names (#92).
+    expect(screen.getByLabelText("Cost: $0.0010")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Input tokens: 20")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Output tokens: 5")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Speed: 5 tok/s")).toBeOnTheScreen()
+    // Cache read/write are not shown even when the provider reports them.
+    expect(screen.queryByText(/cache/i)).toBeNull()
   })
 
   it("prompts to start when there are no messages", async () => {
@@ -106,17 +112,21 @@ describe("ChatScreen", () => {
     expect(handlers.onOpenSession).toHaveBeenCalledWith("parent-1")
   })
 
-  it("opens the preview modal when previews are enabled", async () => {
-    const { client } = await setup({}, (client) => {
-      client.auth.status.mockResolvedValue({
-        ok: true,
-        preview: { enabled: true, available: true, portRange: { min: 3000, max: 3010 } },
-      })
-    })
+  it("opens the unified Run & preview modal when previews are enabled", async () => {
+    const { client } = await setup(
+      { workspaceID: "ws1" },
+      (client) => {
+        client.auth.status.mockResolvedValue({
+          ok: true,
+          preview: { enabled: true, available: true, portRange: { min: 3000, max: 3010 } },
+        })
+      },
+    )
 
-    await fireEvent.press(await screen.findByText("Preview"))
+    await fireEvent.press(await screen.findByLabelText("Run and preview"))
 
     expect(client.api.preview).toHaveBeenCalledWith("s1")
+    expect(await screen.findByLabelText("Preview")).toBeOnTheScreen()
   })
 
   const isolation: SessionIsolation = {
@@ -180,17 +190,17 @@ describe("ChatScreen", () => {
     open.mockRestore()
   })
 
-  it("closes the preview modal", async () => {
-    await setup({}, (client) => {
+  it("closes the unified Run & preview modal", async () => {
+    await setup({ workspaceID: "ws1" }, (client) => {
       client.auth.status.mockResolvedValue({
         ok: true,
         preview: { enabled: true, available: true, portRange: { min: 3000, max: 3010 } },
       })
     })
 
-    await fireEvent.press(await screen.findByText("Preview"))
-    await fireEvent.press(await screen.findByText("Close"))
+    await fireEvent.press(await screen.findByLabelText("Run and preview"))
+    await fireEvent.press(await screen.findByLabelText("Close run and preview"))
 
-    await waitFor(() => expect(screen.queryByText("Start")).toBeNull())
+    await waitFor(() => expect(screen.queryByLabelText("Close run and preview")).toBeNull())
   })
 })

@@ -15,6 +15,7 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
+import { BranchChip, BranchPicker } from "./BranchPicker"
 import { Composer } from "./Composer"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { SessionStats } from "./SessionStats"
@@ -300,6 +301,13 @@ export function ChatView({
             onSelectWorkspace={onSelectWorkspace}
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
+            branch={
+              isolation ? (
+                <BranchChip branch={isolation.branch} />
+              ) : workspaceID ? (
+                <BranchPicker workspaceID={workspaceID} />
+              ) : undefined
+            }
             trailing={<SessionStats usage={usage} />}
           />
         }

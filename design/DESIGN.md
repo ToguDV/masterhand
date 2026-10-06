@@ -44,6 +44,8 @@ colors:
   accent-soft: "#D9EAE3"
   accent-line: "rgba(11, 107, 83, 0.35)"
   on-accent: "#FFFFFF"
+  bubble-user: "#085041"
+  bubble-user-text: "#FFFFFF"
   success: "#0B6B53"
   warning: "#8A5A00"
   warning-soft: "rgba(138, 90, 0, 0.09)"
@@ -290,8 +292,8 @@ components:
     padding: "6px 10px"
     border: "1px solid {colors.hairline-strong}"
   user-bubble:
-    backgroundColor: "{colors.text}"
-    textColor: "{colors.canvas}"
+    backgroundColor: "{colors.bubble-user}"
+    textColor: "{colors.bubble-user-text}"
     typography: "{typography.body-md}"
     rounded: "{rounded.lg}"
     padding: "10px 14px"
@@ -540,7 +542,7 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.canvas}` | `#FAFAF7` paper | `#0C0C0B` ink-950 | Page background |
 | `{colors.surface}` | `#FFFFFF` | `#141413` ink-900 | Cards, fields, dialogs |
 | `{colors.surface-muted}` | `#F2F2EE` grey-50 | `#1C1C1A` ink-800 | Hover, active rows, chips |
-| `{colors.text}` | `#0C0C0B` ink-950 | `#F2F2ED` chalk | Primary text, inverted bubbles |
+| `{colors.text}` | `#0C0C0B` ink-950 | `#F2F2ED` chalk | Primary text |
 | `{colors.text-soft}` | `#4A4A46` ink-500 | `#C9C9C2` | Secondary text |
 | `{colors.text-muted}` | `#6E6E6A` grey-500 | `#8E8E88` | Tertiary text, metadata |
 | `{colors.text-faint}` | `#8E8E88` grey-400 | `#6A6A65` | Disabled, placeholders |
@@ -550,6 +552,8 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.accent-strong}` | `#085041` emerald-800 | `#8BE9C9` emerald-200 | Pressed / hover |
 | `{colors.accent-soft}` | `#D9EAE3` emerald-100 | `rgba(62,216,168,0.14)` | Tint: chips, blobs, focus ring |
 | `{colors.on-accent}` | `#FFFFFF` | `#04140E` | Text on accent fills |
+| `{colors.bubble-user}` | `#085041` emerald-800 | `#06372C` emerald-900 | User message bubble fill (deep emerald, never a bright surface) |
+| `{colors.bubble-user-text}` | `#FFFFFF` | `#D9EAE3` emerald-100 | Text on the user bubble (≥ 4.5:1 in both themes) |
 | `{colors.warning}` | `#8A5A00` | `#E3B341` | Busy state, banners |
 | `{colors.danger}` | `#B3261E` | `#F08A82` | Destructive, errors |
 | `{colors.success}` | `#0B6B53` | `#3ED8A8` | Completed, connected |
@@ -625,7 +629,7 @@ Fonts are intentionally easy to replace: the whole system references three CSS c
 - **Docs / preview container**: 1200px max, 24px gutters.
 - **Management dialogs** (workspace add/remove, choice modal): 440px max, become bottom sheets below 640px.
 - **Blocking cards** (permission, questions): never dialogs; they live in the 768px chat column at every size.
-- **Side panels** (side question, run, preview, audit): 360px, become full-width sheets on mobile.
+- **Side panels** (side question, run & preview, audit): 360px, become full-width sheets on mobile.
 
 ### Whitespace Philosophy
 Dense where the work is, airy where the work waits. Transcripts, diffs and tool output pack tightly with hairline separation. Empty states, login and session lists breathe, and that breathing room is exactly where decoration is allowed to live. Never both at once: decoration and density are mutually exclusive per surface.
@@ -708,7 +712,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Conversation
 
-**`user-bubble`** — right-aligned, inverted: `{colors.text}` background, `{colors.canvas}` text, `{rounded.lg}`, max 85% width. The inversion mirrors "ink" in both themes.
+**`user-bubble`** — right-aligned, deep-emerald fill: `{colors.bubble-user}` background, `{colors.bubble-user-text}` text, `{rounded.lg}`, max 85% width. It is the only filled transcript surface, so it uses the accent ramp **darker** (emerald-800 light / emerald-900 dark) instead of the inverted ink pair, which made every user message the brightest element on a dark canvas.
 
 **`assistant-block`** — no bubble. Agent label in `{typography.micro}` uppercase + `{colors.text-muted}`, body in `{typography.body-md}`, max 68ch. Code, tool cards and blocking-request cards stack inside the block at full column width.
 
@@ -744,7 +748,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
-**`side-panel`** — right sheet (360px) for side questions, run, preview and audit; full-width on mobile.
+**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`Run | Preview`, active tab underlined in accent) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch.
 
 **`login-card`** — centered card, `{rounded.xxl}`, with a blob behind it and a dot field at its base; contains the wordmark, one field and one primary button. The single most decorated screen in the product.
 
@@ -795,7 +799,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code
 - **Question index**: tabs scroll horizontally when they overflow (never wrap to a second row); the active question stays visible
 - **Management dialogs** (workspace add/remove, choice modal): bottom sheets below 640px, centered cards above
-- **Panels** (side question / run / preview / audit): full-width sheet on mobile, 360px dock on desktop
+- **Panels** (side question / run & preview / audit): full-width sheet on mobile, 360px dock on desktop
 - **Frames in the preview page**: phone and browser frames stack vertically below 1024px; the mock app inside the browser frame responds to **container width**, not viewport
 
 ### Decoration Behavior

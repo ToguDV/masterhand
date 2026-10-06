@@ -2,26 +2,32 @@ import { useRef, useState } from "react"
 import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  formatCount,
   formatSpeed,
-  formatTokens,
   sessionUsage,
   tokenSpeed,
   useBffStatus,
   useMessages,
+  usePreview,
+  useSessionRun,
   type ChatMessage,
   type Client,
+  type CreateWorkspaceInput,
   type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
   type SessionIsolation,
+  type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
 import { AuditModal } from "../components/AuditModal"
-import { PreviewModal } from "../components/PreviewModal"
-import { RunModal } from "../components/RunModal"
+import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
-import { colors } from "../theme"
+import { ThemeToggle } from "../components/ThemeToggle"
+import { Deco } from "../components/Deco"
+import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "../components/icons"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
   client,
@@ -44,6 +50,10 @@ export function ChatScreen({
   onCancelForm,
   waitingQuestion = false,
   onOpenWaiting,
+  workspaces = [],
+  onSelectWorkspace,
+  onAddWorkspace,
+  onRemoveWorkspace,
 }: {
   client: Client
   sessionID: string
@@ -66,21 +76,32 @@ export function ChatScreen({
   /** A question from another session is blocking its agent. */
   waitingQuestion?: boolean
   onOpenWaiting?: () => void
+  /** Workspace management for the composer top bar (#92). */
+  workspaces?: WorkspaceRecord[]
+  onSelectWorkspace?: (id: string) => void
+  onAddWorkspace?: (input: CreateWorkspaceInput) => Promise<void>
+  onRemoveWorkspace?: (id: string, options: { deleteFiles: boolean }) => void
 }) {
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const statusQuery = useBffStatus(client)
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const previewEnabled = statusQuery.data?.preview?.enabled === true
+  // Aggregated dev-server state for the single Run & preview control (#99).
+  const runStateQuery = useSessionRun(client, sessionID, workspaceID)
+  const previewStateQuery = usePreview(client, sessionID, previewEnabled)
+  const [runPreviewOpen, setRunPreviewOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
-  const [runOpen, setRunOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
   const [finishError, setFinishError] = useState<string | null>(null)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  const tokenBreakdown = formatTokens(usage)
-  const speed = formatSpeed(tokenSpeed(usage, usage.durationMs))
+  const speedValue = tokenSpeed(usage, usage.durationMs)
+  const hasStats =
+    usage.cost > 0 || usage.input > 0 || usage.output > 0 || usage.reasoning > 0 || speedValue !== null
 
   async function finish() {
     setFinishing(true)
@@ -100,26 +121,42 @@ export function ChatScreen({
   return (
     <Screen>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.back}>
+        <Pressable onPress={onBack} style={styles.back} hitSlop={4}>
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
           {title || "Session"}
         </Text>
-        <Pressable style={styles.previewButton} onPress={() => setAuditOpen(true)}>
-          <Text style={styles.previewButtonText}>Log</Text>
+        <Pressable style={styles.actionButton} onPress={() => setAuditOpen(true)}>
+          <Text style={styles.actionText}>Log</Text>
         </Pressable>
         {workspaceID ? (
-          <Pressable style={styles.previewButton} onPress={() => setRunOpen(true)}>
-            <Text style={styles.previewButtonText}>Run</Text>
-          </Pressable>
-        ) : null}
-        {statusQuery.data?.preview?.enabled ? (
-          <Pressable style={styles.previewButton} onPress={() => setPreviewOpen(true)}>
-            <Text style={styles.previewButtonText}>Preview</Text>
+          <Pressable
+            style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel="Run and preview"
+            onPress={() => setRunPreviewOpen(true)}
+          >
+            <View
+              style={[
+                styles.dot,
+                {
+                  backgroundColor:
+                    runStateQuery.data?.status === "running" ||
+                    (previewEnabled && previewStateQuery.data?.status === "running")
+                      ? colors.success
+                      : runStateQuery.data?.status === "error" ||
+                          (previewEnabled && previewStateQuery.data?.status === "error")
+                        ? colors.danger
+                        : colors.hairlineStrong,
+                },
+              ]}
+            />
+            <Text style={styles.actionText}>Run</Text>
           </Pressable>
         ) : null}
         <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
+        <ThemeToggle />
       </View>
 
       {waitingQuestion ? (
@@ -142,7 +179,10 @@ export function ChatScreen({
           messagesQuery.isLoading ? (
             <Text style={styles.empty}>Loading conversation…</Text>
           ) : (
-            <Text style={styles.empty}>Write a message to start working with the agent.</Text>
+            <View style={styles.emptyWrap}>
+              <Deco variant="dots" style={styles.emptyDeco} />
+              <Text style={styles.emptyTitle}>Write a message to start working with the agent.</Text>
+            </View>
           )
         }
         renderItem={({ item }) => (
@@ -158,24 +198,47 @@ export function ChatScreen({
         )}
       />
 
-      {(usage.cost > 0 || tokenBreakdown) ? (
-        <Text style={styles.usage}>
-          Session · ${usage.cost.toFixed(4)}
-          {tokenBreakdown ? ` · ${tokenBreakdown}` : ""}
-          {speed ? ` · ${speed}` : ""}
-        </Text>
+      {hasStats ? (
+        <View style={styles.usageRow}>
+          <View style={styles.usageItem} accessibilityLabel={`Cost: $${usage.cost.toFixed(4)}`}>
+            <Text style={styles.usageDollar}>$</Text>
+            <Text style={styles.usageText}>{usage.cost.toFixed(4)}</Text>
+          </View>
+          <View style={styles.usageItem} accessibilityLabel={`Input tokens: ${usage.input}`}>
+            <ArrowUpIcon size={12} color={colors.textMuted} />
+            <Text style={styles.usageText}>{formatCount(usage.input)}</Text>
+          </View>
+          <View style={styles.usageItem} accessibilityLabel={`Output tokens: ${usage.output}`}>
+            <ArrowDownIcon size={12} color={colors.textMuted} />
+            <Text style={styles.usageText}>{formatCount(usage.output)}</Text>
+          </View>
+          {usage.reasoning > 0 ? (
+            <View style={styles.usageItem} accessibilityLabel={`Reasoning tokens: ${usage.reasoning}`}>
+              <SparkleIcon size={12} color={colors.textMuted} />
+              <Text style={styles.usageText}>{formatCount(usage.reasoning)}</Text>
+            </View>
+          ) : null}
+          {speedValue !== null ? (
+            <View style={styles.usageItem} accessibilityLabel={`Speed: ${formatSpeed(speedValue)}`}>
+              <BoltIcon size={12} color={colors.textMuted} />
+              <Text style={styles.usageText}>{formatCount(speedValue)}</Text>
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
       {isolation ? (
         <View style={styles.isolationBar}>
           <View style={styles.isolationInfo}>
             <Text style={styles.isolationLabel}>Isolated</Text>
-            <Text style={styles.branch} numberOfLines={1}>
-              {isolation.branch}
-            </Text>
+            <View style={styles.branchChip}>
+              <Text style={styles.branch} numberOfLines={1}>
+                {isolation.branch}
+              </Text>
+            </View>
           </View>
           {isolation.prUrl ? (
-            <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)}>
+            <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)} hitSlop={4}>
               <Text style={styles.link}>PR ↗</Text>
             </Pressable>
           ) : null}
@@ -195,7 +258,7 @@ export function ChatScreen({
             {finishResult?.pushed ? " Branch pushed." : ""}
           </Text>
           {finishResult?.prUrl ? (
-            <Pressable onPress={() => void Linking.openURL(finishResult.prUrl!)}>
+            <Pressable onPress={() => void Linking.openURL(finishResult.prUrl!)} hitSlop={4}>
               <Text style={styles.link}>Open pull request ↗</Text>
             </Pressable>
           ) : null}
@@ -213,6 +276,10 @@ export function ChatScreen({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        workspaces={workspaces}
+        onSelectWorkspace={onSelectWorkspace}
+        onAddWorkspace={onAddWorkspace}
+        onRemoveWorkspace={onRemoveWorkspace}
       />
 
       {parentSessionID && onOpenSession ? (
@@ -223,191 +290,244 @@ export function ChatScreen({
         </View>
       ) : null}
 
-      {previewOpen ? (
-        <PreviewModal client={client} sessionID={sessionID} onClose={() => setPreviewOpen(false)} />
-      ) : null}
-
-      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
-
-      {runOpen && workspaceID ? (
-        <RunModal
+      {runPreviewOpen && workspaceID ? (
+        <RunPreviewModal
           client={client}
           sessionID={sessionID}
           workspaceID={workspaceID}
-          onClose={() => setRunOpen(false)}
+          onClose={() => setRunPreviewOpen(false)}
         />
       ) : null}
+
+      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
     </Screen>
   )
 }
 
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  back: {
-    paddingHorizontal: 4,
-  },
-  backText: {
-    color: colors.muted,
-    fontSize: 26,
-    lineHeight: 28,
-  },
-  title: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  waitingBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(99, 102, 241, 0.4)",
-    backgroundColor: "rgba(99, 102, 241, 0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  waitingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.accent,
-  },
-  waitingText: {
-    flex: 1,
-    color: "#c7d2fe",
-    fontSize: 11,
-  },
-  previewButton: {
-    backgroundColor: "rgba(99, 102, 241, 0.15)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.accentMuted,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  previewButtonText: {
-    color: "#a5b4fc",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  listContainer: {
-    flex: 1,
-  },
-  list: {
-    gap: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: 14,
-    textAlign: "center",
-    paddingVertical: 32,
-  },
-  usage: {
-    color: colors.muted,
-    fontSize: 11,
-    textAlign: "right",
-    paddingHorizontal: 14,
-    paddingTop: 8,
-  },
-  isolationBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  isolationInfo: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  isolationLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  branch: {
-    color: "#a5b4fc",
-    fontSize: 11,
-    fontFamily: "monospace",
-  },
-  finishButton: {
-    backgroundColor: "rgba(99, 102, 241, 0.15)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.accentMuted,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  finishText: {
-    color: "#a5b4fc",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  finishStatus: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingBottom: 6,
-  },
-  finishStatusText: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  finishError: {
-    color: colors.danger,
-    fontSize: 11,
-  },
-  link: {
-    color: "#a5b4fc",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  floatingWrap: {
-    position: "absolute",
-    top: 52,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 10,
-  },
-  floating: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.accentMuted,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    elevation: 4,
-  },
-  floatingText: {
-    color: "#a5b4fc",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    back: {
+      paddingHorizontal: 4,
+    },
+    backText: {
+      color: colors.textMuted,
+      fontSize: 26,
+      lineHeight: 28,
+    },
+    title: {
+      flex: 1,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    dot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    waitingBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.accentLine,
+      backgroundColor: colors.accentSoft,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    waitingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.accent,
+    },
+    waitingText: {
+      flex: 1,
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    actionButton: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    actionText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    listContainer: {
+      flex: 1,
+    },
+    list: {
+      gap: 16,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+    },
+    empty: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      textAlign: "center",
+      paddingVertical: 32,
+    },
+    emptyWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 240,
+      paddingVertical: 48,
+      paddingHorizontal: 24,
+      overflow: "hidden",
+    },
+    emptyDeco: {
+      position: "absolute",
+      top: 0,
+      right: -24,
+      opacity: 0.5,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontFamily: fonts.display,
+      fontSize: 26,
+      fontWeight: "500",
+      lineHeight: 31,
+      textAlign: "center",
+    },
+    usageRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingTop: 8,
+    },
+    usageItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+    },
+    usageDollar: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    usageText: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    isolationBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+    },
+    isolationInfo: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    isolationLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      fontWeight: "600",
+    },
+    branchChip: {
+      flexShrink: 1,
+      backgroundColor: colors.accentSoft,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    branch: {
+      color: colors.accent,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    finishButton: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    finishText: {
+      color: colors.onAccent,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    finishStatus: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingBottom: 6,
+    },
+    finishStatusText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    finishError: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    link: {
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    floatingWrap: {
+      position: "absolute",
+      top: 52,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      zIndex: 10,
+    },
+    floating: {
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      elevation: 4,
+    },
+    floatingText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+  })
+}

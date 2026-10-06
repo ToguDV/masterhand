@@ -501,9 +501,9 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("pushes and reports the PR URL when a remote and CLI exist", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: () => true,
-      remoteUrl: () => "git@github.com:org/repo.git",
-      pullRequest: () => "https://github.com/org/repo/pull/1",
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      pullRequest: async () => "https://github.com/org/repo/pull/1",
     })
     const opencode = createOpencodeMock()
     const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
@@ -541,8 +541,8 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("falls back to a compare URL without a provider CLI", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: () => true,
-      remoteUrl: () => "git@github.com:org/repo.git",
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
     })
     const opencode = createOpencodeMock()
     const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
@@ -575,8 +575,8 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("reports a push failure and keeps the local commit", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: () => true,
-      remoteUrl: () => "git@github.com:org/repo.git",
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
       push: vi.fn(() => {
         throw new Error("authentication failed")
       }),

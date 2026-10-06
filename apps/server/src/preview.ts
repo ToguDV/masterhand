@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { connect } from "node:net"
 import { join } from "node:path"
@@ -22,8 +22,8 @@ export interface PreviewManager {
   stopAll(): void
   /** Port mappings are removed when the session disappears. */
   forget(sessionID: string): void
-  /** Whether the `cloudflared` binary can be executed (cached). */
-  available(): boolean
+  /** Whether the `cloudflared` binary can be executed (cached, async probe). */
+  available(): Promise<boolean>
 }
 
 export class PreviewError extends Error {
@@ -44,7 +44,7 @@ export interface PreviewManagerDeps {
   /** Overridable for tests: TCP reachability probe for the dev server. */
   probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
   /** Overridable for tests: does the cloudflared binary exist? */
-  availableImpl?: () => boolean
+  availableImpl?: () => boolean | Promise<boolean>
   /** Overridable for tests: is the public URL reachable yet? */
   readinessImpl?: (url: string) => Promise<boolean>
   /** How long to wait for cloudflared to announce its public URL. */
@@ -203,6 +203,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const starting = new Map<string, Promise<PreviewState>>()
   const failures = new Map<string, string>()
   let availableCache: boolean | null = null
+  let availableInFlight: Promise<boolean> | null = null
   const pidFile = tunnelPidFile(config.dataDir)
 
   // Persist live tunnel PIDs so the next process can reap them after a crash
@@ -221,19 +222,57 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (pids.includes(pid)) writeTrackedPids(pidFile, pids.filter((value) => value !== pid))
   }
 
-  function available(): boolean {
-    if (availableCache !== null) return availableCache
-    if (deps.availableImpl) {
-      availableCache = deps.availableImpl()
-      return availableCache
-    }
-    try {
-      const result = spawnSync(config.cloudflaredBin, ["--version"], { timeout: 3000, stdio: "ignore" })
-      availableCache = result.status === 0
-    } catch {
-      availableCache = false
-    }
-    return availableCache
+  /** Async `spawn` probe with a kill timeout; never blocks the event loop. */
+  function probeBinary(command: string, binaryTimeoutMs = 3000): Promise<boolean> {
+    return new Promise((resolve) => {
+      let child: ChildProcess
+      try {
+        child = spawn(command, ["--version"], { stdio: "ignore" })
+      } catch {
+        resolve(false)
+        return
+      }
+      const timer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL")
+        } catch {
+          // already gone
+        }
+      }, binaryTimeoutMs)
+      const finish = (value: boolean): void => {
+        clearTimeout(timer)
+        resolve(value)
+      }
+      child.once("error", () => finish(false))
+      child.once("close", (code) => finish(code === 0))
+    })
+  }
+
+  function available(): Promise<boolean> {
+    if (availableCache !== null) return Promise.resolve(availableCache)
+    // Concurrent /api/status polls share one probe instead of spawning per call.
+    if (availableInFlight) return availableInFlight
+    const check = (async (): Promise<boolean> => {
+      try {
+        if (deps.availableImpl) return Boolean(await deps.availableImpl())
+        return await probeBinary(config.cloudflaredBin)
+      } catch {
+        return false
+      }
+    })()
+    availableInFlight = check.then(
+      (value) => {
+        availableCache = value
+        availableInFlight = null
+        return value
+      },
+      () => {
+        availableCache = false
+        availableInFlight = null
+        return false
+      },
+    )
+    return availableInFlight
   }
 
   function allocatePort(): number {

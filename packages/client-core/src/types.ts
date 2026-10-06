@@ -77,6 +77,12 @@ export interface CreateSessionInput {
   marker?: string
 }
 
+/** Local git branches of a workspace folder (issue #94). */
+export interface GitBranches {
+  current: string
+  branches: string[]
+}
+
 export interface FinishSessionResult {
   committed: boolean
   pushed: boolean

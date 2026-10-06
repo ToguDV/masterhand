@@ -13,6 +13,7 @@ import {
   useAgents,
   useAudit,
   useBffStatus,
+  useBranches,
   useEventStream,
   useMessages,
   useModels,
@@ -50,6 +51,11 @@ function makeClient(stream = makeEventStream()) {
     audit: vi.fn(async () => []),
     run: vi.fn(async () => null),
     sessionRun: vi.fn(async () => ({ status: "stopped", command: null, args: [], port: null, pid: null, error: null })),
+    branches: {
+      list: vi.fn(async () => ({ current: "main", branches: ["main", "dev"] })),
+      create: vi.fn(async () => ({ current: "dev", branches: ["main", "dev"] })),
+      checkout: vi.fn(async () => ({ current: "dev", branches: ["main", "dev"] })),
+    },
   }
   const eventStream = vi.fn((_options: Parameters<Client["eventStream"]>[0]) => stream)
   const workspaces = { list: vi.fn(async () => []) }
@@ -105,6 +111,20 @@ describe("query hooks", () => {
     const { result } = renderHook(() => useSessionStatuses(client, true, true), { wrapper: wrapper(qc) })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(api.statuses).toHaveBeenCalledTimes(1)
+  })
+
+  it("useBranches only fetches for an enabled workspace", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+
+    const disabled = renderHook(() => useBranches(client, false, "ws_1"), { wrapper: wrapper(qc) })
+    expect(disabled.result.current.fetchStatus).toBe("idle")
+    expect(api.branches.list).not.toHaveBeenCalled()
+
+    const enabled = renderHook(() => useBranches(client, true, "ws_1"), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
+    expect(api.branches.list).toHaveBeenCalledWith("ws_1")
+    expect(enabled.result.current.data).toEqual({ current: "main", branches: ["main", "dev"] })
   })
 
   it("useSessionStatuses keeps a status set while the poll is in flight", async () => {

@@ -37,6 +37,7 @@ import type { IsolatedSessionRecord, Store, WorkspaceRunRecord } from "./store.j
 import { isStorageConflict, isStorageError } from "./store.js"
 import {
   createWorktreeManager,
+  isValidBranchName,
   pullRequestUrl,
   worktreeBranch,
   worktreeDir,
@@ -60,8 +61,8 @@ export interface AppDeps {
   hub: EventHub
   fetchImpl?: typeof fetch
   /** Overridable for tests: create/delete workspace folders. */
-  createDir?: (path: string) => void
-  removeDir?: (path: string) => void
+  createDir?: (path: string) => Promise<void>
+  removeDir?: (path: string) => Promise<void>
   /** Overridable for tests: git worktree operations. */
   worktrees?: WorktreeManager
   /** Overridable for tests: Cloudflare quick-tunnel previews. */
@@ -211,7 +212,7 @@ export function createApp(deps: AppDeps): Hono {
    * deleted by a client and, critically, when opencode reports it deleted
    * outside MasterHand (TUI/API), where no route runs.
    */
-  function releaseSession(sessionID: string): void {
+  async function releaseSession(sessionID: string): Promise<void> {
     preview.forget(sessionID)
     runs.forget(sessionID)
     const record = deps.store.getIsolatedSession(sessionID)
@@ -219,7 +220,7 @@ export function createApp(deps: AppDeps): Hono {
     const workspace = deps.store.getWorkspace(record.workspaceID)
     if (workspace) {
       try {
-        worktrees.remove(workspace.path, record.path, record.branch)
+        await worktrees.remove(workspace.path, record.path, record.branch)
       } catch {
         // best effort: never block dropping the record
       }
@@ -248,7 +249,11 @@ export function createApp(deps: AppDeps): Hono {
       // Out-of-band deletion: nothing else would stop the tunnel/PTY or drop
       // the worktree record (issue #85).
       const sessionID = typeof data?.sessionID === "string" ? data.sessionID : ""
-      if (sessionID) releaseSession(sessionID)
+      if (sessionID) {
+        void releaseSession(sessionID).catch((error) => {
+          console.warn(`[masterhand] could not release session ${sessionID}:`, error)
+        })
+      }
       return
     }
     if (!data) return
@@ -353,10 +358,7 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /** Lists every session in a directory, following opencode's v2 cursor pagination. */
-  async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
-    const cached = sessionsCache.get(directory)
-    if (cached && Date.now() - cached.at < sessionsCacheMs) return cached.sessions
-
+  async function fetchSessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
     const sessions: OpencodeSession[] = []
     let cursor: string | undefined
     for (let page = 0; page < 50; page += 1) {
@@ -377,6 +379,14 @@ export function createApp(deps: AppDeps): Hono {
       if (!next) break
       cursor = next
     }
+    return sessions
+  }
+
+  async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
+    const cached = sessionsCache.get(directory)
+    if (cached && Date.now() - cached.at < sessionsCacheMs) return cached.sessions
+
+    const sessions = await fetchSessionsInDirectory(directory)
     sessionsCache.set(directory, { at: Date.now(), sessions })
     return sessions
   }
@@ -484,9 +494,9 @@ export function createApp(deps: AppDeps): Hono {
    * Best effort at session creation: the instruction and permission guards still
    * apply if git is unavailable.
    */
-  function ensureWorkspaceRepo(path: string): void {
+  async function ensureWorkspaceRepo(path: string): Promise<void> {
     try {
-      worktrees.ensureRepo(path)
+      await worktrees.ensureRepo(path)
     } catch (error) {
       console.warn(
         `[workspace] could not initialize a git repo at ${path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -579,7 +589,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get("/status", async (c) => {
     const previewStatus = {
       enabled: config.previewEnabled,
-      available: config.previewEnabled && preview.available(),
+      available: config.previewEnabled && (await preview.available()),
       portRange: config.previewPortRange,
     }
     // Free space on the data volume: a full disk takes SQLite and git down
@@ -767,8 +777,8 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: "already_exists" }, 409)
     }
 
-    createDir(path)
-    ensureWorkspaceRepo(path)
+    await createDir(path)
+    await ensureWorkspaceRepo(path)
     const workspace = { id: randomUUID(), name: result.slug, path, createdAt: Date.now() }
     try {
       deps.store.createWorkspace(workspace)
@@ -781,7 +791,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ workspace }, 201)
   })
 
-  api.delete("/workspaces/:id", (c) => {
+  api.delete("/workspaces/:id", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
 
@@ -789,7 +799,7 @@ export function createApp(deps: AppDeps): Hono {
     // have to be cleaned up explicitly.
     for (const record of deps.store.listIsolatedSessions(workspace.id)) {
       try {
-        worktrees.remove(workspace.path, record.path, record.branch)
+        await worktrees.remove(workspace.path, record.path, record.branch)
       } catch {
         // best effort: the folder may already be gone
       }
@@ -801,7 +811,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!isInsideRoot(config.workspacesRoot, workspace.path)) {
         return c.json({ error: "outside_root" }, 403)
       }
-      removeDir(workspace.path)
+      await removeDir(workspace.path)
     }
 
     deps.store.removeWorkspace(workspace.id)
@@ -817,6 +827,136 @@ export function createApp(deps: AppDeps): Hono {
       ...deps.store.listIsolatedSessions(workspace.id).map((record) => record.path),
     ]
     return c.json({ directories })
+  })
+
+  /**
+   * Branch/history access over git (opencode's VCS API is read-only). A timeout
+   * means the git command may still have applied, so it is answered `504
+   * git_timeout` — clients surface it as "unknown" and never auto-retry a
+   * non-idempotent checkout/create (docs/past-mistakes.md rules 4 and 15).
+   */
+  function gitFailure(c: Context, error: unknown) {
+    const detail = error instanceof Error ? error.message : "unknown"
+    const status = detail.includes("timed out") ? 504 : 502
+    return c.json({ error: status === 504 ? "git_timeout" : "git_failed", detail }, status)
+  }
+
+  /**
+   * A branch switch under a running turn would move the files beneath it, and
+   * a branch operation on a dirty tree can lose the user's work: refuse both.
+   * The busy check fails closed — when it cannot confirm, the mutation is not
+   * attempted.
+   */
+  async function branchGuard(
+    c: Context,
+    workspacePath: string,
+    options: { requireClean: boolean },
+  ): Promise<Response | null> {
+    try {
+      // Fresh list: a session created moments ago (not yet in the 5 s cache)
+      // may already be running, and a branch switch under it would corrupt it.
+      const sessions = await fetchSessionsInDirectory(workspacePath)
+      if (sessions.length > 0) {
+        const response = await callOpencode("/api/session/active")
+        if (!response.ok) throw new Error(`opencode ${response.status}`)
+        const body = (await response.json()) as { data?: Record<string, unknown> }
+        const active = new Set(Object.keys(body.data ?? {}))
+        if (sessions.some((session) => active.has(session.id))) {
+          return c.json({ error: "workspace_busy" }, 409)
+        }
+      }
+    } catch (error) {
+      return c.json(
+        { error: "busy_check_failed", detail: error instanceof Error ? error.message : "unknown" },
+        502,
+      )
+    }
+    if (options.requireClean) {
+      try {
+        if (await worktrees.isDirty(workspacePath)) {
+          return c.json({ error: "dirty_worktree" }, 409)
+        }
+      } catch (error) {
+        return gitFailure(c, error)
+      }
+    }
+    return null
+  }
+
+  api.get("/workspaces/:id/branches", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    try {
+      return c.json(await worktrees.branches(workspace.path))
+    } catch (error) {
+      return gitFailure(c, error)
+    }
+  })
+
+  api.post("/workspaces/:id/branches", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+
+    let body: { name?: unknown; base?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "bad_request" }, 400)
+    }
+    if (typeof body.name !== "string" || !isValidBranchName(body.name)) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+    if (body.base !== undefined && (typeof body.base !== "string" || !isValidBranchName(body.base))) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+
+    // Creating from a dirty tree is safe (the changes travel with you), but a
+    // running turn must never have its files swapped underneath it.
+    const guard = await branchGuard(c, workspace.path, { requireClean: false })
+    if (guard) return guard
+
+    try {
+      const info = await worktrees.branches(workspace.path)
+      if (info.branches.includes(body.name)) return c.json({ error: "branch_exists" }, 409)
+      if (body.base && !info.branches.includes(body.base)) {
+        return c.json({ error: "branch_not_found" }, 404)
+      }
+      await worktrees.createBranch(workspace.path, body.name, body.base)
+      invalidateSessionsCache()
+      return c.json(await worktrees.branches(workspace.path), 201)
+    } catch (error) {
+      return gitFailure(c, error)
+    }
+  })
+
+  api.post("/workspaces/:id/checkout", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+
+    let body: { name?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "bad_request" }, 400)
+    }
+    if (typeof body.name !== "string" || !isValidBranchName(body.name)) {
+      return c.json({ error: "invalid_branch_name" }, 400)
+    }
+
+    // Switching branches is destructive for uncommitted work: dirty trees are
+    // rejected before any git mutation runs.
+    const guard = await branchGuard(c, workspace.path, { requireClean: true })
+    if (guard) return guard
+
+    try {
+      const info = await worktrees.branches(workspace.path)
+      if (info.current === body.name) return c.json(info)
+      if (!info.branches.includes(body.name)) return c.json({ error: "branch_not_found" }, 404)
+      await worktrees.checkout(workspace.path, body.name)
+      return c.json(await worktrees.branches(workspace.path))
+    } catch (error) {
+      return gitFailure(c, error)
+    }
   })
 
   api.get("/workspaces/:id/sessions", async (c) => {
@@ -859,7 +999,7 @@ export function createApp(deps: AppDeps): Hono {
     const marker = normalizeCreateMarker(body.marker)
 
     if (body.isolated !== true) {
-      ensureWorkspaceRepo(workspace.path)
+      await ensureWorkspaceRepo(workspace.path)
       let response: Response
       try {
         response = await callOpencode("/api/session", {
@@ -890,9 +1030,9 @@ export function createApp(deps: AppDeps): Hono {
 
     let sessionID: string | null = null
     try {
-      worktrees.ensureRepo(workspace.path)
-      baseRef = worktrees.headBranch(workspace.path)
-      worktrees.create(workspace.path, path, branch, baseRef)
+      await worktrees.ensureRepo(workspace.path)
+      baseRef = await worktrees.headBranch(workspace.path)
+      await worktrees.create(workspace.path, path, branch, baseRef)
 
       const response = await callOpencode("/api/session", {
         method: "POST",
@@ -922,7 +1062,7 @@ export function createApp(deps: AppDeps): Hono {
         void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
       }
       try {
-        worktrees.remove(workspace.path, path, branch)
+        await worktrees.remove(workspace.path, path, branch)
       } catch {
         // the worktree may not exist if creation failed early
       }
@@ -950,7 +1090,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    releaseSession(sessionID)
+    await releaseSession(sessionID)
     return c.json({ ok: true })
   })
 
@@ -962,7 +1102,7 @@ export function createApp(deps: AppDeps): Hono {
 
     let committed = false
     try {
-      committed = worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`)
+      committed = await worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`)
     } catch (error) {
       return c.json(
         { error: "commit_failed", detail: error instanceof Error ? error.message : "unknown" },
@@ -973,10 +1113,10 @@ export function createApp(deps: AppDeps): Hono {
     let pushed = false
     let pushError: string | null = null
     let prUrl = record.prUrl
-    const remoteUrl = worktrees.remoteUrl(record.path)
+    const remoteUrl = await worktrees.remoteUrl(record.path)
     if (remoteUrl) {
       try {
-        worktrees.push(record.path, record.branch)
+        await worktrees.push(record.path, record.branch)
         pushed = true
       } catch (error) {
         pushError = error instanceof Error ? error.message : "push_failed"
@@ -987,7 +1127,7 @@ export function createApp(deps: AppDeps): Hono {
         // create a second PR: the recorded URL wins.
         prUrl =
           record.prUrl ??
-          worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef) ??
+          (await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)) ??
           pullRequestUrl(remoteUrl, record.branch, record.baseRef)
       }
     }
@@ -1106,7 +1246,7 @@ export function createApp(deps: AppDeps): Hono {
 
   api.post("/sessions/:sessionID/preview", async (c) => {
     if (!config.previewEnabled) return c.json({ error: "preview_disabled" }, 404)
-    if (!preview.available()) return c.json({ error: "preview_unavailable" }, 503)
+    if (!(await preview.available())) return c.json({ error: "preview_unavailable" }, 503)
     await ensurePreviewInstruction(c.req.param("sessionID"))
     try {
       return c.json({ preview: await preview.start(c.req.param("sessionID")) })

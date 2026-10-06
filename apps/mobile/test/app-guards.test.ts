@@ -115,3 +115,21 @@ describe("foreground recovery", () => {
     expect(app).toMatch(/forceReconnect\(\)/)
   })
 })
+
+describe("design system", () => {
+  it("has no indigo palette left (the ink-on-paper port replaced it)", () => {
+    const offenders = sourceFilesList
+      .filter((file) => {
+        const source = readFileSync(file, "utf8").toLowerCase()
+        return source.includes("#6366f1") || source.includes("#312e81")
+      })
+      .map((file) => relative(appRoot, file))
+    expect(offenders).toEqual([])
+  })
+
+  it("keeps the theme provider mounted at the app root", () => {
+    const app = read("App.tsx")
+    expect(app).toContain("<ThemeProvider")
+    expect(app).toContain("</ThemeProvider>")
+  })
+})

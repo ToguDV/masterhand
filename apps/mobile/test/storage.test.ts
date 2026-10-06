@@ -7,12 +7,14 @@ import {
   loadDevice,
   loadServerUrl,
   loadSessionPreferences,
+  loadTheme,
   loadToken,
   loadWorkspaceID,
   saveAutoAcceptSessions,
   saveDevice,
   saveServerUrl,
   saveSessionPreferences,
+  saveTheme,
   saveToken,
   saveWorkspaceID,
 } from "../src/storage"
@@ -94,6 +96,25 @@ describe("storage — auto-accept sessions", () => {
   })
 })
 
+describe("storage — theme", () => {
+  it("round-trips the theme choice and rejects unknown values", async () => {
+    expect(await loadTheme()).toBeNull()
+
+    await saveTheme("dark")
+    expect(await loadTheme()).toBe("dark")
+
+    await SecureStore.setItemAsync("masterhand.theme", "purple")
+    expect(await loadTheme()).toBeNull()
+  })
+
+  it("tolerates a failing secure store", async () => {
+    const getItem = SecureStore.getItemAsync as jest.Mock
+    getItem.mockRejectedValueOnce(new Error("keychain unavailable"))
+
+    expect(await loadTheme()).toBeNull()
+  })
+})
+
 describe("storage — session preferences", () => {
   it("returns nothing for an unknown session", async () => {
     expect(await loadSessionPreferences("missing")).toEqual({})
@@ -128,5 +149,29 @@ describe("storage — session preferences", () => {
     await saveSessionPreferences("s1", { agent: "build", model: "test-model", variant: "low" })
 
     expect(await loadSessionPreferences("s1")).toEqual({ agent: "build", model: "test-model", variant: "low" })
+  })
+
+  it("serializes concurrent saves so neither session loses its preferences (#82)", async () => {
+    const first = { agent: "build", model: "test-model", variant: "low" }
+    const second = { agent: "explore", model: "alpha", variant: "" }
+
+    // Both calls start before either write lands: an unserialized
+    // read-modify-write would have both read the same map and clobber one.
+    await Promise.all([saveSessionPreferences("s1", first), saveSessionPreferences("s2", second)])
+
+    expect(await loadSessionPreferences("s1")).toEqual(first)
+    expect(await loadSessionPreferences("s2")).toEqual(second)
+  })
+
+  it("keeps saving after one write fails (#82)", async () => {
+    const setItem = SecureStore.setItemAsync as jest.Mock
+    setItem.mockRejectedValueOnce(new Error("keychain unavailable"))
+
+    await expect(
+      saveSessionPreferences("s1", { agent: "build", model: "test-model", variant: "low" }),
+    ).rejects.toThrow("keychain unavailable")
+
+    await saveSessionPreferences("s2", { agent: "explore", model: "alpha", variant: "" })
+    expect(await loadSessionPreferences("s2")).toEqual({ agent: "explore", model: "alpha", variant: "" })
   })
 })

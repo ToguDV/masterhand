@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
-import { colors } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export interface ChoiceOption {
   value: string
@@ -23,6 +23,8 @@ export function ChoiceModal({
   onClose: () => void
 }) {
   const [query, setQuery] = useState("")
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   useEffect(() => {
     if (!visible) setQuery("")
@@ -41,7 +43,7 @@ export function ChoiceModal({
               value={query}
               onChangeText={setQuery}
               placeholder="Search…"
-              placeholderTextColor={colors.muted}
+              placeholderTextColor={colors.textFaint}
               autoCorrect={false}
               autoCapitalize="none"
               style={styles.search}
@@ -70,64 +72,73 @@ export function ChoiceModal({
   )
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  sheet: {
-    maxHeight: "70%",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    backgroundColor: colors.surface,
-    paddingBottom: 24,
-  },
-  title: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  search: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    borderRadius: 10,
-    color: colors.text,
-    fontSize: 15,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  list: {
-    flexGrow: 0,
-  },
-  option: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  optionSelected: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  optionText: {
-    color: colors.text,
-    fontSize: 15,
-  },
-  optionTextSelected: {
-    color: colors.accent,
-    fontWeight: "600",
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: colors.overlay,
+    },
+    sheet: {
+      maxHeight: "70%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      backgroundColor: colors.surface,
+      paddingBottom: 24,
+    },
+    title: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      fontWeight: "600",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 8,
+    },
+    search: {
+      marginHorizontal: 16,
+      marginBottom: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    empty: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+    },
+    list: {
+      flexGrow: 0,
+    },
+    option: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+    },
+    optionSelected: {
+      backgroundColor: colors.surfaceMuted,
+    },
+    optionText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+    },
+    optionTextSelected: {
+      color: colors.accent,
+      fontWeight: "600",
+    },
+  })
+}

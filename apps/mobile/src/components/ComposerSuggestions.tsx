@@ -1,5 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
-import { colors } from "../theme"
+import { useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export interface ComposerSuggestion {
   id: string
@@ -21,6 +21,7 @@ export function ComposerSuggestions({
   emptyLabel?: string
   onSelect: (id: string) => void
 }) {
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -54,61 +55,69 @@ export function ComposerSuggestions({
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    maxHeight: 220,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  title: {
-    flexShrink: 1,
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  hint: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  list: {
-    flexGrow: 0,
-  },
-  item: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  label: {
-    flexShrink: 0,
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  detail: {
-    flexShrink: 1,
-    color: colors.muted,
-    fontSize: 11,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    container: {
+      maxHeight: 220,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      overflow: "hidden",
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    title: {
+      flexShrink: 1,
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      fontWeight: "600",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+    },
+    hint: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+    },
+    list: {
+      flexGrow: 0,
+    },
+    item: {
+      flexDirection: "row",
+      alignItems: "baseline",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+    },
+    label: {
+      flexShrink: 0,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    detail: {
+      flexShrink: 1,
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+    },
+    empty: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+    },
+  })
+}

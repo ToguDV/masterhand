@@ -30,6 +30,25 @@ test("switches between light and dark themes and remembers the choice", async ({
     .toBe("rgb(250, 250, 247)")
 })
 
+test("paints the user bubble deep emerald, never the brightest surface", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+  await page.getByPlaceholder("Write a message…").fill("hello agent")
+  await page.getByRole("button", { name: "Send" }).click()
+
+  const bubble = page.locator(".mh-msg--user").first()
+  await expect(bubble).toBeVisible()
+  await expect
+    .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe("rgb(8, 80, 65)") // emerald-800 on the light theme
+
+  await page.getByRole("button", { name: "Switch to dark theme" }).click()
+  await expect
+    .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .toBe("rgb(6, 55, 44)") // emerald-900: a dark green fill, not a light one
+})
+
 test("renders permission requests inline in the transcript, not as a modal", async ({ page }) => {
   await login(page)
   await addWorkspace(page)

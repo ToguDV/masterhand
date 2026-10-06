@@ -687,6 +687,47 @@ describe("previews", () => {
   })
 })
 
+describe("branches", () => {
+  it("lists, creates and checks out workspace branches", async () => {
+    const branches = { current: "main", branches: ["main", "dev"] }
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse(branches))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    expect(await client.api.branches.list("ws/1")).toEqual(branches)
+    expect(await client.api.branches.create("ws/1", "feature/x", "dev")).toEqual(branches)
+    expect(await client.api.branches.create("ws/1", "feature/y")).toEqual(branches)
+    expect(await client.api.branches.checkout("ws/1", "dev")).toEqual(branches)
+
+    const routes = calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)
+    expect(routes).toEqual([
+      "GET https://mh.example/api/workspaces/ws%2F1/branches",
+      "POST https://mh.example/api/workspaces/ws%2F1/branches",
+      "POST https://mh.example/api/workspaces/ws%2F1/branches",
+      "POST https://mh.example/api/workspaces/ws%2F1/checkout",
+    ])
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: "feature/x", base: "dev" })
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ name: "feature/y" })
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({ name: "dev" })
+  })
+
+  it("gives branch mutations their own budget (server git deadline + headroom)", async () => {
+    const stall: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+      })
+    const client = createClient({ baseUrl: "", fetchImpl: stall, timeoutMs: 20, branchTimeoutMs: 80 })
+
+    const pending = client.api.branches.checkout("ws_1", "dev")
+    const outcome = pending.then(
+      () => "resolved",
+      () => "rejected",
+    )
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(await Promise.race([outcome, Promise.resolve("pending")])).toBe("pending")
+    await expect(pending).rejects.toBeInstanceOf(RequestTimeoutError)
+  })
+})
+
 describe("audit", () => {
   it("reads the denied-command log and clears it", async () => {
     const event = {

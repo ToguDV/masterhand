@@ -17,6 +17,7 @@ const DEVICE_KEY = "masterhand.device"
 const WORKSPACE_KEY = "masterhand.workspaceID"
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
+const THEME_KEY = "masterhand.theme"
 
 export function loadServerUrl(): Promise<string | null> {
   return SecureStore.getItemAsync(SERVER_URL_KEY)
@@ -68,6 +69,20 @@ export function clearWorkspaceID(): Promise<void> {
   return SecureStore.deleteItemAsync(WORKSPACE_KEY)
 }
 
+/** Stored theme choice, or null when unset/corrupted (the system decides). */
+export async function loadTheme(): Promise<"light" | "dark" | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(THEME_KEY)
+    return raw === "light" || raw === "dark" ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function saveTheme(theme: "light" | "dark"): Promise<void> {
+  return SecureStore.setItemAsync(THEME_KEY, theme)
+}
+
 export async function loadAutoAcceptSessions(): Promise<string[]> {
   const raw = await SecureStore.getItemAsync(AUTO_ACCEPT_KEY)
   if (!raw) return []
@@ -100,14 +115,26 @@ export async function loadSessionPreferences(sessionID: string): Promise<Partial
   }
 }
 
-export async function saveSessionPreferences(sessionID: string, preferences: SessionPreferences): Promise<void> {
-  let map: Record<string, SessionPreferences> = {}
-  try {
-    const raw = await SecureStore.getItemAsync(PREFERENCES_KEY)
-    if (raw) map = JSON.parse(raw) as Record<string, SessionPreferences>
-  } catch {
-    map = {}
-  }
-  map[sessionID] = preferences
-  await SecureStore.setItemAsync(PREFERENCES_KEY, JSON.stringify(map))
+/**
+ * Serialized read-modify-write queue for the preferences map: two concurrent
+ * saves used to read the same JSON and clobber each other (issue #82). The
+ * chain stays alive after a failure so one rejected write cannot poison every
+ * later save; callers still observe their own rejection.
+ */
+let preferencesWrite: Promise<void> = Promise.resolve()
+
+export function saveSessionPreferences(sessionID: string, preferences: SessionPreferences): Promise<void> {
+  const write = preferencesWrite.then(async () => {
+    let map: Record<string, SessionPreferences> = {}
+    try {
+      const raw = await SecureStore.getItemAsync(PREFERENCES_KEY)
+      if (raw) map = JSON.parse(raw) as Record<string, SessionPreferences>
+    } catch {
+      map = {}
+    }
+    map[sessionID] = preferences
+    await SecureStore.setItemAsync(PREFERENCES_KEY, JSON.stringify(map))
+  })
+  preferencesWrite = write.catch(() => {})
+  return write
 }

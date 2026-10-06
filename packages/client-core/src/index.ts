@@ -3,6 +3,7 @@ export {
   ApiError,
   RequestTimeoutError,
   createClient,
+  BRANCH_TIMEOUT_MS,
   FINISH_TIMEOUT_MS,
   type Client,
   type ClientOptions,
@@ -16,6 +17,7 @@ export {
 export {
   conversationErrorMessage,
   composerErrorMessage,
+  branchErrorMessage,
   isAmbiguousError,
   opencodeErrorMessage,
   previewErrorMessage,
@@ -72,6 +74,7 @@ export {
   useBffStatus,
   useCommands,
   useEventStream,
+  useBranches,
   useMessages,
   useModels,
   usePreview,

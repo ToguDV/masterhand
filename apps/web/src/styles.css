@@ -58,6 +58,10 @@
   --mh-accent-line: light-dark(rgba(11, 107, 83, 0.35), rgba(62, 216, 168, 0.35));
   --mh-on-accent: light-dark(#ffffff, #04140e);
 
+  /* User bubble — deep emerald, deliberately never the brightest surface */
+  --mh-bubble-user: light-dark(#085041, #06372c);
+  --mh-bubble-user-text: light-dark(#ffffff, #d9eae3);
+
   /* Semantic */
   --mh-success: light-dark(#0b6b53, #3ed8a8);
   --mh-warning: light-dark(#8a5a00, #e3b341);
@@ -738,8 +742,8 @@ body {
 .mh-msg--user {
   align-self: flex-end;
   max-width: 85%;
-  background: var(--mh-text);
-  color: var(--mh-canvas);
+  background: var(--mh-bubble-user);
+  color: var(--mh-bubble-user-text);
   border-radius: var(--r-lg);
   padding: 10px 14px;
   font-size: 15px;

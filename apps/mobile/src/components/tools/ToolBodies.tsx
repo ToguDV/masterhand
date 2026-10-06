@@ -7,7 +7,7 @@ import {
   type KeyValueEntry,
   type TodoItem,
 } from "@masterhand/client-core"
-import { colors } from "../../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../../theme"
 
 /** Monospace block with optional line numbers and a "show all" toggle. */
 export function CodeBlock({
@@ -25,6 +25,7 @@ export function CodeBlock({
   startLine?: number
 }) {
   const [expanded, setExpanded] = useState(false)
+  const styles = useThemedStyles(createStyles)
   const showNumbers = numbered && !looksLineNumbered(text)
   const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines)
   const lines = truncated.text.split("\n")
@@ -73,6 +74,7 @@ export function TerminalBody({
   running: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const styles = useThemedStyles(createStyles)
   const truncated = truncateLines(output ?? "", expanded ? Number.POSITIVE_INFINITY : 30)
 
   return (
@@ -102,34 +104,36 @@ export function TerminalBody({
   )
 }
 
-function diffRowColor(kind: DiffLine["kind"], text: string): string {
-  if (kind === "add") return "rgba(16, 185, 129, 0.10)"
-  if (kind === "remove") return "rgba(239, 68, 68, 0.10)"
-  if (text.startsWith("@@")) return "rgba(39, 39, 42, 0.6)"
+function diffRowColor(kind: DiffLine["kind"], text: string, colors: Palette): string {
+  if (kind === "add") return colors.accentSoft
+  if (kind === "remove") return colors.dangerSoft
+  if (text.startsWith("@@")) return colors.surfaceMuted
   return "transparent"
 }
 
-function diffTextColor(kind: DiffLine["kind"], text: string): string {
-  if (kind === "add") return "#a7f3d0"
-  if (kind === "remove") return "#fecaca"
-  if (text.startsWith("@@")) return colors.muted
-  return "#d4d4d8"
+function diffTextColor(kind: DiffLine["kind"], text: string, colors: Palette): string {
+  if (kind === "add") return colors.success
+  if (kind === "remove") return colors.danger
+  if (text.startsWith("@@")) return colors.textMuted
+  return colors.codeText
 }
 
 /** Unified line diff with +/− coloring and a row cap. */
 export function DiffView({ diff }: { diff: DiffLine[] }) {
   const [expanded, setExpanded] = useState(false)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const rows = expanded ? diff : diff.slice(0, 160)
   const hidden = diff.length - rows.length
   return (
     <View style={styles.block}>
       <View style={styles.blockBody}>
         {rows.map((line, index) => (
-          <View key={index} style={[styles.diffRow, { backgroundColor: diffRowColor(line.kind, line.text) }]}>
-            <Text style={[styles.diffSign, { color: diffTextColor(line.kind, line.text) }]}>
+          <View key={index} style={[styles.diffRow, { backgroundColor: diffRowColor(line.kind, line.text, colors) }]}>
+            <Text style={[styles.diffSign, { color: diffTextColor(line.kind, line.text, colors) }]}>
               {line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}
             </Text>
-            <Text selectable style={[styles.codeText, { color: diffTextColor(line.kind, line.text) }]}>
+            <Text selectable style={[styles.codeText, { color: diffTextColor(line.kind, line.text, colors) }]}>
               {line.text || " "}
             </Text>
           </View>
@@ -146,6 +150,7 @@ export function DiffView({ diff }: { diff: DiffLine[] }) {
 
 /** Fallback body for unknown tools: readable key/value rows instead of raw JSON. */
 export function KeyValueList({ entries }: { entries: KeyValueEntry[] }) {
+  const styles = useThemedStyles(createStyles)
   if (entries.length === 0) return null
   return (
     <View style={[styles.block, styles.kvBody]}>
@@ -166,6 +171,7 @@ export function KeyValueList({ entries }: { entries: KeyValueEntry[] }) {
 /** Search results: one monospace row per match, pattern highlighted. */
 export function SearchBody({ pattern, matches }: { pattern: string; matches: string[] }) {
   const [expanded, setExpanded] = useState(false)
+  const styles = useThemedStyles(createStyles)
   if (matches.length === 0) return <Text style={styles.mutedText}>No matches</Text>
   const shown = expanded ? matches : matches.slice(0, 40)
   return (
@@ -187,6 +193,7 @@ export function SearchBody({ pattern, matches }: { pattern: string; matches: str
 }
 
 function Highlight({ text, pattern }: { text: string; pattern: string }) {
+  const styles = useThemedStyles(createStyles)
   if (!pattern) return <>{text}</>
   let regex: RegExp
   try {
@@ -209,20 +216,28 @@ function Highlight({ text, pattern }: { text: string; pattern: string }) {
   )
 }
 
-const TODO_GLYPHS: Record<string, { icon: string; color: string }> = {
-  completed: { icon: "✓", color: colors.success },
-  in_progress: { icon: "▸", color: colors.warning },
-  cancelled: { icon: "✕", color: colors.muted },
-  pending: { icon: "○", color: colors.muted },
+function todoGlyph(status: string, colors: Palette): { icon: string; color: string } {
+  switch (status) {
+    case "completed":
+      return { icon: "✓", color: colors.success }
+    case "in_progress":
+      return { icon: "▸", color: colors.warning }
+    case "cancelled":
+      return { icon: "✕", color: colors.textMuted }
+    default:
+      return { icon: "○", color: colors.textMuted }
+  }
 }
 
 /** Checklist for the todo tool. */
 export function TodoBody({ todos }: { todos: TodoItem[] }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   if (todos.length === 0) return null
   return (
     <View style={[styles.block, styles.kvBody]}>
       {todos.map((todo, index) => {
-        const glyph = TODO_GLYPHS[todo.status] ?? TODO_GLYPHS.pending!
+        const glyph = todoGlyph(todo.status, colors)
         return (
           <View key={index} style={styles.todoRow}>
             <Text style={[styles.todoIcon, { color: glyph.color }]}>{glyph.icon}</Text>
@@ -234,175 +249,182 @@ export function TodoBody({ todos }: { todos: TodoItem[] }) {
   )
 }
 
-const styles = StyleSheet.create({
-  block: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    backgroundColor: "#0b0b0d",
-    overflow: "hidden",
-  },
-  blockHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  blockTitle: {
-    flex: 1,
-    color: colors.muted,
-    fontFamily: "monospace",
-    fontSize: 11,
-  },
-  showAll: {
-    color: colors.muted,
-    fontSize: 10,
-  },
-  showAllRow: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  blockBody: {
-    padding: 8,
-  },
-  codeRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  lineNumber: {
-    width: 22,
-    textAlign: "right",
-    color: "#52525b",
-    fontFamily: "monospace",
-    fontSize: 11,
-    lineHeight: 18,
-  },
-  codeText: {
-    flex: 1,
-    color: "#d4d4d8",
-    fontFamily: "monospace",
-    fontSize: 11,
-    lineHeight: 18,
-  },
-  moreLines: {
-    color: "#52525b",
-    fontSize: 10,
-    marginTop: 2,
-  },
-  terminal: {
-    gap: 6,
-  },
-  commandRow: {
-    flexDirection: "row",
-    gap: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(16, 185, 129, 0.18)",
-    borderRadius: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  commandPrompt: {
-    color: "#34d399",
-    fontFamily: "monospace",
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  commandText: {
-    flex: 1,
-    color: "#e4e4e7",
-    fontFamily: "monospace",
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  cwd: {
-    color: "#52525b",
-    fontFamily: "monospace",
-    fontSize: 10,
-  },
-  terminalOutput: {
-    color: "#d4d4d8",
-    fontFamily: "monospace",
-    fontSize: 11,
-    lineHeight: 17,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    padding: 10,
-  },
-  diffRow: {
-    flexDirection: "row",
-    gap: 6,
-    borderRadius: 3,
-    paddingHorizontal: 4,
-  },
-  diffSign: {
-    width: 10,
-    fontFamily: "monospace",
-    fontSize: 11,
-    lineHeight: 18,
-  },
-  kvBody: {
-    padding: 10,
-    gap: 6,
-  },
-  kvRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  kvKey: {
-    width: 96,
-    color: colors.muted,
-    fontFamily: "monospace",
-    fontSize: 11,
-  },
-  kvValue: {
-    flex: 1,
-    color: "#d4d4d8",
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  searchRow: {
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-  },
-  searchText: {
-    color: "#d4d4d8",
-    fontFamily: "monospace",
-    fontSize: 11,
-  },
-  highlight: {
-    backgroundColor: "rgba(20, 184, 166, 0.25)",
-    color: "#99f6e4",
-  },
-  mutedText: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  todoRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  todoIcon: {
-    width: 14,
-    fontFamily: "monospace",
-    fontSize: 12,
-  },
-  todoText: {
-    flex: 1,
-    color: "#d4d4d8",
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  todoDone: {
-    color: colors.muted,
-    textDecorationLine: "line-through",
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    block: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 12,
+      backgroundColor: colors.codeSurface,
+      overflow: "hidden",
+    },
+    blockHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.codeSurfaceSoft,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    blockTitle: {
+      flex: 1,
+      color: colors.codeMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    showAll: {
+      color: colors.codeMuted,
+      fontFamily: fonts.ui,
+      fontSize: 10,
+    },
+    showAllRow: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.codeSurfaceSoft,
+    },
+    blockBody: {
+      padding: 8,
+    },
+    codeRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    lineNumber: {
+      width: 22,
+      textAlign: "right",
+      color: colors.codeMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      lineHeight: 18,
+    },
+    codeText: {
+      flex: 1,
+      color: colors.codeText,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      lineHeight: 18,
+    },
+    moreLines: {
+      color: colors.codeMuted,
+      fontFamily: fonts.ui,
+      fontSize: 10,
+      marginTop: 2,
+    },
+    terminal: {
+      gap: 6,
+    },
+    commandRow: {
+      flexDirection: "row",
+      gap: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.accentLine,
+      borderRadius: 12,
+      backgroundColor: colors.codeSurface,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    commandPrompt: {
+      color: colors.accent,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    commandText: {
+      flex: 1,
+      color: colors.codeText,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      lineHeight: 18,
+    },
+    cwd: {
+      color: colors.codeMuted,
+      fontFamily: fonts.mono,
+      fontSize: 10,
+    },
+    terminalOutput: {
+      color: colors.codeText,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      lineHeight: 17,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.codeSurfaceSoft,
+      borderRadius: 12,
+      backgroundColor: colors.codeSurface,
+      padding: 10,
+    },
+    diffRow: {
+      flexDirection: "row",
+      gap: 6,
+      borderRadius: 3,
+      paddingHorizontal: 4,
+    },
+    diffSign: {
+      width: 10,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      lineHeight: 18,
+    },
+    kvBody: {
+      padding: 10,
+      gap: 6,
+    },
+    kvRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    kvKey: {
+      width: 96,
+      color: colors.codeMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    kvValue: {
+      flex: 1,
+      color: colors.codeText,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      lineHeight: 16,
+    },
+    searchRow: {
+      paddingHorizontal: 10,
+      paddingVertical: 2,
+    },
+    searchText: {
+      color: colors.codeText,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    highlight: {
+      backgroundColor: colors.accentSoft,
+      color: colors.accent,
+    },
+    mutedText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    todoRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    todoIcon: {
+      width: 14,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+    },
+    todoText: {
+      flex: 1,
+      color: colors.codeText,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      lineHeight: 17,
+    },
+    todoDone: {
+      color: colors.codeMuted,
+      textDecorationLine: "line-through",
+    },
+  })
+}

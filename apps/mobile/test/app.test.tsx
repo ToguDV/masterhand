@@ -18,12 +18,14 @@ jest.mock("../src/storage", () => ({
   loadWorkspaceID: jest.fn(async () => null),
   loadAutoAcceptSessions: jest.fn(async () => []),
   loadSessionPreferences: jest.fn(async () => ({})),
+  loadTheme: jest.fn(async () => null),
   saveServerUrl: jest.fn(async () => {}),
   saveToken: jest.fn(async () => {}),
   saveDevice: jest.fn(async () => {}),
   saveWorkspaceID: jest.fn(async () => {}),
   saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
+  saveTheme: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
   clearDevice: jest.fn(async () => {}),
   clearWorkspaceID: jest.fn(async () => {}),
@@ -121,5 +123,28 @@ describe("App", () => {
 
     expect(mocked.clearToken).toHaveBeenCalled()
     expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+  })
+
+  it("shows the login screen with a storage error when SecureStore fails at startup (#82)", async () => {
+    mocked.loadServerUrl.mockRejectedValue(new Error("keychain unavailable"))
+    await render(<App />)
+
+    // Never a permanent spinner: the login screen appears with the real reason.
+    expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+    expect(await screen.findByText(/secure storage/i)).toBeOnTheScreen()
+  })
+
+  it("keeps the session in memory and warns when it cannot be saved (#82)", async () => {
+    mocked.loadServerUrl.mockResolvedValue("https://host")
+    mocked.saveToken.mockRejectedValue(new Error("keychain unavailable"))
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByDisplayValue("https://host"), "https://host")
+    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
+    await fireEvent.press(screen.getByText("Sign in"))
+
+    // The login still lands; the banner says the session will not survive a restart.
+    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(await screen.findByText(/could not save the session/i)).toBeOnTheScreen()
   })
 })

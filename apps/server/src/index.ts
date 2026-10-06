@@ -42,7 +42,7 @@ const worktrees = createWorktreeManager({
 const preview = createPreviewManager({ config, store })
 
 try {
-  const reconciled = reconcileWorktrees(store, worktrees, config.worktreesRoot)
+  const reconciled = await reconcileWorktrees(store, worktrees, config.worktreesRoot)
   if (reconciled.skipped) {
     console.warn(
       `[masterhand] worktree reconciliation skipped (${reconciled.skipped}): no worktree data was touched`,

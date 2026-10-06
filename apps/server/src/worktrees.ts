@@ -1,10 +1,14 @@
-import { spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs"
+import { spawn } from "node:child_process"
+import type { ChildProcess } from "node:child_process"
+import { existsSync, realpathSync } from "node:fs"
+import { mkdir, rename, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Store } from "./store.js"
 
 const GIT_TIMEOUT_MS = 60_000
 const MAX_BRANCH_SEGMENT = 40
+/** Output kept from a slow git/CLI call; enough for porcelain listings, no unbounded memory. */
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 
 /** Marker written by a successful reconciliation; its absence flags an unconfirmed volume. */
 export const VOLUME_SENTINEL = ".masterhand-volume"
@@ -17,8 +21,19 @@ export interface GitResult {
   stderr: string
 }
 
-/** Runs `git <args>` inside `cwd`. Injectable so tests never spawn git. */
-export type GitRunner = (args: string[], cwd: string) => GitResult
+export interface GitRunOptions {
+  /** Kills the process once exceeded (SIGKILL); defaults to `gitTimeoutMs`/60 s. */
+  timeoutMs?: number
+  /** Cancels the child (e.g. request aborted / shutdown); the process is killed. */
+  signal?: AbortSignal
+}
+
+/**
+ * Runs `git <args>` inside `cwd` through async `spawn`, never `spawnSync`: a slow
+ * commit/push must not freeze the BFF's event loop (requests, SSE pings, other
+ * clients keep working). Injectable so tests never spawn git.
+ */
+export type GitRunner = (args: string[], cwd: string, options?: GitRunOptions) => Promise<GitResult>
 
 export interface WorktreeInfo {
   path: string
@@ -32,59 +47,160 @@ export interface WorktreeManagerOptions {
   runCommand?: CommandRunner
   userName?: string
   userEmail?: string
+  /** Deadline for every git call (also injectable for tests). */
+  gitTimeoutMs?: number
 }
 
 export interface WorktreeManager {
   /** True when `path` is the root of its own git work tree, not merely inside one. */
-  isRepoRoot(path: string): boolean
+  isRepoRoot(path: string): Promise<boolean>
   /** Initializes `path` as its own repo (and an empty first commit) when it is not one yet. */
-  ensureRepo(path: string): void
+  ensureRepo(path: string): Promise<void>
   /** Current branch name, or a short SHA when HEAD is detached. */
-  headBranch(path: string): string
-  create(repoPath: string, worktreePath: string, branch: string, baseRef: string): void
-  remove(repoPath: string, worktreePath: string, branch: string): void
+  headBranch(path: string): Promise<string>
+  create(repoPath: string, worktreePath: string, branch: string, baseRef: string): Promise<void>
+  remove(repoPath: string, worktreePath: string, branch: string): Promise<void>
   /** Renames an orphan worktree out of the way (data kept) and prunes git's admin entry. */
-  quarantine(repoPath: string, worktreePath: string): string
-  list(repoPath: string): WorktreeInfo[]
+  quarantine(repoPath: string, worktreePath: string): Promise<string>
+  list(repoPath: string): Promise<WorktreeInfo[]>
   /** Stages and commits everything; false when the tree was already clean. */
-  commitAll(worktreePath: string, message: string): boolean
-  hasRemote(worktreePath: string): boolean
-  remoteUrl(worktreePath: string): string | null
-  push(worktreePath: string, branch: string): void
+  commitAll(worktreePath: string, message: string): Promise<boolean>
+  hasRemote(worktreePath: string): Promise<boolean>
+  remoteUrl(worktreePath: string): Promise<string | null>
+  push(worktreePath: string, branch: string): Promise<void>
   /** PR URL from `gh`/`glab` when available; null to fall back to a compare URL. */
-  pullRequest(worktreePath: string, remoteUrl: string, branch: string, baseRef: string): string | null
+  pullRequest(
+    worktreePath: string,
+    remoteUrl: string,
+    branch: string,
+    baseRef: string,
+  ): Promise<string | null>
+  /** Local branches, current one first-class (issue #94). */
+  branches(repoPath: string): Promise<{ current: string; branches: string[] }>
+  /** True when the working tree has uncommitted changes. */
+  isDirty(repoPath: string): Promise<boolean>
+  /** Creates and checks out `name` from `baseRef` (default  HEAD). */
+  createBranch(repoPath: string, name: string, baseRef?: string): Promise<void>
+  /** Switches to an existing local branch (the caller rejects dirty trees). */
+  checkout(repoPath: string, name: string): Promise<void>
 }
 
-function defaultRunner(args: string[], cwd: string): GitResult {
-  const result = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    timeout: GIT_TIMEOUT_MS,
+/**
+ * Collects a child's stdout/stderr as UTF-8 and resolves with its exit status.
+ * A timeout (or an aborted signal) kills the process; the result then carries a
+ * descriptive `stderr` so callers can tell "timed out" from "failed".
+ */
+function spawnResult(
+  command: string,
+  args: string[],
+  cwd: string,
+  options: { timeoutMs: number; env: NodeJS.ProcessEnv; signal?: AbortSignal },
+): Promise<GitResult> {
+  return new Promise((resolvePromise) => {
+    let child: ChildProcess
+    try {
+      child = spawn(command, args, {
+        cwd,
+        env: options.env,
+        signal: options.signal,
+        stdio: ["ignore", "pipe", "pipe"],
+        // Own process group: a timeout can kill the whole tree (git hooks,
+        // credential helpers, shells' children), not just the direct child.
+        detached: process.platform !== "win32",
+      })
+    } catch (error) {
+      resolvePromise({
+        status: -1,
+        stdout: "",
+        stderr: error instanceof Error ? error.message : String(error),
+      })
+      return
+    }
+
+    let stdout = ""
+    let stderr = ""
+    let settled = false
+    let killedBy: "timeout" | "signal" | null = null
+
+    const finish = (result: GitResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolvePromise(result)
+    }
+
+    const kill = (reason: "timeout" | "signal"): void => {
+      if (killedBy) return
+      killedBy = reason
+      const pid = child.pid
+      try {
+        if (pid && process.platform !== "win32") process.kill(-pid, "SIGKILL")
+        else child.kill("SIGKILL")
+      } catch {
+        try {
+          child.kill("SIGKILL")
+        } catch {
+          // already gone
+        }
+      }
+    }
+
+    const timer = setTimeout(() => kill("timeout"), options.timeoutMs)
+    const onAbort = (): void => kill("signal")
+    options.signal?.addEventListener("abort", onAbort, { once: true })
+
+    const append = (current: string, chunk: Buffer): string =>
+      current.length >= MAX_OUTPUT_BYTES ? current : (current + chunk.toString("utf8")).slice(0, MAX_OUTPUT_BYTES)
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = append(stdout, chunk)
+    })
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = append(stderr, chunk)
+    })
+    child.on("error", (error) => {
+      options.signal?.removeEventListener("abort", onAbort)
+      finish({ status: -1, stdout, stderr: stderr || error.message })
+    })
+    child.on("close", (code) => {
+      options.signal?.removeEventListener("abort", onAbort)
+      const suffix =
+        killedBy === "timeout"
+          ? `\n${command} timed out after ${options.timeoutMs}ms`
+          : killedBy === "signal"
+            ? `\n${command} was cancelled`
+            : ""
+      finish({ status: code ?? -1, stdout, stderr: stderr + suffix })
+    })
+  })
+}
+
+/** Default async git runner; exported for tests and for callers needing a custom cwd env. */
+export function runGitCommand(args: string[], cwd: string, options: GitRunOptions = {}): Promise<GitResult> {
+  return spawnResult("git", args, cwd, {
+    timeoutMs: options.timeoutMs ?? GIT_TIMEOUT_MS,
+    signal: options.signal,
     env: {
       ...process.env,
       // Never block waiting for credentials on the server.
       GIT_TERMINAL_PROMPT: "0",
     },
   })
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? result.error?.message ?? "",
-  }
 }
 
 export function createWorktreeManager(options: WorktreeManagerOptions = {}): WorktreeManager {
-  const run = options.run ?? defaultRunner
+  const run = options.run ?? ((args, cwd, runOptions) => runGitCommand(args, cwd, runOptions))
   const runCommand = options.runCommand ?? defaultCommandRunner
+  const gitTimeoutMs = options.gitTimeoutMs ?? GIT_TIMEOUT_MS
   const userName = options.userName ?? "MasterHand"
   const userEmail = options.userEmail ?? "masterhand@localhost"
 
-  function git(args: string[], cwd: string): GitResult {
-    return run(args, cwd)
+  function git(args: string[], cwd: string, runOptions: GitRunOptions = {}): Promise<GitResult> {
+    return run(args, cwd, { timeoutMs: gitTimeoutMs, ...runOptions })
   }
 
-  function gitOrThrow(args: string[], cwd: string, context: string): GitResult {
-    const result = git(args, cwd)
+  async function gitOrThrow(args: string[], cwd: string, context: string): Promise<GitResult> {
+    const result = await git(args, cwd)
     if (result.status !== 0) {
       const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`
       throw new Error(`${context}: ${detail}`)
@@ -95,56 +211,58 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const authorArgs = ["-c", `user.name=${userName}`, "-c", `user.email=${userEmail}`]
 
   return {
-    isRepoRoot(path) {
-      const result = git(["rev-parse", "--show-toplevel"], path)
+    async isRepoRoot(path) {
+      const result = await git(["rev-parse", "--show-toplevel"], path)
       if (result.status !== 0) return false
       const top = result.stdout.trim()
       if (!top) return false
-      try {
-        return realpathSync(top) === realpathSync(path)
-      } catch {
-        return resolve(top) === resolve(path)
-      }
+      const topReal = realpathSyncSafe(top)
+      const pathReal = realpathSyncSafe(path)
+      return topReal === pathReal || resolve(top) === resolve(path)
     },
 
-    ensureRepo(path) {
-      if (!this.isRepoRoot(path)) {
-        gitOrThrow(["init"], path, "git_init_failed")
+    async ensureRepo(path) {
+      if (!(await this.isRepoRoot(path))) {
+        await gitOrThrow(["init"], path, "git_init_failed")
       }
-      const head = git(["rev-parse", "--verify", "HEAD"], path)
+      const head = await git(["rev-parse", "--verify", "HEAD"], path)
       if (head.status !== 0) {
-        gitOrThrow([...authorArgs, "commit", "--allow-empty", "-m", "Initial commit"], path, "git_commit_failed")
+        await gitOrThrow([...authorArgs, "commit", "--allow-empty", "-m", "Initial commit"], path, "git_commit_failed")
       }
     },
 
-    headBranch(path) {
-      const branch = git(["symbolic-ref", "--short", "HEAD"], path)
+    async headBranch(path) {
+      const branch = await git(["symbolic-ref", "--short", "HEAD"], path)
       if (branch.status === 0 && branch.stdout.trim()) return branch.stdout.trim()
-      const sha = git(["rev-parse", "--short", "HEAD"], path)
+      const sha = await git(["rev-parse", "--short", "HEAD"], path)
       return sha.stdout.trim() || "HEAD"
     },
 
-    create(repoPath, worktreePath, branch, baseRef) {
+    async create(repoPath, worktreePath, branch, baseRef) {
       if (existsSync(worktreePath)) throw new Error("worktree_path_exists")
-      mkdirSync(dirname(worktreePath), { recursive: true })
-      gitOrThrow(["worktree", "add", "-b", branch, worktreePath, baseRef], repoPath, "git_worktree_add_failed")
+      await mkdir(dirname(worktreePath), { recursive: true })
+      await gitOrThrow(
+        ["worktree", "add", "-b", branch, worktreePath, baseRef],
+        repoPath,
+        "git_worktree_add_failed",
+      )
     },
 
-    remove(repoPath, worktreePath, branch) {
-      git(["worktree", "remove", "--force", worktreePath], repoPath)
-      git(["branch", "-D", branch], repoPath)
-      git(["worktree", "prune"], repoPath)
+    async remove(repoPath, worktreePath, branch) {
+      await git(["worktree", "remove", "--force", worktreePath], repoPath)
+      await git(["branch", "-D", branch], repoPath)
+      await git(["worktree", "prune"], repoPath)
     },
 
-    quarantine(repoPath, worktreePath) {
+    async quarantine(repoPath, worktreePath) {
       const target = `${worktreePath}${ORPHAN_SUFFIX}${Date.now()}`
-      renameSync(worktreePath, target)
-      git(["worktree", "prune"], repoPath)
+      await rename(worktreePath, target)
+      await git(["worktree", "prune"], repoPath)
       return target
     },
 
-    list(repoPath) {
-      const result = git(["worktree", "list", "--porcelain"], repoPath)
+    async list(repoPath) {
+      const result = await git(["worktree", "list", "--porcelain"], repoPath)
       if (result.status !== 0) return []
       const entries: WorktreeInfo[] = []
       let current: Partial<WorktreeInfo> | null = null
@@ -163,37 +281,93 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       return entries
     },
 
-    commitAll(worktreePath, message) {
-      gitOrThrow(["add", "-A"], worktreePath, "git_add_failed")
-      const diff = git(["diff", "--cached", "--quiet"], worktreePath)
+    async commitAll(worktreePath, message) {
+      await gitOrThrow(["add", "-A"], worktreePath, "git_add_failed")
+      const diff = await git(["diff", "--cached", "--quiet"], worktreePath)
       if (diff.status === 0) return false
-      gitOrThrow([...authorArgs, "commit", "-m", message], worktreePath, "git_commit_failed")
+      await gitOrThrow([...authorArgs, "commit", "-m", message], worktreePath, "git_commit_failed")
       return true
     },
 
-    hasRemote(worktreePath) {
-      const result = git(["remote"], worktreePath)
+    async hasRemote(worktreePath) {
+      const result = await git(["remote"], worktreePath)
       return result.status === 0 && result.stdout.trim().length > 0
     },
 
-    remoteUrl(worktreePath) {
-      const named = git(["remote", "get-url", "origin"], worktreePath)
+    async remoteUrl(worktreePath) {
+      const named = await git(["remote", "get-url", "origin"], worktreePath)
       if (named.status === 0 && named.stdout.trim()) return named.stdout.trim()
-      const list = git(["remote"], worktreePath)
+      const list = await git(["remote"], worktreePath)
       const first = list.stdout.trim().split("\n")[0]?.trim()
       if (!first) return null
-      const fallback = git(["remote", "get-url", first], worktreePath)
+      const fallback = await git(["remote", "get-url", first], worktreePath)
       return fallback.status === 0 ? fallback.stdout.trim() || null : null
     },
 
-    push(worktreePath, branch) {
-      gitOrThrow(["push", "-u", "origin", branch], worktreePath, "git_push_failed")
+    async push(worktreePath, branch) {
+      await gitOrThrow(["push", "-u", "origin", branch], worktreePath, "git_push_failed")
     },
 
-    pullRequest(worktreePath, remoteUrl, branch, baseRef) {
+    async pullRequest(worktreePath, remoteUrl, branch, baseRef) {
       return createPullRequest({ cwd: worktreePath, remoteUrl, branch, baseRef, runCommand })
     },
+
+    async branches(repoPath) {
+      const current = await this.headBranch(repoPath)
+      const result = await git(
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        repoPath,
+      )
+      if (result.status !== 0) return { current, branches: current ? [current] : [] }
+      const branches = result.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+      if (current && !branches.includes(current)) branches.unshift(current)
+      return { current, branches }
+    },
+
+    async isDirty(repoPath) {
+      const result = await git(["status", "--porcelain"], repoPath)
+      // A failed status must not read as "clean": the caller decides what to do
+      // with the error, and treating it as dirty blocks a destructive checkout.
+      if (result.status !== 0) throw new Error(`git_status_failed: ${result.stderr.trim() || result.stdout.trim()}`)
+      return result.stdout.trim().length > 0
+    },
+
+    async createBranch(repoPath, name, baseRef) {
+      await gitOrThrow(
+        ["checkout", "-b", name, ...(baseRef ? [baseRef] : [])],
+        repoPath,
+        "git_branch_create_failed",
+      )
+    },
+
+    async checkout(repoPath, name) {
+      await gitOrThrow(["checkout", name], repoPath, "git_checkout_failed")
+    },
   }
+}
+
+/** `realpathSync` that keeps the original value when it cannot be resolved. */
+function realpathSyncSafe(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+/** Branch names git accepts; mirrors `git check-ref-format --branch` closely. */
+export function isValidBranchName(name: string): boolean {
+  if (!name || name.length > 255) return false
+  if (name.startsWith("-") || name.endsWith("/") || name.endsWith(".") || name.endsWith(".lock")) return false
+  if (name === "@" || name.includes("..") || name.includes("@{") || name.includes("//")) return false
+  if (/[\s~^:?*\[\]\\\u0000-\u001f\u007f]/.test(name)) return false
+  const segments = name.split("/")
+  return segments.every(
+    (segment) => segment.length > 0 && !segment.startsWith(".") && !segment.endsWith(".lock"),
+  )
 }
 
 /** Git-safe single path/branch segment derived from a workspace name. */
@@ -245,13 +419,11 @@ export function remoteWebUrl(remoteUrl: string): string | null {
 }
 
 /** Runs an external command; injectable so tests never spawn `gh`/`glab`. */
-export type CommandRunner = (command: string, args: string[], cwd: string) => GitResult
+export type CommandRunner = (command: string, args: string[], cwd: string) => Promise<GitResult>
 
-function defaultCommandRunner(command: string, args: string[], cwd: string): GitResult {
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    timeout: GIT_TIMEOUT_MS,
+function defaultCommandRunner(command: string, args: string[], cwd: string): Promise<GitResult> {
+  return spawnResult(command, args, cwd, {
+    timeoutMs: GIT_TIMEOUT_MS,
     env: {
       ...process.env,
       GIT_TERMINAL_PROMPT: "0",
@@ -259,11 +431,6 @@ function defaultCommandRunner(command: string, args: string[], cwd: string): Git
       GITLAB_PROMPT_DISABLED: "1",
     },
   })
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? result.error?.message ?? "",
-  }
 }
 
 export interface PullRequestOptions {
@@ -279,21 +446,21 @@ export interface PullRequestOptions {
  * CLI exists and is authenticated, `null` otherwise (the caller falls back to
  * a compare URL).
  */
-export function createPullRequest(options: PullRequestOptions): string | null {
+export async function createPullRequest(options: PullRequestOptions): Promise<string | null> {
   const run = options.runCommand ?? defaultCommandRunner
   const provider = remoteProvider(options.remoteUrl)
   const firstUrl = (text: string): string | null =>
     text.match(/https?:\/\/\S+/)?.[0]?.replace(/[)\],.]+$/, "") ?? null
 
   if (provider === "github") {
-    const result = run(
+    const result = await run(
       "gh",
       ["pr", "create", "--head", options.branch, "--base", options.baseRef, "--fill"],
       options.cwd,
     )
     if (result.status === 0) return firstUrl(result.stdout)
   } else if (provider === "gitlab") {
-    const result = run(
+    const result = await run(
       "glab",
       [
         "mr",
@@ -345,11 +512,11 @@ export interface ReconcileResult {
  * - Worktrees under `root` without a record are quarantined (renamed on disk,
  *   branch kept) instead of deleted, so uncommitted agent work stays recoverable.
  */
-export function reconcileWorktrees(
+export async function reconcileWorktrees(
   store: Pick<Store, "listWorkspaces" | "listIsolatedSessions" | "removeIsolatedSession">,
   manager: WorktreeManager,
   root: string,
-): ReconcileResult {
+): Promise<ReconcileResult> {
   const normalizedRoot = resolve(root)
   const result: ReconcileResult = {
     skipped: null,
@@ -372,7 +539,7 @@ export function reconcileWorktrees(
   }
   if (!existsSync(sentinel)) {
     try {
-      writeFileSync(sentinel, new Date().toISOString(), "utf8")
+      await writeFile(sentinel, new Date().toISOString(), "utf8")
     } catch {
       // A read-only volume still reconciles; the sentinel is best effort.
     }
@@ -388,15 +555,15 @@ export function reconcileWorktrees(
     store.listIsolatedSessions().map((record) => resolve(record.path)),
   )
   for (const workspace of store.listWorkspaces()) {
-    if (!manager.isRepoRoot(workspace.path)) continue
-    for (const entry of manager.list(workspace.path)) {
+    if (!(await manager.isRepoRoot(workspace.path))) continue
+    for (const entry of await manager.list(workspace.path)) {
       const path = resolve(entry.path)
       if (path === resolve(workspace.path)) continue
       if (!path.startsWith(normalizedRoot + sep)) continue
       if (known.has(path)) continue
       if (basename(path).includes(ORPHAN_SUFFIX)) continue
       try {
-        result.quarantinedWorktrees.push(manager.quarantine(workspace.path, path))
+        result.quarantinedWorktrees.push(await manager.quarantine(workspace.path, path))
       } catch {
         // best effort: a locked worktree should not block startup
       }
@@ -405,5 +572,3 @@ export function reconcileWorktrees(
 
   return result
 }
-
-
