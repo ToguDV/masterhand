@@ -8,6 +8,8 @@ import {
   tokenSpeed,
   useBffStatus,
   useMessages,
+  usePreview,
+  useSessionRun,
   type ChatMessage,
   type Client,
   type CreateWorkspaceInput,
@@ -20,8 +22,7 @@ import {
 import { Composer } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
 import { AuditModal } from "../components/AuditModal"
-import { PreviewModal } from "../components/PreviewModal"
-import { RunModal } from "../components/RunModal"
+import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { ThemeToggle } from "../components/ThemeToggle"
 import { Deco } from "../components/Deco"
@@ -84,9 +85,12 @@ export function ChatScreen({
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const statusQuery = useBffStatus(client)
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const previewEnabled = statusQuery.data?.preview?.enabled === true
+  // Aggregated dev-server state for the single Run & preview control (#99).
+  const runStateQuery = useSessionRun(client, sessionID, workspaceID)
+  const previewStateQuery = usePreview(client, sessionID, previewEnabled)
+  const [runPreviewOpen, setRunPreviewOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
-  const [runOpen, setRunOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
@@ -127,13 +131,28 @@ export function ChatScreen({
           <Text style={styles.actionText}>Log</Text>
         </Pressable>
         {workspaceID ? (
-          <Pressable style={styles.actionButton} onPress={() => setRunOpen(true)}>
+          <Pressable
+            style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel="Run and preview"
+            onPress={() => setRunPreviewOpen(true)}
+          >
+            <View
+              style={[
+                styles.dot,
+                {
+                  backgroundColor:
+                    runStateQuery.data?.status === "running" ||
+                    (previewEnabled && previewStateQuery.data?.status === "running")
+                      ? colors.success
+                      : runStateQuery.data?.status === "error" ||
+                          (previewEnabled && previewStateQuery.data?.status === "error")
+                        ? colors.danger
+                        : colors.hairlineStrong,
+                },
+              ]}
+            />
             <Text style={styles.actionText}>Run</Text>
-          </Pressable>
-        ) : null}
-        {statusQuery.data?.preview?.enabled ? (
-          <Pressable style={styles.actionButton} onPress={() => setPreviewOpen(true)}>
-            <Text style={styles.actionText}>Preview</Text>
           </Pressable>
         ) : null}
         <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
@@ -271,20 +290,16 @@ export function ChatScreen({
         </View>
       ) : null}
 
-      {previewOpen ? (
-        <PreviewModal client={client} sessionID={sessionID} onClose={() => setPreviewOpen(false)} />
-      ) : null}
-
-      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
-
-      {runOpen && workspaceID ? (
-        <RunModal
+      {runPreviewOpen && workspaceID ? (
+        <RunPreviewModal
           client={client}
           sessionID={sessionID}
           workspaceID={workspaceID}
-          onClose={() => setRunOpen(false)}
+          onClose={() => setRunPreviewOpen(false)}
         />
       ) : null}
+
+      {auditOpen ? <AuditModal client={client} onClose={() => setAuditOpen(false)} /> : null}
     </Screen>
   )
 }
