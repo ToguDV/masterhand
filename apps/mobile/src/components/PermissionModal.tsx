@@ -1,6 +1,6 @@
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native"
 import type { Permission } from "@masterhand/client-core"
-import { colors } from "../theme"
+import { useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function PermissionModal({
   permission,
@@ -11,6 +11,7 @@ export function PermissionModal({
   busy: boolean
   onRespond: (response: "once" | "always" | "reject") => void
 }) {
+  const styles = useThemedStyles(createStyles)
   const resources = permission.resources.join(", ")
 
   return (
@@ -41,7 +42,7 @@ export function PermissionModal({
               disabled={busy}
               onPress={() => onRespond("once")}
             >
-              <Text style={styles.buttonText}>Once</Text>
+              <Text style={[styles.buttonText, styles.onceText]}>Once</Text>
             </Pressable>
           </View>
         </View>
@@ -50,66 +51,81 @@ export function PermissionModal({
   )
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: "center",
-    padding: 16,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  sheet: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-  },
-  heading: {
-    color: colors.warning,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  title: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  meta: {
-    color: colors.muted,
-    fontSize: 12,
-    marginTop: 4,
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 16,
-  },
-  button: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  reject: {
-    backgroundColor: "#450a0a",
-  },
-  always: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  once: {
-    backgroundColor: colors.accent,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  rejectText: {
-    color: colors.danger,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      justifyContent: "center",
+      padding: 16,
+      backgroundColor: colors.overlay,
+    },
+    sheet: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.warningLine,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 16,
+    },
+    heading: {
+      color: colors.warning,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      fontWeight: "600",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+    },
+    title: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 16,
+      fontWeight: "600",
+      marginTop: 4,
+    },
+    meta: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      marginTop: 4,
+    },
+    actions: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: 16,
+    },
+    button: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 44,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "transparent",
+    },
+    reject: {
+      backgroundColor: colors.dangerSoft,
+      borderColor: colors.dangerLine,
+    },
+    always: {
+      backgroundColor: colors.surface,
+      borderColor: colors.hairlineStrong,
+    },
+    once: {
+      backgroundColor: colors.accent,
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+    buttonText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    rejectText: {
+      color: colors.danger,
+    },
+    onceText: {
+      color: colors.onAccent,
+    },
+  })
+}

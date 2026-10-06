@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AppState, Platform, Pressable, StyleSheet, View } from "react-native"
+import { AppState, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fetch as expoFetch } from "expo/fetch"
+import { useFonts } from "expo-font"
+import { Fraunces_400Regular, Fraunces_500Medium, Fraunces_600SemiBold } from "@expo-google-fonts/fraunces"
+import {
+  InstrumentSans_400Regular,
+  InstrumentSans_500Medium,
+  InstrumentSans_600SemiBold,
+} from "@expo-google-fonts/instrument-sans"
+import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono"
 import {
   ApiError,
   createClient,
@@ -28,7 +36,15 @@ import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { Screen } from "./src/components/Screen"
 import { ActivityIndicator, Text } from "react-native"
-import { colors } from "./src/theme"
+import {
+  fonts as appFonts,
+  systemFonts,
+  ThemeProvider,
+  useTheme,
+  useThemedStyles,
+  type Fonts,
+  type Palette,
+} from "./src/theme"
 import {
   clearDevice,
   clearToken,
@@ -60,13 +76,35 @@ const AUTO_ACCEPT_MAX_ATTEMPTS = 3
 const AUTO_ACCEPT_RETRY_DELAYS_MS = [1_000, 3_000]
 
 export default function App() {
+  // Render even before the fonts resolve: the theme falls back to system
+  // families and swaps in the loaded ones when they are ready.
+  const [fontsLoaded] = useFonts({
+    InstrumentSans_400Regular,
+    InstrumentSans_500Medium,
+    InstrumentSans_600SemiBold,
+    Fraunces_400Regular,
+    Fraunces_500Medium,
+    Fraunces_600SemiBold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
+  })
+
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <Root />
-      </QueryClientProvider>
+      <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
+        <ThemedStatusBar />
+        <QueryClientProvider client={queryClient}>
+          <Root />
+        </QueryClientProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   )
+}
+
+/** Keeps the native status bar legible on both themes. */
+function ThemedStatusBar() {
+  const { theme } = useTheme()
+  return <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
 }
 
 function Root() {
@@ -77,6 +115,8 @@ function Root() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   useEffect(() => {
     void (async () => {
@@ -209,6 +249,7 @@ function AuthenticatedApp({
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -600,6 +641,7 @@ function AuthenticatedApp({
           workspaces={workspaces}
           workspaceID={workspaceID}
           canCreate={Boolean(workspaceID)}
+          activeSessionID={sessionID}
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
           onSignOut={onSignOut}
@@ -621,23 +663,26 @@ function AuthenticatedApp({
   )
 }
 
-const styles = StyleSheet.create({
-  centered: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  screenWrap: {
-    flex: 1,
-  },
-  banner: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(245, 158, 11, 0.4)",
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  bannerText: {
-    color: "#fcd34d",
-    fontSize: 11,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    centered: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    screenWrap: {
+      flex: 1,
+    },
+    banner: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.warningLine,
+      backgroundColor: colors.warningSoft,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    bannerText: {
+      color: colors.warning,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+  })
+}

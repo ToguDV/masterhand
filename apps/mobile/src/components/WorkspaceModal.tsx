@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native"
 import { ApiError, type CreateWorkspaceInput, type WorkspaceRecord } from "@masterhand/client-core"
-import { colors } from "../theme"
+import { Deco } from "./Deco"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -33,6 +34,8 @@ export function WorkspaceModal({
   const [deleteFiles, setDeleteFiles] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   useEffect(() => {
     if (visible) return
@@ -65,7 +68,12 @@ export function WorkspaceModal({
           <Text style={styles.title}>Workspaces</Text>
 
           <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {workspaces.length === 0 && <Text style={styles.empty}>No workspaces yet.</Text>}
+            {workspaces.length === 0 && (
+              <View style={styles.emptyWrap}>
+                <Deco variant="hatch" style={styles.emptyDeco} />
+                <Text style={styles.empty}>No workspaces yet.</Text>
+              </View>
+            )}
             {workspaces.map((workspace) => (
               <Pressable
                 key={workspace.id}
@@ -94,7 +102,7 @@ export function WorkspaceModal({
                 value={name}
                 onChangeText={setName}
                 placeholder="my-project"
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.textFaint}
                 autoCorrect={false}
                 autoCapitalize="none"
                 style={styles.input}
@@ -118,7 +126,12 @@ export function WorkspaceModal({
             <View style={styles.form}>
               {selected ? (
                 <Pressable style={styles.checkRow} onPress={() => setDeleteFiles((value) => !value)}>
-                  <Switch value={deleteFiles} onValueChange={setDeleteFiles} />
+                  <Switch
+                    value={deleteFiles}
+                    onValueChange={setDeleteFiles}
+                    trackColor={{ true: colors.accent, false: colors.surfaceMuted }}
+                    thumbColor={colors.surface}
+                  />
                   <Text style={styles.checkLabel}>Also delete files from disk</Text>
                 </Pressable>
               ) : null}
@@ -149,141 +162,169 @@ export function WorkspaceModal({
   )
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  sheet: {
-    maxHeight: "80%",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    backgroundColor: colors.surface,
-    paddingBottom: 24,
-  },
-  title: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  list: {
-    flexGrow: 0,
-  },
-  option: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    gap: 2,
-  },
-  optionSelected: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  optionText: {
-    color: colors.text,
-    fontSize: 15,
-  },
-  optionTextSelected: {
-    color: colors.accent,
-    fontWeight: "600",
-  },
-  optionMeta: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  form: {
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  formHint: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    borderRadius: 10,
-    color: colors.text,
-    fontSize: 15,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  checkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  checkLabel: {
-    color: colors.text,
-    fontSize: 14,
-  },
-  formActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 8,
-    paddingTop: 4,
-  },
-  primary: {
-    backgroundColor: colors.accent,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  primaryText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  secondary: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  secondaryText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  danger: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.danger,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginRight: "auto",
-  },
-  dangerText: {
-    color: colors.danger,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 12,
-  },
-  hint: {
-    color: colors.muted,
-    fontSize: 12,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: colors.overlay,
+    },
+    sheet: {
+      maxHeight: "80%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      backgroundColor: colors.surface,
+      paddingBottom: 24,
+    },
+    title: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      fontWeight: "600",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 8,
+    },
+    list: {
+      flexGrow: 0,
+    },
+    option: {
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      gap: 2,
+    },
+    optionSelected: {
+      backgroundColor: colors.surfaceMuted,
+    },
+    optionText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+    },
+    optionTextSelected: {
+      color: colors.accent,
+      fontWeight: "600",
+    },
+    optionMeta: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+    },
+    emptyWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 32,
+      paddingHorizontal: 16,
+      overflow: "hidden",
+    },
+    emptyDeco: {
+      position: "absolute",
+      top: -6,
+      right: -30,
+    },
+    empty: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+    },
+    form: {
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingTop: 12,
+    },
+    formHint: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    input: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    checkRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    checkLabel: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+    },
+    formActions: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 8,
+      paddingTop: 4,
+    },
+    primary: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    primaryText: {
+      color: colors.onAccent,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    secondary: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    secondaryText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    danger: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.dangerLine,
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginRight: "auto",
+    },
+    dangerText: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    error: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    hint: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+  })
+}

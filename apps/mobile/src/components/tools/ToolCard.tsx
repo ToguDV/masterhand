@@ -10,7 +10,7 @@ import {
   type ChatToolTiming,
   type ToolSummary,
 } from "@masterhand/client-core"
-import { colors } from "../../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../../theme"
 import { statusColor, toolAccent, toolGlyphs } from "./theme"
 import { CodeBlock, DiffView, KeyValueList, SearchBody, TerminalBody, TodoBody } from "./ToolBodies"
 
@@ -29,6 +29,8 @@ function useLiveDuration(status: ChatToolStatus, timing?: ChatToolTiming): numbe
 }
 
 function HeaderStats({ summary, duration }: { summary: ToolSummary; duration: number | null }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   return (
     <View style={styles.stats}>
       {summary.kind === "shell" && summary.exitCode !== null ? (
@@ -43,10 +45,10 @@ function HeaderStats({ summary, duration }: { summary: ToolSummary; duration: nu
         </Text>
       ) : null}
       {summary.kind === "search" && summary.matches.length > 0 ? (
-        <Text style={[styles.statText, { color: "#5eead4" }]}>{summary.matches.length} matches</Text>
+        <Text style={[styles.statText, { color: colors.accent }]}>{summary.matches.length} matches</Text>
       ) : null}
       {summary.kind === "todo" && summary.todos.length > 0 ? (
-        <Text style={[styles.statText, { color: "#a5b4fc" }]}>
+        <Text style={[styles.statText, { color: colors.textSoft }]}>
           {summary.todos.filter((todo) => todo.status === "completed").length}/{summary.todos.length}
         </Text>
       ) : null}
@@ -56,6 +58,7 @@ function HeaderStats({ summary, duration }: { summary: ToolSummary; duration: nu
 }
 
 function ToolBody({ summary }: { summary: ToolSummary }) {
+  const styles = useThemedStyles(createStyles)
   switch (summary.kind) {
     case "shell":
       return (
@@ -143,15 +146,17 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
  */
 export function ToolCard({ part }: { part: ChatToolPart }) {
   const [open, setOpen] = useState(false)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const summary = describeTool(part)
-  const accent = toolAccent(summary.accent)
+  const accent = toolAccent(summary.accent, colors)
   const duration = useLiveDuration(summary.status, summary.timing)
   const pending = summary.status === "pending"
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, summary.status === "error" && styles.cardError]}>
       <Pressable style={styles.header} onPress={() => setOpen((value) => !value)}>
-        <View style={[styles.dot, { backgroundColor: statusColor(summary.status) }]} />
+        <View style={[styles.dot, { backgroundColor: statusColor(summary.status, colors) }]} />
         <View style={[styles.iconChip, { backgroundColor: accent.bg }]}>
           <Text style={[styles.iconGlyph, { color: accent.text }]}>{toolGlyphs[summary.icon]}</Text>
         </View>
@@ -190,127 +195,139 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
   )
 }
 
-const styles = StyleSheet.create({
-  card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: "rgba(24, 24, 27, 0.6)",
-    overflow: "hidden",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  iconChip: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconGlyph: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  titleWrap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    color: "#e4e4e7",
-    fontSize: 13,
-  },
-  pendingTitle: {
-    color: colors.muted,
-  },
-  subtitle: {
-    color: "#52525b",
-    fontFamily: "monospace",
-    fontSize: 10,
-    marginTop: 1,
-  },
-  stats: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statText: {
-    color: colors.muted,
-    fontFamily: "monospace",
-    fontSize: 10,
-  },
-  chevron: {
-    color: "#52525b",
-    fontSize: 12,
-  },
-  body: {
-    gap: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    padding: 10,
-  },
-  stack: {
-    gap: 8,
-  },
-  mutedText: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 12,
-  },
-  urlText: {
-    color: "#67e8f9",
-    fontFamily: "monospace",
-    fontSize: 11,
-  },
-  questionRow: {
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: "#0b0b0d",
-    padding: 10,
-    gap: 3,
-  },
-  questionHeader: {
-    color: "#a5b4fc",
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  questionText: {
-    color: "#e4e4e7",
-    fontSize: 13,
-  },
-  questionOption: {
-    color: colors.muted,
-    fontSize: 11,
-  },
-  questionOptionLabel: {
-    color: "#d4d4d8",
-  },
-  pendingBody: {
-    gap: 6,
-  },
-  pendingBar: {
-    height: 8,
-    width: "66%",
-    borderRadius: 4,
-    backgroundColor: colors.surfaceMuted,
-    opacity: 0.7,
-  },
-  pendingBarShort: {
-    width: "33%",
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    card: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    cardError: {
+      borderColor: colors.dangerLine,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    dot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+    },
+    iconChip: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconGlyph: {
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      fontWeight: "700",
+    },
+    titleWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    title: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+    },
+    pendingTitle: {
+      color: colors.textMuted,
+    },
+    subtitle: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      marginTop: 1,
+    },
+    stats: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    statText: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 10,
+    },
+    chevron: {
+      color: colors.textFaint,
+      fontSize: 12,
+    },
+    body: {
+      gap: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      padding: 10,
+    },
+    stack: {
+      gap: 8,
+    },
+    mutedText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    error: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    urlText: {
+      color: colors.accent,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    questionRow: {
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      padding: 10,
+      gap: 3,
+    },
+    questionHeader: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 10,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    questionText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+    },
+    questionOption: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+    },
+    questionOptionLabel: {
+      color: colors.textSoft,
+    },
+    pendingBody: {
+      gap: 6,
+    },
+    pendingBar: {
+      height: 8,
+      width: "66%",
+      borderRadius: 4,
+      backgroundColor: colors.surfaceMuted,
+      opacity: 0.7,
+    },
+    pendingBarShort: {
+      width: "33%",
+    },
+  })
+}

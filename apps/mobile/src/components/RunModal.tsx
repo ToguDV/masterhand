@@ -19,7 +19,7 @@ import {
   type RunCandidate,
   type RunStatus,
 } from "@masterhand/client-core"
-import { colors } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 const STOPPED: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
 
@@ -50,6 +50,8 @@ export function RunModal({
   // A run that dies on its own must not keep showing "running" (#89).
   const [notice, setNotice] = useState<string | null>(null)
   const previousStatus = useRef<RunStatus["status"]>("stopped")
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   const run = runQuery.data ?? STOPPED
 
@@ -189,7 +191,7 @@ export function RunModal({
               disabled={!config}
               onPress={() => void start()}
             >
-              <Text style={styles.buttonText}>Start</Text>
+              <Text style={[styles.buttonText, styles.primaryText]}>Start</Text>
             </Pressable>
           )}
           <Pressable style={styles.button} onPress={onClose}>
@@ -220,7 +222,7 @@ export function RunModal({
                 {detected.command} {detected.args.join(" ")}
               </Text>
               <Pressable style={[styles.button, styles.primary]} onPress={() => void applyDetected()}>
-                <Text style={styles.buttonText}>Apply</Text>
+                <Text style={[styles.buttonText, styles.primaryText]}>Apply</Text>
               </Pressable>
             </View>
           ) : null}
@@ -234,7 +236,7 @@ export function RunModal({
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="npm"
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.textFaint}
                 style={styles.input}
               />
               <Text style={styles.fieldLabel}>Arguments (one per line; {"{port}"} is replaced)</Text>
@@ -246,12 +248,12 @@ export function RunModal({
                 multiline
                 numberOfLines={6}
                 placeholder={"run\ndev\n--\n--port\n{port}"}
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.textFaint}
                 style={[styles.input, styles.textarea]}
               />
               <View style={styles.row}>
                 <Pressable style={[styles.button, styles.primary]} onPress={() => void save()}>
-                  <Text style={styles.buttonText}>Save</Text>
+                  <Text style={[styles.buttonText, styles.primaryText]}>Save</Text>
                 </Pressable>
                 <Pressable style={styles.button} onPress={() => setEditing(false)}>
                   <Text style={styles.buttonText}>Cancel</Text>
@@ -274,60 +276,111 @@ export function RunModal({
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  heading: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  port: {
-    color: colors.muted,
-    fontSize: 11,
-    backgroundColor: colors.surface,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  spacer: { flex: 1 },
-  button: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.surfaceMuted,
-  },
-  primary: { backgroundColor: colors.accent },
-  disabled: { opacity: 0.4 },
-  buttonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  error: { color: colors.danger, fontSize: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  notice: { color: colors.warning, fontSize: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  body: { padding: 16, gap: 12 },
-  command: { color: colors.text, fontFamily: "monospace", fontSize: 12 },
-  placeholderText: { color: colors.muted, fontSize: 14 },
-  detected: {
-    gap: 8,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.accent,
-    padding: 12,
-  },
-  detectedLabel: { color: colors.muted, fontSize: 12 },
-  editor: { gap: 8 },
-  fieldLabel: { color: colors.muted, fontSize: 12 },
-  input: {
-    color: colors.text,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontFamily: "monospace",
-    fontSize: 12,
-  },
-  textarea: { minHeight: 96, textAlignVertical: "top" },
-  row: { flexDirection: "row", gap: 8, alignItems: "center" },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.canvas },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    heading: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    port: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    spacer: { flex: 1 },
+    button: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    primary: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    disabled: { opacity: 0.4 },
+    buttonText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    primaryText: {
+      color: colors.onAccent,
+    },
+    error: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    notice: {
+      color: colors.warning,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    body: { padding: 16, gap: 12 },
+    command: {
+      color: colors.text,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+    },
+    placeholderText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+    },
+    detected: {
+      gap: 8,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.accentLine,
+      padding: 12,
+    },
+    detectedLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    editor: { gap: 8 },
+    fieldLabel: {
+      color: colors.textSoft,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    input: {
+      color: colors.text,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+    },
+    textarea: { minHeight: 96, textAlignVertical: "top" },
+    row: { flexDirection: "row", gap: 8, alignItems: "center" },
+  })
+}

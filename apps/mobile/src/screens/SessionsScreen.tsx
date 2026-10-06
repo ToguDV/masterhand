@@ -13,7 +13,9 @@ import {
 } from "@masterhand/client-core"
 import { Screen } from "../components/Screen"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { colors } from "../theme"
+import { ThemeToggle } from "../components/ThemeToggle"
+import { Deco } from "../components/Deco"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function SessionsScreen({
   sessions,
@@ -25,6 +27,7 @@ export function SessionsScreen({
   workspaces,
   workspaceID,
   canCreate,
+  activeSessionID = null,
   onOpen,
   onNew,
   onSignOut,
@@ -42,6 +45,8 @@ export function SessionsScreen({
   workspaces: WorkspaceRecord[]
   workspaceID: string | null
   canCreate: boolean
+  /** The session currently open in the chat (highlighted with the accent bar). */
+  activeSessionID?: string | null
   onOpen: (sessionID: string) => void
   onNew: (isolated: boolean) => void
   onSignOut: () => void
@@ -53,6 +58,8 @@ export function SessionsScreen({
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
   const [isolated, setIsolated] = useState(false)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Subagent children are reachable from their parent's card, not the list.
   const visible = filterSessions(rootSessions(sessions), filter)
@@ -89,6 +96,7 @@ export function SessionsScreen({
         <Text style={styles.title}>Sessions</Text>
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
+          <ThemeToggle />
           <Pressable
             style={[styles.newButton, !canCreate && styles.disabled]}
             testID="new-session-button"
@@ -97,7 +105,7 @@ export function SessionsScreen({
           >
             <Text style={styles.newButtonText}>{creating ? "Creating…" : "+ New"}</Text>
           </Pressable>
-          <Pressable onPress={onSignOut}>
+          <Pressable onPress={onSignOut} hitSlop={4}>
             <Text style={styles.signOut}>Sign out</Text>
           </Pressable>
         </View>
@@ -141,20 +149,24 @@ export function SessionsScreen({
         keyExtractor={(session) => session.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <Text style={styles.empty}>
-            {loading
-              ? "Loading…"
-              : canCreate
-                ? filter === "all"
-                  ? "No sessions yet."
-                  : "No sessions match this filter."
-                : "Add a workspace to start working on a project."}
-          </Text>
+          <View style={styles.empty}>
+            {!loading ? <Deco variant="blob" style={styles.emptyBlob} /> : null}
+            <Text style={loading ? styles.emptyLoading : styles.emptyTitle}>
+              {loading
+                ? "Loading…"
+                : canCreate
+                  ? filter === "all"
+                    ? "No sessions yet."
+                    : "No sessions match this filter."
+                  : "Add a workspace to start working on a project."}
+            </Text>
+          </View>
         }
         renderItem={({ item }) => (
           <SessionRow
             session={item}
             status={statuses[item.id]?.type}
+            active={item.id === activeSessionID}
             onPress={onOpen}
             onDelete={confirmDeleteSession}
           />
@@ -180,24 +192,27 @@ export function SessionsScreen({
 function SessionRow({
   session,
   status,
+  active,
   onPress,
   onDelete,
 }: {
   session: Session
   status: string | undefined
+  active: boolean
   onPress: (id: string) => void
   onDelete: (session: Session) => void
 }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+
   return (
-    <View style={styles.row}>
-      <Pressable style={styles.rowMain} onPress={() => onPress(session.id)}>
+    <View style={[styles.row, active && styles.rowActive]}>
+      <Pressable
+        style={[styles.rowMain, active && styles.rowMainActive]}
+        onPress={() => onPress(session.id)}
+      >
         <View style={styles.rowHeader}>
-          <View
-            style={[
-              styles.dot,
-              status === "busy" ? { backgroundColor: colors.warning } : { backgroundColor: colors.surfaceMuted },
-            ]}
-          />
+          <View style={[styles.dot, { backgroundColor: status === "busy" ? colors.warning : colors.hairlineStrong }]} />
           <Text style={styles.rowTitle} numberOfLines={1}>
             {session.title || "Untitled"}
           </Text>
@@ -213,201 +228,261 @@ function SessionRow({
           {directoryName(session.location.directory)} · {formatRelative(session.time.updated)}
         </Text>
       </Pressable>
-      <Pressable style={styles.delete} onPress={() => onDelete(session)} accessibilityLabel="Delete session">
+      <Pressable
+        style={styles.delete}
+        onPress={() => onDelete(session)}
+        accessibilityLabel="Delete session"
+        hitSlop={4}
+      >
         <Text style={styles.deleteText}>×</Text>
       </Pressable>
     </View>
   )
 }
 
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  newButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  newButtonText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  signOut: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  workspaceBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  workspaceLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  workspaceName: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  chevron: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  banner: {
-    color: colors.warning,
-    fontSize: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  list: {
-    paddingBottom: 24,
-  },
-  empty: {
-    color: colors.muted,
-    fontSize: 14,
-    textAlign: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  rowMain: {
-    flex: 1,
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  rowHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  rowTitle: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 15,
-  },
-  branchBadge: {
-    maxWidth: 130,
-    backgroundColor: "rgba(99, 102, 241, 0.15)",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  branchText: {
-    color: "#a5b4fc",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  rowMeta: {
-    color: colors.muted,
-    fontSize: 12,
-    paddingLeft: 16,
-  },
-  delete: {
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  deleteText: {
-    color: colors.muted,
-    fontSize: 20,
-    lineHeight: 22,
-  },
-  filterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  filters: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  chip: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
-  chipActive: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  chipText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  chipTextActive: {
-    color: colors.text,
-  },
-  isolatedToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  checkbox: {
-    width: 14,
-    height: 14,
-    borderRadius: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.muted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  checkboxMark: {
-    color: colors.text,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "700",
-  },
-  isolatedLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    headerRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    title: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    dot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    newButton: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    newButtonText: {
+      color: colors.onAccent,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "500",
+    },
+    signOut: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+    },
+    workspaceBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    workspaceLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      fontWeight: "600",
+    },
+    workspaceName: {
+      flex: 1,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    chevron: {
+      color: colors.textMuted,
+      fontSize: 12,
+    },
+    banner: {
+      color: colors.warning,
+      backgroundColor: colors.warningSoft,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.warningLine,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+    list: {
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      paddingBottom: 24,
+      gap: 8,
+    },
+    empty: {
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 260,
+      paddingVertical: 48,
+      paddingHorizontal: 24,
+      overflow: "hidden",
+    },
+    emptyBlob: {
+      position: "absolute",
+      top: -70,
+      right: -60,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontFamily: fonts.display,
+      fontSize: 26,
+      fontWeight: "500",
+      lineHeight: 31,
+      textAlign: "center",
+    },
+    emptyLoading: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      textAlign: "center",
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "stretch",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    rowActive: {
+      backgroundColor: colors.surfaceMuted,
+    },
+    rowMain: {
+      flex: 1,
+      gap: 4,
+      borderLeftWidth: 2,
+      borderLeftColor: "transparent",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    rowMainActive: {
+      borderLeftColor: colors.accent,
+    },
+    rowHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    rowTitle: {
+      flex: 1,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    branchBadge: {
+      maxWidth: 130,
+      backgroundColor: colors.accentSoft,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    branchText: {
+      color: colors.accent,
+      fontFamily: fonts.mono,
+      fontSize: 10,
+    },
+    rowMeta: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      paddingLeft: 16,
+    },
+    delete: {
+      justifyContent: "center",
+      paddingHorizontal: 16,
+    },
+    deleteText: {
+      color: colors.textMuted,
+      fontSize: 20,
+      lineHeight: 22,
+    },
+    filterRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    filters: {
+      flexDirection: "row",
+      gap: 6,
+    },
+    chip: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    chipActive: {
+      backgroundColor: colors.text,
+      borderColor: colors.text,
+    },
+    chipText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    chipTextActive: {
+      color: colors.canvas,
+      fontWeight: "600",
+    },
+    isolatedToggle: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    checkbox: {
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    checkboxChecked: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    checkboxMark: {
+      color: colors.onAccent,
+      fontSize: 10,
+      lineHeight: 12,
+      fontWeight: "700",
+    },
+    isolatedLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    disabled: {
+      opacity: 0.5,
+    },
+  })
+}

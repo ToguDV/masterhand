@@ -2,7 +2,7 @@ import { useState } from "react"
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import { formatRelative, queryKeys, useAudit, type Client } from "@masterhand/client-core"
-import { colors } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
  * Visible log of blocked actions: commands denied by the session permission
@@ -12,6 +12,8 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
   const queryClient = useQueryClient()
   const auditQuery = useAudit(client)
   const [busy, setBusy] = useState(false)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const events = auditQuery.data ?? []
 
   async function clear() {
@@ -69,47 +71,68 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
   )
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  heading: { color: colors.text, fontSize: 15, fontWeight: "700" },
-  spacer: { flex: 1 },
-  button: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.surfaceMuted,
-  },
-  buttonText: { color: colors.text, fontSize: 12, fontWeight: "700" },
-  list: { padding: 12, gap: 8 },
-  empty: { color: colors.muted, fontSize: 14, textAlign: "center", paddingVertical: 40 },
-  card: {
-    gap: 4,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: 12,
-  },
-  meta: { flexDirection: "row", alignItems: "center", gap: 8 },
-  badge: {
-    color: "#fbbf24",
-    backgroundColor: "rgba(245, 158, 11, 0.15)",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  muted: { color: colors.muted, fontSize: 11 },
-  command: { color: colors.text, fontFamily: "monospace", fontSize: 12 },
-  reason: { color: colors.muted, fontSize: 12 },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.canvas },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    heading: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    spacer: { flex: 1 },
+    button: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    buttonText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    list: { padding: 12, gap: 8 },
+    empty: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      textAlign: "center",
+      paddingVertical: 40,
+    },
+    card: {
+      gap: 4,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surface,
+      padding: 12,
+    },
+    meta: { flexDirection: "row", alignItems: "center", gap: 8 },
+    badge: {
+      color: colors.warning,
+      backgroundColor: colors.warningSoft,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      fontFamily: fonts.ui,
+      fontSize: 10,
+      fontWeight: "600",
+    },
+    muted: { color: colors.textMuted, fontFamily: fonts.ui, fontSize: 11 },
+    command: { color: colors.text, fontFamily: fonts.mono, fontSize: 12 },
+    reason: { color: colors.textMuted, fontFamily: fonts.ui, fontSize: 12 },
+  })
+}

@@ -13,10 +13,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo-google-fonts/fraunces": "^0.4.1",
+    "@expo-google-fonts/instrument-sans": "^0.4.2",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@masterhand/client-core": "*",
     "@ronradtke/react-native-markdown-display": "^9.0.3",
     "@tanstack/react-query": "^5.104.0",
     "expo": "~57.0.25",
+    "expo-font": "~57.0.4",
     "expo-secure-store": "~57.0.4",
     "react": "19.3.0",
     "react-native": "0.86.3",

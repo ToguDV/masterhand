@@ -1,7 +1,7 @@
 import { useEffect, useState, type PropsWithChildren } from "react"
 import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { colors } from "../theme"
+import { useThemedStyles, type Palette } from "../theme"
 
 /** Tracks whether the soft keyboard is up, so the bottom inset can be dropped while it covers that area. */
 function useKeyboardVisible(): boolean {
@@ -37,6 +37,7 @@ function useKeyboardVisible(): boolean {
  */
 export function Screen({ children, style }: PropsWithChildren<{ style?: object }>) {
   const keyboardVisible = useKeyboardVisible()
+  const styles = useThemedStyles(createStyles)
 
   return (
     <KeyboardAvoidingView style={styles.root} behavior="padding">
@@ -50,12 +51,14 @@ export function Screen({ children, style }: PropsWithChildren<{ style?: object }
   )
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flex: 1,
-  },
-})
+function createStyles(colors: Palette) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    content: {
+      flex: 1,
+    },
+  })
+}

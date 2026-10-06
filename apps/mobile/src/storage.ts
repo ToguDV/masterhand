@@ -17,6 +17,7 @@ const DEVICE_KEY = "masterhand.device"
 const WORKSPACE_KEY = "masterhand.workspaceID"
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
+const THEME_KEY = "masterhand.theme"
 
 export function loadServerUrl(): Promise<string | null> {
   return SecureStore.getItemAsync(SERVER_URL_KEY)
@@ -66,6 +67,20 @@ export function saveWorkspaceID(id: string): Promise<void> {
 
 export function clearWorkspaceID(): Promise<void> {
   return SecureStore.deleteItemAsync(WORKSPACE_KEY)
+}
+
+/** Stored theme choice, or null when unset/corrupted (the system decides). */
+export async function loadTheme(): Promise<"light" | "dark" | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(THEME_KEY)
+    return raw === "light" || raw === "dark" ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function saveTheme(theme: "light" | "dark"): Promise<void> {
+  return SecureStore.setItemAsync(THEME_KEY, theme)
 }
 
 export async function loadAutoAcceptSessions(): Promise<string[]> {

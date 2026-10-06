@@ -11,7 +11,7 @@ import {
   type Client,
   type PreviewStatus,
 } from "@masterhand/client-core"
-import { colors } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 const STOPPED: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
 
@@ -32,6 +32,8 @@ export function PreviewModal({
   // A tunnel that dies on its own must not keep claiming "running" (#89).
   const [notice, setNotice] = useState<string | null>(null)
   const previousStatus = useRef<PreviewStatus["status"]>("stopped")
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
 
   const availability = statusQuery.data?.preview
   const preview = previewQuery.data ?? STOPPED
@@ -149,78 +151,89 @@ export function PreviewModal({
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  heading: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  port: {
-    color: colors.muted,
-    fontSize: 11,
-    backgroundColor: colors.surface,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  spacer: {
-    flex: 1,
-  },
-  button: {
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.surfaceMuted,
-  },
-  primary: {
-    backgroundColor: colors.accent,
-  },
-  buttonText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  primaryText: {
-    color: colors.text,
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  notice: {
-    color: colors.warning,
-    fontSize: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  placeholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  placeholderText: {
-    color: colors.muted,
-    fontSize: 14,
-    textAlign: "center",
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.canvas,
+    },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    heading: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      fontWeight: "600",
+    },
+    port: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    spacer: {
+      flex: 1,
+    },
+    button: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    primary: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    buttonText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    primaryText: {
+      color: colors.onAccent,
+    },
+    error: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    notice: {
+      color: colors.warning,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    webview: {
+      flex: 1,
+      backgroundColor: "#fff",
+    },
+    placeholder: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 24,
+    },
+    placeholderText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      textAlign: "center",
+    },
+  })
+}

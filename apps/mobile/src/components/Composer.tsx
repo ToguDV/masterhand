@@ -32,7 +32,7 @@ import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { SideQuestionPanel } from "./SideQuestionPanel"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
-import { colors } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 type OpenPicker = "agent" | "model" | "effort" | null
 
@@ -90,6 +90,8 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [sideQuestion, setSideQuestion] = useState<{ sessionID: string; question: string } | null>(null)
   const [startingSideQuestion, setStartingSideQuestion] = useState(false)
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   // Synchronous in-flight guards: the `sending` state is not a lock, so two
   // presses dispatched in the same tick would both fire a prompt (#72).
   // `pendingSend` is set before the first `await` and cleared by the request
@@ -417,17 +419,17 @@ export function Composer({
             if (forcedSelection) setForcedSelection(undefined)
           }}
           placeholder="Write a message…"
-          placeholderTextColor={colors.muted}
+          placeholderTextColor={colors.textFaint}
           multiline
           testID="composer-input"
         />
         {busy ? (
           <Pressable style={[styles.action, styles.stop]} onPress={() => void stop()}>
-            <Text style={styles.actionText}>Stop</Text>
+            <Text style={[styles.actionText, styles.stopText]}>Stop</Text>
           </Pressable>
         ) : (
           <Pressable
-            style={[styles.action, (!text.trim() || sending || startingSideQuestion) && styles.actionDisabled]}
+            style={[styles.action, styles.send, (!text.trim() || sending || startingSideQuestion) && styles.actionDisabled]}
             disabled={!text.trim() || sending || startingSideQuestion}
             onPress={() => void send()}
           >
@@ -470,6 +472,7 @@ export function Composer({
 }
 
 function Selector({ label, onPress, disabled }: { label: string; onPress: () => void; disabled: boolean }) {
+  const styles = useThemedStyles(createStyles)
   return (
     <Pressable style={[styles.selector, disabled && styles.actionDisabled]} onPress={onPress} disabled={disabled}>
       <Text style={styles.selectorText} numberOfLines={1}>
@@ -479,85 +482,100 @@ function Selector({ label, onPress, disabled }: { label: string; onPress: () => 
   )
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  selectors: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  selector: {
-    flexGrow: 1,
-    flexBasis: "30%",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  selectorText: {
-    color: colors.text,
-    fontSize: 12,
-  },
-  autoAccept: {
-    flexGrow: 0,
-    flexBasis: "auto",
-  },
-  autoAcceptOn: {
-    borderColor: colors.warning,
-    backgroundColor: "rgba(245, 158, 11, 0.12)",
-  },
-  autoAcceptText: {
-    color: colors.warning,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  input: {
-    flex: 1,
-    maxHeight: 140,
-    minHeight: 44,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    color: colors.text,
-    fontSize: 15,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-  },
-  action: {
-    height: 44,
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 18,
-  },
-  stop: {
-    backgroundColor: "#7f1d1d",
-  },
-  actionDisabled: {
-    opacity: 0.5,
-  },
-  actionText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  error: {
-    color: colors.danger,
-    fontSize: 12,
-  },
-})
+function createStyles(colors: Palette, fonts: Fonts) {
+  return StyleSheet.create({
+    container: {
+      gap: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 16,
+    },
+    selectors: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    selector: {
+      flexGrow: 1,
+      flexBasis: "30%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    selectorText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    autoAccept: {
+      flexGrow: 0,
+      flexBasis: "auto",
+    },
+    autoAcceptOn: {
+      borderColor: colors.warningLine,
+      backgroundColor: colors.warningSoft,
+    },
+    autoAcceptText: {
+      color: colors.warning,
+    },
+    inputRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: 8,
+    },
+    input: {
+      flex: 1,
+      maxHeight: 140,
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 15,
+      paddingHorizontal: 12,
+      paddingTop: 12,
+      paddingBottom: 12,
+    },
+    action: {
+      height: 44,
+      justifyContent: "center",
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "transparent",
+      paddingHorizontal: 18,
+    },
+    send: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    stop: {
+      backgroundColor: colors.dangerSoft,
+      borderColor: colors.dangerLine,
+    },
+    actionDisabled: {
+      opacity: 0.5,
+    },
+    actionText: {
+      color: colors.onAccent,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    stopText: {
+      color: colors.danger,
+    },
+    error: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+  })
+}

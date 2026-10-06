@@ -7,12 +7,14 @@ import {
   loadDevice,
   loadServerUrl,
   loadSessionPreferences,
+  loadTheme,
   loadToken,
   loadWorkspaceID,
   saveAutoAcceptSessions,
   saveDevice,
   saveServerUrl,
   saveSessionPreferences,
+  saveTheme,
   saveToken,
   saveWorkspaceID,
 } from "../src/storage"
@@ -91,6 +93,25 @@ describe("storage — auto-accept sessions", () => {
     await SecureStore.setItemAsync("masterhand.autoAcceptSessions", "nope")
 
     expect(await loadAutoAcceptSessions()).toEqual([])
+  })
+})
+
+describe("storage — theme", () => {
+  it("round-trips the theme choice and rejects unknown values", async () => {
+    expect(await loadTheme()).toBeNull()
+
+    await saveTheme("dark")
+    expect(await loadTheme()).toBe("dark")
+
+    await SecureStore.setItemAsync("masterhand.theme", "purple")
+    expect(await loadTheme()).toBeNull()
+  })
+
+  it("tolerates a failing secure store", async () => {
+    const getItem = SecureStore.getItemAsync as jest.Mock
+    getItem.mockRejectedValueOnce(new Error("keychain unavailable"))
+
+    expect(await loadTheme()).toBeNull()
   })
 })
 
