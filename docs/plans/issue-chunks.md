@@ -1,12 +1,13 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-06. 13 open issues (#118–#130) grouped into **5 chunks** (C10–C14) by the
+**Snapshot:** 2026-10-06. 14 open issues (#118–#131) grouped into **6 chunks** (C10–C15) by the
 code surface they share. The previous 34-issue backlog (C1–C9) is fully merged.
 
 **Last updated:** 2026-10-06 — re-chunked after the issue batch created from the maintainer's
 mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
 syntax highlighting and color themes; #125–#127 chat feedback, per-message stats and the tok/s
-fix; #128 provider credentials; #129–#130 `/goal`. No chunk has started.
+fix; #128 provider credentials; #129–#130 `/goal`; #131 GitHub-hosted update detection and in-app
+updates. No chunk has started.
 
 ## How to use this document
 
@@ -41,6 +42,7 @@ fix; #128 provider credentials; #129–#130 `/goal`. No chunk has started.
 | C12 — Chat feedback and stats | #127 #126 #125 | ⬜ Pending |
 | C13 — Provider credentials in settings | #128 | ⬜ Pending |
 | C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
+| C15 — In-app updates and releases | #131 | ⬜ Pending |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
@@ -56,9 +58,11 @@ fix; #128 provider credentials; #129–#130 `/goal`. No chunk has started.
 **Highest severity in the queue:** [#127](https://github.com/ToguDV/masterhand/issues/127) (bug:
 raw decimal speeds on the session stats) and
 [#118](https://github.com/ToguDV/masterhand/issues/118) (bug: the Android navigation bar breaks
-the dark theme). The largest feature is **/goal** (C14). Suggested batch order:
-**C10 → C12 → C13 → C11 → C14** — C10 unblocks the settings sections (#124, #128, #130) and C12
-opens with the quick #127 fix; C11 and C14 are the big sessions and can be interleaved.
+the dark theme). The largest feature is **/goal** (C14), followed by the release/update system
+(C15). Suggested batch order: **C10 → C12 → C13 → C11 → C14 → C15** — C10 unblocks the settings
+sections (#124, #128, #130, #131) and C12 opens with the quick #127 fix; C11, C14 and C15 are the
+big sessions. C15's foundation (versioning + the update endpoint) has no hard blocker beyond the
+settings section and can be pulled earlier.
 
 ## Chunks — current batch (C10–C14)
 
@@ -141,6 +145,24 @@ opens with the quick #127 fix; C11 and C14 are the big sessions and can be inter
   the frozen contract/mock).
 - **Dependencies:** #130 needs #129 and #119; #129 none. Expected to be the largest session of the
   batch — budget for reconciliation and a `docs/past-mistakes.md` trace.
+
+### C15 — In-app updates and releases
+
+- **Issues:** [#131](https://github.com/ToguDV/masterhand/issues/131) GitHub-hosted update detection
+  and in-app updates (Android, web/desktop).
+- **Surface:** root/workspace `package.json` + `apps/mobile/app.json` (versioning);
+  `.github/workflows/release.yml` (new); `apps/server/src/app.ts` (`/api/status` + new `/api/update`);
+  `packages/client-core` (`BffStatus` + the update API); web/desktop update banner and
+  `electron-updater` once packaging lands; mobile APK download/install + Settings > About;
+  `deploy/.env.example`, `docs/bff/api.md`, `docs/runbooks/deployment.md`.
+- **Why together:** one cross-platform feature with a single source of truth (`version.json` on
+  GitHub Releases); web reload, Electron auto-update and the Android APK all read the same manifest
+  through the same BFF endpoint.
+- **Order:** foundation (versioning + `version.json` + `/api/update`) → web/desktop reload → Android
+  APK + Settings > About. The issue proposes splitting into those two halves if the session gets too
+  large.
+- **Dependencies:** #119 (Settings > About); desktop packaging (Phase 4 pending) for
+  `electron-updater`; independent of C11–C14.
 
 ## Previous batch — C1–C9 (all merged)
 
