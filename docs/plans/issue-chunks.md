@@ -1,13 +1,12 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-05. The 34 open issues at that date, grouped into **9 chunks** by the code
-surface they share, so a chunk can be implemented in one work session without changing context.
+**Snapshot:** 2026-10-06. 13 open issues (#118–#130) grouped into **5 chunks** (C10–C14) by the
+code surface they share. The previous 34-issue backlog (C1–C9) is fully merged.
 
-**Last updated:** 2026-10-05 — session batch #107–#114 merged (#79, #75, #76, #83, #81, #69, #66,
-#70); workflow switched to one branch per session. Then the lifecycle session batch closed C2/C3
-(#84, #85, #89, #73, #67, #65), C5 (#88, #86, #87, #80, #91) and interleaved C7 (#78, #90) in PR #116.
-The remaining-issues session batch closed C6 (#77, #94), C8 (#97, #98) and C9 (#82, #93, #100, #92,
-#99) — the 34-issue backlog is empty.
+**Last updated:** 2026-10-06 — re-chunked after the issue batch created from the maintainer's
+mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
+syntax highlighting and color themes; #125–#127 chat feedback, per-message stats and the tok/s
+fix; #128 provider credentials; #129–#130 `/goal`. No chunk has started.
 
 ## How to use this document
 
@@ -37,12 +36,14 @@ The remaining-issues session batch closed C6 (#77, #94), C8 (#97, #98) and C9 (#
 | C7 — Deploy/ops | #78 #90 | ✅ Merged 2026-10-05 — interleaved in the lifecycle session batch (#116) |
 | C8 — Web unified run/preview panel + bubble | #97 #98 | ✅ Merged 2026-10-05 — remaining-issues session batch |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | ✅ Merged 2026-10-05 — remaining-issues session batch |
+| C10 — Settings hub and header cleanup | #119 #120 #121 #122 | ⬜ Pending |
+| C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ⬜ Pending |
+| C12 — Chat feedback and stats | #127 #126 #125 | ⬜ Pending |
+| C13 — Provider credentials in settings | #128 | ⬜ Pending |
+| C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
 
-**Highest severity in the queue:** the trio [#85](https://github.com/ToguDV/masterhand/issues/85),
-[#84](https://github.com/ToguDV/masterhand/issues/84) and
-[#65](https://github.com/ToguDV/masterhand/issues/65) landed 2026-10-05 in the lifecycle session
-batch, together with C2, C5 and C7. **All chunks are now closed**: the remaining-issues session
-batch finished C6 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
+**All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
+([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
 [#94](https://github.com/ToguDV/masterhand/issues/94) branch picker), C8
 ([#98](https://github.com/ToguDV/masterhand/issues/98) bubble,
 [#97](https://github.com/ToguDV/masterhand/issues/97) unified Run & preview panel) and C9
@@ -50,9 +51,98 @@ batch finished C6 ([#77](https://github.com/ToguDV/masterhand/issues/77) async g
 [#93](https://github.com/ToguDV/masterhand/issues/93),
 [#100](https://github.com/ToguDV/masterhand/issues/100),
 [#92](https://github.com/ToguDV/masterhand/issues/92),
-[#99](https://github.com/ToguDV/masterhand/issues/99)).
+[#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-## Chunks
+**Highest severity in the queue:** [#127](https://github.com/ToguDV/masterhand/issues/127) (bug:
+raw decimal speeds on the session stats) and
+[#118](https://github.com/ToguDV/masterhand/issues/118) (bug: the Android navigation bar breaks
+the dark theme). The largest feature is **/goal** (C14). Suggested batch order:
+**C10 → C12 → C13 → C11 → C14** — C10 unblocks the settings sections (#124, #128, #130) and C12
+opens with the quick #127 fix; C11 and C14 are the big sessions and can be interleaved.
+
+## Chunks — current batch (C10–C14)
+
+### C10 — Settings hub and header cleanup (web + mobile)
+
+- **Issues:** [#119](https://github.com/ToguDV/masterhand/issues/119) settings panel behind a gear
+  icon, [#121](https://github.com/ToguDV/masterhand/issues/121) sign out into settings,
+  [#122](https://github.com/ToguDV/masterhand/issues/122) mobile `+` next to the Sessions title,
+  [#120](https://github.com/ToguDV/masterhand/issues/120) play icon for the Run & preview trigger.
+- **Surface:** `apps/web/src/App.tsx` (top bar/overflow), `apps/web/src/components/SidePanel.tsx`,
+  `ThemeToggle.tsx`, `RunPreviewPanel.tsx`, `icons.tsx`; `apps/mobile/src/screens/SessionsScreen.tsx`
+  and `ChatScreen.tsx`, `components/NewSessionMenu.tsx`/`ThemeToggle.tsx`/`icons.tsx`,
+  `apps/mobile/App.tsx`, `src/storage.ts`; `design/DESIGN.md`.
+- **Why together:** one chrome change — the top bar and mobile headers lose the theme toggle and
+  sign out, gain the settings gear, and the two small affordances (#120, #122) touch the same
+  headers.
+- **Order:** #119 → #121 → #122 → #120 (#120 is independent; landing it last avoids top-bar
+  conflicts).
+- **Dependencies:** #121 and #122 depend on #119 (recorded as prerequisites in the issues); #120
+  none. **C10 unblocks #124, #128 and #130**, so it should land first.
+- **Notes:** keep the settings panel structured so the other chunks append sections (themes,
+  providers, goal review) without rework.
+
+### C11 — Theme system: palettes, syntax colors, Android system bars
+
+- **Issues:** [#118](https://github.com/ToguDV/masterhand/issues/118) Android nav bar stays white in
+  dark theme, [#124](https://github.com/ToguDV/masterhand/issues/124) 12+ selectable color themes,
+  [#123](https://github.com/ToguDV/masterhand/issues/123) syntax highlighting for tool cards and
+  messages.
+- **Surface:** `apps/web/src/styles.css` + `index.html` (pre-paint script) + theme persistence,
+  `design/DESIGN.md`/`DESIGN.html`/`design.css`; `apps/mobile/src/theme.ts`, `App.tsx`,
+  `components/Screen.tsx`, `app.json`; web/mobile `tools/ToolBodies.tsx`, `MessageContent.tsx`,
+  `MessageBubble.tsx`.
+- **Why together:** all three change the same token/palette system on both platforms — #124 adds
+  the palette dimension, #123 derives syntax colors from it, #118 makes the native Android chrome
+  follow the same theme resolution; one context avoids double-touching `theme.ts`/`styles.css`.
+- **Order:** #118 (bug first, standalone) → #124 (palette architecture + settings picker) → #123
+  (syntax colors on top).
+- **Dependencies:** #124 needs #119 (settings section); #123 coordinates with #124 for contrast on
+  every code surface; #118 none.
+
+### C12 — Chat feedback and stats
+
+- **Issues:** [#127](https://github.com/ToguDV/masterhand/issues/127) tok/s raw decimals (bug),
+  [#126](https://github.com/ToguDV/masterhand/issues/126) compact per-message stats with icons,
+  [#125](https://github.com/ToguDV/masterhand/issues/125) "Sending…" ghost bubble.
+- **Surface:** `packages/client-core/src/chat.ts` (+ tests); web `MessageContent.tsx`, `ChatView.tsx`,
+  `Composer.tsx`; mobile `MessageBubble.tsx`, `ChatScreen.tsx`, `Composer.tsx`; E2E mock
+  (delayed-echo control) and specs.
+- **Why together:** the same message-presentation/chat-state surfaces; #126 reuses the formatter
+  fixed in #127 and #125 lifts the composer's pending-send state into the same chat containers.
+- **Order:** #127 (quick bug; defines the integer speed formatter) → #126 (uses it) → #125
+  (largest).
+- **Dependencies:** #126 on #127; none on C10/C11.
+
+### C13 — Provider credentials in settings
+
+- **Issues:** [#128](https://github.com/ToguDV/masterhand/issues/128) manage provider credentials
+  (OpenCode Go and the catalog) from settings.
+- **Surface:** `packages/client-core/src/client.ts`/`hooks.ts` (integrations + credentials), the
+  settings Providers section (web + mobile), E2E mock (`/api/integration`, connect-key),
+  `docs/bff/api.md`.
+- **Why together:** one issue, no BFF route expected (the `/api/oc/*` passthrough is verified in the
+  issue); re-verify the endpoints against the pinned opencode OpenAPI while implementing.
+- **Order:** #128 only.
+- **Dependencies:** #119 (settings panel), so after C10.
+
+### C14 — /goal: adversarial review loop
+
+- **Issues:** [#129](https://github.com/ToguDV/masterhand/issues/129) BFF orchestrator with critic
+  and judge, [#130](https://github.com/ToguDV/masterhand/issues/130) `/goal` command, run status UI
+  and judge/critic settings.
+- **Surface:** `apps/server/src/app.ts` + new goal module(s)/prompts, `store.ts`, `events.ts`;
+  `packages/client-core` (goal API, hooks, command registration); web/mobile composer, status UI and
+  settings; E2E mock (three roles); `docs/bff/api.md`, `ARCHITECTURE.md` (ADR),
+  `docs/past-mistakes.md`.
+- **Why together:** one feature split only for reviewability; the client contract derives from the
+  server state machine.
+- **Order:** #129 first (freeze the protocol/API contract) → #130 (UI + settings; can start against
+  the frozen contract/mock).
+- **Dependencies:** #130 needs #129 and #119; #129 none. Expected to be the largest session of the
+  batch — budget for reconciliation and a `docs/past-mistakes.md` trace.
+
+## Previous batch — C1–C9 (all merged)
 
 ### C1 — Composer send hardening (web + mobile)
 
