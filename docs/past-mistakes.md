@@ -78,4 +78,4 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 
 ## Open issues in this family
 
-None open (all of #65, #67 and #73 landed 2026-10-05). Track new ones with `gh issue list --label reliability`.
+None open (all of #65, #67, #73, #77, #94 and #82 landed 2026-10-05). Track new ones with `gh issue list --label reliability`.

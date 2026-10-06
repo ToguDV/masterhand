@@ -6,6 +6,8 @@ surface they share, so a chunk can be implemented in one work session without ch
 **Last updated:** 2026-10-05 — session batch #107–#114 merged (#79, #75, #76, #83, #81, #69, #66,
 #70); workflow switched to one branch per session. Then the lifecycle session batch closed C2/C3
 (#84, #85, #89, #73, #67, #65), C5 (#88, #86, #87, #80, #91) and interleaved C7 (#78, #90) in PR #116.
+The remaining-issues session batch closed C6 (#77, #94), C8 (#97, #98) and C9 (#82, #93, #100, #92,
+#99) — the 34-issue backlog is empty.
 
 ## How to use this document
 
@@ -31,18 +33,24 @@ surface they share, so a chunk can be implemented in one work session without ch
 | C3 — Run/preview lifecycle (client + server) | #73 #89 #84 #85 | ✅ Merged 2026-10-05 — lifecycle session batch (#116) |
 | C4 — BFF transport (opencode calls + SSE hub) | #75 #76 #83 | ✅ Merged 2026-10-05 — #108 → #109 → #110 |
 | C5 — Storage and process resilience (BFF) | #88 #86 #87 #80 #91 | ✅ Merged 2026-10-05 — lifecycle session batch (#116) |
-| C6 — Worktrees and git | #79 #77 #94 | In progress — #79 merged (#107); #77 #94 pending |
+| C6 — Worktrees and git | #79 #77 #94 | ✅ Merged 2026-10-05 — #79 (#107); #77 #94 in the remaining-issues session batch |
 | C7 — Deploy/ops | #78 #90 | ✅ Merged 2026-10-05 — interleaved in the lifecycle session batch (#116) |
-| C8 — Web unified run/preview panel + bubble | #97 #98 | Pending |
-| C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | Pending |
+| C8 — Web unified run/preview panel + bubble | #97 #98 | ✅ Merged 2026-10-05 — remaining-issues session batch |
+| C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | ✅ Merged 2026-10-05 — remaining-issues session batch |
 
 **Highest severity in the queue:** the trio [#85](https://github.com/ToguDV/masterhand/issues/85),
 [#84](https://github.com/ToguDV/masterhand/issues/84) and
 [#65](https://github.com/ToguDV/masterhand/issues/65) landed 2026-10-05 in the lifecycle session
-batch, together with C2, C5 and C7. What remains: **C6** ([#77](https://github.com/ToguDV/masterhand/issues/77)
-async git runner, then [#94](https://github.com/ToguDV/masterhand/issues/94) branch picker — the
-largest feature left), **C8** (web run/preview panel + bubble) and **C9** (mobile ink-on-paper and
-parity).
+batch, together with C2, C5 and C7. **All chunks are now closed**: the remaining-issues session
+batch finished C6 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
+[#94](https://github.com/ToguDV/masterhand/issues/94) branch picker), C8
+([#98](https://github.com/ToguDV/masterhand/issues/98) bubble,
+[#97](https://github.com/ToguDV/masterhand/issues/97) unified Run & preview panel) and C9
+([#82](https://github.com/ToguDV/masterhand/issues/82),
+[#93](https://github.com/ToguDV/masterhand/issues/93),
+[#100](https://github.com/ToguDV/masterhand/issues/100),
+[#92](https://github.com/ToguDV/masterhand/issues/92),
+[#99](https://github.com/ToguDV/masterhand/issues/99)).
 
 ## Chunks
 
