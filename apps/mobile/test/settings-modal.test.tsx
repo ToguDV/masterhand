@@ -1,17 +1,21 @@
 import { Alert } from "react-native"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { SettingsModal } from "../src/components/SettingsModal"
-import { ThemeProvider, useTheme } from "../src/theme"
-import { saveTheme } from "../src/storage"
+import { DEFAULT_PALETTE, ThemeProvider, paletteFor, useTheme } from "../src/theme"
+import { savePalette, saveTheme } from "../src/storage"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
 jest.mock("../src/storage", () => ({
   loadTheme: jest.fn(async () => null),
+  loadPalette: jest.fn(async () => null),
+  savePalette: jest.fn(async () => {}),
+  clearPalette: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
 }))
 
 const mockedSave = saveTheme as jest.Mock
+const mockedSavePalette = savePalette as jest.Mock
 
 /** Drives the modal through the real theme provider, as the app does. */
 function Harness({
@@ -21,13 +25,15 @@ function Harness({
   client: ReturnType<typeof fakeClient>
   onClose?: () => void
 }) {
-  const { mode, setMode } = useTheme()
+  const { mode, setMode, palette, setPalette } = useTheme()
   return (
     <SettingsModal
       visible
       client={client}
       mode={mode}
       onSelectMode={setMode}
+      palette={palette}
+      onSelectPalette={setPalette}
       onClose={onClose}
     />
   )
@@ -84,6 +90,28 @@ describe("SettingsModal (#119)", () => {
 
     await fireEvent.press(screen.getByLabelText("Close settings"))
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe("SettingsModal palette (#124)", () => {
+  it("shows the accent picker with emerald selected by default", async () => {
+    await setup()
+
+    expect(screen.getByLabelText("Emerald").props.accessibilityState?.checked).toBe(true)
+    expect(screen.getByLabelText("Violet").props.accessibilityState?.checked).toBe(false)
+    // 13 palettes: emerald + 12 new ones.
+    expect(screen.getByLabelText("Accent color")).toBeOnTheScreen()
+  })
+
+  it("persists the picked palette and offers a reset", async () => {
+    await setup()
+
+    await fireEvent.press(screen.getByLabelText("Violet"))
+    expect(mockedSavePalette).toHaveBeenCalledWith("violet")
+    expect(screen.getByLabelText("Violet").props.accessibilityState?.checked).toBe(true)
+
+    await fireEvent.press(screen.getByLabelText(`Reset to ${"Emerald"}`))
+    expect(mockedSavePalette).toHaveBeenLastCalledWith(DEFAULT_PALETTE)
   })
 })
 

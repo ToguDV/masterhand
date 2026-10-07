@@ -760,6 +760,58 @@ async function runMarkdownPrompt(sessionID: string): Promise<void> {
   activeRuns.delete(sessionID)
 }
 
+/** Streams a read tool with one very long line (exercised by `code-wrap.spec.ts`). */
+async function runLongLinePrompt(sessionID: string): Promise<void> {
+  const session = sessions.get(sessionID)
+  if (!session) return
+  const directory = session.location.directory
+
+  activeRuns.add(sessionID)
+  broadcast("session.execution.started", { sessionID }, directory)
+  await delay(30)
+
+  const assistant = appendAssistantMessage(sessionID)
+  const longLine = `export const config = { name: "masterhand", version: "0.1.0", description: "a very long configuration line that keeps going and going until it must wrap several times inside the code column", enabled: true }`
+  const output = `Read file src/long.ts, lines 1-2\n1: ${longLine}\n2: const b = 2`
+  const id = nextId("prt")
+  const created = now()
+  const input = { filePath: "src/long.ts" }
+  const tool: AssistantTool = {
+    type: "tool",
+    id,
+    name: "read",
+    executed: true,
+    state: { status: "running", input, metadata: {}, time: { created } },
+    time: { created },
+  }
+  assistant.content = [tool]
+  broadcast("session.tool.input.started", { sessionID, assistantMessageID: assistant.id, id, name: "read" }, directory)
+  await delay(40)
+  const ran = now()
+  tool.state = {
+    status: "completed",
+    input,
+    content: [{ type: "text", text: output }],
+    metadata: {},
+    time: { created, ran },
+  }
+  tool.time = { created, ran, completed: now() }
+  broadcast(
+    "session.tool.success",
+    { sessionID, assistantMessageID: assistant.id, id, content: [{ type: "text", text: output }], metadata: {}, executed: true },
+    directory,
+  )
+
+  const text = "Long file shown."
+  assistant.content = [tool, { type: "text", text }]
+  streamText(sessionID, assistant.id, 0, text)
+  completeAssistant(session, assistant, {
+    cost: 0.001,
+    tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+  })
+  activeRuns.delete(sessionID)
+}
+
 async function runPrompt(sessionID: string, text: string): Promise<void> {
   const session = sessions.get(sessionID)
   const conversation = conversations.get(sessionID)
@@ -771,6 +823,7 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
 
   if (text.toLowerCase().includes("subagent")) return runSubagentPrompt(sessionID, text)
   if (text.toLowerCase().includes("markdown")) return runMarkdownPrompt(sessionID)
+  if (text.toLowerCase().includes("long line")) return runLongLinePrompt(sessionID)
   if (text.toLowerCase().includes("question")) return runQuestionPrompt(sessionID)
   if (text.toLowerCase().includes("denied")) return runDeniedPrompt(sessionID)
   if (text.toLowerCase().includes("tool")) return runToolsPrompt(sessionID)

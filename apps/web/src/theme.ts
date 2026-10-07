@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { DEFAULT_PALETTE, resolvePalette, type PaletteID } from "@masterhand/client-core"
 
 /**
  * Theme resolution shared by the app shell and the settings panel.
@@ -10,12 +11,18 @@ import { useCallback, useEffect, useState } from "react"
  * `data-theme` on `<html>` always carries the *resolved* theme (index.html
  * resolves it before first paint) because the CSS tokens use `light-dark()`
  * and only flip with `color-scheme`.
+ *
+ * The accent palette (issue #124) is an independent axis stored under
+ * `mh-palette` and painted through `data-palette` (absent or `emerald` =
+ * the default ink-on-paper theme; unknown values fall back to emerald).
  */
 
 export type ThemeMode = "light" | "dark"
 export type ResolvedTheme = "light" | "dark"
+export type { PaletteID }
 
 const THEME_STORAGE_KEY = "mh-theme"
+const PALETTE_STORAGE_KEY = "mh-palette"
 const THEME_COLORS: Record<ResolvedTheme, string> = { light: "#fafaf7", dark: "#0c0c0b" }
 
 /** Stored mode; anything unknown (or unreadable) starts on the resolved system theme. */
@@ -53,25 +60,44 @@ export function applyTheme(theme: ResolvedTheme): void {
   }
 }
 
+/** Stored palette id; anything unknown (or unreadable) falls back to emerald. */
+export function storedPalette(): PaletteID {
+  try {
+    return resolvePalette(window.localStorage.getItem(PALETTE_STORAGE_KEY))
+  } catch {
+    return DEFAULT_PALETTE
+  }
+}
+
+/** Applies the palette to the document (the CSS falls back when unset). */
+export function applyPalette(palette: PaletteID): void {
+  document.documentElement.setAttribute("data-palette", palette)
+}
+
 export interface ThemeModeState {
   mode: ThemeMode
   theme: ResolvedTheme
+  palette: PaletteID
   setMode: (mode: ThemeMode) => void
+  setPalette: (palette: PaletteID) => void
 }
 
 /**
- * Mode + resolved theme for the app shell. Mounted once in `App` so the
- * initial paint stays in sync even while the settings panel is closed.
- * The choice is always explicit (no system-following mode): it is read once
- * from storage (defaulting to the OS scheme) and only changes on selection.
+ * Mode + resolved theme + accent palette for the app shell. Mounted once in
+ * `App` so the initial paint stays in sync even while the settings panel is
+ * closed. The choice is always explicit (no system-following mode): it is
+ * read once from storage (defaulting to the OS scheme for the mode and to
+ * emerald for the palette) and only changes on selection.
  */
 export function useThemeMode(): ThemeModeState {
   const [mode, setModeState] = useState<ThemeMode>(storedThemeMode)
   const [theme, setTheme] = useState<ResolvedTheme>(currentTheme)
+  const [palette, setPaletteState] = useState<PaletteID>(storedPalette)
 
   // Sync the metas with the resolved theme (and fix a missing data-theme).
   useEffect(() => {
     applyTheme(currentTheme())
+    applyPalette(storedPalette())
   }, [])
 
   const setMode = useCallback((next: ThemeMode) => {
@@ -86,5 +112,16 @@ export function useThemeMode(): ThemeModeState {
     }
   }, [])
 
-  return { mode, theme, setMode }
+  const setPalette = useCallback((next: PaletteID) => {
+    const resolved = resolvePalette(next)
+    setPaletteState(resolved)
+    applyPalette(resolved)
+    try {
+      window.localStorage.setItem(PALETTE_STORAGE_KEY, resolved)
+    } catch {
+      // storage may be unavailable (private mode)
+    }
+  }, [])
+
+  return { mode, theme, palette, setMode, setPalette }
 }

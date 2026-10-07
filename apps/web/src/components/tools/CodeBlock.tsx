@@ -1,5 +1,12 @@
-import { useState } from "react"
-import { looksLineNumbered, truncateLines } from "@masterhand/client-core"
+import { useMemo, useState } from "react"
+import {
+  detectLanguage,
+  highlightCode,
+  looksLineNumbered,
+  truncateLines,
+  type HighlightLanguage,
+  type SyntaxToken,
+} from "@masterhand/client-core"
 import { useToast } from "../Toast"
 
 /** Clipboard button with a transient toast; hidden when unavailable. */
@@ -25,14 +32,45 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   )
 }
 
+const TOKEN_CLASS: Record<SyntaxToken["kind"], string | null> = {
+  keyword: "mh-tok-keyword",
+  string: "mh-tok-string",
+  number: "mh-tok-number",
+  comment: "mh-tok-comment",
+  function: "mh-tok-function",
+  type: "mh-tok-type",
+  punct: null,
+  plain: null,
+}
+
+/** One tokenized line: plain text stays a raw string, kinds become spans. */
+function TokenLine({ tokens }: { tokens: SyntaxToken[] }) {
+  return (
+    <>
+      {tokens.map((token, index) => {
+        const className = TOKEN_CLASS[token.kind]
+        return className ? (
+          <span key={index} className={className}>
+            {token.text}
+          </span>
+        ) : (
+          <span key={index}>{token.text}</span>
+        )
+      })}
+    </>
+  )
+}
+
 /**
- * Monospace block with optional line numbers, a copy action and a per-block
- * "show all" toggle. Text that already carries opencode line numbers
- * (`00001| …`) is not numbered twice. Code surfaces stay dark in both themes.
+ * Monospace block with optional line numbers, syntax highlighting (#123), a
+ * copy action and a per-block "show all" toggle. Text that already carries
+ * opencode line numbers (`00001| …`) is not numbered twice. Code surfaces
+ * stay dark in both themes. Unknown languages render plain, never broken.
  */
 export function CodeBlock({
   text,
   title,
+  language,
   maxLines = 24,
   numbered = true,
   startLine = 1,
@@ -41,6 +79,8 @@ export function CodeBlock({
   text: string
   /** Small label on the top-left (file name, language…). */
   title?: string
+  /** File path, extension or fence info for highlighting (plain when unknown). */
+  language?: string
   maxLines?: number
   numbered?: boolean
   /** 1-based number of the first line (read pages start at their offset). */
@@ -50,6 +90,12 @@ export function CodeBlock({
   const [expanded, setExpanded] = useState(false)
   const alreadyNumbered = looksLineNumbered(text)
   const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines)
+  // Streaming-safe: tokenize once per content + language, not per delta.
+  const highlighted = useMemo(() => {
+    const resolved: HighlightLanguage | null = language ? detectLanguage(language) : null
+    if (!resolved) return null
+    return highlightCode(truncated.text, resolved)
+  }, [truncated.text, language])
   const lines = truncated.text.split("\n")
   const showNumbers = numbered && !alreadyNumbered
 
@@ -74,13 +120,23 @@ export function CodeBlock({
         <pre>
           <code>
             {lines.map((line, index) => (
-              <span key={index} className="block whitespace-pre-wrap break-words">
+              <span key={index} className="mh-code__line flex gap-3">
                 {showNumbers && (
-                  <span className="mr-3 inline-block w-6 select-none text-right text-code-muted">
+                  <span className="w-6 shrink-0 select-none text-right text-code-muted">
                     {startLine + index}
                   </span>
                 )}
-                {line || " "}
+                <span className="mh-code__content min-w-0 flex-1 whitespace-pre-wrap break-words">
+                  {highlighted ? (
+                    line ? (
+                      <TokenLine tokens={highlighted[index] ?? []} />
+                    ) : (
+                      " "
+                    )
+                  ) : (
+                    line || " "
+                  )}
+                </span>
               </span>
             ))}
             {truncated.hiddenLines > 0 && (

@@ -1126,6 +1126,8 @@ export default function App() {
         <SettingsDialog
           mode={themeMode.mode}
           onSelectMode={themeMode.setMode}
+          palette={themeMode.palette}
+          onSelectPalette={themeMode.setPalette}
           onClose={() => setPanel(null)}
         />
       )}

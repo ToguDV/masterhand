@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AppState, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native"
+import { AppState, Platform, Pressable, StyleSheet, View } from "react-native"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fetch as expoFetch } from "expo/fetch"
 import { useFonts } from "expo-font"
@@ -36,6 +36,7 @@ import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { SettingsModal } from "./src/components/SettingsModal"
 import { Screen } from "./src/components/Screen"
+import { ThemedSystemBars } from "./src/components/SystemBars"
 import { ActivityIndicator, Text } from "react-native"
 import {
   fonts as appFonts,
@@ -93,19 +94,13 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
-        <ThemedStatusBar />
+        <ThemedSystemBars />
         <QueryClientProvider client={queryClient}>
           <Root />
         </QueryClientProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   )
-}
-
-/** Keeps the native status bar legible on both themes. */
-function ThemedStatusBar() {
-  const { theme } = useTheme()
-  return <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
 }
 
 function Root() {
@@ -253,7 +248,7 @@ function AuthenticatedApp({
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
   const styles = useThemedStyles(createStyles)
-  const { mode, setMode } = useTheme()
+  const { mode, setMode, palette, setPalette } = useTheme()
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -666,6 +661,8 @@ function AuthenticatedApp({
         client={client}
         mode={mode}
         onSelectMode={setMode}
+        palette={palette}
+        onSelectPalette={setPalette}
         onClose={() => setSettingsOpen(false)}
       />
 

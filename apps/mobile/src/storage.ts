@@ -18,6 +18,7 @@ const WORKSPACE_KEY = "masterhand.workspaceID"
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
 const THEME_KEY = "masterhand.theme"
+const PALETTE_KEY = "masterhand.palette"
 
 export function loadServerUrl(): Promise<string | null> {
   return SecureStore.getItemAsync(SERVER_URL_KEY)
@@ -86,6 +87,24 @@ export function saveTheme(theme: "light" | "dark"): Promise<void> {
 /** Clears the stored choice: the theme goes back to following the system. */
 export function clearTheme(): Promise<void> {
   return SecureStore.deleteItemAsync(THEME_KEY)
+}
+
+/** Stored palette choice, or null when unset/corrupted (emerald decides). */
+export async function loadPalette(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(PALETTE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function savePalette(palette: string): Promise<void> {
+  return SecureStore.setItemAsync(PALETTE_KEY, palette)
+}
+
+/** Clears the stored palette: the accent goes back to emerald. */
+export function clearPalette(): Promise<void> {
+  return SecureStore.deleteItemAsync(PALETTE_KEY)
 }
 
 export async function loadAutoAcceptSessions(): Promise<string[]> {

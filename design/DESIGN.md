@@ -559,6 +559,43 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.success}` | `#0B6B53` | `#3ED8A8` | Completed, connected |
 | `{colors.code-surface}` | `#141413` ink-900 | `#171716` | Code blocks (always dark) |
 
+### Accent palettes
+
+Settings > Appearance offers **13 accent palettes** (emerald default + amber, rose, fuchsia, violet, indigo, blue, cyan, teal, lime, orange, crimson, slate), each with light and dark variants. Light/dark stays an independent axis: the mode picks the column, the palette picks the row.
+
+| Palette | Light accent | Dark accent | Role |
+|---|---|---|---|
+| Emerald (default) | `#0B6B53` | `#3ED8A8` | The ink-on-paper accent |
+| Amber | `#8A5A00` | `#E3B341` |  |
+| Rose | `#AD1457` | `#F48FB1` |  |
+| Fuchsia | `#A21CAF` | `#E879F9` |  |
+| Violet | `#6D28D9` | `#A78BFA` |  |
+| Indigo | `#4338CA` | `#818CF8` |  |
+| Blue | `#1D4ED8` | `#60A5FA` |  |
+| Cyan | `#0E7490` | `#22D3EE` |  |
+| Teal | `#0F766E` | `#2DD4BF` |  |
+| Lime | `#4D7C0F` | `#A3E635` |  |
+| Orange | `#C2410C` | `#FB923C` |  |
+| Crimson | `#B3261E` | `#F08A82` |  |
+| Slate | `#475569` | `#94A3B8` |  |
+
+A palette tints the accent family plus a **subtle** `surface-muted`/`blob`/`selection` tint. Canvas, surfaces, text, hairlines and the semantic warning/danger/success tokens stay shared, so the paper/ink identity survives every hue. Light accents are 700-shades (readable on paper), dark accents are 300-shades (readable on charcoal); unknown stored values fall back to emerald.
+
+### Syntax tokens
+
+Tool cards and fenced message code highlight by language with one shared token palette, tuned for the dark code surface in both themes:
+
+| Token | Color | Use |
+|---|---|---|
+| keyword | `#C792EA` | `const`, `def`, `if`, … |
+| string | `#9ECE8A` | quoted text |
+| number | `#E3B341` | numeric literals |
+| comment | `#7A7A76` italic | `//`, `#`, `/* … */` |
+| function | palette dark accent | call names (`fetch(`) |
+| type | `#7DD3FC` | `Capitalized` names |
+
+Function names follow the active palette (the dark accent reads on dark code in every theme); the rest is fixed. Diff add/remove rows keep their semantic row colors — only context lines highlight. Unknown languages render plain, never broken.
+
 ### Brand & Accent
 - **Deep Emerald** (`{colors.accent}`): the single accent. Primary buttons, active filter pill text, focus rings, branch chips, connection state.
 - **Emerald Strong** (`{colors.accent-strong}`): pressed states and hover on dark.

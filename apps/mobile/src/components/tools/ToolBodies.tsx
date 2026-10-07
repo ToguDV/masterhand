@@ -1,24 +1,67 @@
-import { Fragment, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
 import {
+  detectLanguage,
+  highlightCode,
+  highlightLine,
   looksLineNumbered,
   truncateLines,
   type DiffLine,
+  type HighlightLanguage,
   type KeyValueEntry,
+  type SyntaxToken,
   type TodoItem,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../../theme"
+
+/** Token text color for highlighted code (#123); plain/punct use codeText. */
+function tokenColor(token: SyntaxToken, colors: Palette): string {
+  switch (token.kind) {
+    case "keyword":
+      return colors.syntax.keyword
+    case "string":
+      return colors.syntax.string
+    case "number":
+      return colors.syntax.number
+    case "comment":
+      return colors.syntax.comment
+    case "function":
+      return colors.syntax.function
+    case "type":
+      return colors.syntax.type
+    default:
+      return colors.codeText
+  }
+}
+
+/** One tokenized line as nested spans. */
+function TokenLine({ tokens }: { tokens: SyntaxToken[] }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+  return (
+    <Text selectable style={styles.codeText}>
+      {tokens.map((token, index) => (
+        <Text key={index} style={{ color: tokenColor(token, colors) }}>
+          {token.text}
+        </Text>
+      ))}
+    </Text>
+  )
+}
 
 /** Monospace block with optional line numbers and a "show all" toggle. */
 export function CodeBlock({
   text,
   title,
+  language,
   maxLines = 24,
   numbered = true,
   startLine = 1,
 }: {
   text: string
   title?: string
+  /** File path, extension or fence info for highlighting (plain when unknown). */
+  language?: string
   maxLines?: number
   numbered?: boolean
   /** 1-based number of the first line (read pages start at their offset). */
@@ -29,6 +72,12 @@ export function CodeBlock({
   const showNumbers = numbered && !looksLineNumbered(text)
   const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines)
   const lines = truncated.text.split("\n")
+  // Streaming-safe: tokenize once per content + language, not per delta.
+  const highlighted = useMemo(() => {
+    const resolved: HighlightLanguage | null = language ? detectLanguage(language) : null
+    if (!resolved) return null
+    return highlightCode(truncated.text, resolved)
+  }, [truncated.text, language])
 
   return (
     <View style={styles.block}>
@@ -48,9 +97,13 @@ export function CodeBlock({
         {lines.map((line, index) => (
           <View key={index} style={styles.codeRow}>
             {showNumbers ? <Text style={styles.lineNumber}>{startLine + index}</Text> : null}
-            <Text selectable style={styles.codeText}>
-              {line || " "}
-            </Text>
+            {highlighted && line ? (
+              <TokenLine tokens={highlighted[index] ?? []} />
+            ) : (
+              <Text selectable style={styles.codeText}>
+                {line || " "}
+              </Text>
+            )}
           </View>
         ))}
         {truncated.hiddenLines > 0 ? (
@@ -118,13 +171,24 @@ function diffTextColor(kind: DiffLine["kind"], text: string, colors: Palette): s
   return colors.codeText
 }
 
-/** Unified line diff with +/− coloring and a row cap. */
-export function DiffView({ diff }: { diff: DiffLine[] }) {
+/** Unified line diff with +/− coloring, syntax highlighting (#123) and a row cap. */
+export function DiffView({ diff, language }: { diff: DiffLine[]; language?: string }) {
   const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const rows = expanded ? diff : diff.slice(0, 160)
   const hidden = diff.length - rows.length
+  const resolved: HighlightLanguage | null = useMemo(
+    () => (language ? detectLanguage(language) : null),
+    [language],
+  )
+  const highlighted = useMemo(
+    () =>
+      resolved
+        ? rows.map((line) => (line.kind === "context" ? highlightLine(line.text, resolved) : null))
+        : null,
+    [rows, resolved],
+  )
   return (
     <View style={styles.block}>
       <View style={styles.blockBody}>
@@ -133,9 +197,19 @@ export function DiffView({ diff }: { diff: DiffLine[] }) {
             <Text style={[styles.diffSign, { color: diffTextColor(line.kind, line.text, colors) }]}>
               {line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}
             </Text>
-            <Text selectable style={[styles.codeText, { color: diffTextColor(line.kind, line.text, colors) }]}>
-              {line.text || " "}
-            </Text>
+            {highlighted && highlighted[index] && line.text ? (
+              <Text selectable style={[styles.codeText, { color: diffTextColor(line.kind, line.text, colors) }]}>
+                {highlighted[index]!.map((token, tokenIndex) => (
+                  <Text key={tokenIndex} style={{ color: tokenColor(token, colors) }}>
+                    {token.text}
+                  </Text>
+                ))}
+              </Text>
+            ) : (
+              <Text selectable style={[styles.codeText, { color: diffTextColor(line.kind, line.text, colors) }]}>
+                {line.text || " "}
+              </Text>
+            )}
           </View>
         ))}
         {hidden > 0 ? (

@@ -30,9 +30,13 @@ test("renders tool calls as semantic collapsible cards", async ({ page }) => {
   await read.locator("button").first().click()
   await expect(read).toContainText("export const app = 1")
   await expect(read).not.toContainText("Read file")
-  await expect(read.getByText("1", { exact: true })).toBeVisible()
-  await expect(read.getByText("2", { exact: true })).toBeVisible()
+  // Line numbers are the select-none gutter cells (the code `1` is now its
+  // own highlighted token span, so bare text matching is ambiguous).
+  await expect(read.locator("span.select-none").nth(0)).toHaveText("1")
+  await expect(read.locator("span.select-none").nth(1)).toHaveText("2")
   await expect(read.getByText("1:", { exact: false })).toHaveCount(0)
+  // Syntax highlighting (#123): keywords color by language (from the path).
+  await expect(read.locator(".mh-tok-keyword", { hasText: "export" }).first()).toBeVisible()
 
   // Write: file path and content.
   const write = main.locator('[data-tool="write"]')

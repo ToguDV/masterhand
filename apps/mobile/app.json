@@ -11,6 +11,14 @@
     },
     "android": {
       "package": "dev.togudv.masterhand"
-    }
+    },
+    "plugins": [
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ]
+    ]
   }
 }

@@ -76,6 +76,7 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
         <View style={styles.stack}>
           <CodeBlock
             text={summary.content}
+            language={summary.path}
             numbered={!looksLineNumbered(summary.content)}
             startLine={summary.startLine ?? 1}
             maxLines={28}
@@ -87,14 +88,14 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
       )
     case "write":
       return summary.content ? (
-        <CodeBlock text={summary.content} maxLines={28} />
+        <CodeBlock text={summary.content} language={summary.path} maxLines={28} />
       ) : (
         <Text style={styles.mutedText}>Writing…</Text>
       )
     case "edit":
-      if (summary.diff.length > 0) return <DiffView diff={summary.diff} />
+      if (summary.diff.length > 0) return <DiffView diff={summary.diff} language={summary.path} />
       return summary.output ? (
-        <CodeBlock text={summary.output} numbered={false} maxLines={12} />
+        <CodeBlock text={summary.output} language={summary.path} numbered={false} maxLines={12} />
       ) : (
         <Text style={styles.mutedText}>Applying edit…</Text>
       )

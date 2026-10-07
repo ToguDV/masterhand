@@ -10,7 +10,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>MasterHand</title>
     <script>
-      // Resolve the theme before first paint: stored choice, else system.
+      // Resolve the theme + palette before first paint: stored choices, else system.
       (function () {
         try {
           var stored = localStorage.getItem("mh-theme")
@@ -21,6 +21,11 @@
                 ? "dark"
                 : "light"
           document.documentElement.setAttribute("data-theme", theme)
+          var palette = localStorage.getItem("mh-palette")
+          if (palette && /^[a-z]+$/.test(palette)) {
+            // Unknown ids are ignored by the CSS and fall back to emerald.
+            document.documentElement.setAttribute("data-palette", palette)
+          }
         } catch (error) {
           /* file:// or private mode: the CSS prefers-color-scheme still applies */
         }
