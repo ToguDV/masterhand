@@ -153,10 +153,11 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("No sessions match this filter.")).toBeOnTheScreen()
   })
 
-  it("signs out from the header", async () => {
+  it("signs out from the settings modal", async () => {
     const handlers = await setup()
 
-    await fireEvent.press(screen.getByText("Sign out"))
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(await screen.findByLabelText("Sign out"))
 
     expect(handlers.onSignOut).toHaveBeenCalled()
   })

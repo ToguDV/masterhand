@@ -796,13 +796,6 @@ export default function App() {
         >
           <GearIcon size={18} />
         </button>
-        <button
-          type="button"
-          onClick={() => void handleLogout()}
-          className="mh-btn mh-btn--ghost hidden md:inline-flex"
-        >
-          Sign out
-        </button>
         <div className="relative md:hidden">
           <button
             type="button"
@@ -821,7 +814,7 @@ export default function App() {
                 onClick={() => setMenuOpen(false)}
               >
                 {sessionID && (
-                  <div className="mb-1.5 flex flex-col gap-0.5 border-b border-hairline pb-1.5">
+                  <div className="flex flex-col gap-0.5">
                     <AuditTrigger onOpen={() => setPanel("audit")} className="w-full justify-start" />
                     <RunPreviewTrigger
                       sessionID={sessionID}
@@ -831,13 +824,6 @@ export default function App() {
                     />
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void handleLogout()}
-                  className="mh-btn mh-btn--ghost w-full justify-start"
-                >
-                  Sign out
-                </button>
               </div>
             </>
           )}
@@ -1026,6 +1012,7 @@ export default function App() {
         <SettingsSheet
           mode={themeMode.mode}
           onSelectMode={themeMode.setMode}
+          onSignOut={() => void handleLogout()}
           onClose={() => setPanel(null)}
         />
       )}

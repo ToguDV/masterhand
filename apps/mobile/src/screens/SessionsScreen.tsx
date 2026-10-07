@@ -113,9 +113,6 @@ export function SessionsScreen({
             disabled={!canCreate}
             onCreate={onNew}
           />
-          <Pressable onPress={onSignOut} hitSlop={4}>
-            <Text style={styles.signOut}>Sign out</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -192,6 +189,7 @@ export function SessionsScreen({
         visible={settingsOpen}
         mode={mode}
         onSelectMode={setMode}
+        onSignOut={onSignOut}
         onClose={() => setSettingsOpen(false)}
       />
     </Screen>
@@ -282,11 +280,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       height: 36,
       alignItems: "center",
       justifyContent: "center",
-    },
-    signOut: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 13,
     },
     workspaceBar: {
       flexDirection: "row",

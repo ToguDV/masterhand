@@ -16,15 +16,17 @@ const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
 export function SettingsSheet({
   mode,
   onSelectMode,
+  onSignOut,
   onClose,
 }: {
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
+  onSignOut: () => void
   onClose: () => void
 }) {
   return (
     <SidePanel title="Settings" closeLabel="Close settings" onClose={onClose}>
-      <section className="p-4" aria-labelledby="settings-appearance">
+      <section className="border-b border-hairline p-4" aria-labelledby="settings-appearance">
         <h3
           id="settings-appearance"
           className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted"
@@ -52,6 +54,25 @@ export function SettingsSheet({
             )
           })}
         </div>
+      </section>
+
+      <section className="p-4" aria-labelledby="settings-account">
+        <h3
+          id="settings-account"
+          className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted"
+        >
+          Account
+        </h3>
+        <button
+          type="button"
+          onClick={() => {
+            onClose()
+            onSignOut()
+          }}
+          className="mh-btn mh-btn--danger w-full justify-start"
+        >
+          Sign out
+        </button>
       </section>
     </SidePanel>
   )

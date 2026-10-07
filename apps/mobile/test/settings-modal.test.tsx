@@ -13,9 +13,17 @@ const mockedSave = saveTheme as jest.Mock
 const mockedClear = clearTheme as jest.Mock
 
 /** Drives the modal through the real theme provider, as the screen does. */
-function Harness({ onClose = jest.fn() }: { onClose?: () => void }) {
+function Harness({ onClose = jest.fn(), onSignOut = jest.fn() }: { onClose?: () => void; onSignOut?: () => void }) {
   const { mode, setMode } = useTheme()
-  return <SettingsModal visible mode={mode} onSelectMode={setMode} onClose={onClose} />
+  return (
+    <SettingsModal
+      visible
+      mode={mode}
+      onSelectMode={setMode}
+      onSignOut={onSignOut}
+      onClose={onClose}
+    />
+  )
 }
 
 beforeEach(() => {
@@ -61,6 +69,20 @@ describe("SettingsModal (#119)", () => {
     )
 
     await fireEvent.press(screen.getByLabelText("Close settings"))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it("signs out from the Account section", async () => {
+    const onSignOut = jest.fn()
+    const onClose = jest.fn()
+    await render(
+      <ThemeProvider>
+        <Harness onClose={onClose} onSignOut={onSignOut} />
+      </ThemeProvider>,
+    )
+
+    await fireEvent.press(screen.getByLabelText("Sign out"))
+    expect(onSignOut).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
 })

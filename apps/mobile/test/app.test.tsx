@@ -120,7 +120,8 @@ describe("App", () => {
 
     expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
-    await fireEvent.press(screen.getByText("Sign out"))
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(await screen.findByLabelText("Sign out"))
 
     expect(mocked.clearToken).toHaveBeenCalled()
     expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
