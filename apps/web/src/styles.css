@@ -1355,6 +1355,15 @@ body {
   border-left: 0;
 }
 
+/* …but its content stays in a centered, readable column instead of stretching
+   edge to edge across the whole viewport. */
+.mh-sheet--cover .mh-sheet__header,
+.mh-sheet--cover .mh-sheet__body {
+  width: 100%;
+  max-width: var(--chat-max);
+  margin-inline: auto;
+}
+
 /* Composer textarea: one to five lines, 44px at rest. */
 .mh-composer-input {
   min-height: 44px;

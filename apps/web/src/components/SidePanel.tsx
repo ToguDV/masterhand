@@ -37,7 +37,7 @@ export function SidePanel({
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
+        <header className="mh-sheet__header flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
           <h2 className="text-sm font-medium">{title}</h2>
           <span className="flex-1" />
           {actions}
@@ -45,7 +45,7 @@ export function SidePanel({
             <XIcon size={16} />
           </button>
         </header>
-        <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className="mh-sheet__body scroll-thin min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   )
