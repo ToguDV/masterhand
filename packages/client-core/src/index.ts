@@ -14,6 +14,7 @@ export {
   deliveryMarkerOf,
   deliveryMetadata,
 } from "./delivery"
+export { usePendingSend, type PendingSend, type PendingSendController } from "./pending"
 export {
   conversationErrorMessage,
   composerErrorMessage,

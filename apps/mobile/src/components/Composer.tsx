@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react"
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import {
   buildComposerPopover,
@@ -8,14 +7,13 @@ import {
   composerTrigger,
   createDeliveryMarker,
   defaultModelValue,
-  deliveryMarkerOf,
   deliveryMetadata,
   flattenModels,
+  isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
   parseModel,
-  queryKeys,
   recentModelValue,
   selectableAgents,
   sessionModelValue,
@@ -25,10 +23,10 @@ import {
   useModels,
   useSessions,
   variantLabel,
-  type ChatMessage,
   type Client,
   type ComposerPopover,
   type CreateWorkspaceInput,
+  type PendingSendController,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
@@ -41,7 +39,13 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 type OpenPicker = "agent" | "model" | "effort" | null
 
+/** Imperative surface for the chat screen's ghost-bubble retry (#125). */
+export interface ComposerHandle {
+  retry: () => void
+}
+
 export function Composer({
+  ref,
   client,
   sessionID,
   busy,
@@ -50,11 +54,14 @@ export function Composer({
   directory = null,
   autoAccept,
   onToggleAutoAccept,
+  pending,
   workspaces = [],
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
 }: {
+  /** Retry handle used by the chat screen's ghost bubble. */
+  ref?: Ref<ComposerHandle>
   client: Client
   sessionID: string
   busy: boolean
@@ -63,6 +70,8 @@ export function Composer({
   directory?: string | null
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
+  /** Pending-send state owned by the chat screen (#125). */
+  pending: PendingSendController
   /** Workspace management lives in the composer top bar (web parity, #92). */
   workspaces?: WorkspaceRecord[]
   onSelectWorkspace?: (id: string) => void
@@ -92,7 +101,8 @@ export function Composer({
   const [text, setText] = useState("")
   const textRef = useRef(text)
   textRef.current = text
-  const queryClient = useQueryClient()
+  /** Synchronous in-flight guard; the visible pending state lives in `pending`. */
+  const inFlight = useRef<{ text: string; marker: string } | null>(null)
   const [agent, setAgent] = useState("")
   const [model, setModel] = useState("")
   const [variant, setVariant] = useState("")
@@ -109,9 +119,8 @@ export function Composer({
   const { colors } = useTheme()
   // Synchronous in-flight guards: the `sending` state is not a lock, so two
   // presses dispatched in the same tick would both fire a prompt (#72).
-  // `pendingSend` is set before the first `await` and cleared by the request
+  // `inFlight` is set before the first `await` and cleared by the request
   // outcome or by the delivery reconciliation.
-  const pendingSend = useRef<{ text: string; marker: string } | null>(null)
   const startingSideQuestionRef = useRef(false)
   /** Fork created by this composer that must be removed if it is never shown. */
   const ownedForkRef = useRef<string | null>(null)
@@ -211,7 +220,7 @@ export function Composer({
 
   /** Releases the composer and clears the text that was actually sent. */
   function completeSend(pending: { text: string; marker: string }): void {
-    pendingSend.current = null
+    inFlight.current = null
     setSending(false)
     // Only clear what was actually sent: text typed while the request was in
     // flight (slow network) must survive instead of being wiped.
@@ -223,41 +232,26 @@ export function Composer({
     setDismissed(false)
   }
 
-  // Delivery reconciliation (parity with web): the prompt response can be lost
-  // while opencode already processed the message. As soon as the live history
-  // shows the message carrying this send's marker, the composer releases; the
-  // request deadline stays as the fallback.
+  // The shared controller clears the ghost once the history shows this send's
+  // marker (lost-response reconciliation, #71/#125). If the request has not
+  // answered yet, release the composer too instead of waiting for the deadline.
   useEffect(() => {
-    if (!sending) return
-    const pending = pendingSend.current
-    if (!pending) return
-    const check = (): void => {
-      const messages = queryClient.getQueryData<ChatMessage[]>(queryKeys.messages(sessionID))
-      const delivered = messages?.some((message) => deliveryMarkerOf(message) === pending.marker)
-      if (delivered) completeSend(pending)
-    }
-    check()
-    return queryClient.getQueryCache().subscribe(check)
-  }, [sending, queryClient, sessionID])
+    const current = inFlight.current
+    if (current && pending.pending === null) completeSend(current)
+  }, [pending.pending])
 
-  async function send() {
-    const trimmed = text.trim()
-    // Refs, not the `sending` state: two events in the same tick must not both
-    // pass this check and fire two prompts (#72).
-    if (!trimmed || pendingSend.current || startingSideQuestionRef.current) return
-    const command = splitCommand(trimmed, commands)
-    if (command?.command.name === "btw") {
-      await askSideQuestion(command.text)
-      return
-    }
+  /**
+   * Runs one prompt request. Plain prompts are tracked by the shared pending
+   * controller (ghost bubble); slash commands keep the button-only feedback.
+   */
+  async function deliver(text: string, marker: string, command: ReturnType<typeof splitCommand>) {
     setSending(true)
     setError(null)
-    const marker = createDeliveryMarker()
-    const pending = { text: trimmed, marker }
-    pendingSend.current = pending
+    const current = { text, marker }
+    inFlight.current = current
     try {
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
-      const mentionText = command ? command.text : trimmed
+      const mentionText = command ? command.text : text
       const mentions = collectAgentMentions(mentionText, subagents)
       const context = {
         ...(agent ? { agent } : {}),
@@ -273,22 +267,55 @@ export function Composer({
       } else {
         await client.api.prompt(
           sessionID,
-          { text: trimmed, metadata: deliveryMetadata(marker), ...context },
+          { text, metadata: deliveryMetadata(marker), ...context },
           { agent: session?.agent, model: session?.model },
         )
       }
-      if (pendingSend.current === pending) completeSend(pending)
+      if (inFlight.current === current) completeSend(current)
     } catch (err) {
       // A delivery already confirmed through the history wins over a lost or
       // timed-out response: never surface a false failure then.
-      if (pendingSend.current === pending) setError(composerErrorMessage(err, "send"))
+      if (inFlight.current === current) {
+        setError(composerErrorMessage(err, "send"))
+        // Hard failures are retryable from the ghost; an ambiguous one keeps
+        // reconciling against the history (lost-response rules).
+        if (!command && !isAmbiguousError(err)) pending.fail(marker)
+      }
     } finally {
-      if (pendingSend.current === pending) {
-        pendingSend.current = null
+      if (inFlight.current === current) {
+        inFlight.current = null
         setSending(false)
       }
     }
   }
+
+  async function send() {
+    const trimmed = text.trim()
+    // Refs, not the `sending` state: two events in the same tick must not both
+    // pass this check and fire two prompts (#72).
+    if (!trimmed || inFlight.current || startingSideQuestionRef.current) return
+    const command = splitCommand(trimmed, commands)
+    if (command?.command.name === "btw") {
+      await askSideQuestion(command.text)
+      return
+    }
+    const marker = createDeliveryMarker()
+    // v1: only plain prompts get the ghost; commands keep the button feedback.
+    if (!command) pending.begin(trimmed, marker)
+    await deliver(trimmed, marker, command)
+  }
+
+  /** Ghost-bubble retry: resends the failed text with a fresh marker. */
+  function retry(): void {
+    const current = pending.pending
+    if (!current || current.status !== "failed") return
+    if (inFlight.current || startingSideQuestionRef.current) return
+    const marker = createDeliveryMarker()
+    pending.begin(current.text, marker)
+    void deliver(current.text, marker, null)
+  }
+
+  useImperativeHandle(ref, () => ({ retry }))
 
   /** `/btw`: fork the session, ask the question there and show the answer in a panel. */
   async function askSideQuestion(question: string) {

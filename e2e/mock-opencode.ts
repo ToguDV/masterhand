@@ -107,6 +107,10 @@ const catalogRequests = { agent: 0, model: 0 }
 let stallPrompts = false
 let stallResponses = false
 const heldPrompts: Array<() => void> = []
+// E2E control: delay the echo (the persisted user message broadcast) of a
+// prompt, so a test can hold the ghost bubble while the response already
+// settled (#125). `/e2e/delay-echo` with `{ ms }`.
+let echoDelayMs = 0
 /** How many prompt requests reached the mock (read via `/e2e/state`). */
 let promptRequests = 0
 /** Session the last prompt request targeted, used by the message-injection control. */
@@ -719,6 +723,10 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
   const conversation = conversations.get(sessionID)
   if (!session || !conversation) return
 
+  // E2E control: delay the echo of the send (start broadcast + streaming), so
+  // the ghost bubble can be observed before the history confirms it (#125).
+  if (echoDelayMs > 0) await delay(echoDelayMs)
+
   if (text.toLowerCase().includes("subagent")) return runSubagentPrompt(sessionID, text)
   if (text.toLowerCase().includes("markdown")) return runMarkdownPrompt(sessionID)
   if (text.toLowerCase().includes("question")) return runQuestionPrompt(sessionID)
@@ -858,6 +866,11 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && path === "/e2e/fail-prompts") {
       const body = await readBody(req)
       failPrompts = body.value !== false
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/delay-echo") {
+      const body = await readBody(req)
+      echoDelayMs = typeof body.ms === "number" && body.ms > 0 ? body.ms : 0
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/fail-permission-replies") {

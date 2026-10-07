@@ -1,11 +1,14 @@
-import { act, fireEvent, render, screen } from "@testing-library/react-native"
+import { useEffect, useRef } from "react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import {
   ApiError,
   RequestTimeoutError,
   queryKeys,
+  usePendingSend,
   type AgentInfo,
   type ChatMessage,
   type ModelInfo,
+  type PendingSendController,
   type ProviderInfo,
   type SlashCommand,
 } from "@masterhand/client-core"
@@ -40,6 +43,27 @@ const models: ModelInfo[] = [
   { id: "alpha", providerID: "test", name: "Alpha", variants: [], enabled: true },
 ] as unknown as ModelInfo[]
 
+/**
+ * Wraps the composer with the real `usePendingSend` controller (the chat
+ * container's job) so the delivery reconciliation is exercised end to end.
+ * `onController` hands the latest controller to the test after each commit.
+ */
+function ComposerHarness({
+  client,
+  onController,
+  ...props
+}: Omit<React.ComponentProps<typeof Composer>, "ref" | "sessionID" | "pending"> & {
+  onController: (controller: PendingSendController) => void
+}) {
+  const pending = usePendingSend("s1")
+  const notify = useRef(onController)
+  notify.current = onController
+  useEffect(() => {
+    notify.current(pending)
+  })
+  return <Composer client={client} sessionID="s1" pending={pending} {...props} />
+}
+
 async function setup(
   props: Partial<React.ComponentProps<typeof Composer>> = {},
   options: { commands?: SlashCommand[] } = {},
@@ -49,19 +73,30 @@ async function setup(
   client.api.agents.mockResolvedValue(agents)
   client.api.commands.mockResolvedValue(options.commands ?? [])
   client.api.models.mockResolvedValue({ models, providers, defaultModel: models[0] })
+  let controller: PendingSendController | null = null
   const view = await render(
-    <Composer
+    <ComposerHarness
       client={client}
-      sessionID="s1"
       busy={false}
       workspaceID={null}
       autoAccept={false}
       onToggleAutoAccept={jest.fn()}
+      onController={(next) => {
+        controller = next
+      }}
       {...props}
     />,
     { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client, queryClient, view }
+  return {
+    client,
+    queryClient,
+    view,
+    get pending(): PendingSendController {
+      if (!controller) throw new Error("pending controller not captured")
+      return controller
+    },
+  }
 }
 
 describe("Composer", () => {
@@ -201,6 +236,39 @@ describe("Composer", () => {
     expect(screen.getByPlaceholderText("Write a message…").props.value).toBe("hi")
   })
 
+  it("tracks a plain prompt in the pending controller (#125)", async () => {
+    const ctx = await setup()
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hello")
+    await fireEvent.press(screen.getByText("Send"))
+
+    await waitFor(() =>
+      expect(ctx.pending.pending).toEqual({
+        text: "hello",
+        marker: expect.stringMatching(/^delivery_/),
+        status: "sending",
+      }),
+    )
+  })
+
+  it("fails the pending send on a hard error but not on an ambiguous timeout (#125)", async () => {
+    const ctx = await setup()
+    const { client } = ctx
+    client.api.prompt.mockRejectedValueOnce(new ApiError(500, "x"))
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "one")
+    await fireEvent.press(screen.getByText("Send"))
+    await screen.findByText("Could not send (HTTP 500)")
+    await waitFor(() => expect(ctx.pending.pending?.status).toBe("failed"))
+
+    // An ambiguous timeout keeps the ghost reconciling against the history.
+    client.api.prompt.mockRejectedValueOnce(new RequestTimeoutError())
+    await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "two")
+    await fireEvent.press(screen.getByText("Send"))
+    await screen.findByText(/your message may not have been sent/)
+    await waitFor(() => expect(ctx.pending.pending).toMatchObject({ text: "two", status: "sending" }))
+  })
+
   it("keeps text typed while a slow send is in flight", async () => {
     const { client } = await setup()
     let resolvePrompt: (() => void) | undefined
@@ -302,6 +370,16 @@ describe("Composer", () => {
       { agent: undefined, model: undefined },
     )
     expect(client.api.prompt).not.toHaveBeenCalled()
+  })
+
+  it("keeps slash commands out of the ghost bubble (#125)", async () => {
+    const commands: SlashCommand[] = [{ name: "compact", description: "compact history", arguments: [] }]
+    const ctx = await setup({}, { commands })
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "/compact")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(ctx.pending.pending).toBeNull()
   })
 
   it("lists every argument value while the parameter is empty", async () => {

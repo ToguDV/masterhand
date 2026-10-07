@@ -8,6 +8,7 @@ import {
   tokenSpeed,
   useBffStatus,
   useMessages,
+  usePendingSend,
   usePreview,
   useSessionRun,
   type ChatMessage,
@@ -19,8 +20,9 @@ import {
   type SessionIsolation,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
-import { Composer } from "../components/Composer"
+import { Composer, type ComposerHandle } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
+import { PendingBubble } from "../components/PendingBubble"
 import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
@@ -83,6 +85,8 @@ export function ChatScreen({
 }) {
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
+  const pendingSend = usePendingSend(sessionID)
+  const composerRef = useRef<ComposerHandle>(null)
   const statusQuery = useBffStatus(client)
   const previewEnabled = statusQuery.data?.preview?.enabled === true
   // Aggregated dev-server state for the single Run & preview control (#99).
@@ -184,6 +188,15 @@ export function ChatScreen({
         contentContainerStyle={styles.list}
         style={styles.listContainer}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        ListFooterComponent={
+          pendingSend.pending ? (
+            <PendingBubble
+              pending={pendingSend.pending}
+              onRetry={() => composerRef.current?.retry()}
+              onDismiss={pendingSend.dismiss}
+            />
+          ) : null
+        }
         ListEmptyComponent={
           messagesQuery.isLoading ? (
             <Text style={styles.empty}>Loading conversation…</Text>
@@ -277,6 +290,7 @@ export function ChatScreen({
 
       <Composer
         key={sessionID}
+        ref={composerRef}
         client={client}
         sessionID={sessionID}
         busy={busy}
@@ -285,6 +299,7 @@ export function ChatScreen({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        pending={pendingSend}
         workspaces={workspaces}
         onSelectWorkspace={onSelectWorkspace}
         onAddWorkspace={onAddWorkspace}

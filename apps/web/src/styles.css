@@ -752,6 +752,37 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Pending ghost (#125): same geometry as the real bubble, dimmed, with a
+   caption; on failure it stays visible next to the retry actions. */
+.mh-pending {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 85%;
+}
+
+.mh-pending .mh-msg--user {
+  max-width: 100%;
+}
+
+.mh-msg--pending {
+  opacity: 0.6;
+}
+
+.mh-msg--pending.is-failed {
+  opacity: 0.85;
+}
+
+.mh-pending__caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mh-text-muted);
+  font-size: 11px;
+}
+
 .mh-msg--agent {
   max-width: 68ch;
   display: flex;

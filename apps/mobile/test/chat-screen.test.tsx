@@ -1,6 +1,7 @@
 import { Linking } from "react-native"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import type { ChatMessage, SessionIsolation } from "@masterhand/client-core"
+import { queryKeys } from "@masterhand/client-core"
 import { ChatScreen } from "../src/screens/ChatScreen"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
@@ -23,6 +24,7 @@ async function setup(
 ) {
   const client = fakeClient()
   configure?.(client)
+  const queryClient = makeQueryClient()
   const handlers = {
     onToggleAutoAccept: jest.fn(),
     onOpenSession: jest.fn(),
@@ -40,9 +42,9 @@ async function setup(
       autoAccept={false}
       {...handlers}
     />,
-    { wrapper: ({ children }) => <QueryWrapper client={makeQueryClient()}>{children}</QueryWrapper> },
+    { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client, handlers }
+  return { client, handlers, queryClient }
 }
 
 describe("ChatScreen", () => {
@@ -78,6 +80,53 @@ describe("ChatScreen", () => {
     expect(within(usage).getByLabelText("Speed: 4 tok/s")).toBeOnTheScreen()
     expect(within(usage).getByText("4 tok/s")).toBeOnTheScreen()
     expect(screen.queryByText(/4\.06/)).toBeNull()
+  })
+
+  it("shows a ghost bubble while a plain prompt is being delivered (#125)", async () => {
+    const { client } = await setup({}, (c) => {
+      c.api.messages.mockResolvedValue([])
+    })
+    client.api.prompt.mockImplementation(() => new Promise<void>(() => {}))
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hello ghost")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText("Sending…")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Sending message")).toBeOnTheScreen()
+  })
+
+  it("replaces the ghost with the real bubble when the marker is delivered (#125)", async () => {
+    const { client, queryClient } = await setup({}, (c) => {
+      c.api.messages.mockResolvedValue([])
+    })
+    client.api.prompt.mockImplementation(() => new Promise<void>(() => {}))
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hello ghost")
+    await fireEvent.press(screen.getByText("Send"))
+    const marker = (
+      client.api.prompt.mock.calls[0]?.[1] as { metadata: Record<string, string> }
+    ).metadata["masterhand.delivery"]
+    expect(await screen.findByText("Sending…")).toBeOnTheScreen()
+
+    await act(async () => {
+      queryClient.setQueryData<ChatMessage[]>(queryKeys.messages("s1"), [
+        {
+          info: {
+            id: "msg_live",
+            sessionID: "s1",
+            role: "user",
+            time: { created: Date.now() },
+            metadata: { "masterhand.delivery": marker },
+          },
+          parts: [
+            { id: "part_1", sessionID: "s1", messageID: "msg_live", type: "text", text: "hello ghost" },
+          ],
+        },
+      ])
+    })
+
+    expect(screen.queryByText("Sending…")).toBeNull()
+    expect(screen.getByText("hello ghost")).toBeOnTheScreen()
   })
 
   it("prompts to start when there are no messages", async () => {
