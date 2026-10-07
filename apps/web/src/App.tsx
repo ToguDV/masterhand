@@ -36,10 +36,11 @@ import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
-import { ThemeToggle } from "./components/ThemeToggle"
+import { SettingsSheet } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
+import { useThemeMode } from "./theme"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
@@ -78,6 +79,8 @@ function formatFreeBytes(bytes: number | null): string {
 export default function App() {
   const queryClient = useQueryClient()
   const toast = useToast()
+  // App-level so the system listener keeps working with the panel closed.
+  const themeMode = useThemeMode()
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [statusFailed, setStatusFailed] = useState(false)
   // Read inside the status effect without re-running it: a stale 401 from
@@ -108,7 +111,7 @@ export default function App() {
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(loadAutoAcceptSessions)
-  const [panel, setPanel] = useState<"audit" | "run" | null>(null)
+  const [panel, setPanel] = useState<"audit" | "run" | "settings" | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -784,7 +787,15 @@ export default function App() {
           </div>
         )}
         <div className="mx-1 hidden h-6 w-px bg-hairline md:block" />
-        <ThemeToggle />
+        <button
+          type="button"
+          onClick={() => setPanel("settings")}
+          className="mh-btn mh-btn--icon"
+          aria-label="Settings"
+          title="Settings"
+        >
+          <GearIcon size={18} />
+        </button>
         <button
           type="button"
           onClick={() => void handleLogout()}
@@ -1011,6 +1022,13 @@ export default function App() {
       )}
 
       {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
+      {panel === "settings" && (
+        <SettingsSheet
+          mode={themeMode.mode}
+          onSelectMode={themeMode.setMode}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {sessionID && panel === "run" && (
         <RunPreviewSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
       )}

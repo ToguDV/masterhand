@@ -26,6 +26,7 @@ jest.mock("../src/storage", () => ({
   saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
+  clearTheme: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
   clearDevice: jest.fn(async () => {}),
   clearWorkspaceID: jest.fn(async () => {}),

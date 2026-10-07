@@ -13,8 +13,9 @@ import {
 } from "@masterhand/client-core"
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
+import { SettingsModal } from "../components/SettingsModal"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { ThemeToggle } from "../components/ThemeToggle"
+import { GearIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -57,9 +58,10 @@ export function SessionsScreen({
   onDeleteSession: (id: string) => void
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
   const styles = useThemedStyles(createStyles)
-  const { colors } = useTheme()
+  const { colors, mode, setMode } = useTheme()
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Subagent children are reachable from their parent's card, not the list.
   const visible = filterSessions(rootSessions(sessions), filter)
@@ -96,7 +98,16 @@ export function SessionsScreen({
         <Text style={styles.title}>Sessions</Text>
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
-          <ThemeToggle />
+          <Pressable
+            onPress={() => setSettingsOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            testID="settings-button"
+            hitSlop={4}
+            style={styles.gear}
+          >
+            <GearIcon size={20} color={colors.textMuted} />
+          </Pressable>
           <NewSessionMenu
             creating={creating}
             disabled={!canCreate}
@@ -175,6 +186,13 @@ export function SessionsScreen({
           confirmRemoveWorkspace(id, options)
         }}
         onClose={() => setWorkspaceOpen(false)}
+      />
+
+      <SettingsModal
+        visible={settingsOpen}
+        mode={mode}
+        onSelectMode={setMode}
+        onClose={() => setSettingsOpen(false)}
       />
     </Screen>
   )
@@ -258,6 +276,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       width: 8,
       height: 8,
       borderRadius: 4,
+    },
+    gear: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
     },
     signOut: {
       color: colors.textMuted,

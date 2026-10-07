@@ -24,7 +24,6 @@ import { MessageBubble } from "../components/MessageBubble"
 import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
-import { ThemeToggle } from "../components/ThemeToggle"
 import { Deco } from "../components/Deco"
 import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
@@ -156,7 +155,6 @@ export function ChatScreen({
           </Pressable>
         ) : null}
         <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
-        <ThemeToggle />
       </View>
 
       {waitingQuestion ? (

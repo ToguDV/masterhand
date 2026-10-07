@@ -1,7 +1,17 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import { addWorkspace, login, newSession } from "./helpers"
 
-test("switches between light and dark themes and remembers the choice", async ({ page }) => {
+/**
+ * Picks a theme mode through the settings sheet (the standalone toggle was
+ * removed in #119: Appearance lives behind the top-bar gear).
+ */
+async function selectThemeMode(page: Page, name: "System" | "Light" | "Dark"): Promise<void> {
+  await page.getByRole("button", { name: "Settings" }).click()
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name: new RegExp(`^${name}`) }).click()
+  await page.getByRole("button", { name: "Close settings" }).click()
+}
+
+test("switches between light and dark themes from settings and remembers the choice", async ({ page }) => {
   await login(page)
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   // The tokens follow `color-scheme`, so assert the actual paint, not only the
@@ -10,7 +20,7 @@ test("switches between light and dark themes and remembers the choice", async ({
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(250, 250, 247)")
 
-  await page.getByRole("button", { name: "Switch to dark theme" }).click()
+  await selectThemeMode(page, "Dark")
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
@@ -21,13 +31,26 @@ test("switches between light and dark themes and remembers the choice", async ({
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(12, 12, 11)")
-  await expect(page.getByRole("button", { name: "Switch to light theme" })).toBeVisible()
 
-  await page.getByRole("button", { name: "Switch to light theme" }).click()
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
+  // The panel reflects the stored choice.
+  await page.getByRole("button", { name: "Settings" }).click()
+  await expect(page.getByRole("radio", { name: /^Dark/ })).toHaveAttribute("aria-checked", "true")
+
+  // System clears the stored choice and follows the OS live.
+  await page.getByRole("radio", { name: /^System/ }).click()
+  await page.getByRole("button", { name: "Close settings" }).click()
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(250, 250, 247)")
+
+  await page.emulateMedia({ colorScheme: "dark" })
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe("rgb(12, 12, 11)")
+
+  await page.emulateMedia({ colorScheme: "light" })
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 })
 
 test("paints the user bubble deep emerald, never the brightest surface", async ({ page }) => {
@@ -43,7 +66,7 @@ test("paints the user bubble deep emerald, never the brightest surface", async (
     .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
     .toBe("rgb(8, 80, 65)") // emerald-800 on the light theme
 
-  await page.getByRole("button", { name: "Switch to dark theme" }).click()
+  await selectThemeMode(page, "Dark")
   await expect
     .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
     .toBe("rgb(6, 55, 44)") // emerald-900: a dark green fill, not a light one

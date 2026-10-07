@@ -8,9 +8,12 @@ import {
   type PropsWithChildren,
 } from "react"
 import { Platform, useColorScheme } from "react-native"
-import { loadTheme, saveTheme } from "./storage"
+import { clearTheme, loadTheme, saveTheme } from "./storage"
 
 export type ThemeName = "light" | "dark"
+
+/** User-facing choice: an explicit theme, or follow the system until changed. */
+export type ThemeMode = "system" | ThemeName
 
 /**
  * The full ink-on-paper palette (design/DESIGN.md, mirrored from
@@ -164,9 +167,13 @@ export const systemFonts: Fonts = {
 
 export interface ThemeContextValue {
   theme: ThemeName
+  /** The user's choice (`system` when unset); `theme` is the resolved result. */
+  mode: ThemeMode
   colors: Palette
   fonts: Fonts
   setTheme: (theme: ThemeName) => void
+  /** Sets an explicit theme or goes back to following the system. */
+  setMode: (mode: ThemeMode) => void
   toggleTheme: () => void
 }
 
@@ -180,15 +187,18 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function themeValue(
   theme: ThemeName,
+  mode: ThemeMode,
   fontSet: Fonts,
-  setTheme: (theme: ThemeName) => void,
+  setMode: (mode: ThemeMode) => void,
 ): ThemeContextValue {
   return {
     theme,
+    mode,
     colors: palettes[theme],
     fonts: fontSet,
-    setTheme,
-    toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark"),
+    setTheme: (next) => setMode(next),
+    setMode,
+    toggleTheme: () => setMode(theme === "dark" ? "light" : "dark"),
   }
 }
 
@@ -219,13 +229,19 @@ export function ThemeProvider({
   }, [])
 
   const theme = resolveTheme(stored, system)
+  const mode: ThemeMode = stored ?? "system"
   const value = useMemo(
     () =>
-      themeValue(theme, fontSet, (next) => {
-        setStored(next)
-        void saveTheme(next).catch(() => {})
+      themeValue(theme, mode, fontSet, (next) => {
+        if (next === "system") {
+          setStored(null)
+          void clearTheme().catch(() => {})
+        } else {
+          setStored(next)
+          void saveTheme(next).catch(() => {})
+        }
       }),
-    [theme, fontSet],
+    [theme, mode, fontSet],
   )
 
   return createElement(ThemeContext.Provider, { value }, children)
@@ -236,7 +252,7 @@ export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext)
   const system = useColorScheme()
   const fallback = useMemo(
-    () => themeValue(resolveTheme(null, system), systemFonts, () => {}),
+    () => themeValue(resolveTheme(null, system), "system", systemFonts, () => {}),
     [system],
   )
   return context ?? fallback

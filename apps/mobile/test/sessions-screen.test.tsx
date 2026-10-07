@@ -161,6 +161,14 @@ describe("SessionsScreen", () => {
     expect(handlers.onSignOut).toHaveBeenCalled()
   })
 
+  it("opens the settings modal from the header gear", async () => {
+    await setup()
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+
+    expect(await screen.findByText("Appearance")).toBeOnTheScreen()
+  })
+
   it("disables the new-session action while creating", async () => {
     await setup({ creating: true })
 
