@@ -5,15 +5,14 @@ import { ProvidersSection } from "./ProvidersSection"
 import { CheckIcon, CloseIcon, GearIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeMode } from "../theme"
 
-const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
-  { value: "system", label: "System", hint: "Follow this device" },
-  { value: "light", label: "Light", hint: "Paper" },
-  { value: "dark", label: "Dark", hint: "Ink" },
+const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
+  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
+  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
 ]
 
 /**
  * App-level settings (issue #119): a full-screen modal opened from the Sessions
- * header gear. Appearance owns the mode (System clears the stored choice);
+ * header gear. Appearance owns the explicit theme (light/dark);
  * Account (sign out) and later sections append below.
  */
 export function SettingsModal({
@@ -51,23 +50,38 @@ export function SettingsModal({
 
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.sectionTitle}>Appearance</Text>
-          <View accessibilityRole="radiogroup" accessibilityLabel="Theme mode">
-            {MODES.map((option) => {
+          <Text style={styles.themeLabel}>Theme color</Text>
+          <View
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Theme color"
+            style={styles.swatches}
+          >
+            {THEMES.map((option) => {
               const selected = mode === option.value
               return (
                 <Pressable
                   key={option.value}
-                  style={[styles.option, selected && styles.optionSelected]}
+                  style={styles.swatchOption}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   accessibilityLabel={option.label}
                   onPress={() => onSelectMode(option.value)}
                 >
-                  <View style={styles.optionText}>
-                    <Text style={styles.optionTitle}>{option.label}</Text>
-                    <Text style={styles.optionHint}>{option.hint}</Text>
+                  <Text style={styles.swatchName}>{option.label}</Text>
+                  <View
+                    style={[styles.drop, selected && styles.dropSelected]}
+                    accessibilityElementsHidden
+                  >
+                    <View style={styles.dropInner}>
+                      <View style={[styles.dropHalf, { backgroundColor: option.swatches[0] }]} />
+                      <View style={[styles.dropHalf, { backgroundColor: option.swatches[1] }]} />
+                    </View>
+                    {selected ? (
+                      <View style={styles.dropCheck}>
+                        <CheckIcon size={16} color="#FFFFFF" />
+                      </View>
+                    ) : null}
                   </View>
-                  {selected ? <CheckIcon size={16} color={colors.accent} /> : null}
                 </Pressable>
               )
             })}
@@ -117,37 +131,60 @@ function createStyles(colors: Palette, fonts: Fonts) {
       textTransform: "uppercase",
       fontWeight: "600",
     },
-    option: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      minHeight: 56,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 12,
-      backgroundColor: colors.surface,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      marginTop: 8,
-    },
-    optionSelected: {
-      borderColor: colors.accentLine,
-      backgroundColor: colors.accentSoft,
-    },
-    optionText: {
-      flex: 1,
-      gap: 2,
-    },
-    optionTitle: {
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 15,
-      fontWeight: "500",
-    },
-    optionHint: {
+    themeLabel: {
+      marginTop: 12,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+    },
+    swatches: {
+      flexDirection: "row",
+      gap: 20,
+      marginTop: 12,
+    },
+    swatchOption: {
+      alignItems: "center",
+      gap: 8,
+      minWidth: 64,
+      padding: 4,
+    },
+    swatchName: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "500",
+    },
+    // Teardrop: a rotated square with three round corners. The inner row
+    // counter-rotates so the two main colors split vertically; the check
+    // counter-rotates to stay upright.
+    drop: {
+      width: 44,
+      height: 44,
+      borderWidth: 1,
+      borderColor: colors.hairlineStrong,
+      borderRadius: 22,
+      borderBottomLeftRadius: 4,
+      transform: [{ rotate: "-45deg" }],
+      overflow: "hidden",
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+    },
+    dropSelected: {
+      borderColor: colors.accent,
+    },
+    dropInner: {
+      position: "absolute",
+      width: 64,
+      height: 64,
+      flexDirection: "row",
+      transform: [{ rotate: "45deg" }],
+    },
+    dropHalf: {
+      flex: 1,
+    },
+    dropCheck: {
+      transform: [{ rotate: "45deg" }],
     },
     accountTitle: {
       marginTop: 18,

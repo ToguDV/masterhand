@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from "react-native"
 import { fireEvent, render, screen } from "@testing-library/react-native"
-import { clearTheme, loadTheme, saveTheme } from "../src/storage"
+import { loadTheme, saveTheme } from "../src/storage"
 import { ThemeProvider, palettes, resolveTheme, useTheme, useThemedStyles, type Fonts } from "../src/theme"
 
 jest.mock("../src/storage", () => ({
@@ -11,7 +11,6 @@ jest.mock("../src/storage", () => ({
 
 const mockedLoad = loadTheme as jest.Mock
 const mockedSave = saveTheme as jest.Mock
-const mockedClear = clearTheme as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -44,7 +43,7 @@ function ModeProbe() {
   return (
     <View>
       <Text testID="mode">{mode}</Text>
-      <Pressable onPress={() => setMode("system")} accessibilityLabel="follow system" />
+      <Pressable onPress={() => setMode("light")} accessibilityLabel="pick light" />
       <Pressable onPress={() => setMode("dark")} accessibilityLabel="pick dark" />
     </View>
   )
@@ -112,7 +111,7 @@ describe("theme resolution", () => {
     expect(await screen.findByTestId("font")).toHaveTextContent("U")
   })
 
-  it("clears the stored choice when the mode goes back to system", async () => {
+  it("persists the explicit choice when the mode changes", async () => {
     mockedLoad.mockResolvedValue("dark")
     await render(
       <ThemeProvider>
@@ -121,10 +120,10 @@ describe("theme resolution", () => {
     )
 
     expect(await screen.findByTestId("mode")).toHaveTextContent("dark")
-    fireEvent.press(screen.getByLabelText("follow system"))
-    expect(await screen.findByTestId("mode")).toHaveTextContent("system")
-    expect(mockedClear).toHaveBeenCalled()
-    expect(mockedSave).not.toHaveBeenCalled()
+
+    fireEvent.press(screen.getByLabelText("pick light"))
+    expect(await screen.findByTestId("mode")).toHaveTextContent("light")
+    expect(mockedSave).toHaveBeenCalledWith("light")
 
     fireEvent.press(screen.getByLabelText("pick dark"))
     expect(await screen.findByTestId("mode")).toHaveTextContent("dark")

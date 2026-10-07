@@ -2,7 +2,7 @@ import { Alert } from "react-native"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { SettingsModal } from "../src/components/SettingsModal"
 import { ThemeProvider, useTheme } from "../src/theme"
-import { clearTheme, saveTheme } from "../src/storage"
+import { saveTheme } from "../src/storage"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
 jest.mock("../src/storage", () => ({
@@ -12,7 +12,6 @@ jest.mock("../src/storage", () => ({
 }))
 
 const mockedSave = saveTheme as jest.Mock
-const mockedClear = clearTheme as jest.Mock
 
 /** Drives the modal through the real theme provider, as the app does. */
 function Harness({
@@ -56,25 +55,27 @@ beforeEach(() => {
 })
 
 describe("SettingsModal (#119)", () => {
-  it("shows the appearance modes and the active selection", async () => {
+  it("shows the theme droplets and the active selection", async () => {
     await setup()
 
     expect(screen.getByText("Appearance")).toBeOnTheScreen()
-    expect(screen.getByLabelText("System").props.accessibilityState?.checked).toBe(true)
-    expect(screen.getByLabelText("Light").props.accessibilityState?.checked).toBe(false)
+    expect(screen.getByText("Theme color")).toBeOnTheScreen()
+    expect(screen.queryByLabelText("System")).toBeNull()
+    // No stored choice: the modal starts on the resolved system theme (light here).
+    expect(screen.getByLabelText("Light").props.accessibilityState?.checked).toBe(true)
     expect(screen.getByLabelText("Dark").props.accessibilityState?.checked).toBe(false)
   })
 
-  it("persists an explicit mode and clears it back to system", async () => {
+  it("persists an explicit theme", async () => {
     await setup()
 
     await fireEvent.press(screen.getByLabelText("Dark"))
     expect(mockedSave).toHaveBeenCalledWith("dark")
     expect(screen.getByLabelText("Dark").props.accessibilityState?.checked).toBe(true)
 
-    await fireEvent.press(screen.getByLabelText("System"))
-    expect(mockedClear).toHaveBeenCalled()
-    expect(screen.getByLabelText("System").props.accessibilityState?.checked).toBe(true)
+    await fireEvent.press(screen.getByLabelText("Light"))
+    expect(mockedSave).toHaveBeenCalledWith("light")
+    expect(screen.getByLabelText("Light").props.accessibilityState?.checked).toBe(true)
   })
 
   it("closes from the header button", async () => {

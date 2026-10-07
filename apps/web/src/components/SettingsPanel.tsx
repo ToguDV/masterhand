@@ -4,10 +4,9 @@ import { CheckIcon, KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
-const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
-  { value: "system", label: "System", hint: "Follow this device" },
-  { value: "light", label: "Light", hint: "Paper" },
-  { value: "dark", label: "Dark", hint: "Ink" },
+const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
+  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
+  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
 ]
 
 type SettingsModule = "appearance" | "providers"
@@ -20,7 +19,7 @@ const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<Ic
 /**
  * App-level settings (issue #119): a centered modal with the modules on the
  * left and the selected module's content on the right. Appearance owns the
- * mode (System clears the stored choice); later modules append to the nav
+ * explicit theme (light/dark); later modules append to the nav
  * without reworking the shell.
  */
 export function SettingsDialog({
@@ -102,8 +101,9 @@ function AppearanceSection({
         Appearance
       </h3>
       <p className="mh-settings__desc">Choose how MasterHand looks on this device.</p>
-      <div role="radiogroup" aria-label="Theme mode" className="mt-4 flex flex-col gap-1">
-        {MODES.map((option) => {
+      <p className="mh-caption mh-muted mt-4">Theme color</p>
+      <div role="radiogroup" aria-label="Theme color" className="mh-theme-swatches">
+        {THEMES.map((option) => {
           const selected = mode === option.value
           return (
             <button
@@ -111,14 +111,20 @@ function AppearanceSection({
               type="button"
               role="radio"
               aria-checked={selected}
+              aria-label={option.label}
               onClick={() => onSelectMode(option.value)}
-              className={`mh-btn mh-btn--quiet w-full justify-start gap-3 ${selected ? "mh-btn--secondary" : ""}`}
+              className="mh-theme-option"
             >
-              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                <span className="mh-body-sm font-medium">{option.label}</span>
-                <span className="text-xs text-ink-muted">{option.hint}</span>
+              <span className="mh-body-sm font-medium">{option.label}</span>
+              <span
+                className={`mh-theme-drop${selected ? " is-selected" : ""}`}
+                aria-hidden="true"
+                style={{
+                  background: `linear-gradient(135deg, ${option.swatches[0]} 50%, ${option.swatches[1]} 50%)`,
+                }}
+              >
+                {selected && <CheckIcon size={18} className="mh-theme-drop__check" />}
               </span>
-              {selected && <CheckIcon size={16} className="text-accent" />}
             </button>
           )
         })}
