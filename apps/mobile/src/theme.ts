@@ -183,8 +183,9 @@ export const palettes: Record<ThemeName, Palette> = {
 export const colors = palettes.light
 
 /**
- * Full palette for an accent theme + mode (issue #124): the emerald base
- * with the accent family subtly tinted. Unknown ids fall back to emerald.
+ * Full palette for a color theme + mode: the paper base with every theme
+ * token applied (canvas/surface/text/hairlines plus the accent family,
+ * code surfaces and syntax hues). Unknown ids fall back to paper.
  */
 export function paletteFor(id: string, theme: ThemeName): Palette {
   const resolved = resolvePalette(id)
@@ -192,6 +193,15 @@ export function paletteFor(id: string, theme: ThemeName): Palette {
   const accents = PALETTES[resolved][theme]
   return {
     ...palettes[theme],
+    canvas: accents.canvas,
+    surface: accents.surface,
+    surfaceMuted: accents.surfaceMuted,
+    text: accents.text,
+    textSoft: accents.textSoft,
+    textMuted: accents.textMuted,
+    textFaint: accents.textFaint,
+    hairline: accents.hairline,
+    hairlineStrong: accents.hairlineStrong,
     accent: accents.accent,
     accentStrong: accents.accentStrong,
     accentSoft: accents.accentSoft,
@@ -199,27 +209,26 @@ export function paletteFor(id: string, theme: ThemeName): Palette {
     onAccent: accents.onAccent,
     bubbleUser: accents.bubbleUser,
     bubbleUserText: accents.bubbleUserText,
-    surfaceMuted: accents.surfaceMuted,
-    syntax: { ...palettes[theme].syntax, function: PALETTES[resolved].dark.accent },
+    codeSurface: accents.codeSurface,
+    codeSurfaceSoft: accents.codeSurfaceSoft,
+    syntax: {
+      ...palettes[theme].syntax,
+      keyword: accents.synKeyword,
+      string: accents.synString,
+      number: accents.synNumber,
+      comment: accents.synComment,
+      function: PALETTES[resolved].dark.accent,
+      type: accents.synType,
+    },
+    background: accents.canvas,
+    border: accents.hairline,
+    muted: accents.textMuted,
+    accentMuted: accents.accentStrong,
   }
 }
 
-/** Ordered accent ids for the settings picker (emerald first). */
-export const PALETTE_IDS: PaletteID[] = [
-  "emerald",
-  "amber",
-  "blue",
-  "crimson",
-  "cyan",
-  "fuchsia",
-  "indigo",
-  "lime",
-  "orange",
-  "rose",
-  "slate",
-  "teal",
-  "violet",
-]
+/** Ordered theme ids for the settings picker (paper first). */
+export { PALETTE_IDS } from "@masterhand/client-core"
 
 export { DEFAULT_PALETTE, PALETTES }
 
@@ -249,12 +258,12 @@ export interface ThemeContextValue {
   mode: ThemeMode
   colors: Palette
   fonts: Fonts
-  /** The accent palette; `colors` is resolved from it (emerald default). */
+  /** The color theme; `colors` is resolved from it (paper default). */
   palette: PaletteID
   setTheme: (theme: ThemeName) => void
   /** Sets the explicit theme. */
   setMode: (mode: ThemeMode) => void
-  /** Sets the accent palette (persisted; unknown values fall back). */
+  /** Sets the color theme (persisted; unknown values fall back). */
   setPalette: (palette: PaletteID) => void
   toggleTheme: () => void
 }
@@ -292,7 +301,7 @@ function themeValue(
  * Resolves and provides the active theme. The stored choice is read from
  * SecureStore (`masterhand.theme`, tolerant of failures); until the user makes
  * one, the theme starts on the system scheme and falls back to light. The
- * accent palette (`masterhand.palette`) resolves independently the same way.
+ * color theme (`masterhand.palette`) resolves independently the same way.
  */
 export function ThemeProvider({
   children,

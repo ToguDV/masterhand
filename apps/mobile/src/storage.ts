@@ -89,7 +89,7 @@ export function clearTheme(): Promise<void> {
   return SecureStore.deleteItemAsync(THEME_KEY)
 }
 
-/** Stored palette choice, or null when unset/corrupted (emerald decides). */
+/** Stored palette choice, or null when unset/corrupted (paper decides). */
 export async function loadPalette(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(PALETTE_KEY)
@@ -102,7 +102,7 @@ export function savePalette(palette: string): Promise<void> {
   return SecureStore.setItemAsync(PALETTE_KEY, palette)
 }
 
-/** Clears the stored palette: the accent goes back to emerald. */
+/** Clears the stored palette: the theme goes back to paper. */
 export function clearPalette(): Promise<void> {
   return SecureStore.deleteItemAsync(PALETTE_KEY)
 }

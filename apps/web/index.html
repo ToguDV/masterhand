@@ -22,8 +22,8 @@
                 : "light"
           document.documentElement.setAttribute("data-theme", theme)
           var palette = localStorage.getItem("mh-palette")
-          if (palette && /^[a-z]+$/.test(palette)) {
-            // Unknown ids are ignored by the CSS and fall back to emerald.
+          if (palette && /^[a-z0-9-]+$/.test(palette)) {
+            // Unknown ids are ignored by the CSS and fall back to paper.
             document.documentElement.setAttribute("data-palette", palette)
           }
         } catch (error) {

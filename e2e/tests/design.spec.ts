@@ -7,7 +7,7 @@ import { addWorkspace, login, newSession } from "./helpers"
  */
 async function selectThemeMode(page: Page, name: "Light" | "Dark"): Promise<void> {
   await page.getByRole("button", { name: "Settings" }).click()
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name: name }).click()
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name, exact: true }).click()
   await page.getByRole("button", { name: "Close settings" }).click()
 }
 
@@ -34,8 +34,8 @@ test("switches between light and dark themes from settings and remembers the cho
 
   // The panel reflects the stored choice, and there is no system option.
   await page.getByRole("button", { name: "Settings" }).click()
-  await expect(page.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true")
-  await expect(page.getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "false")
+  await expect(page.getByRole("radio", { name: "Dark", exact: true })).toHaveAttribute("aria-checked", "true")
+  await expect(page.getByRole("radio", { name: "Light", exact: true })).toHaveAttribute("aria-checked", "false")
   await expect(page.getByRole("dialog", { name: "Settings" }).getByText("Theme color")).toBeVisible()
   await expect(page.getByRole("radio", { name: "System" })).toHaveCount(0)
   await page.getByRole("button", { name: "Close settings" }).click()
@@ -47,24 +47,24 @@ test("switches between light and dark themes from settings and remembers the cho
     .toBe("rgb(250, 250, 247)")
 })
 
-test("switches accent palette from settings and remembers it", async ({ page }) => {
+test("switches color theme from settings and remembers it", async ({ page }) => {
   await login(page)
-  await expect(page.locator("html")).not.toHaveAttribute("data-palette", "violet")
+  await expect(page.locator("html")).not.toHaveAttribute("data-palette", "dracula")
 
   await page.getByRole("button", { name: "Settings" }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
-  await dialog.getByRole("radio", { name: "Violet" }).click()
-  await expect(page.locator("html")).toHaveAttribute("data-palette", "violet")
-  await expect(dialog.getByRole("radio", { name: "Violet" })).toHaveAttribute("aria-checked", "true")
+  await dialog.getByRole("radio", { name: "Dracula" }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "dracula")
+  await expect(dialog.getByRole("radio", { name: "Dracula" })).toHaveAttribute("aria-checked", "true")
   await page.getByRole("button", { name: "Close settings" }).click()
 
   await page.reload()
-  await expect(page.locator("html")).toHaveAttribute("data-palette", "violet")
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "dracula")
 
-  // Reset goes back to the default emerald.
+  // Reset goes back to the default paper.
   await page.getByRole("button", { name: "Settings" }).click()
-  await page.getByRole("button", { name: /Reset to Emerald/ }).click()
-  await expect(page.locator("html")).toHaveAttribute("data-palette", "emerald")
+  await page.getByRole("button", { name: /Reset to Paper/ }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "paper")
 })
 
 test("signs out from the sessions panel options, not from the top bar", async ({ page }) => {

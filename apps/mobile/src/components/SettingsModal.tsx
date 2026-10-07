@@ -98,8 +98,8 @@ export function SettingsModal({
             })}
           </View>
 
-          <Text style={styles.themeLabel}>Accent color</Text>
-          <View accessibilityRole="radiogroup" accessibilityLabel="Accent color" style={styles.paletteGrid}>
+          <Text style={styles.themeLabel}>Color theme</Text>
+          <View accessibilityRole="radiogroup" accessibilityLabel="Color theme" style={styles.paletteGrid}>
             {PALETTE_IDS.map((id) => {
               const entry = PALETTES[id]
               const selected = palette === id
@@ -117,6 +117,7 @@ export function SettingsModal({
                     accessibilityElementsHidden
                     importantForAccessibility="no"
                   >
+                    <View style={[styles.paletteHalf, { backgroundColor: entry.light.canvas }]} />
                     <View style={[styles.paletteHalf, { backgroundColor: entry.light.accent }]} />
                     <View style={[styles.paletteHalf, { backgroundColor: entry.dark.accent }]} />
                   </View>

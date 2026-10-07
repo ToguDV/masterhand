@@ -152,13 +152,13 @@ function PaletteProbe() {
     <View>
       <Text testID="palette">{palette}</Text>
       <Text testID="accent">{colors.accent}</Text>
-      <Pressable onPress={() => setPalette("violet")} accessibilityLabel="pick violet" />
+      <Pressable onPress={() => setPalette("dracula")} accessibilityLabel="pick dracula" />
     </View>
   )
 }
 
-describe("accent palette (#124)", () => {
-  it("starts on emerald and tints the accent when picked", async () => {
+describe("color themes", () => {
+  it("starts on paper and applies the theme when picked", async () => {
     await render(
       <ThemeProvider>
         <PaletteProbe />
@@ -168,28 +168,28 @@ describe("accent palette (#124)", () => {
     expect(await screen.findByTestId("palette")).toHaveTextContent(DEFAULT_PALETTE)
     expect(screen.getByTestId("accent")).toHaveTextContent(palettes.light.accent)
 
-    fireEvent.press(screen.getByLabelText("pick violet"))
-    expect(await screen.findByTestId("palette")).toHaveTextContent("violet")
-    expect(screen.getByTestId("accent")).toHaveTextContent(paletteFor("violet", "light").accent)
-    expect(mockedSavePalette).toHaveBeenCalledWith("violet")
+    fireEvent.press(screen.getByLabelText("pick dracula"))
+    expect(await screen.findByTestId("palette")).toHaveTextContent("dracula")
+    expect(screen.getByTestId("accent")).toHaveTextContent(paletteFor("dracula", "light").accent)
+    expect(mockedSavePalette).toHaveBeenCalledWith("dracula")
   })
 
-  it("restores the stored palette and falls back for unknown values", async () => {
-    mockedLoadPalette.mockResolvedValue("teal")
+  it("restores the stored theme and falls back for unknown values", async () => {
+    mockedLoadPalette.mockResolvedValue("nord")
     await render(
       <ThemeProvider>
         <PaletteProbe />
       </ThemeProvider>,
     )
-    expect(await screen.findByTestId("palette")).toHaveTextContent("teal")
+    expect(await screen.findByTestId("palette")).toHaveTextContent("nord")
   })
 
-  it("resolves a non-default palette over the emerald base", () => {
-    const violet = paletteFor("violet", "light")
-    expect(violet.accent).not.toBe(palettes.light.accent)
-    // The paper/ink identity survives: canvas and text stay shared.
-    expect(violet.canvas).toBe(palettes.light.canvas)
-    expect(violet.text).toBe(palettes.light.text)
+  it("resolves a non-default theme over the paper base", () => {
+    const dracula = paletteFor("dracula", "light")
+    expect(dracula.accent).not.toBe(palettes.light.accent)
+    // A color theme repaints the full set: canvas and text follow the theme.
+    expect(dracula.canvas).not.toBe(palettes.light.canvas)
+    expect(dracula.text).not.toBe(palettes.light.text)
     expect(paletteFor("nope", "dark").accent).toBe(palettes.dark.accent)
   })
 })

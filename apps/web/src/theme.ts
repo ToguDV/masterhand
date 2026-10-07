@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { DEFAULT_PALETTE, resolvePalette, type PaletteID } from "@masterhand/client-core"
+import { DEFAULT_PALETTE, PALETTES, resolvePalette, type PaletteID } from "@masterhand/client-core"
 
 /**
  * Theme resolution shared by the app shell and the settings panel.
@@ -12,9 +12,9 @@ import { DEFAULT_PALETTE, resolvePalette, type PaletteID } from "@masterhand/cli
  * resolves it before first paint) because the CSS tokens use `light-dark()`
  * and only flip with `color-scheme`.
  *
- * The accent palette (issue #124) is an independent axis stored under
- * `mh-palette` and painted through `data-palette` (absent or `emerald` =
- * the default ink-on-paper theme; unknown values fall back to emerald).
+ * The accent palette (color themes) is an independent axis stored under
+ * `mh-palette` and painted through `data-palette` (absent or `paper` =
+ * the default ink-on-paper theme; unknown values fall back to paper).
  */
 
 export type ThemeMode = "light" | "dark"
@@ -23,7 +23,6 @@ export type { PaletteID }
 
 const THEME_STORAGE_KEY = "mh-theme"
 const PALETTE_STORAGE_KEY = "mh-palette"
-const THEME_COLORS: Record<ResolvedTheme, string> = { light: "#fafaf7", dark: "#0c0c0b" }
 
 /** Stored mode; anything unknown (or unreadable) starts on the resolved system theme. */
 export function storedThemeMode(): ThemeMode {
@@ -55,12 +54,20 @@ export function currentTheme(): ResolvedTheme {
 /** Applies the theme to the document and keeps the browser chrome in sync. */
 export function applyTheme(theme: ResolvedTheme): void {
   document.documentElement.setAttribute("data-theme", theme)
+  syncThemeColorMeta()
+}
+
+/** Keeps the browser chrome (`theme-color`) on the active theme canvas. */
+function syncThemeColorMeta(): void {
+  const theme = currentTheme()
+  const palette = storedPalette()
+  const canvas = PALETTES[palette][theme].canvas
   for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
-    meta.content = THEME_COLORS[theme]
+    meta.content = canvas
   }
 }
 
-/** Stored palette id; anything unknown (or unreadable) falls back to emerald. */
+/** Stored palette id; anything unknown (or unreadable) falls back to paper. */
 export function storedPalette(): PaletteID {
   try {
     return resolvePalette(window.localStorage.getItem(PALETTE_STORAGE_KEY))
@@ -72,6 +79,7 @@ export function storedPalette(): PaletteID {
 /** Applies the palette to the document (the CSS falls back when unset). */
 export function applyPalette(palette: PaletteID): void {
   document.documentElement.setAttribute("data-palette", palette)
+  syncThemeColorMeta()
 }
 
 export interface ThemeModeState {
@@ -87,7 +95,7 @@ export interface ThemeModeState {
  * `App` so the initial paint stays in sync even while the settings panel is
  * closed. The choice is always explicit (no system-following mode): it is
  * read once from storage (defaulting to the OS scheme for the mode and to
- * emerald for the palette) and only changes on selection.
+ * paper for the palette) and only changes on selection.
  */
 export function useThemeMode(): ThemeModeState {
   const [mode, setModeState] = useState<ThemeMode>(storedThemeMode)
