@@ -141,8 +141,8 @@ function AppearanceSection({
           )
         })}
       </div>
-      <p className="mh-caption mh-muted mt-4">Accent color</p>
-      <div role="radiogroup" aria-label="Accent color" className="mh-palette-grid">
+      <p className="mh-caption mh-muted mt-4">Color theme</p>
+      <div role="radiogroup" aria-label="Color theme" className="mh-palette-grid">
         {PALETTE_IDS.map((id) => {
           const entry = PALETTES[id]
           const selected = palette === id
@@ -161,7 +161,7 @@ function AppearanceSection({
                 className="mh-palette-dot"
                 aria-hidden="true"
                 style={{
-                  background: `linear-gradient(135deg, ${entry.light.accent} 50%, ${entry.dark.accent} 50%)`,
+                  background: `linear-gradient(135deg, ${entry.light.canvas} 0 33%, ${entry.light.accent} 33% 66%, ${entry.dark.accent} 66% 100%)`,
                 }}
               />
               <span className="mh-body-sm font-medium">{entry.label}</span>

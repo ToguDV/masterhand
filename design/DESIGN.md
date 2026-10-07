@@ -559,27 +559,27 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 | `{colors.success}` | `#0B6B53` | `#3ED8A8` | Completed, connected |
 | `{colors.code-surface}` | `#141413` ink-900 | `#171716` | Code blocks (always dark) |
 
-### Accent palettes
+### Color themes
 
-Settings > Appearance offers **13 accent palettes** (emerald default + amber, rose, fuchsia, violet, indigo, blue, cyan, teal, lime, orange, crimson, slate), each with light and dark variants. Light/dark stays an independent axis: the mode picks the column, the palette picks the row.
+Settings > Appearance offers **13 color themes** (Paper default + Catppuccin, Dracula, Tokyo Night, Nord, Synthwave '84, Gruvbox, Rosé Pine, Everforest, Solarized, One Dark, Monokai, Ayu), each with light and dark variants. Light/dark stays an independent axis: the mode picks the column, the theme picks the row.
 
-| Palette | Light accent | Dark accent | Role |
+| Theme | Light canvas / accent | Dark canvas / accent | Role |
 |---|---|---|---|
-| Emerald (default) | `#0B6B53` | `#3ED8A8` | The ink-on-paper accent |
-| Amber | `#8A5A00` | `#E3B341` |  |
-| Rose | `#AD1457` | `#F48FB1` |  |
-| Fuchsia | `#A21CAF` | `#E879F9` |  |
-| Violet | `#6D28D9` | `#A78BFA` |  |
-| Indigo | `#4338CA` | `#818CF8` |  |
-| Blue | `#1D4ED8` | `#60A5FA` |  |
-| Cyan | `#0E7490` | `#22D3EE` |  |
-| Teal | `#0F766E` | `#2DD4BF` |  |
-| Lime | `#4D7C0F` | `#A3E635` |  |
-| Orange | `#C2410C` | `#FB923C` |  |
-| Crimson | `#B3261E` | `#F08A82` |  |
-| Slate | `#475569` | `#94A3B8` |  |
+| Paper (default) | `#FAFAF7` / `#0B6B53` | `#0C0C0B` / `#3ED8A8` | The ink-on-paper theme |
+| Catppuccin | `#EFF1F5` / `#8839EF` | `#1E1E2E` / `#CBA6F7` | Latte / Mocha |
+| Dracula | `#F8F8F2` / `#7B3FD4` | `#282A36` / `#BD93F9` |  |
+| Tokyo Night | `#E1E2E7` / `#1B5FC1` | `#1A1B26` / `#7AA2F7` | Day / Night |
+| Nord | `#ECEFF4` / `#3A6592` | `#2E3440` / `#88C0D0` | Snow Storm / Polar Night |
+| Synthwave '84 | `#F7ECF5` / `#A81A8B` | `#2B213A` / `#FF7EDB` |  |
+| Gruvbox | `#FBF1C7` / `#AF3A03` | `#282828` / `#FE8019` | Light / Dark |
+| Rosé Pine | `#FAF4ED` / `#B4637A` | `#232136` / `#EBBCBA` | Dawn / Moon |
+| Everforest | `#FDF6E3` / `#5F7E00` | `#2D353B` / `#A7C080` | Light / Dark |
+| Solarized | `#FDF6E3` / `#1A6DA5` | `#002B36` / `#2AA198` | Light / Dark |
+| One Dark | `#FAFAFA` / `#026795` | `#282C34` / `#61AFEF` | One Light / One Dark |
+| Monokai | `#F9F8F0` / `#A8124A` | `#272822` / `#FF6188` |  |
+| Ayu | `#FAFAFA` / `#C24A1F` | `#0F1419` / `#FFB454` | Light / Dark |
 
-A palette tints the accent family plus a **subtle** `surface-muted`/`blob`/`selection` tint. Canvas, surfaces, text, hairlines and the semantic warning/danger/success tokens stay shared, so the paper/ink identity survives every hue. Light accents are 700-shades (readable on paper), dark accents are 300-shades (readable on charcoal); unknown stored values fall back to emerald.
+A theme repaints the full surface/text/hairline/code/syntax set plus the accent family and a matching `surface-muted`/`blob`/`selection` tint. Only color tokens change — layout, spacing and radii stay identical across themes. The semantic warning/danger/success tokens stay shared. Light accents are dark shades (readable on paper), dark accents are light shades (readable on charcoal); unknown stored values (including the legacy accent-color ids) fall back to paper.
 
 ### Syntax tokens
 

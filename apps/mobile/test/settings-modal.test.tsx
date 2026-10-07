@@ -93,24 +93,24 @@ describe("SettingsModal (#119)", () => {
   })
 })
 
-describe("SettingsModal palette (#124)", () => {
-  it("shows the accent picker with emerald selected by default", async () => {
+describe("SettingsModal palette (color themes)", () => {
+  it("shows the theme picker with paper selected by default", async () => {
     await setup()
 
-    expect(screen.getByLabelText("Emerald").props.accessibilityState?.checked).toBe(true)
-    expect(screen.getByLabelText("Violet").props.accessibilityState?.checked).toBe(false)
-    // 13 palettes: emerald + 12 new ones.
-    expect(screen.getByLabelText("Accent color")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Paper").props.accessibilityState?.checked).toBe(true)
+    expect(screen.getByLabelText("Dracula").props.accessibilityState?.checked).toBe(false)
+    // 13 themes: paper + 12 named ones.
+    expect(screen.getByLabelText("Color theme")).toBeOnTheScreen()
   })
 
-  it("persists the picked palette and offers a reset", async () => {
+  it("persists the picked theme and offers a reset", async () => {
     await setup()
 
-    await fireEvent.press(screen.getByLabelText("Violet"))
-    expect(mockedSavePalette).toHaveBeenCalledWith("violet")
-    expect(screen.getByLabelText("Violet").props.accessibilityState?.checked).toBe(true)
+    await fireEvent.press(screen.getByLabelText("Dracula"))
+    expect(mockedSavePalette).toHaveBeenCalledWith("dracula")
+    expect(screen.getByLabelText("Dracula").props.accessibilityState?.checked).toBe(true)
 
-    await fireEvent.press(screen.getByLabelText(`Reset to ${"Emerald"}`))
+    await fireEvent.press(screen.getByLabelText(`Reset to ${"Paper"}`))
     expect(mockedSavePalette).toHaveBeenLastCalledWith(DEFAULT_PALETTE)
   })
 })
