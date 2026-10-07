@@ -133,7 +133,7 @@ test("answers a question from another session through the choice modal", async (
   await expect(dialog).toBeHidden()
   await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
 
-  await page.getByRole("button", { name: "Open session" }).click()
+  await page.getByRole("button", { name: /waiting for your answer/ }).click()
   await expect(page.getByTestId("question-card")).toBeVisible()
 })
 

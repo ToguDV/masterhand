@@ -4,13 +4,14 @@ How we develop, test and merge. Commit format details live in `CONTRIBUTING.md`.
 
 ## Principles
 
-1. **One branch and one PR per work session.** A session may resolve several issues; they all ship in the **same branch**, with one commit per issue (each keeping its own red → green evidence) and a PR body that lists every `Closes #N`. Standalone hotfixes may still take their own branch. Batching matters for agent sessions in particular: one-PR-per-issue stacked 8 concurrent branches in a single session and forced repeated conflict resolution and CI runs on the shared docs (`PROGRESS.md`, `docs/past-mistakes.md`) plus a merge-order dance with the "branch up to date" protection.
-2. **Test-driven, always.** Every behavioral change starts with a test that fails against current `main` for the right reason; then the minimum code to make it pass. Unit tests for logic, end-to-end tests for user flows. Tests are never a follow-up.
-3. **Issues are hypotheses, not truth.** A published issue (or review finding) may be stale, wrong or already fixed. Reproduce it deterministically before implementing (see [Working from an issue](#working-from-an-issue-mandatory)).
-4. **Every fix leaves a trace.** The failure class is recorded in `docs/past-mistakes.md` — a rule, a checklist item or an established pattern — so the same mistake cannot be reintroduced in another feature.
-5. **Nothing is committed or merged while a gate is red.** `main` is always green.
-6. **Squash merge** into `main`: one clean commit per PR. A session batch lands as a single squash commit (title = primary issue; the body carries the per-issue red → green evidence).
-7. **Finishing means shipping**: an agent that completes a task creates the branch, commits, pushes and opens the PR on its own. Do **not** ask for permission first; only stop to ask when the user explicitly requested a plan or a review with no changes.
+1. **Read `docs/past-mistakes.md` before touching code.** Someone already paid for every lesson in that file — check the failure classes, rules and checklist against the task at hand so a known mistake is never reintroduced. Writing code first and reading it after defeats its purpose.
+2. **One branch and one PR per work session.** A session may resolve several issues; they all ship in the **same branch**, with one commit per issue (each keeping its own red → green evidence) and a PR body that lists every `Closes #N`. Standalone hotfixes may still take their own branch. Batching matters for agent sessions in particular: one-PR-per-issue stacked 8 concurrent branches in a single session and forced repeated conflict resolution and CI runs on the shared docs (`PROGRESS.md`, `docs/past-mistakes.md`) plus a merge-order dance with the "branch up to date" protection.
+3. **Test-driven, always.** Every behavioral change starts with a test that fails against current `main` for the right reason; then the minimum code to make it pass. Unit tests for logic, end-to-end tests for user flows. Tests are never a follow-up.
+4. **Issues are hypotheses, not truth.** A published issue (or review finding) may be stale, wrong or already fixed. Reproduce it deterministically before implementing (see [Working from an issue](#working-from-an-issue-mandatory)).
+5. **Every fix leaves a trace.** The failure class is recorded in `docs/past-mistakes.md` — a rule, a checklist item or an established pattern — so the same mistake cannot be reintroduced in another feature.
+6. **Nothing is committed or merged while a gate is red.** `main` is always green.
+7. **Squash merge** into `main`: one clean commit per PR. A session batch lands as a single squash commit (title = primary issue; the body carries the per-issue red → green evidence).
+8. **Finishing means shipping**: an agent that completes a task creates the branch, commits, pushes and opens the PR on its own. Do **not** ask for permission first; only stop to ask when the user explicitly requested a plan or a review with no changes.
 
 ## Working from an issue (mandatory)
 
