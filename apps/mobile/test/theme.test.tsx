@@ -1,20 +1,35 @@
 import { Pressable, Text, View } from "react-native"
 import { fireEvent, render, screen } from "@testing-library/react-native"
-import { loadTheme, saveTheme } from "../src/storage"
-import { ThemeProvider, palettes, resolveTheme, useTheme, useThemedStyles, type Fonts } from "../src/theme"
+import { loadPalette, loadTheme, savePalette, saveTheme } from "../src/storage"
+import {
+  DEFAULT_PALETTE,
+  ThemeProvider,
+  paletteFor,
+  palettes,
+  resolveTheme,
+  useTheme,
+  useThemedStyles,
+  type Fonts,
+} from "../src/theme"
 
 jest.mock("../src/storage", () => ({
   loadTheme: jest.fn(async () => null),
+  loadPalette: jest.fn(async () => null),
+  savePalette: jest.fn(async () => {}),
+  clearPalette: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
 }))
 
 const mockedLoad = loadTheme as jest.Mock
 const mockedSave = saveTheme as jest.Mock
+const mockedLoadPalette = loadPalette as jest.Mock
+const mockedSavePalette = savePalette as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
   mockedLoad.mockResolvedValue(null)
+  mockedLoadPalette.mockResolvedValue(null)
 })
 
 function Probe() {
@@ -128,5 +143,53 @@ describe("theme resolution", () => {
     fireEvent.press(screen.getByLabelText("pick dark"))
     expect(await screen.findByTestId("mode")).toHaveTextContent("dark")
     expect(mockedSave).toHaveBeenCalledWith("dark")
+  })
+})
+
+function PaletteProbe() {
+  const { palette, setPalette, colors } = useTheme()
+  return (
+    <View>
+      <Text testID="palette">{palette}</Text>
+      <Text testID="accent">{colors.accent}</Text>
+      <Pressable onPress={() => setPalette("violet")} accessibilityLabel="pick violet" />
+    </View>
+  )
+}
+
+describe("accent palette (#124)", () => {
+  it("starts on emerald and tints the accent when picked", async () => {
+    await render(
+      <ThemeProvider>
+        <PaletteProbe />
+      </ThemeProvider>,
+    )
+
+    expect(await screen.findByTestId("palette")).toHaveTextContent(DEFAULT_PALETTE)
+    expect(screen.getByTestId("accent")).toHaveTextContent(palettes.light.accent)
+
+    fireEvent.press(screen.getByLabelText("pick violet"))
+    expect(await screen.findByTestId("palette")).toHaveTextContent("violet")
+    expect(screen.getByTestId("accent")).toHaveTextContent(paletteFor("violet", "light").accent)
+    expect(mockedSavePalette).toHaveBeenCalledWith("violet")
+  })
+
+  it("restores the stored palette and falls back for unknown values", async () => {
+    mockedLoadPalette.mockResolvedValue("teal")
+    await render(
+      <ThemeProvider>
+        <PaletteProbe />
+      </ThemeProvider>,
+    )
+    expect(await screen.findByTestId("palette")).toHaveTextContent("teal")
+  })
+
+  it("resolves a non-default palette over the emerald base", () => {
+    const violet = paletteFor("violet", "light")
+    expect(violet.accent).not.toBe(palettes.light.accent)
+    // The paper/ink identity survives: canvas and text stay shared.
+    expect(violet.canvas).toBe(palettes.light.canvas)
+    expect(violet.text).toBe(palettes.light.text)
+    expect(paletteFor("nope", "dark").accent).toBe(palettes.dark.accent)
   })
 })

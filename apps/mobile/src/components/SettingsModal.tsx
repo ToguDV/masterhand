@@ -1,10 +1,18 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
-import type { Client } from "@masterhand/client-core"
+import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
 import { ProvidersSection } from "./ProvidersSection"
 import { CloseIcon, GearIcon } from "./icons"
-import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeMode } from "../theme"
+import {
+  PALETTE_IDS,
+  useTheme,
+  useThemedStyles,
+  type Fonts,
+  type Palette,
+  type PaletteID,
+  type ThemeMode,
+} from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
   { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
@@ -16,20 +24,24 @@ const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
 /**
  * App-level settings (issue #119): a full-screen modal opened from the Sessions
- * header gear. Appearance owns the explicit theme (light/dark);
- * Account (sign out) and later sections append below.
+ * header gear. Appearance owns the explicit theme (light/dark) plus the accent
+ * palette (#124); Account (sign out) and later sections append below.
  */
 export function SettingsModal({
   visible,
   client,
   mode,
   onSelectMode,
+  palette,
+  onSelectPalette,
   onClose,
 }: {
   visible: boolean
   client: Client
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
+  palette: PaletteID
+  onSelectPalette: (palette: PaletteID) => void
   onClose: () => void
 }) {
   const styles = useThemedStyles(createStyles)
@@ -83,6 +95,44 @@ export function SettingsModal({
               )
             })}
           </View>
+
+          <Text style={styles.themeLabel}>Accent color</Text>
+          <View accessibilityRole="radiogroup" accessibilityLabel="Accent color" style={styles.paletteGrid}>
+            {PALETTE_IDS.map((id) => {
+              const entry = PALETTES[id]
+              const selected = palette === id
+              return (
+                <Pressable
+                  key={id}
+                  style={[styles.paletteOption, selected && styles.paletteOptionSelected]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={entry.label}
+                  onPress={() => onSelectPalette(id)}
+                >
+                  <View
+                    style={[styles.paletteDot, { borderColor: colors.hairlineStrong }]}
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                  >
+                    <View style={[styles.paletteHalf, { backgroundColor: entry.light.accent }]} />
+                    <View style={[styles.paletteHalf, { backgroundColor: entry.dark.accent }]} />
+                  </View>
+                  <Text style={styles.paletteName}>{entry.label}</Text>
+                </Pressable>
+              )
+            })}
+          </View>
+          {palette !== DEFAULT_PALETTE ? (
+            <Pressable
+              onPress={() => onSelectPalette(DEFAULT_PALETTE)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reset to ${PALETTES[DEFAULT_PALETTE].label}`}
+              style={styles.resetRow}
+            >
+              <Text style={styles.resetText}>Reset to {PALETTES[DEFAULT_PALETTE].label}</Text>
+            </Pressable>
+          ) : null}
 
           <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>
           <ProvidersSection client={client} />
@@ -205,6 +255,57 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 13,
       fontWeight: "500",
+    },
+    paletteGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 12,
+    },
+    paletteOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 104,
+      minHeight: 44,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: "transparent",
+      borderRadius: 12,
+    },
+    paletteOptionSelected: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accentSoft,
+    },
+    paletteDot: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 1,
+      overflow: "hidden",
+      flexDirection: "row",
+    },
+    paletteHalf: {
+      flex: 1,
+    },
+    paletteName: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "500",
+    },
+    resetRow: {
+      alignSelf: "flex-start",
+      marginTop: 8,
+      minHeight: 44,
+      justifyContent: "center",
+      paddingHorizontal: 8,
+    },
+    resetText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
     },
     accountTitle: {
       marginTop: 18,

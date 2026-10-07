@@ -47,6 +47,26 @@ test("switches between light and dark themes from settings and remembers the cho
     .toBe("rgb(250, 250, 247)")
 })
 
+test("switches accent palette from settings and remembers it", async ({ page }) => {
+  await login(page)
+  await expect(page.locator("html")).not.toHaveAttribute("data-palette", "violet")
+
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("radio", { name: "Violet" }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "violet")
+  await expect(dialog.getByRole("radio", { name: "Violet" })).toHaveAttribute("aria-checked", "true")
+  await page.getByRole("button", { name: "Close settings" }).click()
+
+  await page.reload()
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "violet")
+
+  // Reset goes back to the default emerald.
+  await page.getByRole("button", { name: "Settings" }).click()
+  await page.getByRole("button", { name: /Reset to Emerald/ }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-palette", "emerald")
+})
+
 test("signs out from the sessions panel options, not from the top bar", async ({ page }) => {
   await login(page)
   // Sign out lives in the bottom-left options box of the sessions panel.

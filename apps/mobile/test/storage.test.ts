@@ -1,10 +1,12 @@
 import * as SecureStore from "expo-secure-store"
 import {
   clearDevice,
+  clearPalette,
   clearToken,
   clearWorkspaceID,
   loadAutoAcceptSessions,
   loadDevice,
+  loadPalette,
   loadServerUrl,
   loadSessionPreferences,
   loadTheme,
@@ -12,6 +14,7 @@ import {
   loadWorkspaceID,
   saveAutoAcceptSessions,
   saveDevice,
+  savePalette,
   saveServerUrl,
   saveSessionPreferences,
   saveTheme,
@@ -112,6 +115,25 @@ describe("storage — theme", () => {
     getItem.mockRejectedValueOnce(new Error("keychain unavailable"))
 
     expect(await loadTheme()).toBeNull()
+  })
+})
+
+describe("storage — palette (#124)", () => {
+  it("round-trips the palette choice and clears it", async () => {
+    expect(await loadPalette()).toBeNull()
+
+    await savePalette("violet")
+    expect(await loadPalette()).toBe("violet")
+
+    await clearPalette()
+    expect(await loadPalette()).toBeNull()
+  })
+
+  it("tolerates a failing secure store", async () => {
+    const getItem = SecureStore.getItemAsync as jest.Mock
+    getItem.mockRejectedValueOnce(new Error("keychain unavailable"))
+
+    expect(await loadPalette()).toBeNull()
   })
 })
 

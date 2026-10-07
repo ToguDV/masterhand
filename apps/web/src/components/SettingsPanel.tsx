@@ -1,4 +1,5 @@
 import { useState, type ComponentType } from "react"
+import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterhand/client-core"
 import { useModalFocus } from "./useModalFocus"
 import { KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { ProvidersSection } from "./ProvidersSection"
@@ -25,10 +26,14 @@ const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<Ic
 export function SettingsDialog({
   mode,
   onSelectMode,
+  palette,
+  onSelectPalette,
   onClose,
 }: {
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
+  palette: PaletteID
+  onSelectPalette: (palette: PaletteID) => void
   onClose: () => void
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onClose)
@@ -77,7 +82,12 @@ export function SettingsDialog({
 
           <div className="mh-settings__content scroll-thin">
             {module === "appearance" ? (
-              <AppearanceSection mode={mode} onSelectMode={onSelectMode} />
+              <AppearanceSection
+                mode={mode}
+                onSelectMode={onSelectMode}
+                palette={palette}
+                onSelectPalette={onSelectPalette}
+              />
             ) : (
               <ProvidersSection />
             )}
@@ -91,9 +101,13 @@ export function SettingsDialog({
 function AppearanceSection({
   mode,
   onSelectMode,
+  palette,
+  onSelectPalette,
 }: {
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
+  palette: PaletteID
+  onSelectPalette: (palette: PaletteID) => void
 }) {
   return (
     <section aria-labelledby="settings-appearance">
@@ -126,6 +140,43 @@ function AppearanceSection({
           )
         })}
       </div>
+      <p className="mh-caption mh-muted mt-4">Accent color</p>
+      <div role="radiogroup" aria-label="Accent color" className="mh-palette-grid">
+        {PALETTE_IDS.map((id) => {
+          const entry = PALETTES[id]
+          const selected = palette === id
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={entry.label}
+              title={entry.label}
+              onClick={() => onSelectPalette(id)}
+              className="mh-palette-option"
+            >
+              <span
+                className="mh-palette-dot"
+                aria-hidden="true"
+                style={{
+                  background: `linear-gradient(135deg, ${entry.light.accent} 50%, ${entry.dark.accent} 50%)`,
+                }}
+              />
+              <span className="mh-body-sm font-medium">{entry.label}</span>
+            </button>
+          )
+        })}
+      </div>
+      {palette !== DEFAULT_PALETTE && (
+        <button
+          type="button"
+          onClick={() => onSelectPalette(DEFAULT_PALETTE)}
+          className="mh-btn mh-btn--ghost mh-btn--sm mt-2"
+        >
+          Reset to {PALETTES[DEFAULT_PALETTE].label}
+        </button>
+      )}
     </section>
   )
 }

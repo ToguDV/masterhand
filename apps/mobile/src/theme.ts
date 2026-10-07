@@ -8,12 +8,20 @@ import {
   type PropsWithChildren,
 } from "react"
 import { Platform, useColorScheme } from "react-native"
-import { loadTheme, saveTheme } from "./storage"
+import {
+  DEFAULT_PALETTE,
+  PALETTES,
+  resolvePalette,
+  type PaletteID,
+} from "@masterhand/client-core"
+import { loadPalette, loadTheme, savePalette, saveTheme } from "./storage"
 
 export type ThemeName = "light" | "dark"
 
 /** User-facing choice: one explicit theme (new users start on the resolved system theme). */
 export type ThemeMode = ThemeName
+
+export type { PaletteID }
 
 /**
  * The full ink-on-paper palette (design/DESIGN.md, mirrored from
@@ -145,6 +153,46 @@ export const palettes: Record<ThemeName, Palette> = {
 /** The light palette; use `useTheme()` for theme-reactive consumers. */
 export const colors = palettes.light
 
+/**
+ * Full palette for an accent theme + mode (issue #124): the emerald base
+ * with the accent family subtly tinted. Unknown ids fall back to emerald.
+ */
+export function paletteFor(id: string, theme: ThemeName): Palette {
+  const resolved = resolvePalette(id)
+  if (resolved === DEFAULT_PALETTE) return palettes[theme]
+  const accents = PALETTES[resolved][theme]
+  return {
+    ...palettes[theme],
+    accent: accents.accent,
+    accentStrong: accents.accentStrong,
+    accentSoft: accents.accentSoft,
+    accentLine: accents.accentLine,
+    onAccent: accents.onAccent,
+    bubbleUser: accents.bubbleUser,
+    bubbleUserText: accents.bubbleUserText,
+    surfaceMuted: accents.surfaceMuted,
+  }
+}
+
+/** Ordered accent ids for the settings picker (emerald first). */
+export const PALETTE_IDS: PaletteID[] = [
+  "emerald",
+  "amber",
+  "blue",
+  "crimson",
+  "cyan",
+  "fuchsia",
+  "indigo",
+  "lime",
+  "orange",
+  "rose",
+  "slate",
+  "teal",
+  "violet",
+]
+
+export { DEFAULT_PALETTE, PALETTES }
+
 export interface Fonts {
   display: string
   ui: string
@@ -171,9 +219,13 @@ export interface ThemeContextValue {
   mode: ThemeMode
   colors: Palette
   fonts: Fonts
+  /** The accent palette; `colors` is resolved from it (emerald default). */
+  palette: PaletteID
   setTheme: (theme: ThemeName) => void
   /** Sets the explicit theme. */
   setMode: (mode: ThemeMode) => void
+  /** Sets the accent palette (persisted; unknown values fall back). */
+  setPalette: (palette: PaletteID) => void
   toggleTheme: () => void
 }
 
@@ -188,16 +240,20 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 function themeValue(
   theme: ThemeName,
   mode: ThemeMode,
+  palette: PaletteID,
   fontSet: Fonts,
   setMode: (mode: ThemeMode) => void,
+  setPalette: (palette: PaletteID) => void,
 ): ThemeContextValue {
   return {
     theme,
     mode,
-    colors: palettes[theme],
+    palette,
+    colors: paletteFor(palette, theme),
     fonts: fontSet,
     setTheme: (next) => setMode(next),
     setMode,
+    setPalette,
     toggleTheme: () => setMode(theme === "dark" ? "light" : "dark"),
   }
 }
@@ -205,7 +261,8 @@ function themeValue(
 /**
  * Resolves and provides the active theme. The stored choice is read from
  * SecureStore (`masterhand.theme`, tolerant of failures); until the user makes
- * one, the theme starts on the system scheme and falls back to light.
+ * one, the theme starts on the system scheme and falls back to light. The
+ * accent palette (`masterhand.palette`) resolves independently the same way.
  */
 export function ThemeProvider({
   children,
@@ -213,6 +270,7 @@ export function ThemeProvider({
 }: PropsWithChildren<{ fonts?: Fonts }>) {
   const system = useColorScheme()
   const [stored, setStored] = useState<ThemeName | null>(null)
+  const [storedPalette, setStoredPalette] = useState<PaletteID>(DEFAULT_PALETTE)
 
   useEffect(() => {
     let active = true
@@ -223,6 +281,11 @@ export function ThemeProvider({
       .catch(() => {
         // A SecureStore failure must not block the app on a theme read.
       })
+    void loadPalette()
+      .then((value) => {
+        if (active && value) setStoredPalette(resolvePalette(value))
+      })
+      .catch(() => {})
     return () => {
       active = false
     }
@@ -232,11 +295,22 @@ export function ThemeProvider({
   const mode: ThemeMode = stored ?? theme
   const value = useMemo(
     () =>
-      themeValue(theme, mode, fontSet, (next) => {
-        setStored(next)
-        void saveTheme(next).catch(() => {})
-      }),
-    [theme, mode, fontSet],
+      themeValue(
+        theme,
+        mode,
+        storedPalette,
+        fontSet,
+        (next) => {
+          setStored(next)
+          void saveTheme(next).catch(() => {})
+        },
+        (next) => {
+          const resolved = resolvePalette(next)
+          setStoredPalette(resolved)
+          void savePalette(resolved).catch(() => {})
+        },
+      ),
+    [theme, mode, storedPalette, fontSet],
   )
 
   return createElement(ThemeContext.Provider, { value }, children)
@@ -248,7 +322,7 @@ export function useTheme(): ThemeContextValue {
   const system = useColorScheme()
   const fallback = useMemo(() => {
     const resolved = resolveTheme(null, system)
-    return themeValue(resolved, resolved, systemFonts, () => {})
+    return themeValue(resolved, resolved, DEFAULT_PALETTE, systemFonts, () => {}, () => {})
   }, [system])
   return context ?? fallback
 }

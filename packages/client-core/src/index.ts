@@ -14,6 +14,15 @@ export {
   deliveryMarkerOf,
   deliveryMetadata,
 } from "./delivery"
+export {
+  DEFAULT_PALETTE,
+  PALETTES,
+  PALETTE_IDS,
+  resolvePalette,
+  type PaletteAccents,
+  type PaletteEntry,
+  type PaletteID,
+} from "./palettes"
 export { usePendingSend, type PendingSend, type PendingSendController } from "./pending"
 export {
   conversationErrorMessage,
