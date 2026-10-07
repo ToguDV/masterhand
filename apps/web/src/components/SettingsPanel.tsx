@@ -5,9 +5,9 @@ import { KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
-const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
-  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
-  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
+const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
+  { value: "light", label: "Light", canvas: "#FAFAF7" },
+  { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
 type SettingsModule = "appearance" | "providers"
@@ -119,6 +119,7 @@ function AppearanceSection({
       <div role="radiogroup" aria-label="Theme color" className="mh-theme-swatches">
         {THEMES.map((option) => {
           const selected = mode === option.value
+          const accent = option.value === "light" ? PALETTES[palette].light.accent : PALETTES[palette].dark.accent
           return (
             <button
               key={option.value}
@@ -131,8 +132,8 @@ function AppearanceSection({
             >
               <span className="mh-body-sm font-medium">{option.label}</span>
               <ThemeDrop
-                top={option.swatches[0]}
-                bottom={option.swatches[1]}
+                top={option.canvas}
+                bottom={accent}
                 selected={selected}
                 clipId={`mh-drop-${option.value}`}
               />

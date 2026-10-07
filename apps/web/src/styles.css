@@ -1490,7 +1490,7 @@ body {
 @media (min-width: 768px) {
   .mh-settings {
     width: 100%;
-    height: auto;
+    height: min(680px, 85dvh);
     max-width: 960px;
     max-height: min(680px, 85dvh);
     border: 1px solid var(--mh-hairline);
