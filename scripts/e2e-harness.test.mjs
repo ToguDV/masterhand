@@ -47,6 +47,21 @@ test("every run starts wiped and leaves no trace", () => {
   assert.ok(setup.includes("mkdir"), "setup must recreate scratch after wiping")
 })
 
+test("test:e2e frees the reserved ports before playwright starts", () => {
+  // A killed run orphans its mock/BFF; with reuseExistingServer: false the
+  // next run died on "port is already used". The npm script must therefore
+  // free both ports before playwright boots its webServers.
+  const pkg = JSON.parse(readFileSync(path.join(e2eDir, "package.json"), "utf8"))
+  for (const script of ["test:e2e", "test:e2e:ui"]) {
+    assert.ok(
+      pkg.scripts[script].includes("cleanup-ports"),
+      `${script} must free ports before playwright`,
+    )
+  }
+  const cleanup = read("cleanup-ports.mjs")
+  assert.ok(cleanup.includes("4097") && cleanup.includes("8788"), "cleanup must target both reserved ports")
+})
+
 test("specs resolve the cloudflared die file from the shared paths", () => {
   const spec = read(path.join("tests", "preview.spec.ts"))
   assert.ok(!spec.includes("/tmp/masterhand-e2e-cloudflared-die"), "spec must not hardcode the die file")
