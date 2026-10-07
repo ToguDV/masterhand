@@ -990,7 +990,8 @@ export default function App() {
           )}
           {/* Edge handle: the desktop-only collapse toggle. The sidebar border
               opens into a curve that wraps the bare arrow — an SVG covers the
-              straight segment and redraws it bumping outward. */}
+              straight segment and redraws it bumping outward when collapsed,
+              inward when expanded. */}
           <div className="absolute -right-[14px] top-1/2 z-20 max-md:hidden -translate-y-1/2">
             <svg
               width="28"
@@ -1002,7 +1003,11 @@ export default function App() {
             >
               <path d="M14.5 18 L14.5 54" stroke="var(--mh-canvas)" strokeWidth="3" />
               <path
-                d="M14.5 18 C14.5 27 25.5 28 25.5 36 C25.5 44 14.5 45 14.5 54"
+                d={
+                  sidebarCollapsed
+                    ? "M14.5 18 C14.5 27 25.5 28 25.5 36 C25.5 44 14.5 45 14.5 54"
+                    : "M14.5 18 C14.5 27 3.5 28 3.5 36 C3.5 44 14.5 45 14.5 54"
+                }
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="1"
@@ -1011,7 +1016,7 @@ export default function App() {
             <button
               type="button"
               onClick={toggleSidebarCollapsed}
-              className="absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink"
+              className={`absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink ${sidebarCollapsed ? "" : "-translate-x-1"}`}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!sidebarCollapsed}
