@@ -112,6 +112,9 @@ export function SettingsModal({
                   accessibilityLabel={entry.label}
                   onPress={() => onSelectPalette(id)}
                 >
+                  <Text style={styles.paletteName} numberOfLines={1} ellipsizeMode="tail">
+                    {entry.label}
+                  </Text>
                   <View
                     style={[styles.paletteDot, { borderColor: colors.hairlineStrong }]}
                     accessibilityElementsHidden
@@ -121,7 +124,6 @@ export function SettingsModal({
                     <View style={[styles.paletteHalf, { backgroundColor: entry.light.accent }]} />
                     <View style={[styles.paletteHalf, { backgroundColor: entry.dark.accent }]} />
                   </View>
-                  <Text style={styles.paletteName}>{entry.label}</Text>
                 </Pressable>
               )
             })}
@@ -266,16 +268,19 @@ function createStyles(colors: Palette, fonts: Fonts) {
       marginTop: 12,
     },
     paletteOption: {
-      flexDirection: "row",
       alignItems: "center",
       gap: 8,
-      minWidth: 104,
+      minWidth: 88,
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 88,
       minHeight: 44,
       paddingHorizontal: 8,
       paddingVertical: 6,
       borderWidth: 1,
       borderColor: "transparent",
       borderRadius: 12,
+      overflow: "hidden",
     },
     paletteOptionSelected: {
       borderColor: colors.accent,
@@ -293,10 +298,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flex: 1,
     },
     paletteName: {
+      width: "100%",
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 13,
       fontWeight: "500",
+      textAlign: "center",
     },
     resetRow: {
       alignSelf: "flex-start",
