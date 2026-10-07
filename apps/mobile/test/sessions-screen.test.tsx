@@ -170,6 +170,16 @@ describe("SessionsScreen", () => {
     expect(await screen.findByText("Appearance")).toBeOnTheScreen()
   })
 
+  it("groups the new-session + with the Sessions title (#122)", async () => {
+    await setup()
+
+    const title = screen.getByText("Sessions")
+    const plus = screen.getByLabelText("New session")
+
+    // Same left-aligned cluster, not the far right of the header.
+    expect(title.parent).toBe(plus.parent)
+  })
+
   it("disables the new-session action while creating", async () => {
     await setup({ creating: true })
 

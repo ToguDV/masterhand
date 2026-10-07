@@ -94,10 +94,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     scrim: {
       flex: 1,
-      alignItems: "flex-end",
+      alignItems: "flex-start",
       backgroundColor: colors.overlay,
       paddingTop: 56,
-      paddingRight: 12,
+      paddingLeft: 12,
     },
     card: {
       width: 250,

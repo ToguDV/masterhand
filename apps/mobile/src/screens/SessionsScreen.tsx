@@ -95,7 +95,14 @@ export function SessionsScreen({
   return (
     <Screen>
       <View style={styles.header}>
-        <Text style={styles.title}>Sessions</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>Sessions</Text>
+          <NewSessionMenu
+            creating={creating}
+            disabled={!canCreate}
+            onCreate={onNew}
+          />
+        </View>
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
           <Pressable
@@ -108,11 +115,6 @@ export function SessionsScreen({
           >
             <GearIcon size={20} color={colors.textMuted} />
           </Pressable>
-          <NewSessionMenu
-            creating={creating}
-            disabled={!canCreate}
-            onCreate={onNew}
-          />
         </View>
       </View>
 
@@ -258,6 +260,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
+    },
+    headerLeft: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
     },
     headerRight: {
       flexDirection: "row",
