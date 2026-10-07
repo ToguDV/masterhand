@@ -671,9 +671,11 @@ describe("tokenSpeed and formatSpeed", () => {
     expect(tokenSpeed(tokenCounts(tokens(100)), 0)).toBeNull()
   })
 
-  it("formats a speed with one decimal, dropping a trailing zero", () => {
-    expect(formatSpeed(42.348)).toBe("42.3 tok/s")
+  it("formats a speed as a whole number", () => {
+    expect(formatSpeed(42.348)).toBe("42 tok/s")
+    expect(formatSpeed(45.67)).toBe("46 tok/s")
     expect(formatSpeed(42)).toBe("42 tok/s")
+    expect(formatSpeed(0.4)).toBe("0 tok/s")
     expect(formatSpeed(null)).toBe("")
   })
 })

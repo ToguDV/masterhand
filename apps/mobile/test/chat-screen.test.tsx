@@ -62,6 +62,21 @@ describe("ChatScreen", () => {
     expect(screen.queryByText(/cache/i)).toBeNull()
   })
 
+  it("rounds the session speed to a whole number (#127)", async () => {
+    // 5 generated tokens over 1230 ms -> 4.065… tok/s, never a raw float.
+    const fractional: ChatMessage = {
+      ...assistant,
+      info: { ...assistant.info, time: { created: 1000, completed: 2230 } },
+    }
+    await setup({}, (client) => {
+      client.api.messages.mockResolvedValue([fractional])
+    })
+
+    expect(await screen.findByLabelText("Speed: 4 tok/s")).toBeOnTheScreen()
+    expect(screen.getByText("4 tok/s")).toBeOnTheScreen()
+    expect(screen.queryByText(/4\.06/)).toBeNull()
+  })
+
   it("prompts to start when there are no messages", async () => {
     await setup()
 

@@ -448,9 +448,13 @@ export function tokenSpeed(counts: TokenCounts, durationMs: number): number | nu
   return generated / (durationMs / 1000)
 }
 
-/** Formats a speed as `"12.3 tok/s"` (empty string when `null`). */
+/**
+ * Formats a speed as a whole number of tokens per second (`"46 tok/s"`),
+ * empty string when `null`. Never exposes raw fractional decimals (#127).
+ */
 export function formatSpeed(speed: number | null): string {
-  return speed === null ? "" : `${formatRounded(speed)} tok/s`
+  if (speed === null || !Number.isFinite(speed)) return ""
+  return `${Math.round(speed)} tok/s`
 }
 
 export interface SessionUsage extends TokenCounts {

@@ -230,7 +230,7 @@ export function ChatScreen({
           {speedValue !== null ? (
             <View style={styles.usageItem} accessibilityLabel={`Speed: ${formatSpeed(speedValue)}`}>
               <BoltIcon size={12} color={colors.textMuted} />
-              <Text style={styles.usageText}>{formatCount(speedValue)}</Text>
+              <Text style={styles.usageText}>{formatSpeed(speedValue)}</Text>
             </View>
           ) : null}
         </View>
