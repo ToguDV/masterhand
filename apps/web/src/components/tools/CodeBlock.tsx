@@ -120,21 +120,23 @@ export function CodeBlock({
         <pre>
           <code>
             {lines.map((line, index) => (
-              <span key={index} className="block whitespace-pre-wrap break-words">
+              <span key={index} className="mh-code__line flex gap-3">
                 {showNumbers && (
-                  <span className="mr-3 inline-block w-6 select-none text-right text-code-muted">
+                  <span className="w-6 shrink-0 select-none text-right text-code-muted">
                     {startLine + index}
                   </span>
                 )}
-                {highlighted ? (
-                  line ? (
-                    <TokenLine tokens={highlighted[index] ?? []} />
+                <span className="mh-code__content min-w-0 flex-1 whitespace-pre-wrap break-words">
+                  {highlighted ? (
+                    line ? (
+                      <TokenLine tokens={highlighted[index] ?? []} />
+                    ) : (
+                      " "
+                    )
                   ) : (
-                    " "
-                  )
-                ) : (
-                  line || " "
-                )}
+                    line || " "
+                  )}
+                </span>
               </span>
             ))}
             {truncated.hiddenLines > 0 && (
