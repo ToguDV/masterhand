@@ -767,7 +767,7 @@ export default function App() {
   // or chat) stays visible so the composer's workspace/new-session bar is
   // reachable without a session. On desktop the aside docks beside it.
   const asideClass = [
-    "min-h-0 flex-col border-r border-hairline bg-canvas md:flex md:w-[272px] md:shrink-0",
+    "min-h-0 flex-col border-r border-hairline bg-canvas md:relative md:flex md:w-[272px] md:shrink-0",
     "hidden",
     drawerOpen
       ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
@@ -949,29 +949,11 @@ export default function App() {
                 <LogOutIcon size={16} />
                 Sign out
               </button>
-              <button
-                type="button"
-                onClick={toggleSidebarCollapsed}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-              >
-                <ChevronLeftIcon size={18} />
-              </button>
             </div>
           </div>
           {/* Collapsed desktop rail: desktop-only via CSS, the drawer keeps the full panel on mobile. */}
           {sidebarCollapsed && (
             <div className="mh-rail min-h-0 flex-1 flex-col items-center gap-1 py-3">
-              <button
-                type="button"
-                onClick={toggleSidebarCollapsed}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-              >
-                <ChevronRightIcon size={18} />
-              </button>
               <NewSessionMenu
                 onCreate={(isolated) => {
                   setDrawerOpen(false)
@@ -1006,6 +988,19 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* Edge handle: the desktop-only collapse toggle, vertically centered
+              on the sidebar border. The canvas ring cuts a notch out of the
+              border line so it reads as curving around the arrow. */}
+          <button
+            type="button"
+            onClick={toggleSidebarCollapsed}
+            className="mh-btn absolute -right-[14px] top-1/2 z-20 h-7 max-md:hidden min-h-0 w-7 -translate-y-1/2 rounded-full border border-hairline bg-surface p-0 text-ink-muted shadow-elev3 ring-4 ring-canvas hover:text-ink"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!sidebarCollapsed}
+          >
+            {sidebarCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
+          </button>
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">

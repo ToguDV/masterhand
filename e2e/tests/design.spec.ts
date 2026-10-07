@@ -185,6 +185,8 @@ test("opens the session list as a drawer on mobile", async ({ page }) => {
   await page.getByRole("button", { name: "Sessions" }).click()
   await expect(drawer).toBeVisible()
   await expect(drawer.getByText("Sessions")).toBeVisible()
+  // The desktop edge handle has no use here and stays hidden.
+  await expect(drawer.getByRole("button", { name: /sidebar/i })).toBeHidden()
 
   await drawer.getByRole("button", { name: /Untitled/ }).click()
   await expect(drawer).toBeHidden()
