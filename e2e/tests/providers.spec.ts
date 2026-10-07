@@ -65,6 +65,20 @@ test("keeps oauth providers informational (#128)", async ({ page }) => {
   await expect(github.getByRole("button", { name: "Connect" })).toHaveCount(0)
 })
 
+test("renders the original provider logos in the list (#128)", async ({ page }) => {
+  await login(page)
+  const settings = await openSettings(page)
+
+  // A provider with a vendored brand mark renders the original logo inline.
+  const anthropic = settings.getByTestId("integration-anthropic")
+  await expect(anthropic.getByTestId("provider-avatar").locator("svg")).toHaveCount(1)
+
+  // A provider without one keeps the deterministic monogram (mock "github").
+  const github = settings.getByTestId("integration-github")
+  await expect(github.getByTestId("provider-avatar")).toHaveText("G")
+  await expect(github.getByTestId("provider-avatar").locator("svg")).toHaveCount(0)
+})
+
 test("paginates the provider list and searches it (#128)", async ({ page }) => {
   await login(page)
   const settings = await openSettings(page)

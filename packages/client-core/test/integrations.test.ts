@@ -3,8 +3,10 @@ import {
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,
+  providerIcon,
   providerMonogram,
 } from "../src/integrations"
+import { providerIconSvgs } from "../src/provider-icons.generated"
 
 describe("normalizeIntegrations (#128)", () => {
   it("normalizes methods and connections into view models", () => {
@@ -87,5 +89,35 @@ describe("normalizeIntegrations (#128)", () => {
     expect(providerMonogram("  anthropic")).toBe("A")
     expect(providerMonogram("42 provider")).toBe("4")
     expect(providerMonogram("***")).toBe("?")
+  })
+})
+
+describe("providerIcon", () => {
+  it("returns the vendored brand mark by integration id, aliases included", () => {
+    const anthropic = providerIcon("anthropic")
+    expect(anthropic).toContain("<svg")
+    expect(anthropic).toContain("currentColor")
+    // Sized by the caller: no fixed width/height on the artwork.
+    expect(anthropic).not.toMatch(/\swidth=/)
+    expect(anthropic).not.toMatch(/\sheight=/)
+    // Ids are matched tolerantly (case/whitespace) and share one artwork.
+    expect(providerIcon(" Anthropic ")).toBe(anthropic)
+    expect(providerIcon("zai-coding-plan")).toBe(providerIcon("zai"))
+    expect(providerIcon("not-a-provider")).toBeNull()
+  })
+
+  it("vendors the original logos of the popular providers, paints normalized", () => {
+    const ids = Object.keys(providerIconSvgs)
+    expect(ids).toEqual(expect.arrayContaining(["opencode", "opencode-go", "anthropic", "openai", "google", "openrouter"]))
+    expect(ids.length).toBeGreaterThanOrEqual(30)
+    for (const id of ids) {
+      const svg = providerIconSvgs[id]!
+      expect(svg.startsWith("<svg")).toBe(true)
+      expect(svg.endsWith("</svg>")).toBe(true)
+      expect(svg).toContain("viewBox=")
+      // Every painted fill/stroke must resolve to the client's current color.
+      expect(svg).not.toMatch(/\sfill="(?!none|currentColor)[^"]*"/)
+      expect(svg).not.toMatch(/\sstroke="(?!none|currentColor)[^"]*"/)
+    }
   })
 })

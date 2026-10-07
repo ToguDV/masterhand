@@ -1,5 +1,5 @@
 import { Alert } from "react-native"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { SettingsModal } from "../src/components/SettingsModal"
 import { ThemeProvider, useTheme } from "../src/theme"
 import { clearTheme, saveTheme } from "../src/storage"
@@ -161,7 +161,7 @@ describe("SettingsModal providers (#128)", () => {
       c.api.credentials.mockResolvedValue([])
     })
 
-    // First five only, each with a monogram avatar.
+    // First five only, each with an avatar.
     expect(await screen.findAllByTestId("provider-avatar")).toHaveLength(5)
 
     await fireEvent.press(screen.getByLabelText("Show all 7 providers"))
@@ -173,5 +173,40 @@ describe("SettingsModal providers (#128)", () => {
     expect(screen.queryByTestId("integration-opencode-go")).toBeNull()
     expect(screen.getByTestId("integration-github")).toBeOnTheScreen()
     expect(screen.getByTestId("integration-gitlab")).toBeOnTheScreen()
+  })
+
+  it("renders the original brand mark, a metadata icon or the monogram (#128)", async () => {
+    await setup((c) => {
+      c.api.integrations.mockResolvedValue([
+        { id: "anthropic", name: "Anthropic", methods: [{ id: "key", type: "key", label: "API key" }], connections: [] },
+        { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+        {
+          id: "acme",
+          name: "Acme",
+          methods: [{ id: "key", type: "key", label: "API key" }],
+          connections: [],
+          icon: "https://example.com/acme.svg",
+        },
+      ])
+      c.api.credentials.mockResolvedValue([])
+    })
+
+    // Vendored original logo: an inline SVG instead of the monogram letter.
+    const anthropic = await screen.findByTestId("integration-anthropic")
+    expect(within(anthropic).getByTestId("provider-brand-icon")).toBeOnTheScreen()
+    expect(within(anthropic).queryByText("A")).toBeNull()
+
+    // No vendored logo: deterministic monogram.
+    const github = screen.getByTestId("integration-github")
+    expect(within(github).queryByTestId("provider-brand-icon")).toBeNull()
+    expect(within(github).getByText("G")).toBeOnTheScreen()
+
+    // An explicit metadata icon wins over the vendored/fallback glyph.
+    const acme = screen.getByTestId("integration-acme")
+    expect(within(acme).queryByTestId("provider-brand-icon")).toBeNull()
+    expect(within(acme).queryByText("A")).toBeNull()
+    expect(within(acme).getByTestId("provider-avatar").props.source).toEqual({
+      uri: "https://example.com/acme.svg",
+    })
   })
 })

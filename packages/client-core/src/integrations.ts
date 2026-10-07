@@ -6,6 +6,8 @@
  * (older or newer opencode builds must never break the settings section).
  */
 
+import { providerIconSvgs } from "./provider-icons.generated"
+
 export type IntegrationMethodType = "key" | "oauth" | "command" | "env"
 
 export interface IntegrationMethod {
@@ -99,12 +101,22 @@ export function normalizeIntegration(raw: unknown): Integration | null {
 }
 
 /**
- * One-letter avatar for a provider (opencode does not expose provider logos):
+ * One-letter avatar fallback for a provider without a vendored brand mark:
  * the first letter or digit of its name, uppercased. Falls back to "?".
  */
 export function providerMonogram(name: string): string {
   const match = name.trim().match(/[a-z0-9]/i)
   return match ? match[0].toUpperCase() : "?"
+}
+
+/**
+ * Original brand mark for an integration id (see
+ * `scripts/generate-provider-icons.mjs`), as normalized SVG markup ready to be
+ * rendered inline. `null` for providers without a vendored logo, so the caller
+ * can fall back to `providerMonogram`.
+ */
+export function providerIcon(id: string): string | null {
+  return providerIconSvgs[id.trim().toLowerCase()] ?? null
 }
 
 export function normalizeIntegrations(raw: unknown): Integration[] {

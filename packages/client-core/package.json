@@ -10,6 +10,7 @@
     }
   },
   "scripts": {
+    "icons:providers": "node scripts/generate-provider-icons.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

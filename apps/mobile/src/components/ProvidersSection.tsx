@@ -1,8 +1,10 @@
 import { useState } from "react"
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { SvgXml } from "react-native-svg"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   providerConnectErrorMessage,
+  providerIcon,
   providerMonogram,
   queryKeys,
   useIntegrations,
@@ -286,13 +288,23 @@ export function ProvidersSection({ client }: { client: Client }) {
 }
 
 /**
- * Provider glyph: opencode does not expose provider logos, so a deterministic
- * monogram stands in (with a passthrough for a future `metadata.icon` URL).
+ * Provider glyph: the original brand mark when vendored (models.dev), an
+ * explicit `metadata.icon` URL when the backend provides one, and otherwise a
+ * deterministic monogram.
  */
 function ProviderAvatar({ integration }: { integration: Integration }) {
   const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   if (integration.icon) {
     return <Image source={{ uri: integration.icon }} style={styles.avatar} testID="provider-avatar" />
+  }
+  const icon = providerIcon(integration.id)
+  if (icon) {
+    return (
+      <View style={[styles.avatar, styles.avatarBrand]} testID="provider-avatar" accessible={false}>
+        <SvgXml xml={icon} width={16} height={16} color={colors.text} testID="provider-brand-icon" />
+      </View>
+    )
   }
   return (
     <View style={styles.avatar} testID="provider-avatar">
@@ -336,6 +348,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderColor: colors.accentLine,
       borderRadius: 8,
       backgroundColor: colors.accentSoft,
+    },
+    avatarBrand: {
+      borderColor: colors.hairline,
+      backgroundColor: colors.canvas,
     },
     avatarText: {
       color: colors.accent,

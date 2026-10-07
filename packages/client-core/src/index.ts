@@ -98,6 +98,7 @@ export {
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,
+  providerIcon,
   providerMonogram,
   type Integration,
   type IntegrationConnection,

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
   providerConnectErrorMessage,
+  providerIcon,
   providerMonogram,
   queryKeys,
   useIntegrations,
@@ -238,8 +239,9 @@ export function ProvidersSection() {
 }
 
 /**
- * Provider glyph: opencode does not expose provider logos, so a deterministic
- * monogram stands in (with a passthrough for a future `metadata.icon` URL).
+ * Provider glyph: the original brand mark when vendored (models.dev), an
+ * explicit `metadata.icon` URL when the backend provides one, and otherwise a
+ * deterministic monogram.
  */
 function ProviderAvatar({ integration }: { integration: Integration }) {
   if (integration.icon) {
@@ -249,6 +251,17 @@ function ProviderAvatar({ integration }: { integration: Integration }) {
         alt=""
         data-testid="provider-avatar"
         className="h-7 w-7 shrink-0 rounded-md border border-hairline bg-canvas object-contain p-0.5"
+      />
+    )
+  }
+  const icon = providerIcon(integration.id)
+  if (icon) {
+    return (
+      <span
+        aria-hidden="true"
+        data-testid="provider-avatar"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-ink [&_svg]:h-4 [&_svg]:w-4"
+        dangerouslySetInnerHTML={{ __html: icon }}
       />
     )
   }
