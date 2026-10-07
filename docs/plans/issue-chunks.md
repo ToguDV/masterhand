@@ -1,11 +1,12 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-06. 16 open issues (#118–#131, #133–#134) grouped into **7 chunks**
-(C10–C16) by the code surface they share. The previous 34-issue backlog (C1–C9) is fully merged.
+**Snapshot:** 2026-10-07. 5 open issues (#129–#131, #133–#134) grouped into **3 chunks**
+(C14–C16) by the code surface they share. The previous backlog (C1–C13) is fully merged or closed.
 
-**Last updated:** 2026-10-06 — C10, C12 and C13 landed in the settings/chat/providers session batch
-(settings hub, sign-out relocation, mobile header, play icon, tok/s fix, per-message stats, Sending…
-ghost, provider credentials). Re-chunked after the issue batch created from the maintainer's
+**Last updated:** 2026-10-07 — C11 landed in the theme-system session batch
+(Android nav bar, 12 accent palettes, syntax highlighting). Stale trackers already shipped in #135
+(#120, #122, #125–#128) were closed as completed; #121 was closed as not planned (sign-out stays in
+the sessions options box per #136/#137). Re-chunked after the issue batch created from the maintainer's
 mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
 syntax highlighting and color themes; #125–#127 chat feedback, per-message stats and the tok/s
 fix; #128 provider credentials; #129–#130 `/goal`; and the release/update work, split after the
@@ -42,7 +43,7 @@ deferred).
 | C8 — Web unified run/preview panel + bubble | #97 #98 | ✅ Merged 2026-10-05 — remaining-issues session batch |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | ✅ Merged 2026-10-05 — remaining-issues session batch |
 | C10 — Settings hub and header cleanup | #119 #120 #121 #122 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
-| C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ⬜ Pending |
+| C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ✅ 2026-10-07 — theme-system session batch |
 | C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
@@ -60,16 +61,12 @@ deferred).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** [#127](https://github.com/ToguDV/masterhand/issues/127) (bug:
-raw decimal speeds on the session stats) and
-[#118](https://github.com/ToguDV/masterhand/issues/118) (bug: the Android navigation bar breaks
-the dark theme). The largest feature is **/goal** (C14), followed by the release/update system
-(C15). Suggested batch order: **C10 → C12 → C13 → C11 → C14 → C15 → C16** — C10 unblocks the
-settings sections (#124, #128, #130, #131, #133) and C12 opens with the quick #127 fix; C11, C14
-and C15 are the big sessions; C16 is deferred (opt-in). C15's foundation (#131: versioning + GHCR +
-the update endpoint) has no hard blocker beyond the settings section and can be pulled earlier.
+**Highest severity in the queue:** none open — the largest feature is **/goal** (C14), followed
+by the release/update system (C15). Suggested batch order: **C14 → C15 → C16** — C16 is deferred
+(opt-in). C15's foundation (#131: versioning + GHCR + the update endpoint) has no hard blocker
+beyond the settings section and can be pulled earlier.
 
-## Chunks — current batch (C10–C14)
+## Chunks — current batch (C14–C16)
 
 ### C10 — Settings hub and header cleanup (web + mobile)
 
