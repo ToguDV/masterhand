@@ -1194,9 +1194,8 @@ body {
   line-height: 1.5;
 }
 
-/* Theme droplets: one teardrop per theme, split in its two main colors with
-   the name above it. The 135deg split reads as vertical once the drop is
-   rotated -45deg; the check counter-rotates to stay upright. */
+/* Theme droplets: a stylized teardrop pointing up per theme, the two main
+   colors meeting at an S-curved "liquid" division with the name above it. */
 .mh-theme-swatches {
   display: flex;
   gap: 20px;
@@ -1220,32 +1219,18 @@ body {
 }
 
 .mh-theme-drop {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--mh-hairline-strong);
-  border-radius: 50% 50% 50% 6px;
-  transform: rotate(-45deg);
-  box-shadow: var(--mh-shadow-1);
-  transition:
-    border-color 150ms ease,
-    box-shadow 150ms ease;
+  display: inline-flex;
+  border-radius: var(--r-md);
+  filter: drop-shadow(0 1px 2px rgba(12, 12, 11, 0.12));
+  transition: filter 150ms ease;
 }
 
 .mh-theme-option:hover .mh-theme-drop {
-  border-color: var(--mh-accent);
+  filter: drop-shadow(0 0 4px var(--mh-accent-soft));
 }
 
 .mh-theme-drop.is-selected {
-  border-color: var(--mh-accent);
-  box-shadow: 0 0 0 3px var(--mh-accent-soft);
-}
-
-.mh-theme-drop__check {
-  transform: rotate(45deg);
-  color: #ffffff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 0 5px var(--mh-accent-soft));
 }
 
 @media (min-width: 768px) {

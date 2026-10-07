@@ -1,6 +1,6 @@
 import { useState, type ComponentType } from "react"
 import { useModalFocus } from "./useModalFocus"
-import { CheckIcon, KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import { KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
@@ -116,19 +116,69 @@ function AppearanceSection({
               className="mh-theme-option"
             >
               <span className="mh-body-sm font-medium">{option.label}</span>
-              <span
-                className={`mh-theme-drop${selected ? " is-selected" : ""}`}
-                aria-hidden="true"
-                style={{
-                  background: `linear-gradient(135deg, ${option.swatches[0]} 50%, ${option.swatches[1]} 50%)`,
-                }}
-              >
-                {selected && <CheckIcon size={18} className="mh-theme-drop__check" />}
-              </span>
+              <ThemeDrop
+                top={option.swatches[0]}
+                bottom={option.swatches[1]}
+                selected={selected}
+                clipId={`mh-drop-${option.value}`}
+              />
             </button>
           )
         })}
       </div>
     </section>
+  )
+}
+
+/**
+ * Stylized teardrop swatch pointing up: the two theme colors meet at an
+ * S-curved "liquid" division, like the reference. The whole drop is clipped
+ * so the wave never spills outside the outline.
+ */
+const DROP_D =
+  "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
+const WAVE_TOP_D =
+  "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
+
+function ThemeDrop({
+  top,
+  bottom,
+  selected,
+  clipId,
+}: {
+  top: string
+  bottom: string
+  selected: boolean
+  clipId: string
+}) {
+  return (
+    <span className={`mh-theme-drop${selected ? " is-selected" : ""}`} aria-hidden="true">
+      <svg viewBox="0 0 48 64" width="40" height="54" focusable="false">
+        <defs>
+          <clipPath id={clipId}>
+            <path d={DROP_D} />
+          </clipPath>
+        </defs>
+        <path d={DROP_D} fill={bottom} />
+        <path d={WAVE_TOP_D} fill={top} clipPath={`url(#${clipId})`} />
+        <path
+          d={DROP_D}
+          fill="none"
+          stroke={selected ? "var(--mh-accent)" : "var(--mh-hairline-strong)"}
+          strokeWidth={selected ? 2 : 1.5}
+        />
+        {selected && (
+          <path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="3.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55))" }}
+          />
+        )}
+      </svg>
+    </span>
   )
 }

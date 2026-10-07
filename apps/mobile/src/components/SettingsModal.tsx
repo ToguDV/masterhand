@@ -1,14 +1,18 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import type { Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
 import { ProvidersSection } from "./ProvidersSection"
-import { CheckIcon, CloseIcon, GearIcon } from "./icons"
+import { CloseIcon, GearIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
   { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
   { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
 ]
+
+const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
+const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
 /**
  * App-level settings (issue #119): a full-screen modal opened from the Sessions
@@ -68,20 +72,13 @@ export function SettingsModal({
                   onPress={() => onSelectMode(option.value)}
                 >
                   <Text style={styles.swatchName}>{option.label}</Text>
-                  <View
-                    style={[styles.drop, selected && styles.dropSelected]}
-                    accessibilityElementsHidden
-                  >
-                    <View style={styles.dropInner}>
-                      <View style={[styles.dropHalf, { backgroundColor: option.swatches[0] }]} />
-                      <View style={[styles.dropHalf, { backgroundColor: option.swatches[1] }]} />
-                    </View>
-                    {selected ? (
-                      <View style={styles.dropCheck}>
-                        <CheckIcon size={16} color="#FFFFFF" />
-                      </View>
-                    ) : null}
-                  </View>
+                  <ThemeDrop
+                    top={option.swatches[0]}
+                    bottom={option.swatches[1]}
+                    selected={selected}
+                    stroke={selected ? colors.accent : colors.hairlineStrong}
+                    clipId={`mh-drop-${option.value}`}
+                  />
                 </Pressable>
               )
             })}
@@ -92,6 +89,61 @@ export function SettingsModal({
         </ScrollView>
       </Screen>
     </Modal>
+  )
+}
+
+/**
+ * Stylized teardrop swatch pointing up (same geometry as web): the two theme
+ * colors meet at an S-curved "liquid" division, clipped to the drop outline.
+ */
+function ThemeDrop({
+  top,
+  bottom,
+  selected,
+  stroke,
+  clipId,
+}: {
+  top: string
+  bottom: string
+  selected: boolean
+  stroke: string
+  clipId: string
+}) {
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no">
+      <Svg viewBox="0 0 48 64" width={40} height={54}>
+        <Defs>
+          <ClipPath id={clipId}>
+            <Path d={DROP_D} />
+          </ClipPath>
+        </Defs>
+        <Path d={DROP_D} fill={bottom} />
+        <G clipPath={`url(#${clipId})`}>
+          <Path d={WAVE_TOP_D} fill={top} />
+        </G>
+        <Path d={DROP_D} fill="none" stroke={stroke} strokeWidth={selected ? 2 : 1.5} />
+        {selected ? (
+          <Path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="rgba(0, 0, 0, 0.45)"
+            strokeWidth={4.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+        {selected ? (
+          <Path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth={3.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+      </Svg>
+    </View>
   )
 }
 
@@ -153,38 +205,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 13,
       fontWeight: "500",
-    },
-    // Teardrop: a rotated square with three round corners. The inner row
-    // counter-rotates so the two main colors split vertically; the check
-    // counter-rotates to stay upright.
-    drop: {
-      width: 44,
-      height: 44,
-      borderWidth: 1,
-      borderColor: colors.hairlineStrong,
-      borderRadius: 22,
-      borderBottomLeftRadius: 4,
-      transform: [{ rotate: "-45deg" }],
-      overflow: "hidden",
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.surface,
-    },
-    dropSelected: {
-      borderColor: colors.accent,
-    },
-    dropInner: {
-      position: "absolute",
-      width: 64,
-      height: 64,
-      flexDirection: "row",
-      transform: [{ rotate: "45deg" }],
-    },
-    dropHalf: {
-      flex: 1,
-    },
-    dropCheck: {
-      transform: [{ rotate: "45deg" }],
     },
     accountTitle: {
       marginTop: 18,
