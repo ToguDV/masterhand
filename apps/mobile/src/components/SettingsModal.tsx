@@ -14,9 +14,9 @@ import {
   type ThemeMode,
 } from "../theme"
 
-const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
-  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
-  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
+const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
+  { value: "light", label: "Light", canvas: "#FAFAF7" },
+  { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
@@ -74,6 +74,8 @@ export function SettingsModal({
           >
             {THEMES.map((option) => {
               const selected = mode === option.value
+              const accent =
+                option.value === "light" ? PALETTES[palette].light.accent : PALETTES[palette].dark.accent
               return (
                 <Pressable
                   key={option.value}
@@ -85,8 +87,8 @@ export function SettingsModal({
                 >
                   <Text style={styles.swatchName}>{option.label}</Text>
                   <ThemeDrop
-                    top={option.swatches[0]}
-                    bottom={option.swatches[1]}
+                    top={option.canvas}
+                    bottom={accent}
                     selected={selected}
                     stroke={selected ? colors.accent : colors.hairlineStrong}
                     clipId={`mh-drop-${option.value}`}
