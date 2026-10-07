@@ -24,7 +24,7 @@ export function SettingsSheet({
   onClose: () => void
 }) {
   return (
-    <SidePanel title="Settings" closeLabel="Close settings" onClose={onClose}>
+    <SidePanel title="Settings" closeLabel="Close settings" variant="cover" onClose={onClose}>
       <section className="border-b border-hairline p-4" aria-labelledby="settings-appearance">
         <h3
           id="settings-appearance"

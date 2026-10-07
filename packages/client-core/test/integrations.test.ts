@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
+  compareIntegrations,
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,
   providerIcon,
   providerMonogram,
+  type Integration,
 } from "../src/integrations"
 import { providerIconSvgs } from "../src/provider-icons.generated"
 
@@ -104,6 +106,24 @@ describe("providerIcon", () => {
     expect(providerIcon(" Anthropic ")).toBe(anthropic)
     expect(providerIcon("zai-coding-plan")).toBe(providerIcon("zai"))
     expect(providerIcon("not-a-provider")).toBeNull()
+  })
+
+  it("ranks the provider list by importance, logos first (#128)", () => {
+    const make = (id: string, name = id): Integration => ({ id, name, methods: [], connections: [] })
+    const ids = (list: Integration[]) =>
+      [...list].sort(compareIntegrations).map((integration) => integration.id)
+
+    // OpenCode Go stays pinned ahead of the rest, whatever the input order.
+    expect(ids([make("anthropic"), make("opencode-go")])).toEqual(["opencode-go", "anthropic"])
+
+    // Providers with a vendored logo come before iconless ones…
+    expect(ids([make("github"), make("anthropic")])).toEqual(["anthropic", "github"])
+
+    // …and follow the curated importance order among themselves.
+    expect(ids([make("openrouter"), make("anthropic")])).toEqual(["anthropic", "openrouter"])
+
+    // Unknown iconless providers fall back to a stable alphabetical order.
+    expect(ids([make("zulu"), make("alpha")])).toEqual(["alpha", "zulu"])
   })
 
   it("vendors the original logos of the popular providers, paints normalized", () => {

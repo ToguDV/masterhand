@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput
 import { SvgXml } from "react-native-svg"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  compareIntegrations,
   providerConnectErrorMessage,
   providerIcon,
   providerMonogram,
@@ -16,11 +17,6 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /** Providers shown before the "Show all" affordance. */
 const PROVIDER_PAGE_SIZE = 5
-
-/** OpenCode Go (and any other opencode integration) is pinned first. */
-function integrationRank(integration: Integration): number {
-  return /opencode/i.test(`${integration.id} ${integration.name}`) ? 0 : 1
-}
 
 /**
  * Settings > Providers (issue #128): connect an API key without host access.
@@ -43,7 +39,7 @@ export function ProvidersSection({ client }: { client: Client }) {
   const { colors } = useTheme()
 
   const filtered = [...(integrationsQuery.data ?? [])]
-    .sort((a, b) => integrationRank(a) - integrationRank(b))
+    .sort(compareIntegrations)
     .filter((integration) => {
       const needle = search.trim().toLowerCase()
       if (!needle) return true

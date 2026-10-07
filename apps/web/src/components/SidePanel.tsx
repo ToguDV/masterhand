@@ -4,7 +4,9 @@ import { XIcon } from "./icons"
 
 /**
  * Right sheet used by the run, preview, audit and side-question panels:
- * full width on mobile over a scrim, docked at 360px on desktop.
+ * full width on mobile over a scrim, docked at 360px on desktop. The `cover`
+ * variant skips the dock: it spans the whole viewport at every width so
+ * settings read as a full-screen surface with nothing behind it.
  */
 export function SidePanel({
   title,
@@ -12,21 +14,24 @@ export function SidePanel({
   actions,
   children,
   onClose,
+  variant = "dock",
 }: {
   title: string
   closeLabel: string
   actions?: ReactNode
   children: ReactNode
   onClose: () => void
+  variant?: "dock" | "cover"
 }) {
   const sheetRef = useModalFocus<HTMLDivElement>(onClose)
+  const cover = variant === "cover"
 
   return (
-    <div className="mh-sheet-scrim" onClick={onClose}>
+    <div className={`mh-sheet-scrim${cover ? " mh-sheet-scrim--cover" : ""}`} onClick={onClose}>
       <div
         ref={sheetRef}
         tabIndex={-1}
-        className="mh-sheet outline-none"
+        className={`mh-sheet outline-none${cover ? " mh-sheet--cover" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

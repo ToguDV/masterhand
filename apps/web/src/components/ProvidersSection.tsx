@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
+  compareIntegrations,
   providerConnectErrorMessage,
   providerIcon,
   providerMonogram,
@@ -15,11 +16,6 @@ import { useModalFocus } from "./useModalFocus"
 
 /** Providers shown before the "Show all" affordance. */
 const PROVIDER_PAGE_SIZE = 5
-
-/** OpenCode Go (and any other opencode integration) is pinned first. */
-function integrationRank(integration: Integration): number {
-  return /opencode/i.test(`${integration.id} ${integration.name}`) ? 0 : 1
-}
 
 /**
  * Settings > Providers (issue #128): connect an API key without host access.
@@ -38,7 +34,7 @@ export function ProvidersSection() {
   const [showAll, setShowAll] = useState(false)
 
   const filtered = useMemo(() => {
-    const sorted = [...(integrationsQuery.data ?? [])].sort((a, b) => integrationRank(a) - integrationRank(b))
+    const sorted = [...(integrationsQuery.data ?? [])].sort(compareIntegrations)
     const needle = search.trim().toLowerCase()
     if (!needle) return sorted
     return sorted.filter((integration) => `${integration.name} ${integration.id}`.toLowerCase().includes(needle))
@@ -177,7 +173,7 @@ export function ProvidersSection() {
                         ) : (
                           <button
                             type="button"
-                            className="mh-btn mh-btn--sm mh-btn--quiet"
+                            className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
                             disabled={busyID === credentialID}
                             onClick={() => setConfirmingID(credentialID)}
                           >

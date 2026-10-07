@@ -60,6 +60,8 @@ test("keeps oauth providers informational (#128)", async ({ page }) => {
   await login(page)
   const settings = await openSettings(page)
 
+  // GitHub has no vendored logo, so it ranks past the first page.
+  await settings.getByRole("button", { name: /Show all/ }).click()
   const github = settings.getByTestId("integration-github")
   await expect(github).toContainText("opencode CLI/TUI")
   await expect(github.getByRole("button", { name: "Connect" })).toHaveCount(0)
@@ -74,6 +76,8 @@ test("renders the original provider logos in the list (#128)", async ({ page }) 
   await expect(anthropic.getByTestId("provider-avatar").locator("svg")).toHaveCount(1)
 
   // A provider without one keeps the deterministic monogram (mock "github").
+  // It sits past the first page now that logo-bearing providers rank first.
+  await settings.getByRole("button", { name: /Show all/ }).click()
   const github = settings.getByTestId("integration-github")
   await expect(github.getByTestId("provider-avatar")).toHaveText("G")
   await expect(github.getByTestId("provider-avatar").locator("svg")).toHaveCount(0)

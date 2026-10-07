@@ -95,6 +95,7 @@ export {
   type UseEventStreamOptions,
 } from "./hooks"
 export {
+  compareIntegrations,
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,

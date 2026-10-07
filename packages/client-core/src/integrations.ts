@@ -119,6 +119,77 @@ export function providerIcon(id: string): string | null {
   return providerIconSvgs[id.trim().toLowerCase()] ?? null
 }
 
+/**
+ * Curated importance order for the provider list: the opencode integrations
+ * first, then the providers people reach for most. Ids missing here fall in
+ * after the listed ones (still ahead of iconless providers).
+ */
+const PROVIDER_IMPORTANCE: readonly string[] = [
+  "opencode-go",
+  "opencode",
+  "anthropic",
+  "openai",
+  "google",
+  "google-vertex",
+  "xai",
+  "deepseek",
+  "meta",
+  "mistral",
+  "openrouter",
+  "groq",
+  "cerebras",
+  "togetherai",
+  "perplexity",
+  "perplexity-agent",
+  "cohere",
+  "nvidia",
+  "alibaba",
+  "zai",
+  "zhipuai",
+  "zai-coding-plan",
+  "moonshotai",
+  "moonshotai-cn",
+  "minimax",
+  "minimax-cn",
+  "minimax-coding-plan",
+  "amazon-bedrock",
+  "azure",
+  "github-copilot",
+  "gitlab",
+  "cloudflare-workers-ai",
+  "fireworks-ai",
+  "deepinfra",
+  "novita-ai",
+  "nebius",
+  "baseten",
+  "modal",
+  "vercel",
+  "huggingface",
+  "poe",
+  "venice",
+  "modelscope",
+  "siliconflow",
+  "siliconflow-cn",
+]
+
+const providerImportance = new Map(PROVIDER_IMPORTANCE.map((id, index) => [id, index]))
+
+/**
+ * Sort order for the provider list (issue #128). Providers with a vendored
+ * brand mark come first — so the visible page shows real, established logos —
+ * ordered by the curated importance list, then the rest by name. Unknown icon
+ * providers land between both groups. Ties break alphabetically so the order
+ * stays stable across refreshes.
+ */
+export function compareIntegrations(a: Integration, b: Integration): number {
+  const byIcon = (providerIcon(a.id) ? 0 : 1) - (providerIcon(b.id) ? 0 : 1)
+  if (byIcon !== 0) return byIcon
+  const aRank = providerImportance.get(a.id.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+  const bRank = providerImportance.get(b.id.trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+  if (aRank !== bRank) return aRank - bRank
+  return a.name.localeCompare(b.name)
+}
+
 export function normalizeIntegrations(raw: unknown): Integration[] {
   if (!Array.isArray(raw)) return []
   return raw.map(normalizeIntegration).filter((integration): integration is Integration => integration !== null)

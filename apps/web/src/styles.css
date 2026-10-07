@@ -1341,6 +1341,20 @@ body {
   }
 }
 
+/* Settings (#119): a full-bleed cover — the sheet spans the viewport and the
+   scrim stays, so nothing behind it competes for attention. Declared after the
+   dock media query on purpose: it must win at every breakpoint. */
+.mh-sheet-scrim--cover {
+  background: var(--mh-overlay);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.mh-sheet--cover {
+  width: 100%;
+  border-left: 0;
+}
+
 /* Composer textarea: one to five lines, 44px at rest. */
 .mh-composer-input {
   min-height: 44px;
