@@ -579,7 +579,22 @@ Settings > Appearance offers **13 accent palettes** (emerald default + amber, ro
 | Crimson | `#B3261E` | `#F08A82` |  |
 | Slate | `#475569` | `#94A3B8` |  |
 
-A palette tints the accent family (`accent`, `accent-strong`, `accent-soft`, `accent-line`, `on-accent`, the user bubble) plus a **subtle** `surface-muted`/`blob`/`selection` tint. Canvas, surfaces, text, hairlines and the semantic warning/danger/success tokens stay shared, so the paper/ink identity survives every hue. Light accents are 700-shades (readable on paper), dark accents are 300-shades (readable on charcoal); unknown stored values fall back to emerald.
+A palette tints the accent family plus a **subtle** `surface-muted`/`blob`/`selection` tint. Canvas, surfaces, text, hairlines and the semantic warning/danger/success tokens stay shared, so the paper/ink identity survives every hue. Light accents are 700-shades (readable on paper), dark accents are 300-shades (readable on charcoal); unknown stored values fall back to emerald.
+
+### Syntax tokens
+
+Tool cards and fenced message code highlight by language with one shared token palette, tuned for the dark code surface in both themes:
+
+| Token | Color | Use |
+|---|---|---|
+| keyword | `#C792EA` | `const`, `def`, `if`, … |
+| string | `#9ECE8A` | quoted text |
+| number | `#E3B341` | numeric literals |
+| comment | `#7A7A76` italic | `//`, `#`, `/* … */` |
+| function | palette dark accent | call names (`fetch(`) |
+| type | `#7DD3FC` | `Capitalized` names |
+
+Function names follow the active palette (the dark accent reads on dark code in every theme); the rest is fixed. Diff add/remove rows keep their semantic row colors — only context lines highlight. Unknown languages render plain, never broken.
 
 ### Brand & Accent
 - **Deep Emerald** (`{colors.accent}`): the single accent. Primary buttons, active filter pill text, focus rings, branch chips, connection state.

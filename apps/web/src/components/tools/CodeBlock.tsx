@@ -1,5 +1,12 @@
-import { useState } from "react"
-import { looksLineNumbered, truncateLines } from "@masterhand/client-core"
+import { useMemo, useState } from "react"
+import {
+  detectLanguage,
+  highlightCode,
+  looksLineNumbered,
+  truncateLines,
+  type HighlightLanguage,
+  type SyntaxToken,
+} from "@masterhand/client-core"
 import { useToast } from "../Toast"
 
 /** Clipboard button with a transient toast; hidden when unavailable. */
@@ -25,14 +32,45 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   )
 }
 
+const TOKEN_CLASS: Record<SyntaxToken["kind"], string | null> = {
+  keyword: "mh-tok-keyword",
+  string: "mh-tok-string",
+  number: "mh-tok-number",
+  comment: "mh-tok-comment",
+  function: "mh-tok-function",
+  type: "mh-tok-type",
+  punct: null,
+  plain: null,
+}
+
+/** One tokenized line: plain text stays a raw string, kinds become spans. */
+function TokenLine({ tokens }: { tokens: SyntaxToken[] }) {
+  return (
+    <>
+      {tokens.map((token, index) => {
+        const className = TOKEN_CLASS[token.kind]
+        return className ? (
+          <span key={index} className={className}>
+            {token.text}
+          </span>
+        ) : (
+          <span key={index}>{token.text}</span>
+        )
+      })}
+    </>
+  )
+}
+
 /**
- * Monospace block with optional line numbers, a copy action and a per-block
- * "show all" toggle. Text that already carries opencode line numbers
- * (`00001| …`) is not numbered twice. Code surfaces stay dark in both themes.
+ * Monospace block with optional line numbers, syntax highlighting (#123), a
+ * copy action and a per-block "show all" toggle. Text that already carries
+ * opencode line numbers (`00001| …`) is not numbered twice. Code surfaces
+ * stay dark in both themes. Unknown languages render plain, never broken.
  */
 export function CodeBlock({
   text,
   title,
+  language,
   maxLines = 24,
   numbered = true,
   startLine = 1,
@@ -41,6 +79,8 @@ export function CodeBlock({
   text: string
   /** Small label on the top-left (file name, language…). */
   title?: string
+  /** File path, extension or fence info for highlighting (plain when unknown). */
+  language?: string
   maxLines?: number
   numbered?: boolean
   /** 1-based number of the first line (read pages start at their offset). */
@@ -50,6 +90,12 @@ export function CodeBlock({
   const [expanded, setExpanded] = useState(false)
   const alreadyNumbered = looksLineNumbered(text)
   const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines)
+  // Streaming-safe: tokenize once per content + language, not per delta.
+  const highlighted = useMemo(() => {
+    const resolved: HighlightLanguage | null = language ? detectLanguage(language) : null
+    if (!resolved) return null
+    return highlightCode(truncated.text, resolved)
+  }, [truncated.text, language])
   const lines = truncated.text.split("\n")
   const showNumbers = numbered && !alreadyNumbered
 
@@ -80,7 +126,15 @@ export function CodeBlock({
                     {startLine + index}
                   </span>
                 )}
-                {line || " "}
+                {highlighted ? (
+                  line ? (
+                    <TokenLine tokens={highlighted[index] ?? []} />
+                  ) : (
+                    " "
+                  )
+                ) : (
+                  line || " "
+                )}
               </span>
             ))}
             {truncated.hiddenLines > 0 && (

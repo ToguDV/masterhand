@@ -23,6 +23,14 @@ export {
   type PaletteEntry,
   type PaletteID,
 } from "./palettes"
+export {
+  detectLanguage,
+  highlightCode,
+  highlightLine,
+  type HighlightLanguage,
+  type SyntaxToken,
+  type SyntaxTokenKind,
+} from "./highlight"
 export { usePendingSend, type PendingSend, type PendingSendController } from "./pending"
 export {
   conversationErrorMessage,

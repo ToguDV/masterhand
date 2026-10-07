@@ -1,8 +1,10 @@
-import { memo, useState, type ReactNode } from "react"
+import { Children, memo, useMemo, useState, type ReactElement, type ReactNode } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import {
+  detectLanguage,
+  highlightCode,
   isQuestionTool,
   isTaskTool,
   subagentInfo,
@@ -14,6 +16,7 @@ import {
   type ChatToolPart,
   type FormAnswer,
   type FormInfo,
+  type HighlightLanguage,
   type Permission,
 } from "@masterhand/client-core"
 import { ToolCard } from "./tools/ToolCard"
@@ -52,12 +55,28 @@ const markdownComponents: Components = {
   code: ({ node, ...props }) => (
     <code className="rounded-xs bg-surface-muted px-1 py-0.5 font-mono text-[13px] text-ink" {...props} />
   ),
-  pre: ({ node, ...props }) => (
-    <pre
-      className="scroll-thin my-2 overflow-x-auto rounded-md bg-code p-3 font-mono text-[13px] leading-[1.6] text-code-text first:mt-0 last:mb-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
-      {...props}
-    />
-  ),
+  pre: ({ node, children, ...props }) => {
+    const child = Children.toArray(children)[0] as ReactElement<{ className?: string; children?: ReactNode }> | undefined
+    const className = child?.props?.className ?? ""
+    const match = /language-([\w+-]+)/.exec(className)
+    const language: HighlightLanguage | null = match ? detectLanguage(match[1]) : null
+    const text = Children.toArray(child?.props?.children)
+      .map((part) => (typeof part === "string" ? part : ""))
+      .join("")
+    // Fenced block with a known language: highlighted. Every other fence and
+    // inline code keep the plain styling (#123).
+    if (language && text) {
+      return <FencedCode language={language}>{text.replace(/\n$/, "")}</FencedCode>
+    }
+    return (
+      <pre
+        className="scroll-thin my-2 overflow-x-auto rounded-md bg-code p-3 font-mono text-[13px] leading-[1.6] text-code-text first:mt-0 last:mb-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-inherit"
+        {...props}
+      >
+        {children}
+      </pre>
+    )
+  },
   table: ({ node, ...props }) => (
     <div className="scroll-thin my-3 overflow-x-auto first:mt-0 last:mb-0">
       <table className="w-full border-collapse text-sm" {...props} />
@@ -82,6 +101,49 @@ const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
         {text}
       </ReactMarkdown>
     </div>
+  )
+})
+
+const FENCED_TOKEN_CLASS: Record<string, string | null> = {
+  keyword: "mh-tok-keyword",
+  string: "mh-tok-string",
+  number: "mh-tok-number",
+  comment: "mh-tok-comment",
+  function: "mh-tok-function",
+  type: "mh-tok-type",
+  punct: null,
+  plain: null,
+}
+
+// Highlighted fenced code block (#123): same token language as the tool
+// cards, memoized per content + language so streaming stays cheap.
+const FencedCode = memo(function FencedCode({
+  language,
+  children,
+}: {
+  language: HighlightLanguage
+  children: string
+}) {
+  const lines = useMemo(() => highlightCode(children, language), [children, language])
+  return (
+    <pre className="scroll-thin my-2 overflow-x-auto rounded-md bg-code p-3 font-mono text-[13px] leading-[1.6] text-code-text first:mt-0 last:mb-0">
+      <code>
+        {lines.map((tokens, index) => (
+          <span key={index} className="block whitespace-pre-wrap break-words">
+            {tokens.map((token, tokenIndex) => {
+              const className = FENCED_TOKEN_CLASS[token.kind] ?? null
+              return className ? (
+                <span key={tokenIndex} className={className}>
+                  {token.text}
+                </span>
+              ) : (
+                <span key={tokenIndex}>{token.text}</span>
+              )
+            })}
+          </span>
+        ))}
+      </code>
+    </pre>
   )
 })
 

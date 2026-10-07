@@ -63,6 +63,9 @@ export interface Palette {
   codeSurfaceSoft: string
   codeText: string
   codeMuted: string
+  // Syntax tokens (#123): one tuned palette for the dark code surface.
+  // `function` follows the palette's dark accent (readable on dark code).
+  syntax: SyntaxPalette
   // Overlay
   overlay: string
   // User bubble — deep emerald, never the brightest surface
@@ -73,6 +76,16 @@ export interface Palette {
   border: string
   muted: string
   accentMuted: string
+}
+
+/** Token colors for highlighted code; shared with the web `--mh-syn-*` vars. */
+export interface SyntaxPalette {
+  keyword: string
+  string: string
+  number: string
+  comment: string
+  function: string
+  type: string
 }
 
 type BasePalette = Omit<Palette, "background" | "border" | "muted" | "accentMuted">
@@ -114,6 +127,14 @@ export const palettes: Record<ThemeName, Palette> = {
     codeSurfaceSoft: "#1C1C1A",
     codeText: "#EDEDE8",
     codeMuted: "#8E8E88",
+    syntax: {
+      keyword: "#C792EA",
+      string: "#9ECE8A",
+      number: "#E3B341",
+      comment: "#7A7A76",
+      function: "#3ED8A8",
+      type: "#7DD3FC",
+    },
     overlay: "rgba(12, 12, 11, 0.45)",
     bubbleUser: "#085041",
     bubbleUserText: "#FFFFFF",
@@ -144,6 +165,14 @@ export const palettes: Record<ThemeName, Palette> = {
     codeSurfaceSoft: "#262624",
     codeText: "#EDEDE8",
     codeMuted: "#8E8E88",
+    syntax: {
+      keyword: "#C792EA",
+      string: "#9ECE8A",
+      number: "#E3B341",
+      comment: "#7A7A76",
+      function: "#3ED8A8",
+      type: "#7DD3FC",
+    },
     overlay: "rgba(0, 0, 0, 0.6)",
     bubbleUser: "#06372C",
     bubbleUserText: "#D9EAE3",
@@ -171,6 +200,7 @@ export function paletteFor(id: string, theme: ThemeName): Palette {
     bubbleUser: accents.bubbleUser,
     bubbleUserText: accents.bubbleUserText,
     surfaceMuted: accents.surfaceMuted,
+    syntax: { ...palettes[theme].syntax, function: PALETTES[resolved].dark.accent },
   }
 }
 

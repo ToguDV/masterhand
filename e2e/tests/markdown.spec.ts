@@ -24,6 +24,8 @@ test("renders the assistant reply as markdown", async ({ page }) => {
   await expect(markdown.locator("table td", { hasText: "alpha" })).toBeVisible()
 
   await expect(markdown.locator("pre code", { hasText: "const a = 1" })).toBeVisible()
+  // Fenced code with a language is syntax-highlighted (#123).
+  await expect(markdown.locator(".mh-tok-keyword", { hasText: "const" })).toBeVisible()
 
   const link = markdown.getByRole("link", { name: "docs" })
   await expect(link).toHaveAttribute("href", "https://example.com/docs")

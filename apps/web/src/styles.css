@@ -77,6 +77,16 @@
   --mh-code-text: #ededE8;
   --mh-code-muted: #8e8e88;
 
+  /* Syntax tokens (#123): one tuned palette for the dark code surface in both
+     modes. Function names follow the palette's dark accent (readable on dark
+     code in every theme); the rest is fixed. */
+  --mh-syn-keyword: #c792ea;
+  --mh-syn-string: #9ece8a;
+  --mh-syn-number: #e3b341;
+  --mh-syn-comment: #7a7a76;
+  --mh-syn-function: #3ed8a8;
+  --mh-syn-type: #7dd3fc;
+
   /* Overlay & depth */
   --mh-overlay: light-dark(rgba(12, 12, 11, 0.45), rgba(0, 0, 0, 0.6));
   --mh-shadow-1: 0 1px 2px light-dark(rgba(12, 12, 11, 0.05), rgba(0, 0, 0, 0.4));
@@ -99,6 +109,7 @@
    -------------------------------------------------------------------------- */
 
 :root[data-palette="amber"] {
+  --mh-syn-function: #E3B341;
   --mh-accent: light-dark(#8a5a00, #e3b341);
   --mh-accent-strong: light-dark(#6b4500, #f0c868);
   --mh-accent-soft: light-dark(#f5e8c8, rgba(227, 179, 65, 0.14));
@@ -112,6 +123,7 @@
 }
 
 :root[data-palette="rose"] {
+  --mh-syn-function: #F48FB1;
   --mh-accent: light-dark(#ad1457, #f48fb1);
   --mh-accent-strong: light-dark(#8a0f43, #f8bbd0);
   --mh-accent-soft: light-dark(#f9dce6, rgba(244, 143, 177, 0.14));
@@ -125,6 +137,7 @@
 }
 
 :root[data-palette="fuchsia"] {
+  --mh-syn-function: #E879F9;
   --mh-accent: light-dark(#a21caf, #e879f9);
   --mh-accent-strong: light-dark(#86198f, #f0abfc);
   --mh-accent-soft: light-dark(#f3d4f7, rgba(232, 121, 249, 0.14));
@@ -138,6 +151,7 @@
 }
 
 :root[data-palette="violet"] {
+  --mh-syn-function: #A78BFA;
   --mh-accent: light-dark(#6d28d9, #a78bfa);
   --mh-accent-strong: light-dark(#5b21b6, #c4b5fd);
   --mh-accent-soft: light-dark(#e3d7fa, rgba(167, 139, 250, 0.14));
@@ -151,6 +165,7 @@
 }
 
 :root[data-palette="indigo"] {
+  --mh-syn-function: #818CF8;
   --mh-accent: light-dark(#4338ca, #818cf8);
   --mh-accent-strong: light-dark(#3730a3, #a5b4fc);
   --mh-accent-soft: light-dark(#dcd9f9, rgba(129, 140, 248, 0.14));
@@ -164,6 +179,7 @@
 }
 
 :root[data-palette="blue"] {
+  --mh-syn-function: #60A5FA;
   --mh-accent: light-dark(#1d4ed8, #60a5fa);
   --mh-accent-strong: light-dark(#1e40af, #93c5fd);
   --mh-accent-soft: light-dark(#d5e1fa, rgba(96, 165, 250, 0.14));
@@ -177,6 +193,7 @@
 }
 
 :root[data-palette="cyan"] {
+  --mh-syn-function: #22D3EE;
   --mh-accent: light-dark(#0e7490, #22d3ee);
   --mh-accent-strong: light-dark(#155e75, #67e8f9);
   --mh-accent-soft: light-dark(#cdeff8, rgba(34, 211, 238, 0.14));
@@ -190,6 +207,7 @@
 }
 
 :root[data-palette="teal"] {
+  --mh-syn-function: #2DD4BF;
   --mh-accent: light-dark(#0f766e, #2dd4bf);
   --mh-accent-strong: light-dark(#115e59, #5eead4);
   --mh-accent-soft: light-dark(#c9ede9, rgba(45, 212, 191, 0.14));
@@ -203,6 +221,7 @@
 }
 
 :root[data-palette="lime"] {
+  --mh-syn-function: #A3E635;
   --mh-accent: light-dark(#4d7c0f, #a3e635);
   --mh-accent-strong: light-dark(#3f6212, #bef264);
   --mh-accent-soft: light-dark(#e4f0c9, rgba(163, 230, 53, 0.14));
@@ -216,6 +235,7 @@
 }
 
 :root[data-palette="orange"] {
+  --mh-syn-function: #FB923C;
   --mh-accent: light-dark(#c2410c, #fb923c);
   --mh-accent-strong: light-dark(#9a3412, #fdba74);
   --mh-accent-soft: light-dark(#f9dfc9, rgba(251, 146, 60, 0.14));
@@ -229,6 +249,7 @@
 }
 
 :root[data-palette="crimson"] {
+  --mh-syn-function: #F08A82;
   --mh-accent: light-dark(#b3261e, #f08a82);
   --mh-accent-strong: light-dark(#8c1d18, #f5b3ad);
   --mh-accent-soft: light-dark(#f6d5d2, rgba(240, 138, 130, 0.14));
@@ -242,6 +263,7 @@
 }
 
 :root[data-palette="slate"] {
+  --mh-syn-function: #94A3B8;
   --mh-accent: light-dark(#475569, #94a3b8);
   --mh-accent-strong: light-dark(#334155, #cbd5e1);
   --mh-accent-soft: light-dark(#dde3ea, rgba(148, 163, 184, 0.14));
@@ -1126,6 +1148,32 @@ body {
 .mh-diff__line.is-remove {
   background: rgba(179, 38, 30, 0.18);
   color: #f0b4ae;
+}
+
+/* Syntax-highlighted tokens (#123): spans inside code blocks and fences. */
+.mh-tok-keyword {
+  color: var(--mh-syn-keyword);
+}
+
+.mh-tok-string {
+  color: var(--mh-syn-string);
+}
+
+.mh-tok-number {
+  color: var(--mh-syn-number);
+}
+
+.mh-tok-comment {
+  color: var(--mh-syn-comment);
+  font-style: italic;
+}
+
+.mh-tok-function {
+  color: var(--mh-syn-function);
+}
+
+.mh-tok-type {
+  color: var(--mh-syn-type);
 }
 
 /* --------------------------------------------------------------------------
