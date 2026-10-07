@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { defineConfig, devices } from "@playwright/test"
+import { E2E_CLOUDFLARED_DIE_FILE, E2E_DATA_DIR, E2E_WORKSPACES_ROOT } from "./paths"
 
 const e2eDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(e2eDir, "..")
@@ -18,6 +19,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   outputDir: "test-results",
+  globalSetup: "./global-setup.ts",
   use: {
     baseURL: `http://127.0.0.1:${BFF_PORT}`,
     trace: "on-first-retry",
@@ -29,7 +31,9 @@ export default defineConfig({
       cwd: e2eDir,
       env: { MOCK_PORT: String(MOCK_PORT) },
       url: `http://127.0.0.1:${MOCK_PORT}/global/health`,
-      reuseExistingServer: !process.env.CI,
+      // Never reuse: a server left behind by a killed run would serve the
+      // previous build and state instead of this run's hermetic setup.
+      reuseExistingServer: false,
       timeout: 30_000,
     },
     {
@@ -46,8 +50,8 @@ export default defineConfig({
         VITE_FINISH_TIMEOUT_MS: "5000",
         SESSION_SECRET: "e2e-secret",
         COOKIE_SECURE: "false",
-        DATA_DIR: "/tmp/masterhand-e2e",
-        WORKSPACES_ROOT: "/tmp/masterhand-e2e-workspace",
+        DATA_DIR: E2E_DATA_DIR,
+        WORKSPACES_ROOT: E2E_WORKSPACES_ROOT,
         PREVIEW_ORIGIN: "127.0.0.1",
         // The mock's own port doubles as the session's dev server: the BFF's
         // reachability probe only needs a listener, and this avoids a second
@@ -58,10 +62,11 @@ export default defineConfig({
         PREVIEW_READINESS_MS: "0",
         CLOUDFLARED_BIN: path.join(e2eDir, "fake-cloudflared.sh"),
         // Creating this file makes the fake tunnel exit on its own (#89).
-        E2E_CLOUDFLARED_DIE_FILE: "/tmp/masterhand-e2e-cloudflared-die",
+        E2E_CLOUDFLARED_DIE_FILE: E2E_CLOUDFLARED_DIE_FILE,
       },
       url: `http://127.0.0.1:${BFF_PORT}/api/health`,
-      reuseExistingServer: !process.env.CI,
+      // Same as above: a stale BFF would serve another run's database.
+      reuseExistingServer: false,
       timeout: 120_000,
     },
   ],
