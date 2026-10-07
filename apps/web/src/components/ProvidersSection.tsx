@@ -139,24 +139,13 @@ export function ProvidersSection() {
                     const credential = credentials.find((entry) => entry.id === credentialID)
                     return (
                       <li key={credentialID} className="flex items-center gap-2 text-xs text-ink-muted">
-                        <span className="min-w-0 flex-1 truncate">{connection.label ?? "API key"}</span>
-                        {credential?.active && <span className="text-accent">Active</span>}
-                        {credential && !credential.active && (
-                          <button
-                            type="button"
-                            className="mh-btn mh-btn--sm mh-btn--quiet"
-                            disabled={busyID === credentialID}
-                            onClick={() => void activate(credentialID)}
-                          >
-                            Use
-                          </button>
-                        )}
+                        {/* The action sits where the Connect button was: first, on the left. */}
                         {confirmingID === credentialID ? (
                           <>
                             <span className="text-danger">Disconnect?</span>
                             <button
                               type="button"
-                              className="mh-btn mh-btn--sm mh-btn--danger"
+                              className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
                               disabled={busyID === credentialID}
                               onClick={() => void disconnect(credentialID)}
                             >
@@ -178,6 +167,18 @@ export function ProvidersSection() {
                             onClick={() => setConfirmingID(credentialID)}
                           >
                             Disconnect
+                          </button>
+                        )}
+                        <span className="min-w-0 flex-1 truncate">{connection.label ?? "API key"}</span>
+                        {credential?.active && <span className="text-accent">Active</span>}
+                        {credential && !credential.active && (
+                          <button
+                            type="button"
+                            className="mh-btn mh-btn--sm mh-btn--quiet"
+                            disabled={busyID === credentialID}
+                            onClick={() => void activate(credentialID)}
+                          >
+                            Use
                           </button>
                         )}
                       </li>

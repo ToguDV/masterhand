@@ -167,6 +167,19 @@ export function ProvidersSection({ client }: { client: Client }) {
               const credentialBusy = busyCredentialID === credentialID
               return (
                 <View key={credentialID} style={styles.credentialRow}>
+                  {/* The action sits where the Connect button was: first, on the left. */}
+                  <Pressable
+                    onPress={() => confirmDisconnect(credentialID, integration.name)}
+                    disabled={credentialBusy}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Disconnect ${connection.label ?? "API key"}`}
+                  >
+                    {credentialBusy ? (
+                      <ActivityIndicator size="small" color={colors.textMuted} />
+                    ) : (
+                      <Text style={styles.danger}>Disconnect</Text>
+                    )}
+                  </Pressable>
                   <Text style={styles.credentialLabel} numberOfLines={1}>
                     {connection.label ?? "API key"}
                   </Text>
@@ -181,18 +194,6 @@ export function ProvidersSection({ client }: { client: Client }) {
                       <Text style={styles.action}>Use</Text>
                     </Pressable>
                   ) : null}
-                  <Pressable
-                    onPress={() => confirmDisconnect(credentialID, integration.name)}
-                    disabled={credentialBusy}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Disconnect ${connection.label ?? "API key"}`}
-                  >
-                    {credentialBusy ? (
-                      <ActivityIndicator size="small" color={colors.textMuted} />
-                    ) : (
-                      <Text style={styles.danger}>Disconnect</Text>
-                    )}
-                  </Pressable>
                 </View>
               )
             })}
