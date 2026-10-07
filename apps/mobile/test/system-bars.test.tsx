@@ -5,6 +5,9 @@ import { NavigationBar } from "expo-navigation-bar"
 
 jest.mock("../src/storage", () => ({
   loadTheme: jest.fn(async () => null),
+  loadPalette: jest.fn(async () => null),
+  savePalette: jest.fn(async () => {}),
+  clearPalette: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
 }))

@@ -248,7 +248,7 @@ function AuthenticatedApp({
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
   const styles = useThemedStyles(createStyles)
-  const { mode, setMode } = useTheme()
+  const { mode, setMode, palette, setPalette } = useTheme()
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -661,6 +661,8 @@ function AuthenticatedApp({
         client={client}
         mode={mode}
         onSelectMode={setMode}
+        palette={palette}
+        onSelectPalette={setPalette}
         onClose={() => setSettingsOpen(false)}
       />
 
