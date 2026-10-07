@@ -94,6 +94,47 @@ test("collapses the sessions sidebar into an icon rail on desktop", async ({ pag
   await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
 })
 
+test("paints the sidebar edge handle with the sidebar border paint", async ({ page }) => {
+  await login(page)
+  const aside = page.locator("aside")
+  const handlePaint = () =>
+    page.evaluate(() => {
+      const asideElement = document.querySelector("aside")
+      // Scoped to the floating handle (the only absolutely positioned div in
+      // the aside) so session-list and button icons never leak in: within it,
+      // the last path is the visible curve — the earlier ones are the
+      // straight-segment cover and the blurred depth copy underneath.
+      const handleSvg = document.querySelector("aside div.absolute svg")
+      const paths = handleSvg ? Array.from(handleSvg.querySelectorAll("path")) : []
+      const curve = paths[paths.length - 1]
+      const style = curve ? getComputedStyle(curve) : null
+      return {
+        border: asideElement ? getComputedStyle(asideElement).borderRightColor : null,
+        count: paths.length,
+        stroke: style?.stroke ?? null,
+        width: style?.strokeWidth ?? null,
+        filter: style?.filter ?? null,
+      }
+    })
+
+  // Collapsed (outward bump) and expanded (inward bump) share one paint: the
+  // curve must match the sidebar border exactly, with no tinting filter on it.
+  // A 1px sloped stroke never reaches full coverage, so the curve is 1.25px
+  // over a faint blurred copy that gives it depth.
+  for (const action of ["Collapse sidebar", "Expand sidebar"] as const) {
+    await aside.getByRole("button", { name: action }).click()
+    await expect
+      .poll(handlePaint)
+      .toEqual({
+        border: "rgb(232, 232, 226)",
+        count: 3,
+        stroke: "rgb(232, 232, 226)",
+        width: "1.25px",
+        filter: "none",
+      })
+  }
+})
+
 test("paints the user bubble deep emerald, never the brightest surface", async ({ page }) => {
   await login(page)
   await addWorkspace(page)

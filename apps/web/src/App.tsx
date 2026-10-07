@@ -766,6 +766,15 @@ export default function App() {
   // The session list is always the mobile drawer; the main column (empty state
   // or chat) stays visible so the composer's workspace/new-session bar is
   // reachable without a session. On desktop the aside docks beside it.
+  // The edge-handle curve reuses the sidebar border paint (`currentColor` over
+  // `--mh-hairline`) so it tracks every palette; the straight border stays a CSS
+  // border and the SVG only redraws the bump. Depth comes from a faint blurred
+  // copy underneath — never a filter on the curve itself, which would tint it.
+  // The curve is 1.25px (not 1px): on the sloped shoulders a 1px stroke never
+  // reaches full coverage, so it reads fainter than the straight border.
+  const collapseCurveD = sidebarCollapsed
+    ? "M18.85 23.4 C18.85 35.1 33.15 36.4 33.15 46.8 C33.15 57.2 18.85 58.5 18.85 70.2"
+    : "M18.85 23.4 C18.85 35.1 4.55 36.4 4.55 46.8 C4.55 57.2 18.85 58.5 18.85 70.2"
   const asideClass = [
     "min-h-0 flex-col border-r border-hairline bg-canvas md:relative md:flex md:w-[272px] md:shrink-0",
     "hidden",
@@ -1001,17 +1010,27 @@ export default function App() {
               className="block"
               style={{ color: "var(--mh-hairline)" }}
             >
-              <path d="M18.85 23.4 L18.85 70.2" stroke="var(--mh-canvas)" strokeWidth="3" />
+              <defs>
+                <filter id="mh-collapse-shadow" x="-60%" y="-30%" width="220%" height="160%">
+                  <feGaussianBlur stdDeviation="0.4" />
+                </filter>
+              </defs>
               <path
-                d={
-                  sidebarCollapsed
-                    ? "M18.85 23.4 C18.85 35.1 33.15 36.4 33.15 46.8 C33.15 57.2 18.85 58.5 18.85 70.2"
-                    : "M18.85 23.4 C18.85 35.1 4.55 36.4 4.55 46.8 C4.55 57.2 18.85 58.5 18.85 70.2"
-                }
+                d="M18.85 23.4 L18.85 70.2"
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
+                strokeWidth="3"
+                style={{ stroke: "var(--mh-canvas)" }}
               />
+              <path
+                d={collapseCurveD}
+                fill="none"
+                strokeWidth="1"
+                opacity="0.35"
+                transform="translate(0.5 0.6)"
+                filter="url(#mh-collapse-shadow)"
+                style={{ stroke: "light-dark(rgba(12, 12, 11, 0.16), rgba(0, 0, 0, 0.5))" }}
+              />
+              <path d={collapseCurveD} fill="none" stroke="currentColor" strokeWidth="1.25" />
             </svg>
             <button
               type="button"
