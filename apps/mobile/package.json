@@ -22,6 +22,7 @@
     "@tanstack/react-query": "^5.104.0",
     "expo": "~57.0.25",
     "expo-font": "~57.0.4",
+    "expo-navigation-bar": "^57.0.3",
     "expo-secure-store": "~57.0.4",
     "react": "19.3.0",
     "react-native": "0.86.3",
