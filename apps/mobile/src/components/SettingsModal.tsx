@@ -1,19 +1,22 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import type { Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
 import { ProvidersSection } from "./ProvidersSection"
-import { CheckIcon, CloseIcon, GearIcon } from "./icons"
+import { CloseIcon, GearIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeMode } from "../theme"
 
-const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
-  { value: "system", label: "System", hint: "Follow this device" },
-  { value: "light", label: "Light", hint: "Paper" },
-  { value: "dark", label: "Dark", hint: "Ink" },
+const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
+  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
+  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
 ]
+
+const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
+const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
 /**
  * App-level settings (issue #119): a full-screen modal opened from the Sessions
- * header gear. Appearance owns the mode (System clears the stored choice);
+ * header gear. Appearance owns the explicit theme (light/dark);
  * Account (sign out) and later sections append below.
  */
 export function SettingsModal({
@@ -51,23 +54,31 @@ export function SettingsModal({
 
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.sectionTitle}>Appearance</Text>
-          <View accessibilityRole="radiogroup" accessibilityLabel="Theme mode">
-            {MODES.map((option) => {
+          <Text style={styles.themeLabel}>Theme color</Text>
+          <View
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Theme color"
+            style={styles.swatches}
+          >
+            {THEMES.map((option) => {
               const selected = mode === option.value
               return (
                 <Pressable
                   key={option.value}
-                  style={[styles.option, selected && styles.optionSelected]}
+                  style={styles.swatchOption}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   accessibilityLabel={option.label}
                   onPress={() => onSelectMode(option.value)}
                 >
-                  <View style={styles.optionText}>
-                    <Text style={styles.optionTitle}>{option.label}</Text>
-                    <Text style={styles.optionHint}>{option.hint}</Text>
-                  </View>
-                  {selected ? <CheckIcon size={16} color={colors.accent} /> : null}
+                  <Text style={styles.swatchName}>{option.label}</Text>
+                  <ThemeDrop
+                    top={option.swatches[0]}
+                    bottom={option.swatches[1]}
+                    selected={selected}
+                    stroke={selected ? colors.accent : colors.hairlineStrong}
+                    clipId={`mh-drop-${option.value}`}
+                  />
                 </Pressable>
               )
             })}
@@ -78,6 +89,61 @@ export function SettingsModal({
         </ScrollView>
       </Screen>
     </Modal>
+  )
+}
+
+/**
+ * Stylized teardrop swatch pointing up (same geometry as web): the two theme
+ * colors meet at an S-curved "liquid" division, clipped to the drop outline.
+ */
+function ThemeDrop({
+  top,
+  bottom,
+  selected,
+  stroke,
+  clipId,
+}: {
+  top: string
+  bottom: string
+  selected: boolean
+  stroke: string
+  clipId: string
+}) {
+  return (
+    <View accessibilityElementsHidden importantForAccessibility="no">
+      <Svg viewBox="0 0 48 64" width={40} height={54}>
+        <Defs>
+          <ClipPath id={clipId}>
+            <Path d={DROP_D} />
+          </ClipPath>
+        </Defs>
+        <Path d={DROP_D} fill={bottom} />
+        <G clipPath={`url(#${clipId})`}>
+          <Path d={WAVE_TOP_D} fill={top} />
+        </G>
+        <Path d={DROP_D} fill="none" stroke={stroke} strokeWidth={selected ? 2 : 1.5} />
+        {selected ? (
+          <Path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="rgba(0, 0, 0, 0.45)"
+            strokeWidth={4.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+        {selected ? (
+          <Path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth={3.2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+      </Svg>
+    </View>
   )
 }
 
@@ -117,37 +183,28 @@ function createStyles(colors: Palette, fonts: Fonts) {
       textTransform: "uppercase",
       fontWeight: "600",
     },
-    option: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      minHeight: 56,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 12,
-      backgroundColor: colors.surface,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      marginTop: 8,
-    },
-    optionSelected: {
-      borderColor: colors.accentLine,
-      backgroundColor: colors.accentSoft,
-    },
-    optionText: {
-      flex: 1,
-      gap: 2,
-    },
-    optionTitle: {
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 15,
-      fontWeight: "500",
-    },
-    optionHint: {
+    themeLabel: {
+      marginTop: 12,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+    },
+    swatches: {
+      flexDirection: "row",
+      gap: 20,
+      marginTop: 12,
+    },
+    swatchOption: {
+      alignItems: "center",
+      gap: 8,
+      minWidth: 64,
+      padding: 4,
+    },
+    swatchName: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "500",
     },
     accountTitle: {
       marginTop: 18,

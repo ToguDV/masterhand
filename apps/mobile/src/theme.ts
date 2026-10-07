@@ -8,12 +8,12 @@ import {
   type PropsWithChildren,
 } from "react"
 import { Platform, useColorScheme } from "react-native"
-import { clearTheme, loadTheme, saveTheme } from "./storage"
+import { loadTheme, saveTheme } from "./storage"
 
 export type ThemeName = "light" | "dark"
 
-/** User-facing choice: an explicit theme, or follow the system until changed. */
-export type ThemeMode = "system" | ThemeName
+/** User-facing choice: one explicit theme (new users start on the resolved system theme). */
+export type ThemeMode = ThemeName
 
 /**
  * The full ink-on-paper palette (design/DESIGN.md, mirrored from
@@ -167,12 +167,12 @@ export const systemFonts: Fonts = {
 
 export interface ThemeContextValue {
   theme: ThemeName
-  /** The user's choice (`system` when unset); `theme` is the resolved result. */
+  /** The user's choice; `theme` is the resolved result (both always explicit). */
   mode: ThemeMode
   colors: Palette
   fonts: Fonts
   setTheme: (theme: ThemeName) => void
-  /** Sets an explicit theme or goes back to following the system. */
+  /** Sets the explicit theme. */
   setMode: (mode: ThemeMode) => void
   toggleTheme: () => void
 }
@@ -205,7 +205,7 @@ function themeValue(
 /**
  * Resolves and provides the active theme. The stored choice is read from
  * SecureStore (`masterhand.theme`, tolerant of failures); until the user makes
- * one, the theme follows the system scheme and falls back to light.
+ * one, the theme starts on the system scheme and falls back to light.
  */
 export function ThemeProvider({
   children,
@@ -229,17 +229,12 @@ export function ThemeProvider({
   }, [])
 
   const theme = resolveTheme(stored, system)
-  const mode: ThemeMode = stored ?? "system"
+  const mode: ThemeMode = stored ?? theme
   const value = useMemo(
     () =>
       themeValue(theme, mode, fontSet, (next) => {
-        if (next === "system") {
-          setStored(null)
-          void clearTheme().catch(() => {})
-        } else {
-          setStored(next)
-          void saveTheme(next).catch(() => {})
-        }
+        setStored(next)
+        void saveTheme(next).catch(() => {})
       }),
     [theme, mode, fontSet],
   )
@@ -247,14 +242,14 @@ export function ThemeProvider({
   return createElement(ThemeContext.Provider, { value }, children)
 }
 
-/** The active theme; outside a provider it follows the system scheme (light fallback). */
+/** The active theme; outside a provider it starts on the system scheme (light fallback). */
 export function useTheme(): ThemeContextValue {
   const context = useContext(ThemeContext)
   const system = useColorScheme()
-  const fallback = useMemo(
-    () => themeValue(resolveTheme(null, system), "system", systemFonts, () => {}),
-    [system],
-  )
+  const fallback = useMemo(() => {
+    const resolved = resolveTheme(null, system)
+    return themeValue(resolved, resolved, systemFonts, () => {})
+  }, [system])
   return context ?? fallback
 }
 

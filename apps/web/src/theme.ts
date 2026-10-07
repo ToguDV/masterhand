@@ -3,29 +3,30 @@ import { useCallback, useEffect, useState } from "react"
 /**
  * Theme resolution shared by the app shell and the settings panel.
  *
- * Three user-facing modes map to one resolved theme:
- * - `system` (default): no stored key; follow `prefers-color-scheme` live.
- * - `light` / `dark`: stored under `mh-theme`; win over the system.
+ * Two explicit user-facing modes map to the resolved theme:
+ * - `light` / `dark`: stored under `mh-theme`; new users start on the
+ *   resolved system theme until they pick one.
  *
  * `data-theme` on `<html>` always carries the *resolved* theme (index.html
  * resolves it before first paint) because the CSS tokens use `light-dark()`
  * and only flip with `color-scheme`.
  */
 
-export type ThemeMode = "system" | "light" | "dark"
+export type ThemeMode = "light" | "dark"
 export type ResolvedTheme = "light" | "dark"
 
 const THEME_STORAGE_KEY = "mh-theme"
 const THEME_COLORS: Record<ResolvedTheme, string> = { light: "#fafaf7", dark: "#0c0c0b" }
 
-/** Stored mode; anything unknown (or unreadable) falls back to the system. */
+/** Stored mode; anything unknown (or unreadable) starts on the resolved system theme. */
 export function storedThemeMode(): ThemeMode {
   try {
     const value = window.localStorage.getItem(THEME_STORAGE_KEY)
-    return value === "light" || value === "dark" ? value : "system"
+    if (value === "light" || value === "dark") return value
   } catch {
-    return "system"
+    // storage may be unavailable (private mode)
   }
+  return systemTheme()
 }
 
 export function systemTheme(): ResolvedTheme {
@@ -33,7 +34,7 @@ export function systemTheme(): ResolvedTheme {
 }
 
 export function resolveTheme(mode: ThemeMode): ResolvedTheme {
-  return mode === "system" ? systemTheme() : mode
+  return mode
 }
 
 /** The theme currently painted; falls back to the system when `data-theme` is missing. */
@@ -60,7 +61,9 @@ export interface ThemeModeState {
 
 /**
  * Mode + resolved theme for the app shell. Mounted once in `App` so the
- * system listener stays active even while the settings panel is closed.
+ * initial paint stays in sync even while the settings panel is closed.
+ * The choice is always explicit (no system-following mode): it is read once
+ * from storage (defaulting to the OS scheme) and only changes on selection.
  */
 export function useThemeMode(): ThemeModeState {
   const [mode, setModeState] = useState<ThemeMode>(storedThemeMode)
@@ -69,16 +72,6 @@ export function useThemeMode(): ThemeModeState {
   // Sync the metas with the resolved theme (and fix a missing data-theme).
   useEffect(() => {
     applyTheme(currentTheme())
-    const media = window.matchMedia("(prefers-color-scheme: dark)")
-    function onSystemChange(event: MediaQueryListEvent): void {
-      // A stored light/dark wins; only the system mode follows the OS.
-      if (storedThemeMode() !== "system") return
-      const next = event.matches ? "dark" : "light"
-      applyTheme(next)
-      setTheme(next)
-    }
-    media.addEventListener("change", onSystemChange)
-    return () => media.removeEventListener("change", onSystemChange)
   }, [])
 
   const setMode = useCallback((next: ThemeMode) => {
@@ -87,9 +80,7 @@ export function useThemeMode(): ThemeModeState {
     applyTheme(resolved)
     setTheme(resolved)
     try {
-      // `system` clears the stored choice so the OS decides again.
-      if (next === "system") window.localStorage.removeItem(THEME_STORAGE_KEY)
-      else window.localStorage.setItem(THEME_STORAGE_KEY, next)
+      window.localStorage.setItem(THEME_STORAGE_KEY, next)
     } catch {
       // storage may be unavailable (private mode)
     }

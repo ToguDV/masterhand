@@ -2,12 +2,12 @@ import { expect, test, type Page } from "@playwright/test"
 import { addWorkspace, login, newSession } from "./helpers"
 
 /**
- * Picks a theme mode through the settings sheet (the standalone toggle was
- * removed in #119: Appearance lives behind the top-bar gear).
+ * Picks a theme through the settings sheet (Appearance shows one teardrop per
+ * explicit theme; there is no system-following mode).
  */
-async function selectThemeMode(page: Page, name: "System" | "Light" | "Dark"): Promise<void> {
+async function selectThemeMode(page: Page, name: "Light" | "Dark"): Promise<void> {
   await page.getByRole("button", { name: "Settings" }).click()
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name: new RegExp(`^${name}`) }).click()
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("radio", { name: name }).click()
   await page.getByRole("button", { name: "Close settings" }).click()
 }
 
@@ -32,25 +32,19 @@ test("switches between light and dark themes from settings and remembers the cho
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(12, 12, 11)")
 
-  // The panel reflects the stored choice.
+  // The panel reflects the stored choice, and there is no system option.
   await page.getByRole("button", { name: "Settings" }).click()
-  await expect(page.getByRole("radio", { name: /^Dark/ })).toHaveAttribute("aria-checked", "true")
-
-  // System clears the stored choice and follows the OS live.
-  await page.getByRole("radio", { name: /^System/ }).click()
+  await expect(page.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true")
+  await expect(page.getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "false")
+  await expect(page.getByRole("dialog", { name: "Settings" }).getByText("Theme color")).toBeVisible()
+  await expect(page.getByRole("radio", { name: "System" })).toHaveCount(0)
   await page.getByRole("button", { name: "Close settings" }).click()
+
+  await selectThemeMode(page, "Light")
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(250, 250, 247)")
-
-  await page.emulateMedia({ colorScheme: "dark" })
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
-  await expect
-    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgb(12, 12, 11)")
-
-  await page.emulateMedia({ colorScheme: "light" })
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 })
 
 test("signs out from the sessions panel options, not from the top bar", async ({ page }) => {

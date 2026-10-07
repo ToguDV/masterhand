@@ -1,13 +1,12 @@
 import { useState, type ComponentType } from "react"
 import { useModalFocus } from "./useModalFocus"
-import { CheckIcon, KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import { KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
-const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
-  { value: "system", label: "System", hint: "Follow this device" },
-  { value: "light", label: "Light", hint: "Paper" },
-  { value: "dark", label: "Dark", hint: "Ink" },
+const THEMES: Array<{ value: ThemeMode; label: string; swatches: [string, string] }> = [
+  { value: "light", label: "Light", swatches: ["#FAFAF7", "#0B6B53"] },
+  { value: "dark", label: "Dark", swatches: ["#0C0C0B", "#3ED8A8"] },
 ]
 
 type SettingsModule = "appearance" | "providers"
@@ -20,7 +19,7 @@ const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<Ic
 /**
  * App-level settings (issue #119): a centered modal with the modules on the
  * left and the selected module's content on the right. Appearance owns the
- * mode (System clears the stored choice); later modules append to the nav
+ * explicit theme (light/dark); later modules append to the nav
  * without reworking the shell.
  */
 export function SettingsDialog({
@@ -102,8 +101,9 @@ function AppearanceSection({
         Appearance
       </h3>
       <p className="mh-settings__desc">Choose how MasterHand looks on this device.</p>
-      <div role="radiogroup" aria-label="Theme mode" className="mt-4 flex flex-col gap-1">
-        {MODES.map((option) => {
+      <p className="mh-caption mh-muted mt-4">Theme color</p>
+      <div role="radiogroup" aria-label="Theme color" className="mh-theme-swatches">
+        {THEMES.map((option) => {
           const selected = mode === option.value
           return (
             <button
@@ -111,18 +111,74 @@ function AppearanceSection({
               type="button"
               role="radio"
               aria-checked={selected}
+              aria-label={option.label}
               onClick={() => onSelectMode(option.value)}
-              className={`mh-btn mh-btn--quiet w-full justify-start gap-3 ${selected ? "mh-btn--secondary" : ""}`}
+              className="mh-theme-option"
             >
-              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                <span className="mh-body-sm font-medium">{option.label}</span>
-                <span className="text-xs text-ink-muted">{option.hint}</span>
-              </span>
-              {selected && <CheckIcon size={16} className="text-accent" />}
+              <span className="mh-body-sm font-medium">{option.label}</span>
+              <ThemeDrop
+                top={option.swatches[0]}
+                bottom={option.swatches[1]}
+                selected={selected}
+                clipId={`mh-drop-${option.value}`}
+              />
             </button>
           )
         })}
       </div>
     </section>
+  )
+}
+
+/**
+ * Stylized teardrop swatch pointing up: the two theme colors meet at an
+ * S-curved "liquid" division, like the reference. The whole drop is clipped
+ * so the wave never spills outside the outline.
+ */
+const DROP_D =
+  "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
+const WAVE_TOP_D =
+  "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
+
+function ThemeDrop({
+  top,
+  bottom,
+  selected,
+  clipId,
+}: {
+  top: string
+  bottom: string
+  selected: boolean
+  clipId: string
+}) {
+  return (
+    <span className={`mh-theme-drop${selected ? " is-selected" : ""}`} aria-hidden="true">
+      <svg viewBox="0 0 48 64" width="40" height="54" focusable="false">
+        <defs>
+          <clipPath id={clipId}>
+            <path d={DROP_D} />
+          </clipPath>
+        </defs>
+        <path d={DROP_D} fill={bottom} />
+        <path d={WAVE_TOP_D} fill={top} clipPath={`url(#${clipId})`} />
+        <path
+          d={DROP_D}
+          fill="none"
+          stroke={selected ? "var(--mh-accent)" : "var(--mh-hairline-strong)"}
+          strokeWidth={selected ? 2 : 1.5}
+        />
+        {selected && (
+          <path
+            d="M17.5 41.5 L22.5 46.5 L30.5 36.5"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="3.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55))" }}
+          />
+        )}
+      </svg>
+    </span>
   )
 }

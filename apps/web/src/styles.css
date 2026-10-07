@@ -1194,6 +1194,45 @@ body {
   line-height: 1.5;
 }
 
+/* Theme droplets: a stylized teardrop pointing up per theme, the two main
+   colors meeting at an S-curved "liquid" division with the name above it. */
+.mh-theme-swatches {
+  display: flex;
+  gap: 20px;
+  margin-top: 12px;
+}
+
+.mh-theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 64px;
+  min-height: 44px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--mh-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mh-theme-drop {
+  display: inline-flex;
+  border-radius: var(--r-md);
+  filter: drop-shadow(0 1px 2px rgba(12, 12, 11, 0.12));
+  transition: filter 150ms ease;
+}
+
+.mh-theme-option:hover .mh-theme-drop {
+  filter: drop-shadow(0 0 4px var(--mh-accent-soft));
+}
+
+.mh-theme-drop.is-selected {
+  filter: drop-shadow(0 0 5px var(--mh-accent-soft));
+}
+
 @media (min-width: 768px) {
   .mh-settings {
     width: 100%;
