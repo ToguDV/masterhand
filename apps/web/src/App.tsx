@@ -767,7 +767,7 @@ export default function App() {
   // or chat) stays visible so the composer's workspace/new-session bar is
   // reachable without a session. On desktop the aside docks beside it.
   const asideClass = [
-    "min-h-0 flex-col border-r border-hairline bg-canvas md:flex md:w-[272px] md:shrink-0",
+    "min-h-0 flex-col border-r border-hairline bg-canvas md:relative md:flex md:w-[272px] md:shrink-0",
     "hidden",
     drawerOpen
       ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
@@ -949,29 +949,11 @@ export default function App() {
                 <LogOutIcon size={16} />
                 Sign out
               </button>
-              <button
-                type="button"
-                onClick={toggleSidebarCollapsed}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-              >
-                <ChevronLeftIcon size={18} />
-              </button>
             </div>
           </div>
           {/* Collapsed desktop rail: desktop-only via CSS, the drawer keeps the full panel on mobile. */}
           {sidebarCollapsed && (
             <div className="mh-rail min-h-0 flex-1 flex-col items-center gap-1 py-3">
-              <button
-                type="button"
-                onClick={toggleSidebarCollapsed}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-              >
-                <ChevronRightIcon size={18} />
-              </button>
               <NewSessionMenu
                 onCreate={(isolated) => {
                   setDrawerOpen(false)
@@ -1006,6 +988,42 @@ export default function App() {
               </div>
             </div>
           )}
+          {/* Edge handle: the desktop-only collapse toggle. The sidebar border
+              opens into a curve that wraps the bare arrow — an SVG covers the
+              straight segment and redraws it bumping outward when collapsed,
+              inward when expanded. */}
+          <div className="absolute -right-[17.5px] top-1/2 z-20 max-md:hidden -translate-y-1/2">
+            <svg
+              width="36"
+              height="94"
+              viewBox="0 0 36.4 93.6"
+              aria-hidden="true"
+              className="block"
+              style={{ color: "var(--mh-hairline)" }}
+            >
+              <path d="M18.85 23.4 L18.85 70.2" stroke="var(--mh-canvas)" strokeWidth="3" />
+              <path
+                d={
+                  sidebarCollapsed
+                    ? "M18.85 23.4 C18.85 35.1 33.15 36.4 33.15 46.8 C33.15 57.2 18.85 58.5 18.85 70.2"
+                    : "M18.85 23.4 C18.85 35.1 4.55 36.4 4.55 46.8 C4.55 57.2 18.85 58.5 18.85 70.2"
+                }
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+              />
+            </svg>
+            <button
+              type="button"
+              onClick={toggleSidebarCollapsed}
+              className={`absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink ${sidebarCollapsed ? "" : "-translate-x-1.5"}`}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+            >
+              {sidebarCollapsed ? <ChevronRightIcon size={18} /> : <ChevronLeftIcon size={18} />}
+            </button>
+          </div>
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
