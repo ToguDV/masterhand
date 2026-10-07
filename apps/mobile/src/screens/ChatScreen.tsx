@@ -140,18 +140,7 @@ export function ChatScreen({
             accessibilityLabel="Run and preview"
             onPress={() => setRunPreviewOpen(true)}
           >
-            <PlayIcon
-              size={13}
-              color={
-                runStateQuery.data?.status === "running" ||
-                (previewEnabled && previewStateQuery.data?.status === "running")
-                  ? colors.success
-                  : runStateQuery.data?.status === "error" ||
-                      (previewEnabled && previewStateQuery.data?.status === "error")
-                    ? colors.danger
-                    : colors.text
-              }
-            />
+            <PlayIcon size={18} color={colors.accent} />
             <View
               style={[
                 styles.dot,

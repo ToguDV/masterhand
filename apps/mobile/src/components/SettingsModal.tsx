@@ -21,14 +21,12 @@ export function SettingsModal({
   client,
   mode,
   onSelectMode,
-  onSignOut,
   onClose,
 }: {
   visible: boolean
   client: Client
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
-  onSignOut: () => void
   onClose: () => void
 }) {
   const styles = useThemedStyles(createStyles)
@@ -77,19 +75,6 @@ export function SettingsModal({
 
           <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>
           <ProvidersSection client={client} />
-
-          <Text style={[styles.sectionTitle, styles.accountTitle]}>Account</Text>
-          <Pressable
-            style={styles.signOut}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-            onPress={() => {
-              onClose()
-              onSignOut()
-            }}
-          >
-            <Text style={styles.signOutText}>Sign out</Text>
-          </Pressable>
         </ScrollView>
       </Screen>
     </Modal>
@@ -166,22 +151,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     accountTitle: {
       marginTop: 18,
-    },
-    signOut: {
-      minHeight: 48,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.dangerLine,
-      borderRadius: 12,
-      backgroundColor: colors.dangerSoft,
-      marginTop: 8,
-    },
-    signOutText: {
-      color: colors.danger,
-      fontFamily: fonts.ui,
-      fontSize: 15,
-      fontWeight: "600",
     },
   })
 }

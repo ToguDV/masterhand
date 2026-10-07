@@ -29,6 +29,8 @@ export interface Integration {
   name: string
   methods: IntegrationMethod[]
   connections: IntegrationConnection[]
+  /** Optional icon URL exposed by a fork/plugin via `metadata.icon` or `metadata.logo`. */
+  icon?: string
 }
 
 export interface ProviderCredential {
@@ -91,7 +93,18 @@ export function normalizeIntegration(raw: unknown): Integration | null {
         .map(normalizeConnection)
         .filter((connection): connection is IntegrationConnection => connection !== null)
     : []
-  return { id, name, methods, connections }
+  const metadata = asRecord(record.metadata)
+  const icon = asString(metadata?.icon) ?? asString(metadata?.logo)
+  return { id, name, methods, connections, ...(icon ? { icon } : {}) }
+}
+
+/**
+ * One-letter avatar for a provider (opencode does not expose provider logos):
+ * the first letter or digit of its name, uppercased. Falls back to "?".
+ */
+export function providerMonogram(name: string): string {
+  const match = name.trim().match(/[a-z0-9]/i)
+  return match ? match[0].toUpperCase() : "?"
 }
 
 export function normalizeIntegrations(raw: unknown): Integration[] {

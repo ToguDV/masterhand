@@ -60,7 +60,7 @@ export function RunPreviewTrigger({
       aria-label="Run and preview"
       title="Run &amp; preview"
     >
-      <PlayIcon size={16} />
+      <PlayIcon size={22} strokeWidth={2.5} className="text-accent" />
       <span
         aria-hidden="true"
         className={`mh-dot ${running ? "mh-dot--connected" : failed ? "mh-dot--danger" : ""}`}

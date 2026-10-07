@@ -64,3 +64,28 @@ test("keeps oauth providers informational (#128)", async ({ page }) => {
   await expect(github).toContainText("opencode CLI/TUI")
   await expect(github.getByRole("button", { name: "Connect" })).toHaveCount(0)
 })
+
+test("paginates the provider list and searches it (#128)", async ({ page }) => {
+  await login(page)
+  const settings = await openSettings(page)
+
+  // Only the first five are rendered; OpenCode Go is pinned first.
+  const rows = settings.locator('[data-testid^="integration-"]')
+  await expect(rows).toHaveCount(5)
+  await expect(rows.first()).toHaveAttribute("data-testid", "integration-opencode-go")
+  // Every row carries a provider avatar before its name.
+  await expect(settings.getByTestId("provider-avatar")).toHaveCount(5)
+
+  await settings.getByRole("button", { name: "Show all 7 providers" }).click()
+  await expect(rows).toHaveCount(7)
+
+  // The search filters across the whole catalog (not only the visible page).
+  await settings.getByLabel("Search providers").fill("git")
+  await expect(settings.locator('[data-testid^="integration-"]')).toHaveCount(2)
+  await expect(settings.getByTestId("integration-github")).toBeVisible()
+  await expect(settings.getByTestId("integration-gitlab")).toBeVisible()
+  await expect(settings.getByTestId("integration-opencode-go")).toHaveCount(0)
+
+  await settings.getByLabel("Search providers").fill("nope-nothing")
+  await expect(settings.getByText("No provider matches that search.")).toBeVisible()
+})

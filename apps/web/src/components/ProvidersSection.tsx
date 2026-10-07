@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
   providerConnectErrorMessage,
+  providerMonogram,
   queryKeys,
   useIntegrations,
   useProviderCredentials,
@@ -10,6 +11,9 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { useModalFocus } from "./useModalFocus"
+
+/** Providers shown before the "Show all" affordance. */
+const PROVIDER_PAGE_SIZE = 5
 
 /** OpenCode Go (and any other opencode integration) is pinned first. */
 function integrationRank(integration: Integration): number {
@@ -29,11 +33,16 @@ export function ProvidersSection() {
   const [confirmingID, setConfirmingID] = useState<string | null>(null)
   const [busyID, setBusyID] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [showAll, setShowAll] = useState(false)
 
-  const integrations = useMemo(
-    () => [...(integrationsQuery.data ?? [])].sort((a, b) => integrationRank(a) - integrationRank(b)),
-    [integrationsQuery.data],
-  )
+  const filtered = useMemo(() => {
+    const sorted = [...(integrationsQuery.data ?? [])].sort((a, b) => integrationRank(a) - integrationRank(b))
+    const needle = search.trim().toLowerCase()
+    if (!needle) return sorted
+    return sorted.filter((integration) => `${integration.name} ${integration.id}`.toLowerCase().includes(needle))
+  }, [integrationsQuery.data, search])
+  const visible = showAll ? filtered : filtered.slice(0, PROVIDER_PAGE_SIZE)
   const credentials = credentialsQuery.data ?? []
 
   async function refresh(): Promise<void> {
@@ -85,12 +94,26 @@ export function ProvidersSection() {
       {integrationsQuery.error && (
         <p className="text-xs text-danger">Could not load the provider catalog.</p>
       )}
-      {!integrationsQuery.isLoading && integrations.length === 0 && !integrationsQuery.error && (
-        <p className="text-xs text-ink-muted">No provider integrations available.</p>
+      {!integrationsQuery.isLoading && filtered.length === 0 && !integrationsQuery.error && (
+        <p className="text-xs text-ink-muted">
+          {search.trim() ? "No provider matches that search." : "No provider integrations available."}
+        </p>
       )}
 
+      <input
+        type="search"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value)
+          setShowAll(false)
+        }}
+        placeholder="Search providers…"
+        aria-label="Search providers"
+        className="mh-input mb-2 w-full"
+      />
+
       <ul className="flex flex-col gap-2">
-        {integrations.map((integration) => {
+        {visible.map((integration) => {
           const keyMethod = integration.methods.find((method) => method.type === "key")
           const credentialConnections = integration.connections.filter(
             (connection) => connection.type === "credential" && connection.credentialID,
@@ -103,6 +126,7 @@ export function ProvidersSection() {
               data-testid={`integration-${integration.id}`}
             >
               <div className="flex items-center gap-2">
+                <ProviderAvatar integration={integration} />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{integration.name}</span>
                 {connected && (
                   <span className="mh-chip mh-chip--accent shrink-0">
@@ -186,6 +210,16 @@ export function ProvidersSection() {
         })}
       </ul>
 
+      {!showAll && filtered.length > PROVIDER_PAGE_SIZE && (
+        <button
+          type="button"
+          className="mh-btn mh-btn--quiet mt-2 w-full justify-start"
+          onClick={() => setShowAll(true)}
+        >
+          Show all {filtered.length} providers
+        </button>
+      )}
+
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
       {connecting && (
@@ -200,6 +234,32 @@ export function ProvidersSection() {
         />
       )}
     </section>
+  )
+}
+
+/**
+ * Provider glyph: opencode does not expose provider logos, so a deterministic
+ * monogram stands in (with a passthrough for a future `metadata.icon` URL).
+ */
+function ProviderAvatar({ integration }: { integration: Integration }) {
+  if (integration.icon) {
+    return (
+      <img
+        src={integration.icon}
+        alt=""
+        data-testid="provider-avatar"
+        className="h-7 w-7 shrink-0 rounded-md border border-hairline bg-canvas object-contain p-0.5"
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="provider-avatar"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-accent-line bg-accent-soft text-xs font-semibold text-accent"
+    >
+      {providerMonogram(integration.name)}
+    </span>
   )
 }
 

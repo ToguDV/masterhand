@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { normalizeCredentials, normalizeIntegration, normalizeIntegrations } from "../src/integrations"
+import {
+  normalizeCredentials,
+  normalizeIntegration,
+  normalizeIntegrations,
+  providerMonogram,
+} from "../src/integrations"
 
 describe("normalizeIntegrations (#128)", () => {
   it("normalizes methods and connections into view models", () => {
@@ -63,5 +68,24 @@ describe("normalizeIntegrations (#128)", () => {
       { id: "cred_2", integrationID: "other", label: "cred_2", active: false },
     ])
     expect(normalizeCredentials("nope")).toEqual([])
+  })
+
+  it("passes through an optional metadata icon and falls back to a monogram", () => {
+    expect(
+      normalizeIntegration({
+        id: "acme",
+        name: "Acme",
+        metadata: { icon: "https://example.com/acme.svg" },
+      })?.icon,
+    ).toBe("https://example.com/acme.svg")
+    expect(
+      normalizeIntegration({ id: "acme", name: "Acme", metadata: { logo: "https://example.com/l.svg" } })?.icon,
+    ).toBe("https://example.com/l.svg")
+    expect(normalizeIntegration({ id: "acme", name: "Acme", metadata: { icon: 42 } })?.icon).toBeUndefined()
+
+    expect(providerMonogram("OpenCode Go")).toBe("O")
+    expect(providerMonogram("  anthropic")).toBe("A")
+    expect(providerMonogram("42 provider")).toBe("4")
+    expect(providerMonogram("***")).toBe("?")
   })
 })

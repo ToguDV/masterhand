@@ -38,7 +38,7 @@ import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsSheet } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 
@@ -786,16 +786,6 @@ export default function App() {
             <RunPreviewTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
           </div>
         )}
-        <div className="mx-1 hidden h-6 w-px bg-hairline md:block" />
-        <button
-          type="button"
-          onClick={() => setPanel("settings")}
-          className="mh-btn mh-btn--icon"
-          aria-label="Settings"
-          title="Settings"
-        >
-          <GearIcon size={18} />
-        </button>
         <div className="relative md:hidden">
           <button
             type="button"
@@ -911,6 +901,31 @@ export default function App() {
             }}
             creating={creating}
           />
+          {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
+          <div className="shrink-0 border-t border-hairline p-3">
+            <div className="flex w-fit items-center gap-1 rounded-md border border-hairline bg-surface p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerOpen(false)
+                  setPanel("settings")
+                }}
+                className="mh-btn mh-btn--quiet"
+                aria-label="Settings"
+                title="Settings"
+              >
+                <GearIcon size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="mh-btn mh-btn--quiet gap-2"
+              >
+                <LogOutIcon size={16} />
+                Sign out
+              </button>
+            </div>
+          </div>
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
@@ -1013,7 +1028,6 @@ export default function App() {
         <SettingsSheet
           mode={themeMode.mode}
           onSelectMode={themeMode.setMode}
-          onSignOut={() => void handleLogout()}
           onClose={() => setPanel(null)}
         />
       )}

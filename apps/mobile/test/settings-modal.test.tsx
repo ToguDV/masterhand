@@ -18,11 +18,9 @@ const mockedClear = clearTheme as jest.Mock
 function Harness({
   client,
   onClose = jest.fn(),
-  onSignOut = jest.fn(),
 }: {
   client: ReturnType<typeof fakeClient>
   onClose?: () => void
-  onSignOut?: () => void
 }) {
   const { mode, setMode } = useTheme()
   return (
@@ -31,7 +29,6 @@ function Harness({
       client={client}
       mode={mode}
       onSelectMode={setMode}
-      onSignOut={onSignOut}
       onClose={onClose}
     />
   )
@@ -39,7 +36,7 @@ function Harness({
 
 async function setup(
   configure?: (client: ReturnType<typeof fakeClient>) => void,
-  props: { onClose?: () => void; onSignOut?: () => void } = {},
+  props: { onClose?: () => void } = {},
 ) {
   const client = fakeClient()
   configure?.(client)
@@ -85,16 +82,6 @@ describe("SettingsModal (#119)", () => {
     await setup(undefined, { onClose })
 
     await fireEvent.press(screen.getByLabelText("Close settings"))
-    expect(onClose).toHaveBeenCalled()
-  })
-
-  it("signs out from the Account section", async () => {
-    const onSignOut = jest.fn()
-    const onClose = jest.fn()
-    await setup(undefined, { onSignOut, onClose })
-
-    await fireEvent.press(screen.getByLabelText("Sign out"))
-    expect(onSignOut).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
 })
@@ -159,5 +146,32 @@ describe("SettingsModal providers (#128)", () => {
 
     expect(await screen.findByText(/opencode CLI\/TUI/)).toBeOnTheScreen()
     expect(screen.queryByLabelText("Connect GitHub")).toBeNull()
+  })
+
+  it("shows five providers by default, expands and searches (#128)", async () => {
+    await setup((c) => {
+      c.api.integrations.mockResolvedValue(
+        ["opencode-go", "anthropic", "openai", "google", "github", "gitlab", "openrouter"].map((id) => ({
+          id,
+          name: id,
+          methods: [{ id: "key", type: "key", label: "API key" }],
+          connections: [],
+        })),
+      )
+      c.api.credentials.mockResolvedValue([])
+    })
+
+    // First five only, each with a monogram avatar.
+    expect(await screen.findAllByTestId("provider-avatar")).toHaveLength(5)
+
+    await fireEvent.press(screen.getByLabelText("Show all 7 providers"))
+    await waitFor(() => expect(screen.getAllByTestId("provider-avatar")).toHaveLength(7))
+
+    // The search filters across the whole catalog (not only the visible page).
+    await fireEvent.changeText(screen.getByTestId("provider-search"), "git")
+    await waitFor(() => expect(screen.getAllByTestId("provider-avatar")).toHaveLength(2))
+    expect(screen.queryByTestId("integration-opencode-go")).toBeNull()
+    expect(screen.getByTestId("integration-github")).toBeOnTheScreen()
+    expect(screen.getByTestId("integration-gitlab")).toBeOnTheScreen()
   })
 })

@@ -53,16 +53,12 @@ test("switches between light and dark themes from settings and remembers the cho
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
 })
 
-test("signs out from the settings panel, not from the top bar", async ({ page }) => {
+test("signs out from the sessions panel options, not from the top bar", async ({ page }) => {
   await login(page)
-  // The top bar no longer carries a Sign out action (issue #121).
-  await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0)
-
-  await page.getByRole("button", { name: "Settings" }).click()
-  await page
-    .getByRole("dialog", { name: "Settings" })
-    .getByRole("button", { name: "Sign out" })
-    .click()
+  // Sign out lives in the bottom-left options box of the sessions panel.
+  const options = page.locator("aside").getByRole("button", { name: "Sign out" })
+  await expect(options).toBeVisible()
+  await options.click()
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
 })
 

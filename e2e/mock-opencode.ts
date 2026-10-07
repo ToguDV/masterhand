@@ -151,7 +151,11 @@ function initialIntegrations(): MockIntegration[] {
   return [
     { id: "opencode-go", name: "OpenCode Go", methods: [{ type: "key", label: "API key" }], connections: [] },
     { id: "anthropic", name: "Anthropic", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "openai", name: "OpenAI", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "google", name: "Google", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
     { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+    { id: "gitlab", name: "GitLab", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "openrouter", name: "OpenRouter", methods: [{ type: "key", label: "API key" }], connections: [] },
   ]
 }
 let integrations: MockIntegration[] = initialIntegrations()

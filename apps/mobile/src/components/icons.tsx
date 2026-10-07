@@ -80,9 +80,14 @@ export function GearIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="settings-outline" size={size} color={color} />
 }
 
+/** Sign out / leave the app (sessions panel options box). */
+export function LogOutIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="log-out-outline" size={size} color={color} />
+}
+
 /** Run & preview trigger (replaces the text label, issue #120). */
 export function PlayIcon({ size = 16, color }: IconProps) {
-  return <Ionicons name="play-outline" size={size} color={color} />
+  return <Ionicons name="play" size={size} color={color} />
 }
 
 /** Effort (reasoning) variants; generic variants use `SlidersIcon` instead. */

@@ -652,6 +652,7 @@ function AuthenticatedApp({
           activeSessionID={sessionID}
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
+          onSignOut={onSignOut}
           onOpenSettings={() => setSettingsOpen(true)}
           onSelectWorkspace={switchWorkspace}
           onAddWorkspace={addWorkspace}
@@ -665,7 +666,6 @@ function AuthenticatedApp({
         client={client}
         mode={mode}
         onSelectMode={setMode}
-        onSignOut={onSignOut}
         onClose={() => setSettingsOpen(false)}
       />
 

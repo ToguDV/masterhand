@@ -125,8 +125,8 @@ describe("App", () => {
 
     expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
-    await fireEvent.press(screen.getByLabelText("Settings"))
-    await fireEvent.press(await screen.findByLabelText("Sign out"))
+    // Sign out lives in the sessions panel options box.
+    await fireEvent.press(screen.getByLabelText("Sign out"))
 
     expect(mocked.clearToken).toHaveBeenCalled()
     expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()

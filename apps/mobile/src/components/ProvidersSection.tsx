@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   providerConnectErrorMessage,
+  providerMonogram,
   queryKeys,
   useIntegrations,
   useProviderCredentials,
@@ -10,6 +11,9 @@ import {
   type Integration,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+
+/** Providers shown before the "Show all" affordance. */
+const PROVIDER_PAGE_SIZE = 5
 
 /** OpenCode Go (and any other opencode integration) is pinned first. */
 function integrationRank(integration: Integration): number {
@@ -31,12 +35,19 @@ export function ProvidersSection({ client }: { client: Client }) {
   const [busy, setBusy] = useState(false)
   const [busyCredentialID, setBusyCredentialID] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [showAll, setShowAll] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
 
-  const integrations = [...(integrationsQuery.data ?? [])].sort(
-    (a, b) => integrationRank(a) - integrationRank(b),
-  )
+  const filtered = [...(integrationsQuery.data ?? [])]
+    .sort((a, b) => integrationRank(a) - integrationRank(b))
+    .filter((integration) => {
+      const needle = search.trim().toLowerCase()
+      if (!needle) return true
+      return `${integration.name} ${integration.id}`.toLowerCase().includes(needle)
+    })
+  const visible = showAll ? filtered : filtered.slice(0, PROVIDER_PAGE_SIZE)
   const credentials = credentialsQuery.data ?? []
 
   async function refresh(): Promise<void> {
@@ -114,11 +125,28 @@ export function ProvidersSection({ client }: { client: Client }) {
       {integrationsQuery.error ? (
         <Text style={styles.error}>Could not load the provider catalog.</Text>
       ) : null}
-      {!integrationsQuery.isLoading && integrations.length === 0 && !integrationsQuery.error ? (
-        <Text style={styles.hint}>No provider integrations available.</Text>
+      {!integrationsQuery.isLoading && filtered.length === 0 && !integrationsQuery.error ? (
+        <Text style={styles.hint}>
+          {search.trim() ? "No provider matches that search." : "No provider integrations available."}
+        </Text>
       ) : null}
 
-      {integrations.map((integration) => {
+      <TextInput
+        value={search}
+        onChangeText={(value) => {
+          setSearch(value)
+          setShowAll(false)
+        }}
+        placeholder="Search providers…"
+        placeholderTextColor={colors.textFaint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        accessibilityLabel="Search providers"
+        style={styles.search}
+        testID="provider-search"
+      />
+
+      {visible.map((integration) => {
         const keyMethod = integration.methods.find((method) => method.type === "key")
         const credentialConnections = integration.connections.filter(
           (connection) => connection.type === "credential" && connection.credentialID,
@@ -128,6 +156,7 @@ export function ProvidersSection({ client }: { client: Client }) {
         return (
           <View key={integration.id} style={styles.card} testID={`integration-${integration.id}`}>
             <View style={styles.cardHeader}>
+              <ProviderAvatar integration={integration} />
               <Text style={styles.cardTitle} numberOfLines={1}>
                 {integration.name}
               </Text>
@@ -240,7 +269,34 @@ export function ProvidersSection({ client }: { client: Client }) {
         )
       })}
 
+      {!showAll && filtered.length > PROVIDER_PAGE_SIZE ? (
+        <Pressable
+          onPress={() => setShowAll(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Show all ${filtered.length} providers`}
+          style={styles.showAll}
+        >
+          <Text style={styles.showAllText}>Show all {filtered.length} providers</Text>
+        </Pressable>
+      ) : null}
+
       {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  )
+}
+
+/**
+ * Provider glyph: opencode does not expose provider logos, so a deterministic
+ * monogram stands in (with a passthrough for a future `metadata.icon` URL).
+ */
+function ProviderAvatar({ integration }: { integration: Integration }) {
+  const styles = useThemedStyles(createStyles)
+  if (integration.icon) {
+    return <Image source={{ uri: integration.icon }} style={styles.avatar} testID="provider-avatar" />
+  }
+  return (
+    <View style={styles.avatar} testID="provider-avatar">
+      <Text style={styles.avatarText}>{providerMonogram(integration.name)}</Text>
     </View>
   )
 }
@@ -258,6 +314,45 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 12,
       marginTop: 8,
+    },
+    search: {
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      borderRadius: 10,
+      backgroundColor: colors.canvas,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      paddingHorizontal: 12,
+      marginTop: 8,
+    },
+    avatar: {
+      width: 28,
+      height: 28,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.accentLine,
+      borderRadius: 8,
+      backgroundColor: colors.accentSoft,
+    },
+    avatarText: {
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    showAll: {
+      minHeight: 44,
+      justifyContent: "center",
+      marginTop: 8,
+    },
+    showAllText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "600",
     },
     card: {
       borderWidth: StyleSheet.hairlineWidth,

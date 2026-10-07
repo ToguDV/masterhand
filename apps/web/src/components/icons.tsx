@@ -268,10 +268,21 @@ export function GearIcon(props: IconProps) {
   )
 }
 
-/** Run & preview trigger (replaces the text label, issue #120). */
-export function PlayIcon(props: IconProps) {
+/** Sign out / leave the app (sessions panel options box). */
+export function LogOutIcon(props: IconProps) {
   return (
     <IconBase {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </IconBase>
+  )
+}
+
+/** Run & preview trigger (replaces the text label, issue #120). */
+export function PlayIcon({ size = 16, strokeWidth = 1.75, ...props }: IconProps) {
+  return (
+    <IconBase size={size} strokeWidth={strokeWidth} {...props}>
       <path d="M7 5v14l11-7z" />
     </IconBase>
   )
