@@ -988,19 +988,37 @@ export default function App() {
               </div>
             </div>
           )}
-          {/* Edge handle: the desktop-only collapse toggle, vertically centered
-              on the sidebar border. The canvas ring cuts a notch out of the
-              border line so it reads as curving around the arrow. */}
-          <button
-            type="button"
-            onClick={toggleSidebarCollapsed}
-            className="mh-btn absolute -right-[14px] top-1/2 z-20 h-7 max-md:hidden min-h-0 w-7 -translate-y-1/2 rounded-full border border-hairline bg-surface p-0 text-ink-muted shadow-elev3 ring-4 ring-canvas hover:text-ink"
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!sidebarCollapsed}
-          >
-            {sidebarCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
-          </button>
+          {/* Edge handle: the desktop-only collapse toggle. The sidebar border
+              opens into a curve that wraps the bare arrow — an SVG covers the
+              straight segment and redraws it bumping outward. */}
+          <div className="absolute -right-[14px] top-1/2 z-20 max-md:hidden -translate-y-1/2">
+            <svg
+              width="28"
+              height="72"
+              viewBox="0 0 28 72"
+              aria-hidden="true"
+              className="block"
+              style={{ color: "var(--mh-hairline)" }}
+            >
+              <path d="M14.5 18 L14.5 54" stroke="var(--mh-canvas)" strokeWidth="3" />
+              <path
+                d="M14.5 18 C14.5 27 25.5 28 25.5 36 C25.5 44 14.5 45 14.5 54"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+              />
+            </svg>
+            <button
+              type="button"
+              onClick={toggleSidebarCollapsed}
+              className="absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink"
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+            >
+              {sidebarCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
+            </button>
+          </div>
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
