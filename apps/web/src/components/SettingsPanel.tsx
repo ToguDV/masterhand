@@ -157,6 +157,7 @@ function AppearanceSection({
               onClick={() => onSelectPalette(id)}
               className="mh-palette-option"
             >
+              <span className="mh-palette-name mh-body-sm font-medium">{entry.label}</span>
               <span
                 className="mh-palette-dot"
                 aria-hidden="true"
@@ -164,7 +165,6 @@ function AppearanceSection({
                   background: `linear-gradient(135deg, ${entry.light.canvas} 0 33%, ${entry.light.accent} 33% 66%, ${entry.dark.accent} 66% 100%)`,
                 }}
               />
-              <span className="mh-body-sm font-medium">{entry.label}</span>
             </button>
           )
         })}

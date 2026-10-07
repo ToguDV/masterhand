@@ -1648,7 +1648,8 @@ body {
   filter: drop-shadow(0 0 5px var(--mh-accent-soft));
 }
 
-/* Color theme picker: one radio per theme, canvas/accent/accent dot. Layout unchanged. */
+/* Color theme picker: name above the canvas/accent/accent dot, like the
+   theme-color droplets. Labels ellipsis instead of overflowing. */
 .mh-palette-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
@@ -1658,8 +1659,10 @@ body {
 
 .mh-palette-option {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   min-height: 44px;
   padding: 6px 8px;
   border: 1px solid transparent;
@@ -1669,6 +1672,15 @@ body {
   font-family: var(--font-ui);
   font-size: 13px;
   cursor: pointer;
+  overflow: hidden;
+}
+
+.mh-palette-name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .mh-palette-option:hover {
