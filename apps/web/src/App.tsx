@@ -36,7 +36,7 @@ import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
-import { SettingsSheet } from "./components/SettingsPanel"
+import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
 import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
@@ -1025,7 +1025,7 @@ export default function App() {
 
       {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
       {panel === "settings" && (
-        <SettingsSheet
+        <SettingsDialog
           mode={themeMode.mode}
           onSelectMode={themeMode.setMode}
           onClose={() => setPanel(null)}

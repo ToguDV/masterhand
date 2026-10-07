@@ -79,20 +79,18 @@ export function ProvidersSection() {
   }
 
   return (
-    <section className="border-b border-hairline p-4" aria-labelledby="settings-providers">
-      <h3
-        id="settings-providers"
-        className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted"
-      >
+    <section aria-labelledby="settings-providers">
+      <h3 id="settings-providers" className="mh-settings__title">
         Providers
       </h3>
+      <p className="mh-settings__desc">Connect provider API keys and manage the stored credentials.</p>
 
-      {integrationsQuery.isLoading && <p className="text-xs text-ink-muted">Loading providers…</p>}
+      {integrationsQuery.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading providers…</p>}
       {integrationsQuery.error && (
-        <p className="text-xs text-danger">Could not load the provider catalog.</p>
+        <p className="mt-4 text-xs text-danger">Could not load the provider catalog.</p>
       )}
       {!integrationsQuery.isLoading && filtered.length === 0 && !integrationsQuery.error && (
-        <p className="text-xs text-ink-muted">
+        <p className="mt-4 text-xs text-ink-muted">
           {search.trim() ? "No provider matches that search." : "No provider integrations available."}
         </p>
       )}
@@ -106,7 +104,7 @@ export function ProvidersSection() {
         }}
         placeholder="Search providers…"
         aria-label="Search providers"
-        className="mh-input mb-2 w-full"
+        className="mh-input mt-4 mb-2 w-full"
       />
 
       <ul className="flex flex-col gap-2">
@@ -137,6 +135,10 @@ export function ProvidersSection() {
                   {credentialConnections.map((connection) => {
                     const credentialID = connection.credentialID!
                     const credential = credentials.find((entry) => entry.id === credentialID)
+                    // The label often defaults to the provider name already shown
+                    // in the card header — do not repeat it.
+                    const label = connection.label?.trim()
+                    const showLabel = Boolean(label) && label!.toLowerCase() !== integration.name.trim().toLowerCase()
                     return (
                       <li key={credentialID} className="flex items-center gap-2 text-xs text-ink-muted">
                         {/* The action sits where the Connect button was: first, on the left. */}
@@ -169,7 +171,7 @@ export function ProvidersSection() {
                             Disconnect
                           </button>
                         )}
-                        <span className="min-w-0 flex-1 truncate">{connection.label ?? "API key"}</span>
+                        <span className="min-w-0 flex-1 truncate">{showLabel ? label : "API key"}</span>
                         {credential?.active && <span className="text-accent">Active</span>}
                         {credential && !credential.active && (
                           <button

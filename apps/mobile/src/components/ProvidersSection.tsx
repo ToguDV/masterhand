@@ -165,6 +165,12 @@ export function ProvidersSection({ client }: { client: Client }) {
               const credentialID = connection.credentialID!
               const credential = credentials.find((entry) => entry.id === credentialID)
               const credentialBusy = busyCredentialID === credentialID
+              // The label often defaults to the provider name already shown in
+              // the card header — do not repeat it.
+              const label = connection.label?.trim()
+              const displayLabel = label && label.toLowerCase() !== integration.name.trim().toLowerCase()
+                ? label
+                : "API key"
               return (
                 <View key={credentialID} style={styles.credentialRow}>
                   {/* The action sits where the Connect button was: first, on the left. */}
@@ -172,7 +178,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                     onPress={() => confirmDisconnect(credentialID, integration.name)}
                     disabled={credentialBusy}
                     accessibilityRole="button"
-                    accessibilityLabel={`Disconnect ${connection.label ?? "API key"}`}
+                    accessibilityLabel={`Disconnect ${displayLabel}`}
                   >
                     {credentialBusy ? (
                       <ActivityIndicator size="small" color={colors.textMuted} />
@@ -181,7 +187,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                     )}
                   </Pressable>
                   <Text style={styles.credentialLabel} numberOfLines={1}>
-                    {connection.label ?? "API key"}
+                    {displayLabel}
                   </Text>
                   {credential?.active ? <Text style={styles.active}>Active</Text> : null}
                   {credential && !credential.active ? (
@@ -189,7 +195,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                       onPress={() => void activate(credentialID)}
                       disabled={credentialBusy}
                       accessibilityRole="button"
-                      accessibilityLabel={`Use ${connection.label ?? "API key"}`}
+                      accessibilityLabel={`Use ${displayLabel}`}
                     >
                       <Text style={styles.action}>Use</Text>
                     </Pressable>

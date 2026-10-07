@@ -9,7 +9,10 @@ test.beforeEach(async ({ request }) => {
 
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click()
-  return page.getByRole("dialog", { name: "Settings" })
+  const settings = page.getByRole("dialog", { name: "Settings" })
+  // Providers is a module in the settings nav; Appearance opens by default.
+  await settings.getByRole("button", { name: "Providers" }).click()
+  return settings
 }
 
 // Settings > Providers (#128): connect an API key without host access.

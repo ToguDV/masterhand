@@ -258,6 +258,18 @@ export function BranchIcon(props: IconProps) {
   )
 }
 
+/** Provider credentials / API keys (Settings > Providers). */
+export function KeyIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="7.5" cy="16.5" r="3.5" />
+      <path d="m10.1 13.9 9.4-9.4" />
+      <path d="m15.5 8.5 2 2" />
+      <path d="m18 6 2 2" />
+    </IconBase>
+  )
+}
+
 /** Settings (gear) trigger for the app-level settings panel. */
 export function GearIcon(props: IconProps) {
   return (
