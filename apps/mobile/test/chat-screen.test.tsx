@@ -1,5 +1,5 @@
 import { Linking } from "react-native"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import type { ChatMessage, SessionIsolation } from "@masterhand/client-core"
 import { ChatScreen } from "../src/screens/ChatScreen"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
@@ -54,10 +54,12 @@ describe("ChatScreen", () => {
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
     expect(screen.getByText("My session")).toBeOnTheScreen()
     // Icons + numbers only; labels live in the accessibility names (#92).
-    expect(screen.getByLabelText("Cost: $0.0010")).toBeOnTheScreen()
-    expect(screen.getByLabelText("Input tokens: 20")).toBeOnTheScreen()
-    expect(screen.getByLabelText("Output tokens: 5")).toBeOnTheScreen()
-    expect(screen.getByLabelText("Speed: 5 tok/s")).toBeOnTheScreen()
+    // Scope to the session row: the message stats mirror the same language.
+    const usage = screen.getByLabelText("Session usage")
+    expect(within(usage).getByLabelText("Cost: $0.0010")).toBeOnTheScreen()
+    expect(within(usage).getByLabelText("Input tokens: 20")).toBeOnTheScreen()
+    expect(within(usage).getByLabelText("Output tokens: 5")).toBeOnTheScreen()
+    expect(within(usage).getByLabelText("Speed: 5 tok/s")).toBeOnTheScreen()
     // Cache read/write are not shown even when the provider reports them.
     expect(screen.queryByText(/cache/i)).toBeNull()
   })
@@ -72,8 +74,9 @@ describe("ChatScreen", () => {
       client.api.messages.mockResolvedValue([fractional])
     })
 
-    expect(await screen.findByLabelText("Speed: 4 tok/s")).toBeOnTheScreen()
-    expect(screen.getByText("4 tok/s")).toBeOnTheScreen()
+    const usage = await screen.findByLabelText("Session usage")
+    expect(within(usage).getByLabelText("Speed: 4 tok/s")).toBeOnTheScreen()
+    expect(within(usage).getByText("4 tok/s")).toBeOnTheScreen()
     expect(screen.queryByText(/4\.06/)).toBeNull()
   })
 

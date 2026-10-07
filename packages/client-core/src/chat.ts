@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ChatMessageInfo,
   ChatPart,
   ChatToolPart,
   ChatToolState,
@@ -481,6 +482,36 @@ export function sessionUsage(messages: ChatMessage[]): SessionUsage {
     if (completed !== undefined && completed > created) durationMs += completed - created
   }
   return { cost, durationMs, ...totals }
+}
+
+/**
+ * Per-message usage view model (issue #126): the same categories as the
+ * session stats so both platforms render one compact icon language. Cache
+ * read/write stay out (noise; providers report them as zero most of the time).
+ * `cost` and `speed` are `null` when there is nothing to show; the message is
+ * still "in flight" while `time.completed` is unset (speed stays null).
+ */
+export interface MessageStats {
+  modelID: string | null
+  cost: number | null
+  input: number
+  output: number
+  reasoning: number
+  speed: number | null
+}
+
+export function messageStats(info: ChatMessageInfo): MessageStats {
+  const counts = tokenCounts(info.tokens)
+  const cost = info.cost ?? 0
+  const completed = info.time.completed
+  return {
+    modelID: info.modelID ?? null,
+    cost: cost > 0 ? cost : null,
+    input: counts.input,
+    output: counts.output,
+    reasoning: counts.reasoning,
+    speed: completed === undefined ? null : tokenSpeed(counts, completed - info.time.created),
+  }
 }
 
 export function toolTitle(part: ChatToolPart): string {

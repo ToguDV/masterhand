@@ -208,7 +208,7 @@ export function ChatScreen({
       />
 
       {hasStats ? (
-        <View style={styles.usageRow}>
+        <View style={styles.usageRow} accessibilityLabel="Session usage">
           <View style={styles.usageItem} accessibilityLabel={`Cost: $${usage.cost.toFixed(4)}`}>
             <Text style={styles.usageDollar}>$</Text>
             <Text style={styles.usageText}>{usage.cost.toFixed(4)}</Text>

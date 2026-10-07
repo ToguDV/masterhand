@@ -28,13 +28,22 @@ test("login, create a session, stream a reply and approve a permission", async (
   await page.getByRole("button", { name: "Once" }).click()
 
   await expect(page.getByText("Done!")).toBeVisible()
-  // Icons + numbers only; labels live in the tooltips.
-  await expect(page.getByTitle("Cost")).toHaveText("$0.0010")
-  await expect(page.getByTitle("Input tokens")).toContainText("10")
-  await expect(page.getByTitle("Output tokens")).toContainText("1")
+  // Icons + numbers only; labels live in the tooltips. Scope to the session
+  // stats: the completed message renders the same compact language (#126).
+  const sessionStats = page.locator('[aria-label="Session usage"]')
+  await expect(sessionStats.getByTitle("Cost")).toHaveText("$0.0010")
+  await expect(sessionStats.getByTitle("Input tokens")).toContainText("10")
+  await expect(sessionStats.getByTitle("Output tokens")).toContainText("1")
   // Cache read/write are never rendered, even when the model reports them.
-  await expect(page.getByTitle("Cache read tokens")).toHaveCount(0)
-  await expect(page.getByTitle("Cache write tokens")).toHaveCount(0)
+  await expect(sessionStats.getByTitle("Cache read tokens")).toHaveCount(0)
+  await expect(sessionStats.getByTitle("Cache write tokens")).toHaveCount(0)
+
+  // The per-message stats use the same icon language, not the old text chain.
+  const messageStats = page.locator('[aria-label="Message usage"]')
+  await expect(messageStats.getByTitle("Cost")).toHaveText("$0.0010")
+  await expect(messageStats.getByTitle("Input tokens")).toContainText("10")
+  await expect(messageStats.getByTitle("Output tokens")).toContainText("1")
+  await expect(page.getByText(/input ·/)).toHaveCount(0)
   await expect(page.getByText("Permission requested")).toBeHidden()
 })
 

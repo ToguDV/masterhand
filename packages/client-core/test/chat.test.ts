@@ -20,6 +20,7 @@ import {
   isTaskTool,
   makeToolPart,
   mergeLiveMessages,
+  messageStats,
   placeholderAssistant,
   sessionUsage,
   setMessageCost,
@@ -677,6 +678,55 @@ describe("tokenSpeed and formatSpeed", () => {
     expect(formatSpeed(42)).toBe("42 tok/s")
     expect(formatSpeed(0.4)).toBe("0 tok/s")
     expect(formatSpeed(null)).toBe("")
+  })
+})
+
+describe("messageStats (#126)", () => {
+  it("summarizes a completed assistant message like the session stats", () => {
+    const stats = messageStats({
+      id: "a1",
+      sessionID: SESSION,
+      role: "assistant",
+      time: { created: 1000, completed: 3000 },
+      modelID: "test-model",
+      cost: 0.0021,
+      tokens: tokens(42, 1000, 0, { read: 10, write: 5 }),
+    })
+
+    expect(stats).toEqual({
+      modelID: "test-model",
+      cost: 0.0021,
+      input: 1000,
+      output: 42,
+      reasoning: 0,
+      speed: 21,
+    })
+  })
+
+  it("nulls cost and speed when absent or still streaming", () => {
+    const stats = messageStats({
+      id: "a1",
+      sessionID: SESSION,
+      role: "assistant",
+      time: { created: 1000 },
+      tokens: tokens(1, 5),
+    })
+
+    expect(stats.cost).toBeNull()
+    expect(stats.speed).toBeNull()
+    expect(stats.input).toBe(5)
+  })
+
+  it("excludes cache tokens and defaults the model", () => {
+    const stats = messageStats({
+      id: "a1",
+      sessionID: SESSION,
+      role: "assistant",
+      time: { created: 1000, completed: 2000 },
+      tokens: tokens(0, 0, 0, { read: 100, write: 50 }),
+    })
+
+    expect(stats).toEqual({ modelID: null, cost: null, input: 0, output: 0, reasoning: 0, speed: null })
   })
 })
 
