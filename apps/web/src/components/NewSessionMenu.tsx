@@ -10,10 +10,13 @@ export function NewSessionMenu({
   onCreate,
   creating,
   disabled,
+  popoverClassName = "",
 }: {
   onCreate: (isolated: boolean) => void
   creating: boolean
   disabled: boolean
+  /** Extra positioning for the popover (the collapsed rail opens it beside the button). */
+  popoverClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [isolated, setIsolated] = useState(false)
@@ -43,7 +46,7 @@ export function NewSessionMenu({
         <div
           role="dialog"
           aria-label="New session"
-          className="absolute right-0 top-full z-30 mt-2 w-64 max-w-[85vw] rounded-md border border-hairline bg-surface p-2.5 shadow-elev3"
+          className={`absolute z-30 w-64 max-w-[85vw] rounded-md border border-hairline bg-surface p-2.5 shadow-elev3 ${popoverClassName || "right-0 top-full mt-2"}`}
         >
           <label className="flex cursor-pointer items-start gap-2 rounded-sm px-1.5 py-1.5 text-sm hover:bg-surface-muted">
             <input

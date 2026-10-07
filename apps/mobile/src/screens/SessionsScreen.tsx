@@ -299,7 +299,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
     optionsBox: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 4,
+      gap: 8,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       borderRadius: 10,

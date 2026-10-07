@@ -30,6 +30,7 @@ import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
+import { NewSessionMenu } from "./components/NewSessionMenu"
 import { BranchPicker } from "./components/BranchPicker"
 import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
@@ -38,12 +39,13 @@ import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
+const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
 
 /** Auto-accept retry policy: bounded attempts with a short backoff. */
 const AUTO_ACCEPT_MAX_ATTEMPTS = 3
@@ -114,6 +116,26 @@ export default function App() {
   const [panel, setPanel] = useState<"audit" | "run" | "settings" | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // Desktop-only sidebar collapse, persisted like the theme choice. Mobile is
+  // unaffected: the drawer always shows the full panel (see mh-rail CSS).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((value) => {
+      const next = !value
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0")
+      } catch {
+        // Storage may be unavailable (private mode); the toggle still works.
+      }
+      return next
+    })
+  }
 
   // Mirrors for the memoized event handler: it must see the latest values
   // without being recreated (which would resubscribe the stream).
@@ -750,6 +772,7 @@ export default function App() {
     drawerOpen
       ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
       : "",
+    sidebarCollapsed ? "mh-aside-collapsed" : "",
   ].join(" ")
 
   return (
@@ -885,25 +908,27 @@ export default function App() {
           />
         )}
         <aside className={asideClass}>
-          <SessionList
-            sessions={sessions}
-            statuses={statuses}
-            selectedID={sessionID}
-            onSelect={(id) => {
-              openSession(id)
-              setDrawerOpen(false)
-            }}
-            onDelete={setRemoveSessionID}
-            hasWorkspace={Boolean(workspaceID)}
-            onCreateSession={(isolated) => {
-              setDrawerOpen(false)
-              void createSession(isolated)
-            }}
-            creating={creating}
-          />
+          <div className="mh-collapse-hide contents">
+            <SessionList
+              sessions={sessions}
+              statuses={statuses}
+              selectedID={sessionID}
+              onSelect={(id) => {
+                openSession(id)
+                setDrawerOpen(false)
+              }}
+              onDelete={setRemoveSessionID}
+              hasWorkspace={Boolean(workspaceID)}
+              onCreateSession={(isolated) => {
+                setDrawerOpen(false)
+                void createSession(isolated)
+              }}
+              creating={creating}
+            />
+          </div>
           {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
-          <div className="shrink-0 border-t border-hairline p-3">
-            <div className="flex w-fit items-center gap-1 rounded-md border border-hairline bg-surface p-1">
+          <div className="mh-collapse-hide shrink-0 border-t border-hairline p-3">
+            <div className="flex w-fit items-center gap-2 rounded-md border border-hairline bg-surface p-1">
               <button
                 type="button"
                 onClick={() => {
@@ -919,13 +944,68 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => void handleLogout()}
-                className="mh-btn mh-btn--quiet gap-2"
+                className="mh-btn mh-btn--ghost"
               >
                 <LogOutIcon size={16} />
                 Sign out
               </button>
+              <button
+                type="button"
+                onClick={toggleSidebarCollapsed}
+                className="mh-btn mh-btn--quiet"
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <ChevronLeftIcon size={18} />
+              </button>
             </div>
           </div>
+          {/* Collapsed desktop rail: desktop-only via CSS, the drawer keeps the full panel on mobile. */}
+          {sidebarCollapsed && (
+            <div className="mh-rail min-h-0 flex-1 flex-col items-center gap-1 py-3">
+              <button
+                type="button"
+                onClick={toggleSidebarCollapsed}
+                className="mh-btn mh-btn--quiet"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+              >
+                <ChevronRightIcon size={18} />
+              </button>
+              <NewSessionMenu
+                onCreate={(isolated) => {
+                  setDrawerOpen(false)
+                  void createSession(isolated)
+                }}
+                creating={creating}
+                disabled={!workspaceID}
+                popoverClassName="left-full right-auto top-0 ml-2 mt-0"
+              />
+              <div className="mt-auto flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false)
+                    setPanel("settings")
+                  }}
+                  className="mh-btn mh-btn--quiet"
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  <GearIcon size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="mh-btn mh-btn--quiet"
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <LogOutIcon size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
