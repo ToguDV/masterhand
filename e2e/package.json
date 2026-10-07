@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
+    "test:e2e": "node ./cleanup-ports.mjs && playwright test",
+    "test:e2e:ui": "node ./cleanup-ports.mjs && playwright test --ui",
     "e2e:browsers": "playwright install chromium",
     "typecheck": "tsc --noEmit"
   },
