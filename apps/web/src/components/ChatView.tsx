@@ -6,6 +6,7 @@ import {
   isAmbiguousError,
   sessionUsage,
   useMessages,
+  usePendingSend,
   type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
@@ -16,7 +17,8 @@ import {
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { BranchChip, BranchPicker } from "./BranchPicker"
-import { Composer } from "./Composer"
+import { Composer, type ComposerHandle } from "./Composer"
+import { PendingBubble } from "./PendingBubble"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { SessionStats } from "./SessionStats"
 import { SessionToolbar } from "./SessionToolbar"
@@ -75,6 +77,8 @@ export function ChatView({
 }) {
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
+  const pendingSend = usePendingSend(sessionID)
+  const composerRef = useRef<ComposerHandle>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
   const [finishError, setFinishError] = useState<string | null>(null)
@@ -165,7 +169,7 @@ export function ChatView({
     if (element && stickToBottom.current) {
       element.scrollTop = element.scrollHeight
     }
-  }, [messages])
+  }, [messages, pendingSend.pending])
 
   function handleScroll() {
     const element = scrollRef.current
@@ -234,6 +238,13 @@ export function ChatView({
           {unmatchedAnswered.map((entry) => (
             <PermissionResolved key={entry.permission.id} entry={entry} />
           ))}
+          {pendingSend.pending && (
+            <PendingBubble
+              pending={pendingSend.pending}
+              onRetry={() => composerRef.current?.retry()}
+              onDismiss={pendingSend.dismiss}
+            />
+          )}
         </div>
       </div>
       {isolation && (
@@ -287,6 +298,7 @@ export function ChatView({
         </div>
       )}
       <Composer
+        ref={composerRef}
         sessionID={sessionID}
         busy={busy}
         connected={connected}
@@ -294,6 +306,7 @@ export function ChatView({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        pending={pendingSend}
         header={
           <SessionToolbar
             workspaces={workspaces}

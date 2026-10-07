@@ -1,15 +1,17 @@
 import { Pressable, Text, View } from "react-native"
 import { fireEvent, render, screen } from "@testing-library/react-native"
-import { loadTheme, saveTheme } from "../src/storage"
+import { clearTheme, loadTheme, saveTheme } from "../src/storage"
 import { ThemeProvider, palettes, resolveTheme, useTheme, useThemedStyles, type Fonts } from "../src/theme"
 
 jest.mock("../src/storage", () => ({
   loadTheme: jest.fn(async () => null),
   saveTheme: jest.fn(async () => {}),
+  clearTheme: jest.fn(async () => {}),
 }))
 
 const mockedLoad = loadTheme as jest.Mock
 const mockedSave = saveTheme as jest.Mock
+const mockedClear = clearTheme as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -34,6 +36,17 @@ function ToggleProbe() {
       <Text>{theme}</Text>
       <Text testID="font">{fonts.ui}</Text>
     </Pressable>
+  )
+}
+
+function ModeProbe() {
+  const { mode, setMode } = useTheme()
+  return (
+    <View>
+      <Text testID="mode">{mode}</Text>
+      <Pressable onPress={() => setMode("system")} accessibilityLabel="follow system" />
+      <Pressable onPress={() => setMode("dark")} accessibilityLabel="pick dark" />
+    </View>
   )
 }
 
@@ -97,5 +110,24 @@ describe("theme resolution", () => {
     )
 
     expect(await screen.findByTestId("font")).toHaveTextContent("U")
+  })
+
+  it("clears the stored choice when the mode goes back to system", async () => {
+    mockedLoad.mockResolvedValue("dark")
+    await render(
+      <ThemeProvider>
+        <ModeProbe />
+      </ThemeProvider>,
+    )
+
+    expect(await screen.findByTestId("mode")).toHaveTextContent("dark")
+    fireEvent.press(screen.getByLabelText("follow system"))
+    expect(await screen.findByTestId("mode")).toHaveTextContent("system")
+    expect(mockedClear).toHaveBeenCalled()
+    expect(mockedSave).not.toHaveBeenCalled()
+
+    fireEvent.press(screen.getByLabelText("pick dark"))
+    expect(await screen.findByTestId("mode")).toHaveTextContent("dark")
+    expect(mockedSave).toHaveBeenCalledWith("dark")
   })
 })

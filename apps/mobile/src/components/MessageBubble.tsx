@@ -2,14 +2,10 @@ import { useMemo, useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
 import Markdown, { darkStyles, type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
 import {
-  formatSpeed,
-  formatTokens,
   isQuestionTool,
   isTaskTool,
   subagentInfo,
   subagentOutput,
-  tokenCounts,
-  tokenSpeed,
   toolTitle,
   type ChatMessage,
   type ChatPart,
@@ -23,6 +19,7 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 import { statusColor } from "./tools/theme"
 import { ToolCard } from "./tools/ToolCard"
 import { QuestionCard } from "./QuestionCard"
+import { MessageStats } from "./MessageStats"
 
 // Assistant output is markdown: render it as such. The library ships a complete
 // dark preset; only the palette is overridden to match the app theme.
@@ -218,9 +215,6 @@ export function MessageBubble({
   const visible = entry.parts
   const streaming = info.time.completed === undefined
   const errorMessage = info.error ? info.error.message || "Agent error" : null
-  const counts = tokenCounts(info.tokens)
-  const breakdown = formatTokens(counts)
-  const speed = formatSpeed(tokenSpeed(counts, (info.time.completed ?? 0) - info.time.created))
 
   return (
     <View style={styles.assistantBlock}>
@@ -238,14 +232,7 @@ export function MessageBubble({
       ))}
       {streaming && visible.length === 0 ? <Text style={styles.caption}>Thinking…</Text> : null}
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-      {info.time.completed !== undefined ? (
-        <Text style={styles.caption}>
-          {info.modelID}
-          {(info.cost ?? 0) > 0 ? ` · $${(info.cost ?? 0).toFixed(4)}` : ""}
-          {breakdown ? ` · ${breakdown}` : ""}
-          {speed ? ` · ${speed}` : ""}
-        </Text>
-      ) : null}
+      {info.time.completed !== undefined ? <MessageStats info={info} /> : null}
     </View>
   )
 }

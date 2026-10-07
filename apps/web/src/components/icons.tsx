@@ -257,3 +257,45 @@ export function BranchIcon(props: IconProps) {
     </IconBase>
   )
 }
+
+/** Provider credentials / API keys (Settings > Providers). */
+export function KeyIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="7.5" cy="16.5" r="3.5" />
+      <path d="m10.1 13.9 9.4-9.4" />
+      <path d="m15.5 8.5 2 2" />
+      <path d="m18 6 2 2" />
+    </IconBase>
+  )
+}
+
+/** Settings (gear) trigger for the app-level settings panel. */
+export function GearIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </IconBase>
+  )
+}
+
+/** Sign out / leave the app (sessions panel options box). */
+export function LogOutIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </IconBase>
+  )
+}
+
+/** Run & preview trigger (replaces the text label, issue #120). */
+export function PlayIcon({ size = 16, strokeWidth = 1.75, ...props }: IconProps) {
+  return (
+    <IconBase size={size} strokeWidth={strokeWidth} {...props}>
+      <path d="M7 5v14l11-7z" />
+    </IconBase>
+  )
+}

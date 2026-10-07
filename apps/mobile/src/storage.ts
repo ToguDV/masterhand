@@ -83,6 +83,11 @@ export function saveTheme(theme: "light" | "dark"): Promise<void> {
   return SecureStore.setItemAsync(THEME_KEY, theme)
 }
 
+/** Clears the stored choice: the theme goes back to following the system. */
+export function clearTheme(): Promise<void> {
+  return SecureStore.deleteItemAsync(THEME_KEY)
+}
+
 export async function loadAutoAcceptSessions(): Promise<string[]> {
   const raw = await SecureStore.getItemAsync(AUTO_ACCEPT_KEY)
   if (!raw) return []

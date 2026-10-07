@@ -14,7 +14,7 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { SidePanel } from "./SidePanel"
-import { ExternalLinkIcon } from "./icons"
+import { ExternalLinkIcon, PlayIcon } from "./icons"
 
 const STOPPED_RUN: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
 const STOPPED_PREVIEW: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
@@ -31,11 +31,14 @@ export function RunPreviewTrigger({
   sessionID,
   workspaceID,
   onOpen,
+  withLabel = false,
   className = "",
 }: {
   sessionID: string
   workspaceID: string | null
   onOpen: () => void
+  /** Renders the text label too (mobile-width overflow menu keeps it readable). */
+  withLabel?: boolean
   className?: string
 }) {
   const statusQuery = useBffStatus(client)
@@ -55,12 +58,14 @@ export function RunPreviewTrigger({
       onClick={onOpen}
       className={`mh-btn mh-btn--ghost ${className}`}
       aria-label="Run and preview"
+      title="Run &amp; preview"
     >
+      <PlayIcon size={22} strokeWidth={2.5} className="text-accent" />
       <span
         aria-hidden="true"
         className={`mh-dot ${running ? "mh-dot--connected" : failed ? "mh-dot--danger" : ""}`}
       />
-      Run &amp; preview
+      {withLabel && <span>Run &amp; preview</span>}
     </button>
   )
 }

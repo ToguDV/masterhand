@@ -752,6 +752,37 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Pending ghost (#125): same geometry as the real bubble, dimmed, with a
+   caption; on failure it stays visible next to the retry actions. */
+.mh-pending {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 85%;
+}
+
+.mh-pending .mh-msg--user {
+  max-width: 100%;
+}
+
+.mh-msg--pending {
+  opacity: 0.6;
+}
+
+.mh-msg--pending.is-failed {
+  opacity: 0.85;
+}
+
+.mh-pending__caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mh-text-muted);
+  font-size: 11px;
+}
+
 .mh-msg--agent {
   max-width: 68ch;
   display: flex;
@@ -1035,6 +1066,141 @@ body {
 
 .mh-dialog__actions .mh-btn {
   flex: 1 1 auto;
+}
+
+/* --------------------------------------------------------------------------
+   Settings dialog (#119): a centered modal with the modules on the left and
+   the selected module's content on the right.
+   -------------------------------------------------------------------------- */
+
+.mh-settings {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  background: var(--mh-surface);
+  outline: none;
+}
+
+.mh-settings__head {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 48px;
+  border-bottom: 1px solid var(--mh-hairline);
+}
+
+.mh-settings__close {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+}
+
+.mh-settings__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.mh-settings__nav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  width: 220px;
+  padding: 12px;
+  border-right: 1px solid var(--mh-hairline);
+  overflow-y: auto;
+}
+
+.mh-settings__nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--mh-text-soft);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.mh-settings__nav-item:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-settings__nav-item[aria-current="page"] {
+  background: var(--mh-surface-muted);
+  border-color: var(--mh-hairline);
+  color: var(--mh-text);
+}
+
+.mh-settings__content {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.mh-settings__title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.mh-settings__desc {
+  margin-top: 4px;
+  color: var(--mh-text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (min-width: 768px) {
+  .mh-settings {
+    width: 100%;
+    height: auto;
+    max-width: 960px;
+    max-height: min(680px, 85dvh);
+    border: 1px solid var(--mh-hairline);
+    border-radius: var(--r-xl);
+    box-shadow: var(--mh-shadow-3);
+  }
+}
+
+@media (max-width: 767px) {
+  .mh-settings__body {
+    flex-direction: column;
+  }
+
+  .mh-settings__nav {
+    flex-direction: row;
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--mh-hairline);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .mh-settings__nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
 }
 
 .mh-question {

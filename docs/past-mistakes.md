@@ -54,7 +54,7 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 
 - `client-core` `RequestTimeoutError` + `timeoutMs` (PR #62).
 - BFF `fetchOpencode`/`OpencodeTimeoutError` + `OPENCODE_TIMEOUT_MS`: one bounded entry point for internal opencode calls, mapped to `504 opencode_timeout` (#75).
-- Synchronous send lock in both composers: `pendingSend`/`startingSideQuestionRef` (web) and `sendLock` (mobile) refs, set before the first `await` (#72).
+- Synchronous send lock in both composers: `inFlight`/`startingSideQuestionRef` refs, set before the first `await` (#72; `inFlight` also backs the pending-send ghost, #125).
 - Web composer delivery reconciliation via `queryKeys.messages` and the per-send marker persisted in the prompt `metadata`: `createDeliveryMarker` / `deliveryMetadata` / `deliveryMarkerOf` in `client-core` (#71; replaces the PR #63 text + time heuristic).
 - Worktree reconciliation volume gate + quarantine: `reconcileWorktrees` requires `VOLUME_SENTINEL` or a live recorded path before dropping records, and `manager.quarantine` renames orphan worktrees (branch kept, git admin pruned) instead of deleting them (#79).
 - Reconnect reconciliation: `invalidateOnReconnect`, `syncPending` for permissions/forms, `server.connected`.
@@ -75,7 +75,10 @@ PRs [#62](https://github.com/ToguDV/masterhand/pull/62) and [#63](https://github
 - Async external work: `runGitCommand` + `spawnResult` (worktrees.ts) run every git/`gh`/`glab` call through `spawn` with a per-call timeout, process-group kill and an injectable runner; `createWorkspaceDir`/`removeWorkspaceDir` use `fs/promises` and `preview.available()` probes `cloudflared` without `spawnSync` (#77).
 - Guarded branch mutations: `POST /workspaces/:id/branches` and `/checkout` validate the ref name, refuse while any workspace session is busy (fresh list vs `/api/session/active`, fail-closed `502 busy_check_failed`), reject a dirty tree on checkout (`409 dirty_worktree`) and answer a git deadline as `504 git_timeout` — the client (`branchErrorMessage`, `BRANCH_TIMEOUT_MS`) frames it as "may have applied", refetches the branch list and never auto-retries (#94).
 - Mobile secure-storage resilience: bootstrap catches SecureStore failures (login screen with a storage-specific message, never a permanent spinner), login separates authentication from persistence (the session stays usable in memory with a banner when it cannot be saved) and `saveSessionPreferences` serializes its read-modify-write queue so concurrent saves cannot clobber each other, keeping the chain alive after a rejected write (#82).
+- Pending-send ghost with marker reconciliation: `usePendingSend` (client-core) owns the plain-prompt state (`begin` on submit, `fail` on a hard error) and clears it only when the persisted history shows the send's marker; the composer releases when the ghost clears, so a lost response resolves without a deadline wait and the real bubble and ghost never coexist. Slash commands keep button-only feedback; an ambiguous timeout keeps reconciling and is never auto-retried (#125).
+- Provider credentials from settings: `connectIntegrationKey`/`removeCredential`/`activateCredential` go through the `/api/oc/*` passthrough; the UI shows an ambiguity message on a timeout (never auto-retry), refreshes the integration list to reconcile, and treats keys as write-only (never pre-filled, echoed, logged or stored client-side) (#128).
 
 ## Open issues in this family
 
-None open (all of #65, #67, #73, #77, #94 and #82 landed 2026-10-05). Track new ones with `gh issue list --label reliability`.
+None open. The settings/chat/providers batch landed 2026-10-06 (#119–#122, #125–#128);
+the remaining backlog is tracked in `docs/plans/issue-chunks.md`.

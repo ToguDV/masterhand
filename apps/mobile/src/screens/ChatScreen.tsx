@@ -8,6 +8,7 @@ import {
   tokenSpeed,
   useBffStatus,
   useMessages,
+  usePendingSend,
   usePreview,
   useSessionRun,
   type ChatMessage,
@@ -19,14 +20,14 @@ import {
   type SessionIsolation,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
-import { Composer } from "../components/Composer"
+import { Composer, type ComposerHandle } from "../components/Composer"
 import { MessageBubble } from "../components/MessageBubble"
+import { PendingBubble } from "../components/PendingBubble"
 import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
-import { ThemeToggle } from "../components/ThemeToggle"
 import { Deco } from "../components/Deco"
-import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "../components/icons"
+import { ArrowDownIcon, ArrowUpIcon, BoltIcon, PlayIcon, SparkleIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
@@ -84,6 +85,8 @@ export function ChatScreen({
 }) {
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
+  const pendingSend = usePendingSend(sessionID)
+  const composerRef = useRef<ComposerHandle>(null)
   const statusQuery = useBffStatus(client)
   const previewEnabled = statusQuery.data?.preview?.enabled === true
   // Aggregated dev-server state for the single Run & preview control (#99).
@@ -137,6 +140,7 @@ export function ChatScreen({
             accessibilityLabel="Run and preview"
             onPress={() => setRunPreviewOpen(true)}
           >
+            <PlayIcon size={18} color={colors.accent} />
             <View
               style={[
                 styles.dot,
@@ -152,11 +156,9 @@ export function ChatScreen({
                 },
               ]}
             />
-            <Text style={styles.actionText}>Run</Text>
           </Pressable>
         ) : null}
         <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
-        <ThemeToggle />
       </View>
 
       {waitingQuestion ? (
@@ -175,6 +177,15 @@ export function ChatScreen({
         contentContainerStyle={styles.list}
         style={styles.listContainer}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        ListFooterComponent={
+          pendingSend.pending ? (
+            <PendingBubble
+              pending={pendingSend.pending}
+              onRetry={() => composerRef.current?.retry()}
+              onDismiss={pendingSend.dismiss}
+            />
+          ) : null
+        }
         ListEmptyComponent={
           messagesQuery.isLoading ? (
             <Text style={styles.empty}>Loading conversation…</Text>
@@ -199,7 +210,7 @@ export function ChatScreen({
       />
 
       {hasStats ? (
-        <View style={styles.usageRow}>
+        <View style={styles.usageRow} accessibilityLabel="Session usage">
           <View style={styles.usageItem} accessibilityLabel={`Cost: $${usage.cost.toFixed(4)}`}>
             <Text style={styles.usageDollar}>$</Text>
             <Text style={styles.usageText}>{usage.cost.toFixed(4)}</Text>
@@ -221,7 +232,7 @@ export function ChatScreen({
           {speedValue !== null ? (
             <View style={styles.usageItem} accessibilityLabel={`Speed: ${formatSpeed(speedValue)}`}>
               <BoltIcon size={12} color={colors.textMuted} />
-              <Text style={styles.usageText}>{formatCount(speedValue)}</Text>
+              <Text style={styles.usageText}>{formatSpeed(speedValue)}</Text>
             </View>
           ) : null}
         </View>
@@ -268,6 +279,7 @@ export function ChatScreen({
 
       <Composer
         key={sessionID}
+        ref={composerRef}
         client={client}
         sessionID={sessionID}
         busy={busy}
@@ -276,6 +288,7 @@ export function ChatScreen({
         directory={isolation?.worktreePath ?? workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
+        pending={pendingSend}
         workspaces={workspaces}
         onSelectWorkspace={onSelectWorkspace}
         onAddWorkspace={onAddWorkspace}
@@ -358,6 +371,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
     },
     actionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,

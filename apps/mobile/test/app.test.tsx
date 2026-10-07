@@ -26,6 +26,7 @@ jest.mock("../src/storage", () => ({
   saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
+  clearTheme: jest.fn(async () => {}),
   clearToken: jest.fn(async () => {}),
   clearDevice: jest.fn(async () => {}),
   clearWorkspaceID: jest.fn(async () => {}),
@@ -65,6 +66,11 @@ function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
     api: {
       permissions: jest.fn(async () => []),
       respondPermission: jest.fn(async () => {}),
+      integrations: jest.fn(async () => []),
+      connectIntegrationKey: jest.fn(async () => {}),
+      credentials: jest.fn(async () => []),
+      removeCredential: jest.fn(async () => {}),
+      activateCredential: jest.fn(async () => {}),
       sessions: { create: jest.fn(), remove: jest.fn() },
     },
     workspaces: { create: jest.fn(), remove: jest.fn() },
@@ -119,7 +125,8 @@ describe("App", () => {
 
     expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
-    await fireEvent.press(screen.getByText("Sign out"))
+    // Sign out lives in the sessions panel options box.
+    await fireEvent.press(screen.getByLabelText("Sign out"))
 
     expect(mocked.clearToken).toHaveBeenCalled()
     expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()

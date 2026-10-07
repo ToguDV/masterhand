@@ -39,6 +39,7 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
     onOpen: jest.fn(),
     onNew: jest.fn(),
     onSignOut: jest.fn(),
+    onOpenSettings: jest.fn(),
     onSelectWorkspace: jest.fn(),
     onAddWorkspace: jest.fn(async () => {}),
     onRemoveWorkspace: jest.fn(),
@@ -153,12 +154,30 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("No sessions match this filter.")).toBeOnTheScreen()
   })
 
-  it("signs out from the header", async () => {
+  it("opens the settings modal from the options box gear", async () => {
     const handlers = await setup()
 
-    await fireEvent.press(screen.getByText("Sign out"))
+    await fireEvent.press(screen.getByLabelText("Settings"))
+
+    expect(handlers.onOpenSettings).toHaveBeenCalled()
+  })
+
+  it("signs out from the options box", async () => {
+    const handlers = await setup()
+
+    await fireEvent.press(screen.getByLabelText("Sign out"))
 
     expect(handlers.onSignOut).toHaveBeenCalled()
+  })
+
+  it("groups the new-session + with the Sessions title (#122)", async () => {
+    await setup()
+
+    const title = screen.getByText("Sessions")
+    const plus = screen.getByLabelText("New session")
+
+    // Same left-aligned cluster, not the far right of the header.
+    expect(title.parent).toBe(plus.parent)
   })
 
   it("disables the new-session action while creating", async () => {

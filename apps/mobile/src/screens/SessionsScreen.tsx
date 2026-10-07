@@ -14,7 +14,7 @@ import {
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { ThemeToggle } from "../components/ThemeToggle"
+import { GearIcon, LogOutIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -32,6 +32,7 @@ export function SessionsScreen({
   onOpen,
   onNew,
   onSignOut,
+  onOpenSettings,
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
@@ -51,6 +52,8 @@ export function SessionsScreen({
   onOpen: (sessionID: string) => void
   onNew: (isolated: boolean) => void
   onSignOut: () => void
+  /** Opens the app-level settings modal (owned by App). */
+  onOpenSettings: () => void
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
@@ -93,18 +96,16 @@ export function SessionsScreen({
   return (
     <Screen>
       <View style={styles.header}>
-        <Text style={styles.title}>Sessions</Text>
-        <View style={styles.headerRight}>
-          <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
-          <ThemeToggle />
+        <View style={styles.headerLeft}>
+          <Text style={styles.title}>Sessions</Text>
           <NewSessionMenu
             creating={creating}
             disabled={!canCreate}
             onCreate={onNew}
           />
-          <Pressable onPress={onSignOut} hitSlop={4}>
-            <Text style={styles.signOut}>Sign out</Text>
-          </Pressable>
+        </View>
+        <View style={styles.headerRight}>
+          <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
         </View>
       </View>
 
@@ -163,6 +164,31 @@ export function SessionsScreen({
           />
         )}
       />
+
+      <View style={styles.optionsWrap}>
+        <View style={styles.optionsBox}>
+          <Pressable
+            onPress={onOpenSettings}
+            accessibilityRole="button"
+            accessibilityLabel="Settings"
+            testID="settings-button"
+            hitSlop={4}
+            style={styles.option}
+          >
+            <GearIcon size={20} color={colors.textMuted} />
+          </Pressable>
+          <Pressable
+            onPress={onSignOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            hitSlop={4}
+            style={styles.option}
+          >
+            <LogOutIcon size={18} color={colors.textMuted} />
+            <Text style={styles.optionText}>Sign out</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <WorkspaceModal
         visible={workspaceOpen}
@@ -243,6 +269,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
     },
+    headerLeft: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
     headerRight: {
       flexDirection: "row",
       alignItems: "center",
@@ -259,7 +291,30 @@ function createStyles(colors: Palette, fonts: Fonts) {
       height: 8,
       borderRadius: 4,
     },
-    signOut: {
+    optionsWrap: {
+      alignItems: "flex-start",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    optionsBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+      padding: 4,
+    },
+    option: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      minHeight: 40,
+      paddingHorizontal: 10,
+      justifyContent: "center",
+    },
+    optionText: {
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 13,

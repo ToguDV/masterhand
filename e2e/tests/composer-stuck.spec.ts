@@ -155,17 +155,21 @@ test("does not confirm a send from an identical message created elsewhere", asyn
     .toBe(1)
 
   // Another device sends the same text while our request is still held: the
-  // message lands in the history but is not ours.
+  // message lands in the history but is not ours, so the ghost stays (#125)
+  // next to the real injected bubble.
   await request.post(`${MOCK_URL}/e2e/inject-user-message`, { data: { text: "/seed 0" } })
-  await expect(page.getByText("/seed 0", { exact: true })).toHaveCount(1)
+  await expect(page.locator(".mh-msg--user")).toHaveCount(1)
+  await expect(page.locator('[aria-label="Sending message"]')).toBeVisible()
   await page.waitForTimeout(500)
   await expect(send).toHaveText("Sending…")
   await expect(composer).toHaveValue("/seed 0")
 
   // Releasing our own prompt delivers the message that carries the marker: now
-  // the composer releases and clears the sent text.
+  // the composer releases and clears the sent text, and the ghost is replaced
+  // by the real bubble.
   await request.post(`${MOCK_URL}/e2e/release-prompt`)
   await expect(send).toHaveText("Send", { timeout: 10_000 })
   await expect(composer).toHaveValue("")
-  await expect(page.getByText("/seed 0", { exact: true })).toHaveCount(2)
+  await expect(page.locator(".mh-msg--user")).toHaveCount(2)
+  await expect(page.locator('[aria-label="Sending message"]')).toHaveCount(0)
 })

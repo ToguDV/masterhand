@@ -97,7 +97,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Thinking…")).toBeOnTheScreen()
   })
 
-  it("shows the structured error and the usage line when completed", async () => {
+  it("shows the structured error and the compact usage line when completed", async () => {
     await render(
       bubble(
         {
@@ -112,7 +112,31 @@ describe("MessageBubble", () => {
     )
 
     expect(screen.getByText("boom")).toBeOnTheScreen()
-    expect(screen.getByText("test-model · $0.0021 · 1k input · 42 output · 21 tok/s")).toBeOnTheScreen()
+    // Icons + numbers only; labels live in the accessibility names (#126).
+    expect(screen.getByText("test-model")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Cost: $0.0021")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Input tokens: 1000")).toBeOnTheScreen()
+    expect(screen.getByText("1k")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Output tokens: 42")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Speed: 21 tok/s")).toBeOnTheScreen()
+    // The old verbose text chain is gone.
+    expect(screen.queryByText(/input ·/)).toBeNull()
+  })
+
+  it("never renders cache tokens in the message stats (#126)", async () => {
+    await render(
+      bubble(
+        {
+          time: { created: 1000, completed: 2000 },
+          modelID: "test-model",
+          tokens: { input: 10, output: 2, cache: { read: 100, write: 50 } } as ChatMessageInfo["tokens"],
+        },
+        [textPart("done")],
+      ),
+    )
+
+    expect(screen.getByLabelText("Message usage")).toBeOnTheScreen()
+    expect(screen.queryByText(/cache/i)).toBeNull()
   })
 
   it("reveals reasoning text on demand", async () => {

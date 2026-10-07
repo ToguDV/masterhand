@@ -3,14 +3,10 @@ import ReactMarkdown, { type Components } from "react-markdown"
 import remarkBreaks from "remark-breaks"
 import remarkGfm from "remark-gfm"
 import {
-  formatSpeed,
-  formatTokens,
   isQuestionTool,
   isTaskTool,
   subagentInfo,
   subagentOutput,
-  tokenCounts,
-  tokenSpeed,
   type ChatMessage,
   type ChatPart,
   type ChatReasoningPart,
@@ -24,6 +20,7 @@ import { ToolCard } from "./tools/ToolCard"
 import { StatusDot } from "./tools/StatusDot"
 import { QuestionCard } from "./QuestionCard"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
+import { MessageStats } from "./MessageStats"
 
 // Assistant output is markdown; render it as such (GFM + single newlines as
 // breaks, matching what the model expects to see). Every element maps to the
@@ -272,9 +269,6 @@ export function AssistantBlock({
   const info = entry.info
   const streaming = info.time.completed === undefined
   const errorMessage = info.error ? info.error.message || "Agent error" : null
-  const counts = tokenCounts(info.tokens)
-  const breakdown = formatTokens(counts)
-  const speed = formatSpeed(tokenSpeed(counts, (info.time.completed ?? 0) - info.time.created))
 
   return (
     <div className="mh-msg--agent">
@@ -305,14 +299,7 @@ export function AssistantBlock({
 
       {errorMessage && <p className="text-sm text-danger">{errorMessage}</p>}
 
-      {info.time.completed !== undefined && (
-        <p className="mh-msg__meta">
-          {info.modelID}
-          {(info.cost ?? 0) > 0 ? ` · $${(info.cost ?? 0).toFixed(4)}` : ""}
-          {breakdown ? ` · ${breakdown}` : ""}
-          {speed ? ` · ${speed}` : ""}
-        </p>
-      )}
+      {info.time.completed !== undefined && <MessageStats info={info} />}
     </div>
   )
 }

@@ -107,6 +107,10 @@ const catalogRequests = { agent: 0, model: 0 }
 let stallPrompts = false
 let stallResponses = false
 const heldPrompts: Array<() => void> = []
+// E2E control: delay the echo (the persisted user message broadcast) of a
+// prompt, so a test can hold the ghost bubble while the response already
+// settled (#125). `/e2e/delay-echo` with `{ ms }`.
+let echoDelayMs = 0
 /** How many prompt requests reached the mock (read via `/e2e/state`). */
 let promptRequests = 0
 /** Session the last prompt request targeted, used by the message-injection control. */
@@ -128,6 +132,48 @@ let heldForks = 0
 // attempts (read via `/e2e/state`), so tests can prove the client retried.
 let failPermissionReplies = false
 let permissionReplyAttempts = 0
+
+// Provider integrations and credentials (settings, issue #128). `/e2e/reset-integrations`
+// restores the initial catalog so specs stay independent.
+interface MockIntegrationConnection {
+  type: "credential" | "env"
+  id?: string
+  label?: string
+  method?: string
+}
+interface MockIntegration {
+  id: string
+  name: string
+  methods: Array<Record<string, unknown>>
+  connections: MockIntegrationConnection[]
+}
+function initialIntegrations(): MockIntegration[] {
+  return [
+    { id: "opencode-go", name: "OpenCode Go", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "anthropic", name: "Anthropic", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "openai", name: "OpenAI", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "google", name: "Google", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+    { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+    { id: "gitlab", name: "GitLab", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "openrouter", name: "OpenRouter", methods: [{ type: "key", label: "API key" }], connections: [] },
+  ]
+}
+let integrations: MockIntegration[] = initialIntegrations()
+
+function credentialsOf(): Array<Record<string, unknown>> {
+  return integrations.flatMap((integration) =>
+    integration.connections
+      .filter((connection) => connection.type === "credential")
+      .map((connection, index) => ({
+        id: connection.id,
+        integrationID: integration.id,
+        label: connection.label ?? "API key",
+        active: index === 0,
+        value: { type: "key" },
+      })),
+  )
+}
+
 // E2E controls for session-creation reconciliation: `stall-create` holds the
 // response after creating (the response is lost), `stall-create-before` holds
 // before creating (nothing exists to reconcile). `/e2e/release-create` flushes.
@@ -719,6 +765,10 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
   const conversation = conversations.get(sessionID)
   if (!session || !conversation) return
 
+  // E2E control: delay the echo of the send (start broadcast + streaming), so
+  // the ghost bubble can be observed before the history confirms it (#125).
+  if (echoDelayMs > 0) await delay(echoDelayMs)
+
   if (text.toLowerCase().includes("subagent")) return runSubagentPrompt(sessionID, text)
   if (text.toLowerCase().includes("markdown")) return runMarkdownPrompt(sessionID)
   if (text.toLowerCase().includes("question")) return runQuestionPrompt(sessionID)
@@ -858,6 +908,15 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && path === "/e2e/fail-prompts") {
       const body = await readBody(req)
       failPrompts = body.value !== false
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/delay-echo") {
+      const body = await readBody(req)
+      echoDelayMs = typeof body.ms === "number" && body.ms > 0 ? body.ms : 0
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/reset-integrations") {
+      integrations = initialIntegrations()
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/fail-permission-replies") {
@@ -1036,6 +1095,43 @@ const server = createServer((req, res) => {
     }
     if (req.method === "GET" && path === "/api/provider") {
       return json(res, 200, { location: { directory: "/e2e" }, data: PROVIDERS })
+    }
+    // Provider integrations and credentials (settings, issue #128).
+    if (req.method === "GET" && path === "/api/integration") {
+      return json(res, 200, { location: { directory: "/e2e" }, data: integrations })
+    }
+    if (req.method === "POST" && /^\/api\/integration\/[^/]+\/connect\/key$/.test(path)) {
+      const integrationID = decodeURIComponent(path.split("/")[3] ?? "")
+      const integration = integrations.find((item) => item.id === integrationID)
+      if (!integration) return json(res, 404, { error: "not_found" })
+      const body = await readBody(req)
+      const key = typeof body.key === "string" ? body.key : ""
+      if (!key) return json(res, 400, { error: "invalid_key" })
+      // E2E control: a specific key value exercises the rejection path.
+      if (key === "bad-key") return json(res, 400, { error: "invalid_key" })
+      const credentialID = nextId("cred")
+      integration.connections.push({
+        type: "credential",
+        id: credentialID,
+        label: typeof body.label === "string" && body.label ? body.label : "API key",
+        method: "key",
+      })
+      return empty(res, 204)
+    }
+    if (req.method === "GET" && path === "/api/credential") {
+      return json(res, 200, { data: credentialsOf() })
+    }
+    if (req.method === "DELETE" && /^\/api\/credential\/[^/]+$/.test(path)) {
+      const credentialID = decodeURIComponent(path.split("/")[3] ?? "")
+      for (const integration of integrations) {
+        integration.connections = integration.connections.filter(
+          (connection) => connection.type !== "credential" || connection.id !== credentialID,
+        )
+      }
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && /^\/api\/credential\/[^/]+\/activate$/.test(path)) {
+      return empty(res, 204)
     }
     if (req.method === "GET" && path === "/api/command") {
       return json(res, 200, { location: { directory: "/e2e" }, data: COMMANDS })

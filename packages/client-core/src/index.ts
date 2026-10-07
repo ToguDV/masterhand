@@ -14,6 +14,7 @@ export {
   deliveryMarkerOf,
   deliveryMetadata,
 } from "./delivery"
+export { usePendingSend, type PendingSend, type PendingSendController } from "./pending"
 export {
   conversationErrorMessage,
   composerErrorMessage,
@@ -21,6 +22,7 @@ export {
   isAmbiguousError,
   opencodeErrorMessage,
   previewErrorMessage,
+  providerConnectErrorMessage,
 } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
@@ -33,6 +35,7 @@ export {
   formatTokens,
   isTaskTool,
   makeToolPart,
+  messageStats,
   placeholderAssistant,
   sessionUsage,
   setMessageCost,
@@ -45,6 +48,7 @@ export {
   toolTitle,
   updateToolPart,
   upsertToolPart,
+  type MessageStats,
   type SessionUsage,
   type StreamKind,
   type SubagentInfo,
@@ -75,9 +79,11 @@ export {
   useCommands,
   useEventStream,
   useBranches,
+  useIntegrations,
   useMessages,
   useModels,
   usePreview,
+  useProviderCredentials,
   useSessionDirectories,
   useSessionRun,
   useSessionStatuses,
@@ -88,6 +94,19 @@ export {
   type TransitionQuery,
   type UseEventStreamOptions,
 } from "./hooks"
+export {
+  compareIntegrations,
+  normalizeCredentials,
+  normalizeIntegration,
+  normalizeIntegrations,
+  providerIcon,
+  providerMonogram,
+  type Integration,
+  type IntegrationConnection,
+  type IntegrationMethod,
+  type IntegrationMethodType,
+  type ProviderCredential,
+} from "./integrations"
 export {
   appCommands,
   argumentSuggestions,

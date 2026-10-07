@@ -36,10 +36,11 @@ import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
-import { ThemeToggle } from "./components/ThemeToggle"
+import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChevronLeftIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
+import { useThemeMode } from "./theme"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
@@ -78,6 +79,8 @@ function formatFreeBytes(bytes: number | null): string {
 export default function App() {
   const queryClient = useQueryClient()
   const toast = useToast()
+  // App-level so the system listener keeps working with the panel closed.
+  const themeMode = useThemeMode()
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [statusFailed, setStatusFailed] = useState(false)
   // Read inside the status effect without re-running it: a stale 401 from
@@ -108,7 +111,7 @@ export default function App() {
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(loadAutoAcceptSessions)
-  const [panel, setPanel] = useState<"audit" | "run" | null>(null)
+  const [panel, setPanel] = useState<"audit" | "run" | "settings" | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -783,15 +786,6 @@ export default function App() {
             <RunPreviewTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
           </div>
         )}
-        <div className="mx-1 hidden h-6 w-px bg-hairline md:block" />
-        <ThemeToggle />
-        <button
-          type="button"
-          onClick={() => void handleLogout()}
-          className="mh-btn mh-btn--ghost hidden md:inline-flex"
-        >
-          Sign out
-        </button>
         <div className="relative md:hidden">
           <button
             type="button"
@@ -810,23 +804,17 @@ export default function App() {
                 onClick={() => setMenuOpen(false)}
               >
                 {sessionID && (
-                  <div className="mb-1.5 flex flex-col gap-0.5 border-b border-hairline pb-1.5">
+                  <div className="flex flex-col gap-0.5">
                     <AuditTrigger onOpen={() => setPanel("audit")} className="w-full justify-start" />
                     <RunPreviewTrigger
                       sessionID={sessionID}
                       workspaceID={workspaceID}
                       onOpen={() => setPanel("run")}
+                      withLabel
                       className="w-full justify-start"
                     />
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void handleLogout()}
-                  className="mh-btn mh-btn--ghost w-full justify-start"
-                >
-                  Sign out
-                </button>
               </div>
             </>
           )}
@@ -913,6 +901,31 @@ export default function App() {
             }}
             creating={creating}
           />
+          {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
+          <div className="shrink-0 border-t border-hairline p-3">
+            <div className="flex w-fit items-center gap-1 rounded-md border border-hairline bg-surface p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawerOpen(false)
+                  setPanel("settings")
+                }}
+                className="mh-btn mh-btn--quiet"
+                aria-label="Settings"
+                title="Settings"
+              >
+                <GearIcon size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="mh-btn mh-btn--quiet gap-2"
+              >
+                <LogOutIcon size={16} />
+                Sign out
+              </button>
+            </div>
+          </div>
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
@@ -1011,6 +1024,13 @@ export default function App() {
       )}
 
       {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
+      {panel === "settings" && (
+        <SettingsDialog
+          mode={themeMode.mode}
+          onSelectMode={themeMode.setMode}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {sessionID && panel === "run" && (
         <RunPreviewSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
       )}
