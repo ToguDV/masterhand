@@ -44,6 +44,9 @@ export const queryKeys = {
   sessionRun: (sessionID: string) => ["sessionRun", sessionID] as const,
   /** Local git branches of a workspace folder (issue #94). */
   branches: (workspaceID?: string | null) => ["branches", workspaceID ?? null] as const,
+  /** Provider integrations and stored credentials (settings, issue #128). */
+  integrations: ["integrations"] as const,
+  credentials: ["credentials"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -159,6 +162,29 @@ export function useCommands(client: Client, directory?: string | null) {
 
 export function useModels(client: Client) {
   return useQuery({ queryKey: queryKeys.models, queryFn: () => client.api.models(), staleTime: 5 * 60_000 })
+}
+
+/**
+ * Provider integrations for the settings Providers section (issue #128).
+ * `enabled` keeps the request lazy until the panel is open.
+ */
+export function useIntegrations(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.integrations,
+    queryFn: () => client.api.integrations(),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+/** Stored credentials, used to disconnect or activate one (#128). */
+export function useProviderCredentials(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.credentials,
+    queryFn: () => client.api.credentials(),
+    enabled,
+    staleTime: 60_000,
+  })
 }
 
 /** How often a `running` run/preview is re-checked so a dead process surfaces (#89). */

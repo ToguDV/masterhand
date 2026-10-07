@@ -34,6 +34,7 @@ import { LoginScreen } from "./src/screens/LoginScreen"
 import { SessionsScreen } from "./src/screens/SessionsScreen"
 import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
+import { SettingsModal } from "./src/components/SettingsModal"
 import { Screen } from "./src/components/Screen"
 import { ActivityIndicator, Text } from "react-native"
 import {
@@ -246,10 +247,13 @@ function AuthenticatedApp({
   const [banner, setBanner] = useState<string | null>(initialBanner)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>([])
   const autoAcceptLoaded = useRef(false)
+  // App-level settings modal (Appearance, Providers, Account).
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
   const styles = useThemedStyles(createStyles)
+  const { mode, setMode } = useTheme()
 
   useEffect(() => {
     void loadAutoAcceptSessions().then((ids) => {
@@ -648,13 +652,22 @@ function AuthenticatedApp({
           activeSessionID={sessionID}
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
-          onSignOut={onSignOut}
+          onOpenSettings={() => setSettingsOpen(true)}
           onSelectWorkspace={switchWorkspace}
           onAddWorkspace={addWorkspace}
           onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
           onDeleteSession={(id) => void deleteSession(id)}
         />
       )}
+
+      <SettingsModal
+        visible={settingsOpen}
+        client={client}
+        mode={mode}
+        onSelectMode={setMode}
+        onSignOut={onSignOut}
+        onClose={() => setSettingsOpen(false)}
+      />
 
       {permissions[0] && (
         <PermissionModal

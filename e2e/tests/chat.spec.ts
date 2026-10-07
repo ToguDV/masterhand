@@ -20,7 +20,9 @@ test("login, create a session, stream a reply and approve a permission", async (
   await composer.fill("hello agent")
   await page.getByRole("button", { name: "Send" }).click()
 
-  await expect(page.getByText("hello agent")).toBeVisible()
+  // The delivered user bubble (not the pending ghost, not the textarea) proves
+  // the message landed in the history (#125).
+  await expect(page.locator(".mh-msg--user:not(.mh-msg--pending)")).toContainText("hello agent")
 
   await expect(page.getByText("Permission requested")).toBeVisible()
   await expect(page.getByTestId("permission-kind")).toHaveText("bash")

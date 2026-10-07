@@ -22,6 +22,7 @@ export {
   isAmbiguousError,
   opencodeErrorMessage,
   previewErrorMessage,
+  providerConnectErrorMessage,
 } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
@@ -78,9 +79,11 @@ export {
   useCommands,
   useEventStream,
   useBranches,
+  useIntegrations,
   useMessages,
   useModels,
   usePreview,
+  useProviderCredentials,
   useSessionDirectories,
   useSessionRun,
   useSessionStatuses,
@@ -91,6 +94,16 @@ export {
   type TransitionQuery,
   type UseEventStreamOptions,
 } from "./hooks"
+export {
+  normalizeCredentials,
+  normalizeIntegration,
+  normalizeIntegrations,
+  type Integration,
+  type IntegrationConnection,
+  type IntegrationMethod,
+  type IntegrationMethodType,
+  type ProviderCredential,
+} from "./integrations"
 export {
   appCommands,
   argumentSuggestions,

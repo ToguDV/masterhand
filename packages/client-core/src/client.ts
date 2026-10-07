@@ -29,6 +29,12 @@ import type {
   WorkspaceRunConfig,
 } from "./types"
 import { toChatMessage } from "./chat"
+import {
+  normalizeCredentials,
+  normalizeIntegrations,
+  type Integration,
+  type ProviderCredential,
+} from "./integrations"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
 export class ApiError extends Error {
@@ -160,6 +166,23 @@ export interface Client {
     commands(directory?: string | null): Promise<SlashCommand[]>
     /** Models, providers and server default model for the composer selectors. */
     models(): Promise<ModelsCatalog>
+    /**
+     * Provider integrations and their connections (issue #128). The API key
+     * never reaches this client layer after submit: it is forwarded once to
+     * opencode and only the connection metadata comes back.
+     */
+    integrations(): Promise<Integration[]>
+    /** Connects an API key to an integration (`POST .../connect/key`). */
+    connectIntegrationKey(
+      integrationID: string,
+      input: { key: string; label?: string; answer?: Record<string, string | number | boolean | string[]> },
+    ): Promise<void>
+    /** Stored credentials across integrations (to disconnect or activate one). */
+    credentials(): Promise<ProviderCredential[]>
+    /** Removes a stored credential (non-idempotent; never auto-retried). */
+    removeCredential(credentialID: string): Promise<void>
+    /** Marks one stored credential as the active one. */
+    activateCredential(credentialID: string): Promise<void>
     statuses(): Promise<SessionStatuses>
     /** Live preview (Cloudflare quick tunnel) for a session. */
     preview(sessionID: string): Promise<PreviewStatus>
@@ -486,6 +509,23 @@ export function createClient(options: ClientOptions = {}): Client {
             defaultModel: defaultModel.data,
           } satisfies ModelsCatalog
         }),
+      integrations: () =>
+        opencodeRequest(() =>
+          opencode.integration.list().then((response) => normalizeIntegrations(response.data)),
+        ),
+      connectIntegrationKey: (integrationID, input) =>
+        opencodeRequest(() =>
+          opencode.integration.connect.key({
+            integrationID,
+            key: input.key,
+            ...(input.label ? { label: input.label } : {}),
+            ...(input.answer ? { answer: input.answer } : {}),
+          }),
+        ),
+      credentials: () =>
+        opencodeRequest(() => opencode.credential.list().then(normalizeCredentials)),
+      removeCredential: (credentialID) => opencodeRequest(() => opencode.credential.remove({ credentialID })),
+      activateCredential: (credentialID) => opencodeRequest(() => opencode.credential.activate({ credentialID })),
       statuses: () =>
         opencodeRequest(async () => {
           const active = await opencode.session.active()

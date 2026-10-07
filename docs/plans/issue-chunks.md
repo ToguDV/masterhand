@@ -3,13 +3,15 @@
 **Snapshot:** 2026-10-06. 16 open issues (#118–#131, #133–#134) grouped into **7 chunks**
 (C10–C16) by the code surface they share. The previous 34-issue backlog (C1–C9) is fully merged.
 
-**Last updated:** 2026-10-06 — re-chunked after the issue batch created from the maintainer's
+**Last updated:** 2026-10-06 — C10, C12 and C13 landed in the settings/chat/providers session batch
+(settings hub, sign-out relocation, mobile header, play icon, tok/s fix, per-message stats, Sending…
+ghost, provider credentials). Re-chunked after the issue batch created from the maintainer's
 mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
 syntax highlighting and color themes; #125–#127 chat feedback, per-message stats and the tok/s
 fix; #128 provider credentials; #129–#130 `/goal`; and the release/update work, split after the
 F-Droid and GHCR decisions into #131 (A: versioning, GHCR images, BFF update check, web/desktop),
 #133 (B: self-hosted F-Droid repo + Android notice) and #134 (standardized one-click BFF updater,
-deferred). No chunk has started.
+deferred).
 
 ## How to use this document
 
@@ -39,10 +41,10 @@ deferred). No chunk has started.
 | C7 — Deploy/ops | #78 #90 | ✅ Merged 2026-10-05 — interleaved in the lifecycle session batch (#116) |
 | C8 — Web unified run/preview panel + bubble | #97 #98 | ✅ Merged 2026-10-05 — remaining-issues session batch |
 | C9 — Mobile ink-on-paper and parity | #82 #93 #100 #92 #99 | ✅ Merged 2026-10-05 — remaining-issues session batch |
-| C10 — Settings hub and header cleanup | #119 #120 #121 #122 | ⬜ Pending |
+| C10 — Settings hub and header cleanup | #119 #120 #121 #122 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ⬜ Pending |
-| C12 — Chat feedback and stats | #127 #126 #125 | ⬜ Pending |
-| C13 — Provider credentials in settings | #128 | ⬜ Pending |
+| C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
+| C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |

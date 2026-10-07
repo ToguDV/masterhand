@@ -1,5 +1,7 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import type { Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
+import { ProvidersSection } from "./ProvidersSection"
 import { CheckIcon, CloseIcon, GearIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeMode } from "../theme"
 
@@ -16,12 +18,14 @@ const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
  */
 export function SettingsModal({
   visible,
+  client,
   mode,
   onSelectMode,
   onSignOut,
   onClose,
 }: {
   visible: boolean
+  client: Client
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
   onSignOut: () => void
@@ -70,6 +74,9 @@ export function SettingsModal({
               )
             })}
           </View>
+
+          <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>
+          <ProvidersSection client={client} />
 
           <Text style={[styles.sectionTitle, styles.accountTitle]}>Account</Text>
           <Pressable

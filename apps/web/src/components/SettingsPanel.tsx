@@ -1,5 +1,6 @@
 import { SidePanel } from "./SidePanel"
 import { CheckIcon } from "./icons"
+import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
 const MODES: Array<{ value: ThemeMode; label: string; hint: string }> = [
@@ -55,6 +56,8 @@ export function SettingsSheet({
           })}
         </div>
       </section>
+
+      <ProvidersSection />
 
       <section className="p-4" aria-labelledby="settings-account">
         <h3

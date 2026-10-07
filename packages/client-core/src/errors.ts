@@ -27,6 +27,23 @@ export function composerErrorMessage(error: unknown, kind: "send" | "side questi
 }
 
 /**
+ * Maps a failed provider-key connect (settings, #128) to a user message.
+ * The connect is non-idempotent: a timeout is reported as ambiguous and never
+ * auto-retried — the UI refreshes the connection list instead.
+ */
+export function providerConnectErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not answer in time — the key may have been saved. Reopen settings to check before retrying."
+  }
+  if (error instanceof ApiError) {
+    if (error.status === 400 || error.status === 404) return "The provider rejected that key. Check it and try again."
+    if (error.status === 502) return "opencode is not reachable right now."
+    return `Could not connect (HTTP ${error.status})`
+  }
+  return "Could not connect to the provider"
+}
+
+/**
  * Turns an opencode structured error (`session.execution.failed`, assistant
  * message error) into a concise message for the UI. Returns `null` for
  * user-initiated aborts (expected, not worth a banner).

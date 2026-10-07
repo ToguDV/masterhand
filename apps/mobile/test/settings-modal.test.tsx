@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react-native"
+import { Alert } from "react-native"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import { SettingsModal } from "../src/components/SettingsModal"
 import { ThemeProvider, useTheme } from "../src/theme"
 import { clearTheme, saveTheme } from "../src/storage"
+import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
 jest.mock("../src/storage", () => ({
   loadTheme: jest.fn(async () => null),
@@ -12,12 +14,21 @@ jest.mock("../src/storage", () => ({
 const mockedSave = saveTheme as jest.Mock
 const mockedClear = clearTheme as jest.Mock
 
-/** Drives the modal through the real theme provider, as the screen does. */
-function Harness({ onClose = jest.fn(), onSignOut = jest.fn() }: { onClose?: () => void; onSignOut?: () => void }) {
+/** Drives the modal through the real theme provider, as the app does. */
+function Harness({
+  client,
+  onClose = jest.fn(),
+  onSignOut = jest.fn(),
+}: {
+  client: ReturnType<typeof fakeClient>
+  onClose?: () => void
+  onSignOut?: () => void
+}) {
   const { mode, setMode } = useTheme()
   return (
     <SettingsModal
       visible
+      client={client}
       mode={mode}
       onSelectMode={setMode}
       onSignOut={onSignOut}
@@ -26,17 +37,30 @@ function Harness({ onClose = jest.fn(), onSignOut = jest.fn() }: { onClose?: () 
   )
 }
 
+async function setup(
+  configure?: (client: ReturnType<typeof fakeClient>) => void,
+  props: { onClose?: () => void; onSignOut?: () => void } = {},
+) {
+  const client = fakeClient()
+  configure?.(client)
+  const queryClient = makeQueryClient()
+  await render(
+    <QueryWrapper client={queryClient}>
+      <ThemeProvider>
+        <Harness client={client} {...props} />
+      </ThemeProvider>
+    </QueryWrapper>,
+  )
+  return { client }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
 })
 
 describe("SettingsModal (#119)", () => {
   it("shows the appearance modes and the active selection", async () => {
-    await render(
-      <ThemeProvider>
-        <Harness />
-      </ThemeProvider>,
-    )
+    await setup()
 
     expect(screen.getByText("Appearance")).toBeOnTheScreen()
     expect(screen.getByLabelText("System").props.accessibilityState?.checked).toBe(true)
@@ -45,11 +69,7 @@ describe("SettingsModal (#119)", () => {
   })
 
   it("persists an explicit mode and clears it back to system", async () => {
-    await render(
-      <ThemeProvider>
-        <Harness />
-      </ThemeProvider>,
-    )
+    await setup()
 
     await fireEvent.press(screen.getByLabelText("Dark"))
     expect(mockedSave).toHaveBeenCalledWith("dark")
@@ -62,11 +82,7 @@ describe("SettingsModal (#119)", () => {
 
   it("closes from the header button", async () => {
     const onClose = jest.fn()
-    await render(
-      <ThemeProvider>
-        <Harness onClose={onClose} />
-      </ThemeProvider>,
-    )
+    await setup(undefined, { onClose })
 
     await fireEvent.press(screen.getByLabelText("Close settings"))
     expect(onClose).toHaveBeenCalled()
@@ -75,14 +91,73 @@ describe("SettingsModal (#119)", () => {
   it("signs out from the Account section", async () => {
     const onSignOut = jest.fn()
     const onClose = jest.fn()
-    await render(
-      <ThemeProvider>
-        <Harness onClose={onClose} onSignOut={onSignOut} />
-      </ThemeProvider>,
-    )
+    await setup(undefined, { onSignOut, onClose })
 
     await fireEvent.press(screen.getByLabelText("Sign out"))
     expect(onSignOut).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
+  })
+})
+
+describe("SettingsModal providers (#128)", () => {
+  it("pins OpenCode Go first and connects a key", async () => {
+    const { client } = await setup((c) => {
+      c.api.integrations.mockResolvedValue([
+        { id: "anthropic", name: "Anthropic", methods: [{ id: "key", type: "key", label: "API key" }], connections: [] },
+        { id: "opencode-go", name: "OpenCode Go", methods: [{ id: "key", type: "key", label: "API key" }], connections: [] },
+      ])
+      c.api.credentials.mockResolvedValue([])
+    })
+
+    // OpenCode Go is highlighted first (its Connect button comes first).
+    const connectButtons = await screen.findAllByLabelText(/^Connect /)
+    expect(connectButtons[0]?.props.accessibilityLabel).toBe("Connect OpenCode Go")
+
+    await fireEvent.press(screen.getByLabelText("Connect OpenCode Go"))
+    await fireEvent.changeText(screen.getByTestId("provider-key-input"), "sk-secret")
+    await fireEvent.press(screen.getByLabelText("Save key"))
+
+    await waitFor(() =>
+      expect(client.api.connectIntegrationKey).toHaveBeenCalledWith("opencode-go", { key: "sk-secret" }),
+    )
+  })
+
+  it("shows a connected provider and disconnects it with confirmation", async () => {
+    const { client } = await setup((c) => {
+      c.api.integrations.mockResolvedValue([
+        {
+          id: "opencode-go",
+          name: "OpenCode Go",
+          methods: [{ id: "key", type: "key", label: "API key" }],
+          connections: [{ type: "credential", credentialID: "cred_1", label: "Personal", method: "key" }],
+        },
+      ])
+      c.api.credentials.mockResolvedValue([
+        { id: "cred_1", integrationID: "opencode-go", label: "Personal", active: true },
+      ])
+    })
+
+    expect(await screen.findByText("Connected")).toBeOnTheScreen()
+
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+    await fireEvent.press(screen.getByLabelText("Disconnect Personal"))
+
+    const destructive = alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")
+    destructive?.onPress?.()
+
+    await waitFor(() => expect(client.api.removeCredential).toHaveBeenCalledWith("cred_1"))
+    alert.mockRestore()
+  })
+
+  it("keeps oauth providers informational", async () => {
+    await setup((c) => {
+      c.api.integrations.mockResolvedValue([
+        { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+      ])
+      c.api.credentials.mockResolvedValue([])
+    })
+
+    expect(await screen.findByText(/opencode CLI\/TUI/)).toBeOnTheScreen()
+    expect(screen.queryByLabelText("Connect GitHub")).toBeNull()
   })
 })

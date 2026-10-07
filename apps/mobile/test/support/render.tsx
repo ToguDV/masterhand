@@ -32,6 +32,11 @@ export interface FakeClient {
     agents: jest.Mock
     commands: jest.Mock
     models: jest.Mock
+    integrations: jest.Mock
+    connectIntegrationKey: jest.Mock
+    credentials: jest.Mock
+    removeCredential: jest.Mock
+    activateCredential: jest.Mock
     messages: jest.Mock
     prompt: jest.Mock
     runCommand: jest.Mock
@@ -61,6 +66,11 @@ export function fakeClient(): FakeClient & Client {
       agents: jest.fn(async () => []),
       commands: jest.fn(async () => []),
       models: jest.fn(async () => ({ models: [], providers: [], defaultModel: null })),
+      integrations: jest.fn(async () => []),
+      connectIntegrationKey: jest.fn(async () => {}),
+      credentials: jest.fn(async () => []),
+      removeCredential: jest.fn(async () => {}),
+      activateCredential: jest.fn(async () => {}),
       messages: jest.fn(async () => []),
       prompt: jest.fn(async () => {}),
       runCommand: jest.fn(async () => {}),

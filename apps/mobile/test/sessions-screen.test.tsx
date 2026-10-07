@@ -38,7 +38,7 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
   const handlers = {
     onOpen: jest.fn(),
     onNew: jest.fn(),
-    onSignOut: jest.fn(),
+    onOpenSettings: jest.fn(),
     onSelectWorkspace: jest.fn(),
     onAddWorkspace: jest.fn(async () => {}),
     onRemoveWorkspace: jest.fn(),
@@ -153,21 +153,18 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("No sessions match this filter.")).toBeOnTheScreen()
   })
 
-  it("signs out from the settings modal", async () => {
+  it("opens the settings modal from the header gear", async () => {
     const handlers = await setup()
 
     await fireEvent.press(screen.getByLabelText("Settings"))
-    await fireEvent.press(await screen.findByLabelText("Sign out"))
 
-    expect(handlers.onSignOut).toHaveBeenCalled()
+    expect(handlers.onOpenSettings).toHaveBeenCalled()
   })
 
-  it("opens the settings modal from the header gear", async () => {
+  it("no longer signs out from the header (#121)", async () => {
     await setup()
 
-    await fireEvent.press(screen.getByLabelText("Settings"))
-
-    expect(await screen.findByText("Appearance")).toBeOnTheScreen()
+    expect(screen.queryByText("Sign out")).toBeNull()
   })
 
   it("groups the new-session + with the Sessions title (#122)", async () => {

@@ -13,7 +13,6 @@ import {
 } from "@masterhand/client-core"
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
-import { SettingsModal } from "../components/SettingsModal"
 import { WorkspaceModal } from "../components/WorkspaceModal"
 import { GearIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
@@ -32,7 +31,7 @@ export function SessionsScreen({
   activeSessionID = null,
   onOpen,
   onNew,
-  onSignOut,
+  onOpenSettings,
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
@@ -51,17 +50,17 @@ export function SessionsScreen({
   activeSessionID?: string | null
   onOpen: (sessionID: string) => void
   onNew: (isolated: boolean) => void
-  onSignOut: () => void
+  /** Opens the app-level settings modal (owned by App). */
+  onOpenSettings: () => void
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
   onDeleteSession: (id: string) => void
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
   const styles = useThemedStyles(createStyles)
-  const { colors, mode, setMode } = useTheme()
+  const { colors } = useTheme()
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Subagent children are reachable from their parent's card, not the list.
   const visible = filterSessions(rootSessions(sessions), filter)
@@ -106,7 +105,7 @@ export function SessionsScreen({
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
           <Pressable
-            onPress={() => setSettingsOpen(true)}
+            onPress={onOpenSettings}
             accessibilityRole="button"
             accessibilityLabel="Settings"
             testID="settings-button"
@@ -185,14 +184,6 @@ export function SessionsScreen({
           confirmRemoveWorkspace(id, options)
         }}
         onClose={() => setWorkspaceOpen(false)}
-      />
-
-      <SettingsModal
-        visible={settingsOpen}
-        mode={mode}
-        onSelectMode={setMode}
-        onSignOut={onSignOut}
-        onClose={() => setSettingsOpen(false)}
       />
     </Screen>
   )

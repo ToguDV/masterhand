@@ -66,6 +66,11 @@ function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
     api: {
       permissions: jest.fn(async () => []),
       respondPermission: jest.fn(async () => {}),
+      integrations: jest.fn(async () => []),
+      connectIntegrationKey: jest.fn(async () => {}),
+      credentials: jest.fn(async () => []),
+      removeCredential: jest.fn(async () => {}),
+      activateCredential: jest.fn(async () => {}),
       sessions: { create: jest.fn(), remove: jest.fn() },
     },
     workspaces: { create: jest.fn(), remove: jest.fn() },

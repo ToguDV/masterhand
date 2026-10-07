@@ -132,6 +132,44 @@ let heldForks = 0
 // attempts (read via `/e2e/state`), so tests can prove the client retried.
 let failPermissionReplies = false
 let permissionReplyAttempts = 0
+
+// Provider integrations and credentials (settings, issue #128). `/e2e/reset-integrations`
+// restores the initial catalog so specs stay independent.
+interface MockIntegrationConnection {
+  type: "credential" | "env"
+  id?: string
+  label?: string
+  method?: string
+}
+interface MockIntegration {
+  id: string
+  name: string
+  methods: Array<Record<string, unknown>>
+  connections: MockIntegrationConnection[]
+}
+function initialIntegrations(): MockIntegration[] {
+  return [
+    { id: "opencode-go", name: "OpenCode Go", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "anthropic", name: "Anthropic", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
+  ]
+}
+let integrations: MockIntegration[] = initialIntegrations()
+
+function credentialsOf(): Array<Record<string, unknown>> {
+  return integrations.flatMap((integration) =>
+    integration.connections
+      .filter((connection) => connection.type === "credential")
+      .map((connection, index) => ({
+        id: connection.id,
+        integrationID: integration.id,
+        label: connection.label ?? "API key",
+        active: index === 0,
+        value: { type: "key" },
+      })),
+  )
+}
+
 // E2E controls for session-creation reconciliation: `stall-create` holds the
 // response after creating (the response is lost), `stall-create-before` holds
 // before creating (nothing exists to reconcile). `/e2e/release-create` flushes.
@@ -873,6 +911,10 @@ const server = createServer((req, res) => {
       echoDelayMs = typeof body.ms === "number" && body.ms > 0 ? body.ms : 0
       return empty(res, 204)
     }
+    if (req.method === "POST" && path === "/e2e/reset-integrations") {
+      integrations = initialIntegrations()
+      return empty(res, 204)
+    }
     if (req.method === "POST" && path === "/e2e/fail-permission-replies") {
       const body = await readBody(req)
       failPermissionReplies = body.value !== false
@@ -1049,6 +1091,43 @@ const server = createServer((req, res) => {
     }
     if (req.method === "GET" && path === "/api/provider") {
       return json(res, 200, { location: { directory: "/e2e" }, data: PROVIDERS })
+    }
+    // Provider integrations and credentials (settings, issue #128).
+    if (req.method === "GET" && path === "/api/integration") {
+      return json(res, 200, { location: { directory: "/e2e" }, data: integrations })
+    }
+    if (req.method === "POST" && /^\/api\/integration\/[^/]+\/connect\/key$/.test(path)) {
+      const integrationID = decodeURIComponent(path.split("/")[3] ?? "")
+      const integration = integrations.find((item) => item.id === integrationID)
+      if (!integration) return json(res, 404, { error: "not_found" })
+      const body = await readBody(req)
+      const key = typeof body.key === "string" ? body.key : ""
+      if (!key) return json(res, 400, { error: "invalid_key" })
+      // E2E control: a specific key value exercises the rejection path.
+      if (key === "bad-key") return json(res, 400, { error: "invalid_key" })
+      const credentialID = nextId("cred")
+      integration.connections.push({
+        type: "credential",
+        id: credentialID,
+        label: typeof body.label === "string" && body.label ? body.label : "API key",
+        method: "key",
+      })
+      return empty(res, 204)
+    }
+    if (req.method === "GET" && path === "/api/credential") {
+      return json(res, 200, { data: credentialsOf() })
+    }
+    if (req.method === "DELETE" && /^\/api\/credential\/[^/]+$/.test(path)) {
+      const credentialID = decodeURIComponent(path.split("/")[3] ?? "")
+      for (const integration of integrations) {
+        integration.connections = integration.connections.filter(
+          (connection) => connection.type !== "credential" || connection.id !== credentialID,
+        )
+      }
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && /^\/api\/credential\/[^/]+\/activate$/.test(path)) {
+      return empty(res, 204)
     }
     if (req.method === "GET" && path === "/api/command") {
       return json(res, 200, { location: { directory: "/e2e" }, data: COMMANDS })
