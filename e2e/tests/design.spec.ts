@@ -62,6 +62,24 @@ test("signs out from the sessions panel options, not from the top bar", async ({
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
 })
 
+test("collapses the sessions sidebar into an icon rail on desktop", async ({ page }) => {
+  await login(page)
+  const aside = page.locator("aside")
+  await aside.getByRole("button", { name: "Collapse sidebar" }).click()
+  // The full panel hides, leaving the rail with its icon actions.
+  const sessionsHeading = aside.getByRole("heading", { name: "Sessions", exact: true })
+  await expect(sessionsHeading).toBeHidden()
+  await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
+  await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
+
+  // The choice survives a reload.
+  await page.reload()
+  await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
+  await aside.getByRole("button", { name: "Expand sidebar" }).click()
+  await expect(sessionsHeading).toBeVisible()
+  await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
+})
+
 test("paints the user bubble deep emerald, never the brightest surface", async ({ page }) => {
   await login(page)
   await addWorkspace(page)

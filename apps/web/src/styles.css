@@ -235,6 +235,29 @@ body {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
+/* Collapsed sessions sidebar (desktop only): the full list and footer hide,
+   leaving a 60px icon rail. Mobile is untouched — the drawer keeps everything.
+   These rules live in `@layer utilities` on purpose: they must beat Tailwind
+   utilities (`contents`, `md:w-[272px]`) and a later layer always wins over
+   `@layer components` regardless of specificity. */
+.mh-rail {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .mh-aside-collapsed {
+    width: 60px;
+  }
+
+  .mh-aside-collapsed .mh-collapse-hide {
+    display: none;
+  }
+
+  .mh-aside-collapsed .mh-rail {
+    display: flex;
+  }
+}
+
 /* Tool/question cards expand with a short lift; disabled for reduced motion. */
 .mh-reveal {
   animation: mh-reveal 160ms ease-out;
