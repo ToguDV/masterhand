@@ -820,6 +820,7 @@ export default function App() {
                       sessionID={sessionID}
                       workspaceID={workspaceID}
                       onOpen={() => setPanel("run")}
+                      withLabel
                       className="w-full justify-start"
                     />
                   </div>

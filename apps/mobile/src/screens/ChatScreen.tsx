@@ -25,7 +25,7 @@ import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { Deco } from "../components/Deco"
-import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "../components/icons"
+import { ArrowDownIcon, ArrowUpIcon, BoltIcon, PlayIcon, SparkleIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
@@ -136,6 +136,18 @@ export function ChatScreen({
             accessibilityLabel="Run and preview"
             onPress={() => setRunPreviewOpen(true)}
           >
+            <PlayIcon
+              size={13}
+              color={
+                runStateQuery.data?.status === "running" ||
+                (previewEnabled && previewStateQuery.data?.status === "running")
+                  ? colors.success
+                  : runStateQuery.data?.status === "error" ||
+                      (previewEnabled && previewStateQuery.data?.status === "error")
+                    ? colors.danger
+                    : colors.text
+              }
+            />
             <View
               style={[
                 styles.dot,
@@ -151,7 +163,6 @@ export function ChatScreen({
                 },
               ]}
             />
-            <Text style={styles.actionText}>Run</Text>
           </Pressable>
         ) : null}
         <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
@@ -356,6 +367,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
     },
     actionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,

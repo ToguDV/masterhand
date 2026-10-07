@@ -80,6 +80,11 @@ export function GearIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="settings-outline" size={size} color={color} />
 }
 
+/** Run & preview trigger (replaces the text label, issue #120). */
+export function PlayIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="play-outline" size={size} color={color} />
+}
+
 /** Effort (reasoning) variants; generic variants use `SlidersIcon` instead. */
 export function BrainIcon({ size = 16, color }: IconProps) {
   return <MaterialCommunityIcons name="brain" size={size} color={color} />

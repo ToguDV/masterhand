@@ -267,3 +267,12 @@ export function GearIcon(props: IconProps) {
     </IconBase>
   )
 }
+
+/** Run & preview trigger (replaces the text label, issue #120). */
+export function PlayIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M7 5v14l11-7z" />
+    </IconBase>
+  )
+}
