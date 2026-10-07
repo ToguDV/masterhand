@@ -992,21 +992,21 @@ export default function App() {
               opens into a curve that wraps the bare arrow — an SVG covers the
               straight segment and redraws it bumping outward when collapsed,
               inward when expanded. */}
-          <div className="absolute -right-[14px] top-1/2 z-20 max-md:hidden -translate-y-1/2">
+          <div className="absolute -right-[17.5px] top-1/2 z-20 max-md:hidden -translate-y-1/2">
             <svg
-              width="28"
-              height="72"
-              viewBox="0 0 28 72"
+              width="36"
+              height="94"
+              viewBox="0 0 36.4 93.6"
               aria-hidden="true"
               className="block"
               style={{ color: "var(--mh-hairline)" }}
             >
-              <path d="M14.5 18 L14.5 54" stroke="var(--mh-canvas)" strokeWidth="3" />
+              <path d="M18.85 23.4 L18.85 70.2" stroke="var(--mh-canvas)" strokeWidth="3" />
               <path
                 d={
                   sidebarCollapsed
-                    ? "M14.5 18 C14.5 27 25.5 28 25.5 36 C25.5 44 14.5 45 14.5 54"
-                    : "M14.5 18 C14.5 27 3.5 28 3.5 36 C3.5 44 14.5 45 14.5 54"
+                    ? "M18.85 23.4 C18.85 35.1 33.15 36.4 33.15 46.8 C33.15 57.2 18.85 58.5 18.85 70.2"
+                    : "M18.85 23.4 C18.85 35.1 4.55 36.4 4.55 46.8 C4.55 57.2 18.85 58.5 18.85 70.2"
                 }
                 fill="none"
                 stroke="currentColor"
@@ -1016,12 +1016,12 @@ export default function App() {
             <button
               type="button"
               onClick={toggleSidebarCollapsed}
-              className={`absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink ${sidebarCollapsed ? "" : "-translate-x-1"}`}
+              className={`absolute inset-0 flex items-center justify-center rounded-sm text-ink-muted hover:text-ink ${sidebarCollapsed ? "" : "-translate-x-1.5"}`}
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={!sidebarCollapsed}
             >
-              {sidebarCollapsed ? <ChevronRightIcon size={14} /> : <ChevronLeftIcon size={14} />}
+              {sidebarCollapsed ? <ChevronRightIcon size={18} /> : <ChevronLeftIcon size={18} />}
             </button>
           </div>
         </aside>
