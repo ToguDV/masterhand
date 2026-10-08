@@ -38,9 +38,12 @@ import {
 import {
   normalizeCustomProviderCreateResult,
   normalizeCustomProviders,
+  normalizeDiscoveredModels,
   type CustomProvider,
   type CustomProviderCreateResult,
   type CustomProviderInput,
+  type CustomProviderModel,
+  type DiscoverModelsInput,
 } from "./custom-providers"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
@@ -198,6 +201,8 @@ export interface Client {
     createCustomProvider(input: CustomProviderInput): Promise<CustomProviderCreateResult>
     /** Removes a custom provider from the config (idempotent). */
     removeCustomProvider(id: string): Promise<void>
+    /** Loads a provider's models from its `/models` endpoint (read-only). */
+    listCustomProviderModels(input: DiscoverModelsInput): Promise<CustomProviderModel[]>
     statuses(): Promise<SessionStatuses>
     /** Live preview (Cloudflare quick tunnel) for a session. */
     preview(sessionID: string): Promise<PreviewStatus>
@@ -556,6 +561,11 @@ export function createClient(options: ClientOptions = {}): Client {
         }),
       removeCustomProvider: (id) =>
         request<void>(`/api/providers/custom/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      listCustomProviderModels: (input) =>
+        request<{ models: unknown }>("/api/providers/custom/models", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }).then((response) => normalizeDiscoveredModels(response.models)),
       statuses: () =>
         opencodeRequest(async () => {
           const active = await opencode.session.active()

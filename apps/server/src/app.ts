@@ -27,7 +27,9 @@ import { createOpencodeProxy } from "./proxy.js"
 import {
   CustomProvidersFileError,
   createCustomProviderStore,
+  fetchProviderModels,
   validateCustomProvider,
+  validateDiscoverInput,
   type CustomProviderStore,
 } from "./providers.js"
 import {
@@ -836,6 +838,30 @@ export function createApp(deps: AppDeps): Hono {
     } catch (error) {
       return customProvidersFailure(c, error)
     }
+  })
+
+  /**
+   * Discovers a provider's models from its OpenAI-compatible `/models`
+   * endpoint, so the add dialog fills the list instead of demanding hand-typed
+   * ids. Read-only: nothing is stored and the transient key is only forwarded
+   * upstream. The URL is the same one opencode itself will call; self-hosted
+   * installs commonly point it at a LAN address, so no host allowlist applies.
+   */
+  api.post("/providers/custom/models", async (c) => {
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const result = validateDiscoverInput(body)
+    if (!result.ok) return c.json({ error: result.error }, 400)
+
+    const discovered = await fetchProviderModels(result.value, { fetchImpl })
+    if (!discovered.ok) {
+      return c.json({ error: discovered.error }, discovered.error === "provider_timeout" ? 504 : 502)
+    }
+    return c.json({ models: discovered.models })
   })
 
   /** Upsert by id: retrying the same body is safe (rule 4 in past-mistakes). */

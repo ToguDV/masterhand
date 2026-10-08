@@ -51,6 +51,10 @@ const MAX_HEADERS = 32
 const MAX_HEADER_KEY = 64
 const MAX_HEADER_VALUE = 1024
 const MAX_LIMIT = 100_000_000
+/** Models accepted from a provider's `/models` endpoint (deduplicated, in order). */
+const MAX_DISCOVERED_MODELS = 200
+/** Deadline for the provider's `/models` call; the client deadline is longer. */
+const MODELS_TIMEOUT_MS = 10_000
 
 export type ValidationResult =
   | { ok: true; provider: CustomProvider }
@@ -80,6 +84,24 @@ function positiveLimit(value: unknown): number | undefined {
     return undefined
   }
   return Math.floor(value)
+}
+
+/** Strict header validation shared by provider writes and model discovery. */
+function normalizeHeaders(raw: unknown): { ok: true; headers?: Record<string, string> } | { ok: false } {
+  if (raw === undefined) return { ok: true }
+  const record = asRecord(raw)
+  if (!record) return { ok: false }
+  const entries = Object.entries(record)
+  if (entries.length > MAX_HEADERS) return { ok: false }
+  const headers: Record<string, string> = {}
+  for (const [key, value] of entries) {
+    if (!key || key.length > MAX_HEADER_KEY || /[\r\n]/.test(key)) return { ok: false }
+    if (typeof value !== "string" || value.length > MAX_HEADER_VALUE || /[\r\n]/.test(value)) {
+      return { ok: false }
+    }
+    headers[key] = value
+  }
+  return { ok: true, headers: entries.length > 0 ? headers : undefined }
 }
 
 /**
@@ -132,24 +154,9 @@ export function validateCustomProvider(input: unknown): ValidationResult {
     })
   }
 
-  let headers: Record<string, string> | undefined
-  if (record.headers !== undefined) {
-    const rawHeaders = asRecord(record.headers)
-    if (!rawHeaders) return { ok: false, error: "invalid_headers" }
-    const entries = Object.entries(rawHeaders)
-    if (entries.length > MAX_HEADERS) return { ok: false, error: "invalid_headers" }
-    headers = {}
-    for (const [key, value] of entries) {
-      if (!key || key.length > MAX_HEADER_KEY || /[\r\n]/.test(key)) {
-        return { ok: false, error: "invalid_headers" }
-      }
-      if (typeof value !== "string" || value.length > MAX_HEADER_VALUE || /[\r\n]/.test(value)) {
-        return { ok: false, error: "invalid_headers" }
-      }
-      headers[key] = value
-    }
-    if (entries.length === 0) headers = undefined
-  }
+  const headersResult = normalizeHeaders(record.headers)
+  if (!headersResult.ok) return { ok: false, error: "invalid_headers" }
+  const headers = headersResult.headers
 
   return {
     ok: true,
@@ -328,4 +335,133 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
         await writeDocument(document)
       }),
   }
+}
+
+export interface DiscoverModelsInput {
+  baseURL: string
+  key?: string
+  headers?: Record<string, string>
+}
+
+export type DiscoverModelsResult =
+  | { ok: true; models: CustomProviderModel[] }
+  | { ok: false; error: DiscoverModelsError }
+
+export type DiscoverModelsError =
+  | "invalid_body"
+  | "invalid_base_url"
+  | "invalid_headers"
+  | "invalid_key"
+  | "provider_timeout"
+  | "provider_unreachable"
+  | "provider_unauthorized"
+  | "provider_failed"
+  | "provider_invalid_response"
+  | "provider_no_models"
+
+/**
+ * Validates a model-discovery body. The provider does not exist yet, so only
+ * the fields needed for the `/models` request are required: a base URL, an
+ * optional key and optional headers.
+ */
+export function validateDiscoverInput(
+  input: unknown,
+): { ok: true; value: DiscoverModelsInput } | { ok: false; error: DiscoverModelsError } {
+  const record = asRecord(input)
+  if (!record) return { ok: false, error: "invalid_body" }
+
+  const baseURL = asString(record.baseURL)?.trim() ?? ""
+  if (!baseURL || baseURL.length > MAX_BASE_URL || !isHttpUrl(baseURL)) {
+    return { ok: false, error: "invalid_base_url" }
+  }
+  const headersResult = normalizeHeaders(record.headers)
+  if (!headersResult.ok) return { ok: false, error: "invalid_headers" }
+  const key = asString(record.key)?.trim() ?? ""
+  if (key.length > MAX_HEADER_VALUE) return { ok: false, error: "invalid_key" }
+
+  return {
+    ok: true,
+    value: {
+      baseURL,
+      ...(key ? { key } : {}),
+      ...(headersResult.headers ? { headers: headersResult.headers } : {}),
+    },
+  }
+}
+
+/**
+ * Reads an OpenAI-style `/models` payload. Accepts `{ data: [...] }` (the
+ * standard), `{ models: [...] }` and a bare array, and tolerates entries with
+ * `name` or `display_name`. Invalid/duplicate ids are skipped, never guessed.
+ */
+export function parseModelsResponse(raw: unknown): CustomProviderModel[] {
+  const record = asRecord(raw)
+  const list = Array.isArray(raw)
+    ? raw
+    : record && Array.isArray(record.data)
+      ? record.data
+      : record && Array.isArray(record.models)
+        ? record.models
+        : null
+  if (!list) return []
+
+  const models: CustomProviderModel[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    const entry = asRecord(item)
+    const id = asString(entry?.id)?.trim() ?? ""
+    if (!id || id.length > MAX_MODEL_ID || seen.has(id)) continue
+    seen.add(id)
+    const name = (asString(entry?.name) ?? asString(entry?.display_name))?.trim() ?? ""
+    models.push({ id, ...(name && name.length <= MAX_MODEL_NAME ? { name } : {}) })
+    if (models.length >= MAX_DISCOVERED_MODELS) break
+  }
+  return models
+}
+
+/**
+ * Calls the provider's `/models` endpoint with the transient key. The request
+ * is bounded (`MODELS_TIMEOUT_MS`) and injectable for tests; the key is never
+ * logged or persisted here.
+ */
+export async function fetchProviderModels(
+  input: DiscoverModelsInput,
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<DiscoverModelsResult> {
+  const doFetch = options.fetchImpl ?? fetch
+  const target = `${input.baseURL.replace(/\/+$/, "")}/models`
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    ...input.headers,
+    ...(input.key ? { authorization: `Bearer ${input.key}` } : {}),
+  }
+
+  let response: Response
+  try {
+    response = await doFetch(target, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(options.timeoutMs ?? MODELS_TIMEOUT_MS),
+    })
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "TimeoutError") {
+      return { ok: false, error: "provider_timeout" }
+    }
+    return { ok: false, error: "provider_unreachable" }
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, error: "provider_unauthorized" }
+  }
+  if (!response.ok) return { ok: false, error: "provider_failed" }
+
+  let raw: unknown
+  try {
+    raw = await response.json()
+  } catch {
+    return { ok: false, error: "provider_invalid_response" }
+  }
+  const models = parseModelsResponse(raw)
+  if (models.length === 0) return { ok: false, error: "provider_no_models" }
+  return { ok: true, models }
 }

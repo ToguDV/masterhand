@@ -1419,6 +1419,17 @@ const server = createServer((req, res) => {
       }
     }
 
+    // Custom-provider model discovery: the BFF calls the base URL the user
+    // typed, so an E2E provider points its base URL at this mock. OpenAI shape.
+    if (req.method === "GET" && path === "/models") {
+      return json(res, 200, {
+        data: [
+          { id: "acme-coder", name: "Acme Coder" },
+          { id: "acme-mini" },
+        ],
+      })
+    }
+
     json(res, 404, { error: "not_found" })
   })()
 })

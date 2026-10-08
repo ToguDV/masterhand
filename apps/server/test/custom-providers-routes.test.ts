@@ -125,3 +125,76 @@ describe("/api/providers/custom ", () => {
     }
   })
 })
+
+describe("/api/providers/custom/models ", () => {
+  async function setup(fetchImpl: typeof fetch) {
+    const dir = await mkdtemp(join(tmpdir(), "masterhand-custom-routes-"))
+    dirs.push(dir)
+    const providers = createCustomProviderStore({ file: join(dir, "providers.json") })
+    const app = await startTestApp({ providers, fetchImpl })
+    const cookie = await login(app.url)
+    return { app, headers: { cookie, "content-type": "application/json" } }
+  }
+
+  it("discovers models and forwards the transient key", async () => {
+    let seen: { url: string; auth: string | null } | null = null
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      seen = { url: String(input), auth: new Headers(init?.headers).get("authorization") }
+      return Response.json({ data: [{ id: "acme-coder", name: "Acme Coder" }, { id: "acme-mini" }] })
+    }) as typeof fetch
+    const { app, headers } = await setup(fetchImpl)
+    try {
+      const response = await fetch(`${app.url}/api/providers/custom/models`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ baseURL: "https://api.acme.example/v1", key: "sk-secret" }),
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        models: [{ id: "acme-coder", name: "Acme Coder" }, { id: "acme-mini" }],
+      })
+      expect(seen!.url).toBe("https://api.acme.example/v1/models")
+      expect(seen!.auth).toBe("Bearer sk-secret")
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("rejects an invalid base URL without calling the provider", async () => {
+    let called = false
+    const fetchImpl = (async () => {
+      called = true
+      return Response.json({ data: [] })
+    }) as typeof fetch
+    const { app, headers } = await setup(fetchImpl)
+    try {
+      const response = await fetch(`${app.url}/api/providers/custom/models`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ baseURL: "not-a-url" }),
+      })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: "invalid_base_url" })
+      expect(called).toBe(false)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("maps a rejected key to a typed upstream error", async () => {
+    const fetchImpl = (async () => new Response(null, { status: 401 })) as typeof fetch
+    const { app, headers } = await setup(fetchImpl)
+    try {
+      const response = await fetch(`${app.url}/api/providers/custom/models`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ baseURL: "https://api.acme.example/v1", key: "bad" }),
+      })
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({ error: "provider_unauthorized" })
+    } finally {
+      await app.close()
+    }
+  })
+})

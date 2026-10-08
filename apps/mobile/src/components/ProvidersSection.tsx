@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
   compareIntegrations,
   customProviderErrorMessage,
   isValidProviderId,
+  modelsLoadErrorMessage,
   providerConnectErrorMessage,
   providerIcon,
   providerIdFromName,
@@ -28,6 +29,7 @@ import {
   type Client,
   type CustomProvider,
   type CustomProviderCreateResult,
+  type CustomProviderModel,
   type CustomProviderPackage,
   type Integration,
 } from "@masterhand/client-core"
@@ -534,6 +536,10 @@ function AddProviderModal({
   const [headers, setHeaders] = useState<Array<{ key: number; name: string; value: string }>>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const modelsRequest = useRef(0)
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [modelsInfo, setModelsInfo] = useState<string | null>(null)
 
   const validModels = models.filter((model) => model.id.trim().length > 0)
   const canSubmit =
@@ -547,14 +553,93 @@ function AddProviderModal({
     setModels((rows) => rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)))
   }
 
+  function collectHeaders(): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const header of headers) {
+      if (header.name.trim()) result[header.name.trim()] = header.value
+    }
+    return result
+  }
+
+  /**
+   * Folds discovered models into the current rows: a provider model keeps any
+   * context/output the user already set for the same id, and manually added ids
+   * the provider did not report are preserved (discovery never discards work).
+   */
+  function mergeDiscovered(rows: ModelRow[], found: CustomProviderModel[]): ModelRow[] {
+    const byID = new Map(rows.filter((row) => row.id.trim()).map((row) => [row.id.trim(), row]))
+    const discovered = new Set(found.map((model) => model.id))
+    const merged: ModelRow[] = found.map((model) => {
+      const existing = byID.get(model.id)
+      return {
+        key: existing?.key ?? nextKey.current++,
+        id: model.id,
+        name: model.name ?? existing?.name ?? "",
+        context: existing?.context ?? "",
+        output: existing?.output ?? "",
+      }
+    })
+    for (const row of rows) {
+      const id = row.id.trim()
+      if (id && !discovered.has(id)) merged.push(row)
+    }
+    return merged.length > 0 ? merged : [newRow()]
+  }
+
+  /**
+   * Loads the provider's models. `silent` is used by the debounced auto-run: a
+   * provider that needs a key and has none yet must not flash an auth error
+   * while the user is still filling the form.
+   */
+  async function loadModels(options: { silent?: boolean } = {}): Promise<void> {
+    const url = baseURL.trim()
+    if (!isHttpUrl(url)) return
+    const requestID = modelsRequest.current + 1
+    modelsRequest.current = requestID
+    setLoadingModels(true)
+    setModelsError(null)
+    setModelsInfo(null)
+    const headerObject = collectHeaders()
+    try {
+      const found = await client.api.listCustomProviderModels({
+        baseURL: url,
+        ...(key.trim() ? { key: key.trim() } : {}),
+        ...(Object.keys(headerObject).length > 0 ? { headers: headerObject } : {}),
+      })
+      if (requestID !== modelsRequest.current) return
+      if (found.length > 0) {
+        setModels((rows) => mergeDiscovered(rows, found))
+        setModelsInfo(found.length === 1 ? "1 model loaded from the provider." : `${found.length} models loaded from the provider.`)
+      }
+    } catch (err) {
+      if (requestID !== modelsRequest.current) return
+      if (!options.silent) setModelsError(modelsLoadErrorMessage(err))
+    } finally {
+      if (requestID === modelsRequest.current) setLoadingModels(false)
+    }
+  }
+
+  const headersSignature = JSON.stringify(headers.map((header) => [header.name, header.value]))
+  useEffect(() => {
+    if (!isHttpUrl(baseURL.trim()) || busy) {
+      setLoadingModels(false)
+      setModelsError(null)
+      setModelsInfo(null)
+      return
+    }
+    // Debounced automatic discovery, so the list is filled without hand typing.
+    const timer = setTimeout(() => {
+      void loadModels({ silent: !key.trim() })
+    }, 600)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseURL, key, headersSignature, busy])
+
   async function submit(): Promise<void> {
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const headerObject: Record<string, string> = {}
-    for (const header of headers) {
-      if (header.name.trim()) headerObject[header.name.trim()] = header.value
-    }
+    const headerObject = collectHeaders()
     try {
       const result = await client.api.createCustomProvider({
         id: id.trim(),
@@ -638,7 +723,24 @@ function AddProviderModal({
               style={styles.input}
             />
 
-            <Text style={styles.groupLabel}>Models</Text>
+            <View style={styles.modelsHeader}>
+              <Text style={[styles.groupLabel, styles.groupLabelRow]}>Models</Text>
+              <Pressable
+                onPress={() => void loadModels()}
+                disabled={loadingModels || !isHttpUrl(baseURL.trim())}
+                accessibilityRole="button"
+                accessibilityLabel="Load models"
+                testID="load-models"
+                style={[styles.secondary, (loadingModels || !isHttpUrl(baseURL.trim())) && styles.disabled]}
+              >
+                <Text style={styles.secondaryText}>{loadingModels ? "Loading…" : "Load models"}</Text>
+              </Pressable>
+            </View>
+            {modelsInfo ? <Text style={styles.notice}>{modelsInfo}</Text> : null}
+            {modelsError ? <Text style={styles.error}>{modelsError}</Text> : null}
+            {!modelsInfo && !modelsError ? (
+              <Text style={styles.hint}>Models load automatically from the provider once the base URL is set.</Text>
+            ) : null}
             {models.map((model) => (
               <View key={model.key} style={styles.modelRow}>
                 <TextInput
@@ -834,6 +936,15 @@ function createStyles(colors: Palette, fonts: Fonts) {
       textTransform: "uppercase",
       fontWeight: "600",
       marginTop: 14,
+    },
+    modelsHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 14,
+    },
+    groupLabelRow: {
+      marginTop: 0,
     },
     addButton: {
       minHeight: 44,

@@ -59,3 +59,34 @@ test("rejects an invalid provider id ", async ({ page }) => {
   await dialog.getByLabel("Model id").fill("m1")
   await expect(dialog.getByRole("button", { name: "Add provider" })).toBeDisabled()
 })
+
+// Settings > Providers : the model list is filled from the provider, not typed.
+test("loads the provider's models automatically ", async ({ page }) => {
+  await login(page)
+  const settings = await openSettings(page)
+  await settings.getByTestId("add-custom-provider").click()
+  const dialog = page.getByRole("dialog", { name: "Add OpenAI-compatible provider" })
+
+  await dialog.getByLabel("Display name", { exact: true }).fill("Acme AI")
+  // The mock serves this base URL's `/models` (OpenAI shape).
+  await dialog.getByLabel("Base URL").fill(MOCK_URL)
+  await dialog.getByLabel("API key").fill("sk-acme-secret")
+
+  // No model id was typed: the rows come from the provider's /models response.
+  await expect(dialog.getByText("2 models loaded from the provider.")).toBeVisible()
+  const ids = dialog.getByLabel("Model id")
+  await expect(ids).toHaveCount(2)
+  await expect(ids.nth(0)).toHaveValue("acme-coder")
+  await expect(ids.nth(1)).toHaveValue("acme-mini")
+  await expect(dialog.getByLabel("Model display name").first()).toHaveValue("Acme Coder")
+
+  await dialog.getByRole("button", { name: "Add provider" }).click()
+  await expect(dialog).toHaveCount(0)
+  const card = settings.getByTestId("custom-provider-acme-ai")
+  await expect(card).toContainText("Acme AI")
+  await expect(card).toContainText("Connected")
+
+  await card.getByRole("button", { name: "Remove" }).click()
+  await card.getByRole("button", { name: "Yes" }).click()
+  await expect(settings.getByTestId("custom-provider-acme-ai")).toHaveCount(0)
+})

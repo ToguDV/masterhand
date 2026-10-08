@@ -41,6 +41,7 @@ export {
   previewErrorMessage,
   providerConnectErrorMessage,
   customProviderErrorMessage,
+  modelsLoadErrorMessage,
 } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
@@ -131,12 +132,14 @@ export {
   normalizeCustomProvider,
   normalizeCustomProviderCreateResult,
   normalizeCustomProviders,
+  normalizeDiscoveredModels,
   providerIdFromName,
   type CustomProvider,
   type CustomProviderCreateResult,
   type CustomProviderInput,
   type CustomProviderModel,
   type CustomProviderPackage,
+  type DiscoverModelsInput,
 } from "./custom-providers"
 export {
   appCommands,

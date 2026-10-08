@@ -113,6 +113,33 @@ describe("ProvidersSection custom providers (#138)", () => {
     await waitFor(() => expect(screen.getByText("Could not save the provider")).toBeOnTheScreen())
   })
 
+  it("loads models from the provider automatically", async () => {
+    const { client } = await setup((c) => {
+      c.api.customProviders.mockResolvedValue([])
+      c.api.listCustomProviderModels.mockResolvedValue([
+        { id: "acme-coder", name: "Acme Coder" },
+        { id: "acme-mini" },
+      ])
+    })
+
+    await fireEvent.press(await screen.findByLabelText("Add provider"))
+    const dialog = screen.getByLabelText("Add OpenAI-compatible provider")
+    await fireEvent.changeText(within(dialog).getByLabelText(/^Display name$/), "Acme AI")
+    await fireEvent.changeText(within(dialog).getByLabelText("Base URL"), "https://api.acme.example/v1")
+    await fireEvent.changeText(within(dialog).getByLabelText("API key"), "sk-secret")
+
+    // No model id typed: the debounced discovery fills the rows.
+    await waitFor(() => expect(client.api.listCustomProviderModels).toHaveBeenCalled(), { timeout: 2000 })
+    const ids = await waitFor(() => {
+      const inputs = within(dialog).getAllByLabelText("Model id")
+      expect(inputs).toHaveLength(2)
+      return inputs
+    })
+    expect(ids[0]!.props.value).toBe("acme-coder")
+    expect(ids[1]!.props.value).toBe("acme-mini")
+    expect(within(dialog).getByText("2 models loaded from the provider.")).toBeOnTheScreen()
+  })
+
   it("connects a stored custom provider", async () => {
     const { client } = await setup((c) => {
       c.api.customProviders.mockResolvedValue([

@@ -40,6 +40,7 @@ export interface FakeClient {
     customProviders: jest.Mock
     createCustomProvider: jest.Mock
     removeCustomProvider: jest.Mock
+    listCustomProviderModels: jest.Mock
     messages: jest.Mock
     prompt: jest.Mock
     runCommand: jest.Mock
@@ -86,6 +87,7 @@ export function fakeClient(): FakeClient & Client {
         connected: false,
       })),
       removeCustomProvider: jest.fn(async () => {}),
+      listCustomProviderModels: jest.fn(async () => []),
       messages: jest.fn(async () => []),
       prompt: jest.fn(async () => {}),
       runCommand: jest.fn(async () => {}),

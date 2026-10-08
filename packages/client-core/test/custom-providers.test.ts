@@ -3,6 +3,7 @@ import {
   isValidProviderId,
   normalizeCustomProvider,
   normalizeCustomProviders,
+  normalizeDiscoveredModels,
   providerIdFromName,
   type CustomProvider,
 } from "../src/custom-providers"
@@ -69,5 +70,21 @@ describe("normalizeCustomProvider ", () => {
       models: [],
     }
     expect(normalizeCustomProviders([{ id: "a", name: "A", baseURL: "https://a.example/v1" }, {}])).toEqual([provider])
+  })
+})
+
+describe("normalizeDiscoveredModels ", () => {
+  it("keeps valid id/name entries and drops malformed ones", () => {
+    expect(
+      normalizeDiscoveredModels([
+        { id: "m1", name: "Model One" },
+        { id: "m2" },
+        { name: "no id" },
+        { id: "" },
+        "nope",
+      ]),
+    ).toEqual([{ id: "m1", name: "Model One" }, { id: "m2" }])
+    expect(normalizeDiscoveredModels(undefined)).toEqual([])
+    expect(normalizeDiscoveredModels({ data: [{ id: "m1" }] })).toEqual([])
   })
 })

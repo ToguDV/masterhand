@@ -1,10 +1,11 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
   compareIntegrations,
   customProviderErrorMessage,
   isValidProviderId,
+  modelsLoadErrorMessage,
   providerConnectErrorMessage,
   providerIcon,
   providerIdFromName,
@@ -16,6 +17,7 @@ import {
   type Client,
   type CustomProvider,
   type CustomProviderCreateResult,
+  type CustomProviderModel,
   type CustomProviderPackage,
   type Integration,
 } from "@masterhand/client-core"
@@ -567,6 +569,31 @@ function positiveInteger(value: string): number | undefined {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
+/**
+ * Folds discovered models into the current rows: a provider model keeps any
+ * context/output the user already set for the same id, and manually added ids
+ * the provider did not report are preserved (discovery never discards work).
+ */
+function mergeDiscoveredModels(rows: ModelRow[], found: CustomProviderModel[]): ModelRow[] {
+  const byID = new Map(rows.filter((row) => row.id.trim()).map((row) => [row.id.trim(), row]))
+  const discovered = new Set(found.map((model) => model.id))
+  const merged: ModelRow[] = found.map((model) => {
+    const existing = byID.get(model.id)
+    return {
+      key: existing?.key ?? nextRowKey(),
+      id: model.id,
+      name: model.name ?? existing?.name ?? "",
+      context: existing?.context ?? "",
+      output: existing?.output ?? "",
+    }
+  })
+  for (const row of rows) {
+    const id = row.id.trim()
+    if (id && !discovered.has(id)) merged.push(row)
+  }
+  return merged.length > 0 ? merged : [newModelRow()]
+}
+
 function AddProviderDialog({
   client,
   onClose,
@@ -588,6 +615,10 @@ function AddProviderDialog({
   const [headers, setHeaders] = useState<Array<{ key: string; name: string; value: string }>>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [modelsInfo, setModelsInfo] = useState<string | null>(null)
+  const modelsRequest = useRef(0)
 
   const validModels = models.filter((model) => model.id.trim().length > 0)
   const canSubmit =
@@ -609,15 +640,69 @@ function AddProviderDialog({
     setHeaders((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
   }
 
+  function collectHeaders(): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const header of headers) {
+      if (header.name.trim()) result[header.name.trim()] = header.value
+    }
+    return result
+  }
+
+  /**
+   * Loads the provider's models. `silent` is used by the debounced auto-run: a
+   * provider that needs a key and has none yet must not flash an auth error
+   * while the user is still filling the form.
+   */
+  async function loadModels(options: { silent?: boolean } = {}): Promise<void> {
+    const url = baseURL.trim()
+    if (!isHttpUrl(url)) return
+    const requestID = modelsRequest.current + 1
+    modelsRequest.current = requestID
+    setLoadingModels(true)
+    setModelsError(null)
+    setModelsInfo(null)
+    const headerObject = collectHeaders()
+    try {
+      const found = await client.api.listCustomProviderModels({
+        baseURL: url,
+        ...(key.trim() ? { key: key.trim() } : {}),
+        ...(Object.keys(headerObject).length > 0 ? { headers: headerObject } : {}),
+      })
+      if (requestID !== modelsRequest.current) return
+      if (found.length > 0) {
+        setModels((rows) => mergeDiscoveredModels(rows, found))
+        setModelsInfo(found.length === 1 ? "1 model loaded from the provider." : `${found.length} models loaded from the provider.`)
+      }
+    } catch (err) {
+      if (requestID !== modelsRequest.current) return
+      if (!options.silent) setModelsError(modelsLoadErrorMessage(err))
+    } finally {
+      if (requestID === modelsRequest.current) setLoadingModels(false)
+    }
+  }
+
+  const headersSignature = JSON.stringify(headers.map((header) => [header.name, header.value]))
+  useEffect(() => {
+    if (!isHttpUrl(baseURL.trim()) || busy) {
+      setLoadingModels(false)
+      setModelsError(null)
+      setModelsInfo(null)
+      return
+    }
+    // Debounced automatic discovery, so the list is filled without hand typing.
+    const timer = setTimeout(() => {
+      void loadModels({ silent: !key.trim() })
+    }, 600)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseURL, key, headersSignature, busy])
+
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const headerObject: Record<string, string> = {}
-    for (const header of headers) {
-      if (header.name.trim()) headerObject[header.name.trim()] = header.value
-    }
+    const headerObject = collectHeaders()
     try {
       const result = await client.api.createCustomProvider({
         id: id.trim(),
@@ -727,7 +812,25 @@ function AddProviderDialog({
           </label>
 
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-ink-muted">Models</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-muted">Models</span>
+              <button
+                type="button"
+                className="mh-btn mh-btn--sm mh-btn--quiet"
+                data-testid="load-models"
+                disabled={loadingModels || !isHttpUrl(baseURL.trim())}
+                onClick={() => void loadModels()}
+              >
+                {loadingModels ? "Loading…" : "Load models"}
+              </button>
+            </div>
+            {modelsInfo && <span className="text-[11px] text-accent">{modelsInfo}</span>}
+            {modelsError && <span className="text-[11px] text-danger">{modelsError}</span>}
+            {!modelsInfo && !modelsError && (
+              <span className="text-[11px] text-ink-muted">
+                Models load automatically from the provider once the base URL is set.
+              </span>
+            )}
             {models.map((model) => (
               <div key={model.key} className="rounded-md border border-hairline p-2">
                 <div className="flex flex-col gap-2 sm:flex-row">

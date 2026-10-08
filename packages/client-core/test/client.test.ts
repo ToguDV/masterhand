@@ -1116,6 +1116,7 @@ describe("custom providers ", () => {
         }),
       () => jsonResponse({ provider: { id: "acme", name: "Acme", baseURL: "https://api.acme/v1", models: [] }, connected: true }, 201),
       () => new Response(null, { status: 204 }),
+      () => jsonResponse({ models: [{ id: "m1", name: "Model One" }, { name: "no id" }] }),
     )
     const client = createClient({ baseUrl: "", fetchImpl })
 
@@ -1136,10 +1137,22 @@ describe("custom providers ", () => {
 
     await client.api.removeCustomProvider("acme")
 
+    const models = await client.api.listCustomProviderModels({
+      baseURL: "https://api.acme/v1",
+      key: "sk-secret",
+    })
+    expect(models).toEqual([{ id: "m1", name: "Model One" }])
+
     expect(calls[0]?.url).toBe("/api/providers/custom")
     expect(calls[1]?.url).toBe("/api/providers/custom")
     expect(calls[1]?.init?.method).toBe("POST")
     expect(calls[2]?.url).toBe("/api/providers/custom/acme")
     expect(calls[2]?.init?.method).toBe("DELETE")
+    expect(calls[3]?.url).toBe("/api/providers/custom/models")
+    expect(calls[3]?.init?.method).toBe("POST")
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      baseURL: "https://api.acme/v1",
+      key: "sk-secret",
+    })
   })
 })

@@ -45,6 +45,13 @@ export interface CustomProviderCreateResult {
   connected: boolean
 }
 
+export interface DiscoverModelsInput {
+  baseURL: string
+  /** Transient key forwarded to the provider's `/models`; never stored by the BFF. */
+  key?: string
+  headers?: Record<string, string>
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -126,4 +133,10 @@ export function normalizeCustomProviderCreateResult(raw: unknown): CustomProvide
   const provider = normalizeCustomProvider(record?.provider)
   if (!record || !provider) return null
   return { provider, connected: record.connected === true }
+}
+
+/** Models returned by the discovery endpoint, already id/name shaped. */
+export function normalizeDiscoveredModels(raw: unknown): CustomProviderModel[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(normalizeModel).filter((model): model is CustomProviderModel => model !== null)
 }
