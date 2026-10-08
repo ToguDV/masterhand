@@ -1609,20 +1609,14 @@ body {
   line-height: 1.5;
 }
 
-/* Pinned module header : "Add provider" stays above the scrolling list,
-   covering the content's 24px padding on both axes so nothing shows through. */
+/* Module header : "Add provider" sits above the list in normal flow so it
+   never floats over the catalog or the search. Wraps on narrow widths. */
 .mh-providers__head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: -24px -24px 0;
-  padding: 24px 24px 12px;
-  background: var(--mh-surface);
-  box-shadow: 0 1px 0 var(--mh-hairline);
 }
 
 /* Theme droplets: a stylized teardrop pointing up per theme, the two main
