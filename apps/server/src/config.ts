@@ -1,4 +1,5 @@
-import { dirname, resolve } from "node:path"
+import { homedir } from "node:os"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
@@ -44,6 +45,11 @@ export interface Config {
   cloudflaredBin: string
   /** Free space on the data volume below which `/api/status` reports `storage.low`. */
   diskLowWatermarkMb: number
+  /**
+   * MasterHand-owned opencode config file holding custom OpenAI-compatible
+   * providers. Lives in opencode's global config dir, loaded with `OPENCODE_CONFIG`.
+   */
+  customProvidersFile: string
 }
 
 function intFromEnv(value: string | undefined, fallback: number): number {
@@ -139,5 +145,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // A runaway build or agent workspace filling the shared disk takes SQLite
     // and git down with it; surface headroom below this watermark (0 disables).
     diskLowWatermarkMb: Math.max(0, intFromEnv(env.DISK_LOW_WATERMARK_MB, 512)),
+    // Defaults next to opencode's own config: in Docker both containers share
+    // the `opencode_config` volume at /home/node/.config/opencode, and natively
+    // both run under the same HOME.
+    customProvidersFile:
+      env.OPENCODE_CUSTOM_PROVIDERS_FILE?.trim() ||
+      join(homedir(), ".config", "opencode", "masterhand-providers.json"),
   }
 }

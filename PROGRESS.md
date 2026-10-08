@@ -129,6 +129,14 @@ Project status: what is done, in progress, pending, and the changelog. Updated *
 - [x] "Sending…" ghost bubble ([#125](https://github.com/ToguDV/masterhand/issues/125)): `usePendingSend` (client-core) tracks plain prompts, clears the ghost only when the persisted history shows the send marker, fails it into a Retry (fresh marker) on a hard error and keeps reconciling on a timeout; slash commands keep button feedback
 - [x] Provider credentials from Settings > Providers ([#128](https://github.com/ToguDV/masterhand/issues/128)): `client-core` integrations/credentials API + hooks (normalized, tolerant parsing), write-only key dialog, connect/disconnect/activate, OpenCode Go pinned first, OAuth/command providers informational; no new BFF route (verified `/api/oc/*` passthrough)
 
+## Post-MVP — Custom OpenAI-compatible providers (web + mobile) — ✅ Completed
+
+- [x] Add/remove OpenAI-compatible providers from Settings > Providers (web + mobile): name + provider id (auto-slug) + base URL + API key + models, with an Advanced section for transport (chat completions vs responses), custom headers and per-model context/output limits
+- [x] "Add provider" pinned above the provider list (sticky on web), not part of the scrolling list
+- [x] BFF owns `masterhand-providers.json` in opencode's config dir (loaded via `OPENCODE_CONFIG`, shared `opencode_config` volume), with atomic serialized writes and a corrupt file never overwritten
+- [x] API key connected through opencode's `connect/key` (never stored in the config, never echoed by MasterHand), with a bounded retry for the config-reload window; a failed connect keeps the provider and offers Connect
+
+
 ## Testing & workflow — ✅ Completed
 
 - [x] `WORKFLOW.md`: one feature per branch/PR, gates, squash merge to `main`
@@ -194,6 +202,8 @@ Code review of PR #24 (opencode v2 migration) and PR #25 (catalog recovery) on
 - [x] All findings closed: every high/medium/low is fixed; F24-13, F25-2 and F25-6 are intentionally left open (reasoning recorded in the review document).
 
 ## Changelog
+
+- **2026-10-08** — **Custom OpenAI-compatible providers in Settings (web + mobile).** Settings > Providers gained an "Add provider" action pinned above the list (sticky on web) that registers any OpenAI-compatible endpoint without host access: display name, provider id (auto-slugged), base URL, API key and one or more models, plus an Advanced section for the transport (`/v1/chat/completions` vs `/v1/responses`), custom headers and per-model context/output limits. opencode exposes **no HTTP API to register a provider**, so the BFF owns a dedicated config file (`~/.config/opencode/masterhand-providers.json`, loaded with `OPENCODE_CONFIG`) written over the shared `opencode_config` volume — verified live against the pinned **2.0.6**: the config key is `providers` (plural) with `package`/`settings` (the older `provider`/`npm`/`options` shape is silently ignored), packages `@opencode/ai/providers/openai-compatible` / `.../openai`, and a registered custom provider gets a `key` method so `connect/key` works. The API key never enters the config: `POST /api/providers/custom` upserts the provider (atomic temp+rename, serialized, unknown entries preserved, a corrupt file never overwritten) then connects the key through opencode with a bounded `404` retry (opencode only registers the integration after reloading); a failed connect never fails the create. New routes `GET/POST /api/providers/custom`, `DELETE /api/providers/custom/:id` (removes the config entry and its credentials); `client-core` gained tolerant types/normalizers, `providerIdFromName`/`isValidProviderId`, API wrappers, `useCustomProviders` and `customProviderErrorMessage`. Web and mobile render custom cards (Connected/Connect/Disconnect/Remove) and the add dialog. Tests: `apps/server` store + route suites, `client-core` normalizers + client mapping, mobile render suite and E2E `custom-providers.spec.ts` (mock now registers unknown integration ids on `connect/key`). Docs: ADR-30, `docs/bff/api.md`, `docs/opencode/http-api.md`, `deploy/.env.example`, dev script. Verified: typecheck, unit (276 server + 375 client-core + 234 mobile), coverage, E2E and build green.
 
 - **2026-09-27** — Technical plan defined: BFF over `opencode serve`, MVP scope and security strategy. SSE event types verified. Base documentation created.
 - **2026-09-27** — Domain and deployment defined (Docker Compose). Updated docs; added `README.md`, `.gitignore` and git repository initialization.

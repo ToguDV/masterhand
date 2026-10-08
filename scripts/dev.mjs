@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import net from "node:net"
@@ -162,6 +163,9 @@ async function main() {
       console.log("[dev] generated OPENCODE_SERVER_PASSWORD for this session (shared by opencode and the BFF)")
     }
     console.log(`[dev] starting opencode serve on ${opencodeHost}:${opencodePort}`)
+    // Point opencode at the MasterHand-owned custom-provider file the BFF
+    // writes ; both processes share the same HOME here.
+    process.env.OPENCODE_CONFIG ??= join(homedir(), ".config", "opencode", "masterhand-providers.json")
     spawnChild("opencode", "opencode", ["serve", "--hostname", opencodeHost, "--port", String(opencodePort)])
   }
 

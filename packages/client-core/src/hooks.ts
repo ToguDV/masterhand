@@ -47,6 +47,8 @@ export const queryKeys = {
   /** Provider integrations and stored credentials (settings, issue #128). */
   integrations: ["integrations"] as const,
   credentials: ["credentials"] as const,
+  /** MasterHand-managed OpenAI-compatible providers (settings). */
+  customProviders: ["customProviders"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -182,6 +184,16 @@ export function useProviderCredentials(client: Client, enabled = true) {
   return useQuery({
     queryKey: queryKeys.credentials,
     queryFn: () => client.api.credentials(),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+/** MasterHand-managed OpenAI-compatible providers . */
+export function useCustomProviders(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.customProviders,
+    queryFn: () => client.api.customProviders(),
     enabled,
     staleTime: 60_000,
   })

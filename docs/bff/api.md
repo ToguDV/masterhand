@@ -39,6 +39,9 @@ Other rules:
 | `GET` | `/api/events` | SSE | Re-emits opencode v2 events from **all locations** (hub on `/api/event`); first event `hello` with `{ connected }`; `ping` every 25s; synthetic `hub.connected` / `hub.disconnected` events (`data: { connected }`) whenever the hub's upstream connection changes, so clients refresh the status indicator without waiting for a poll; each client has a bounded frame queue (1024): a slow/zero-window client that falls behind is dropped instead of buffering the stream in memory — it reconnects and reconciles (SSE has no replay) |
 | `GET` | `/api/audit` | `{ events: AuditEvent[] }` | Blocked actions, newest first (`?limit=`, max 500, default 100). `permission_denied` events come from opencode tool failures with `error.type = "permission.rejected"`, correlated with the command from the preceding `session.tool.called` event |
 | `DELETE` | `/api/audit` | `{ ok: true }` | Clears the log |
+| `GET` | `/api/providers/custom` | `{ providers: CustomProvider[] }` | MasterHand-managed OpenAI-compatible providers (read from the config file it owns). `500 custom_providers_corrupt` when the file is not valid JSON (never overwritten) |
+| `POST` | `/api/providers/custom` | `201 { provider, connected }` | Body `{ id, name, baseURL, package?, models, headers?, key?, label? }`. **Upsert by id** (retry-safe); writes the provider to opencode's config file, then connects `key` best-effort (`connected: false` when opencode lagged or none was sent). `400` validation codes (`invalid_id`, `invalid_name`, `invalid_base_url`, `invalid_package`, `invalid_models`, `invalid_headers`), `503 custom_providers_unwritable` on a read-only/full disk |
+| `DELETE` | `/api/providers/custom/:id` | `{ ok: true }` | Removes the provider from the config and its stored credentials (best effort). Idempotent |
 | `GET` | `/api/devices` | `{ devices: DeviceRecord[] }` | Lists registered devices |
 | `DELETE` | `/api/devices/:id` | `{ ok: true }` | Revokes a device token |
 | `GET` | `/api/commands` | `{ commands: SlashCommand[] }` | Slash commands for a location (`?directory=/abs`), with deterministic argument hints. Composes opencode's `/api/command` catalog with the `template` only `/api/config` exposes (`$ARGUMENTS`, `$1..$N`, `[a\|b\|c]`), so raw config never reaches the clients. `502` when opencode is unreachable; a broken config degrades to commands without hints |
@@ -106,6 +109,29 @@ This is defense in depth; it does **not** sandbox shell access in general (an ag
 | `*` | `/api/oc/*` | Forwards to `OPENCODE_URL` (e.g. `http://opencode:4096`) injecting `Authorization: Basic` with `OPENCODE_SERVER_PASSWORD`. The `/api/oc` prefix is removed: `/api/oc/api/info` → `GET /api/info`. Preserves method, body, query and `content-type` byte-for-byte (including the `location[directory]` query used to target a workspace). An opencode `401/403` is converted into `502 { error: "opencode_unauthorized" }` instead of being relayed (relaying it would sign the MasterHand user out). SSE streaming without buffering (`cache-control: no-cache`, `x-accel-buffering: no`). `502 opencode_unreachable` if opencode does not answer. `504 { error: "opencode_timeout" }` when the upstream stalls past the 60s proxy deadline (the clients abort sooner with their own request timeout). |
 
 The same proxy carries the provider integration/credential endpoints behind Settings > Providers (issue #128), verified against the pinned opencode v2.0.6: `GET /api/oc/api/integration`, `POST /api/oc/api/integration/{id}/connect/key`, `GET /api/oc/api/credential`, `POST /api/oc/api/credential/{id}/activate` and `DELETE /api/oc/api/credential/{id}`. No dedicated BFF route exists: an API key transits client → BFF → opencode only, is stored in opencode's data volume, and is never persisted, logged or echoed back by MasterHand.
+
+## Custom OpenAI-compatible providers
+
+opencode has **no HTTP API to register a provider** — the definition only lives in its config file. MasterHand therefore owns a dedicated file (`~/.config/opencode/masterhand-providers.json`, loaded by opencode through `OPENCODE_CONFIG`; see `ARCHITECTURE.md` ADR-30) and writes it over the shared `opencode_config` volume:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "providers": {
+    "acme": {
+      "name": "Acme",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "https://api.acme.example/v1" },
+      "models": { "acme-coder": { "name": "Acme Coder" } }
+    }
+  }
+}
+```
+
+- `package` is `@opencode/ai/providers/openai-compatible` (chat completions) or `@opencode/ai/providers/openai` (responses); verified against the pinned **2.0.6**.
+- Writes are atomic (temp file + rename) and serialized; unknown `providers` entries are preserved, and a malformed file is **never overwritten** (the routes answer `custom_providers_corrupt`).
+- The **API key never enters the config**: `POST /api/providers/custom` connects it through opencode's `connect/key` with a bounded retry (opencode registers the integration only after reloading the config, answering `404` until then; a `404` created nothing, so retrying is safe). A failed connect never fails the create — the card offers Connect.
+- opencode reloads the watched config dir, so `/api/model` and `/api/integration` pick the provider up without a restart; a custom provider then exposes a `key` method, and its connection state shows up in `GET /api/integration/{id}` (`/api/credential` does **not** list it).
 
 Examples:
 

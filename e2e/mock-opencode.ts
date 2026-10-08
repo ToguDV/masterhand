@@ -1153,10 +1153,21 @@ const server = createServer((req, res) => {
     if (req.method === "GET" && path === "/api/integration") {
       return json(res, 200, { location: { directory: "/e2e" }, data: integrations })
     }
-    if (req.method === "POST" && /^\/api\/integration\/[^/]+\/connect\/key$/.test(path)) {
+    if (req.method === "GET" && /^\/api\/integration\/[^/]+$/.test(path)) {
       const integrationID = decodeURIComponent(path.split("/")[3] ?? "")
       const integration = integrations.find((item) => item.id === integrationID)
-      if (!integration) return json(res, 404, { error: "not_found" })
+      if (!integration) return json(res, 404, { _tag: "IntegrationNotFoundError", integrationID })
+      return json(res, 200, { location: { directory: "/e2e" }, data: integration })
+    }
+    if (req.method === "POST" && /^\/api\/integration\/[^/]+\/connect\/key$/.test(path)) {
+      const integrationID = decodeURIComponent(path.split("/")[3] ?? "")
+      let integration = integrations.find((item) => item.id === integrationID)
+      if (!integration) {
+        // opencode registers custom providers from config with a key method
+        // ; mirror that so the create → connect flow works end to end.
+        integration = { id: integrationID, name: integrationID, methods: [{ type: "key", label: "API key" }], connections: [] }
+        integrations.push(integration)
+      }
       const body = await readBody(req)
       const key = typeof body.key === "string" ? body.key : ""
       if (!key) return json(res, 400, { error: "invalid_key" })

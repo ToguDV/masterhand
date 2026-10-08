@@ -44,6 +44,42 @@ export function providerConnectErrorMessage(error: unknown): string {
 }
 
 /**
+ * Maps a failed custom-provider create/remove (settings) to a user
+ * message. The create is an idempotent upsert, so a timeout is a safe
+ * "relaunch and check" rather than a hard failure.
+ */
+export function customProviderErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not answer in time — the provider may have been saved. Reopen settings to check."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "invalid_id":
+        return "Use lowercase letters, numbers, hyphens or underscores for the provider id."
+      case "invalid_name":
+        return "Enter a display name."
+      case "invalid_base_url":
+        return "Enter a valid http(s) base URL."
+      case "invalid_package":
+        return "Pick a supported transport."
+      case "invalid_models":
+        return "Add at least one valid model id (no duplicates)."
+      case "invalid_headers":
+        return "Check the custom headers."
+      case "custom_providers_corrupt":
+        return "The custom providers file is not valid JSON. Fix it on the server before adding more."
+      case "custom_providers_unwritable":
+        return "The server cannot write the providers file (read-only or full disk)."
+      default:
+        break
+    }
+    if (error.status === 400) return "Check the provider details and try again."
+    return `Could not save the provider (HTTP ${error.status})`
+  }
+  return "Could not save the provider"
+}
+
+/**
  * Turns an opencode structured error (`session.execution.failed`, assistant
  * message error) into a concise message for the UI. Returns `null` for
  * user-initiated aborts (expected, not worth a banner).

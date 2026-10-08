@@ -50,6 +50,7 @@ services:
     volumes: !override
       - ../data/dev:/data
       - ../workspace:/workspace
+      - opencode_config:/home/node/.config/opencode
       - ../packages/client-core/src:/app/packages/client-core/src
       - ../apps/server/src:/app/apps/server/src
       - ../apps/web/src:/app/apps/web/src

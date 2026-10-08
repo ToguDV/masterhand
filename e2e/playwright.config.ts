@@ -51,6 +51,8 @@ export default defineConfig({
         SESSION_SECRET: "e2e-secret",
         COOKIE_SECURE: "false",
         DATA_DIR: E2E_DATA_DIR,
+        // Keep custom providers inside the run's scratch dir (wiped per run).
+        OPENCODE_CUSTOM_PROVIDERS_FILE: path.join(E2E_DATA_DIR, "masterhand-providers.json"),
         WORKSPACES_ROOT: E2E_WORKSPACES_ROOT,
         PREVIEW_ORIGIN: "127.0.0.1",
         // The mock's own port doubles as the session's dev server: the BFF's
