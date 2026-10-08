@@ -134,7 +134,7 @@ export function ProvidersSection() {
             </button>
             <button
               type="button"
-              className="mh-btn mh-btn--sm mh-btn--quiet"
+              className="mh-btn mh-btn--sm mh-btn--ghost"
               onClick={() => setConfirmingID(null)}
             >
               Cancel
@@ -155,7 +155,7 @@ export function ProvidersSection() {
         {credential && !credential.active && (
           <button
             type="button"
-            className="mh-btn mh-btn--sm mh-btn--quiet"
+            className="mh-btn mh-btn--sm mh-btn--ghost"
             disabled={busyID === credentialID}
             onClick={() => void activate(credentialID)}
           >
@@ -250,7 +250,7 @@ export function ProvidersSection() {
                         </button>
                         <button
                           type="button"
-                          className="mh-btn mh-btn--sm mh-btn--quiet"
+                          className="mh-btn mh-btn--sm mh-btn--ghost"
                           onClick={() => setRemovingProvider(null)}
                         >
                           Cancel
@@ -259,7 +259,7 @@ export function ProvidersSection() {
                     ) : (
                       <button
                         type="button"
-                        className="mh-btn mh-btn--sm mh-btn--quiet"
+                        className="mh-btn mh-btn--sm mh-btn--ghost"
                         disabled={busy}
                         onClick={() => setRemovingProvider(provider)}
                       >
@@ -350,7 +350,7 @@ export function ProvidersSection() {
       {!showAll && filtered.length > PROVIDER_PAGE_SIZE && (
         <button
           type="button"
-          className="mh-btn mh-btn--quiet mt-2 w-full justify-start"
+          className="mh-btn mh-btn--ghost mh-btn--sm mt-2 w-full justify-start"
           onClick={() => setShowAll(true)}
         >
           Show all {filtered.length} providers
@@ -761,7 +761,7 @@ function AddProviderDialog({
               <span className="text-xs text-ink-muted">Models</span>
               <button
                 type="button"
-                className="mh-btn mh-btn--sm mh-btn--quiet"
+                className="mh-btn mh-btn--sm mh-btn--ghost"
                 data-testid="load-models"
                 disabled={loadingModels || !isHttpUrl(baseURL.trim())}
                 onClick={() => void loadModels()}
@@ -793,7 +793,7 @@ function AddProviderDialog({
 
           <button
             type="button"
-            className="mh-btn mh-btn--sm mh-btn--quiet self-start"
+            className="mh-btn mh-btn--sm mh-btn--ghost self-start"
             aria-expanded={advanced}
             onClick={() => setAdvanced((value) => !value)}
           >
@@ -802,27 +802,31 @@ function AddProviderDialog({
 
           {advanced && (
             <div className="flex flex-col gap-3 rounded-md border border-hairline p-2">
-              <fieldset className="flex flex-col gap-1">
-                <legend className="text-xs text-ink-muted">Transport</legend>
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="radio"
-                    name="provider-package"
-                    checked={providerPackage === "openai-compatible"}
-                    onChange={() => setProviderPackage("openai-compatible")}
-                  />
-                  Chat completions (/v1/chat/completions)
-                </label>
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="radio"
-                    name="provider-package"
-                    checked={providerPackage === "openai"}
-                    onChange={() => setProviderPackage("openai")}
-                  />
-                  Responses (/v1/responses)
-                </label>
-              </fieldset>
+              <div role="radiogroup" aria-label="Transport" className="mh-options">
+                {(
+                  [
+                    ["openai-compatible", "Chat completions (/v1/chat/completions)"],
+                    ["openai", "Responses (/v1/responses)"],
+                  ] as const
+                ).map(([value, label]) => {
+                  const active = providerPackage === value
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => setProviderPackage(value)}
+                      className={`mh-option ${active ? "is-selected" : ""}`}
+                    >
+                      <span className="mh-option__mark" aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm">{label}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
               <div className="flex flex-col gap-2">
                 <span className="text-xs text-ink-muted">Custom headers</span>
                 {headers.map((header) => (
@@ -847,7 +851,7 @@ function AddProviderDialog({
                     />
                     <button
                       type="button"
-                      className="mh-btn mh-btn--sm mh-btn--quiet"
+                      className="mh-btn mh-btn--sm mh-btn--ghost"
                       onClick={() => setHeaders((rows) => rows.filter((row) => row.key !== header.key))}
                     >
                       Remove
@@ -856,7 +860,7 @@ function AddProviderDialog({
                 ))}
                 <button
                   type="button"
-                  className="mh-btn mh-btn--sm mh-btn--quiet self-start"
+                  className="mh-btn mh-btn--sm mh-btn--ghost self-start"
                   onClick={addHeader}
                 >
                   Add header

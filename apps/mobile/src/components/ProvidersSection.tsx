@@ -275,6 +275,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                         disabled={credentialBusy}
                         accessibilityRole="button"
                         accessibilityLabel={`Disconnect ${displayLabel}`}
+                        style={styles.dangerButton}
                       >
                         {credentialBusy ? (
                           <ActivityIndicator size="small" color={colors.textMuted} />
@@ -305,6 +306,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                     disabled={busyProvider}
                     accessibilityRole="button"
                     accessibilityLabel={`Remove ${provider.name}`}
+                    style={styles.dangerButton}
                   >
                     {busyProvider ? (
                       <ActivityIndicator size="small" color={colors.textMuted} />
@@ -381,6 +383,7 @@ export function ProvidersSection({ client }: { client: Client }) {
                     disabled={credentialBusy}
                     accessibilityRole="button"
                     accessibilityLabel={`Disconnect ${displayLabel}`}
+                    style={styles.dangerButton}
                   >
                     {credentialBusy ? (
                       <ActivityIndicator size="small" color={colors.textMuted} />
@@ -724,19 +727,24 @@ function AddProviderModal({
                     ["openai-compatible", "Chat completions (/v1/chat/completions)"],
                     ["openai", "Responses (/v1/responses)"],
                   ] as const
-                ).map(([value, text]) => (
-                  <Pressable
-                    key={value}
-                    onPress={() => setProviderPackage(value)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: providerPackage === value }}
-                    accessibilityLabel={text}
-                    style={styles.radioRow}
-                  >
-                    <View style={[styles.radioDot, providerPackage === value && styles.radioDotOn]} />
-                    <Text style={styles.radioText}>{text}</Text>
-                  </Pressable>
-                ))}
+                ).map(([value, text]) => {
+                  const selected = providerPackage === value
+                  return (
+                    <Pressable
+                      key={value}
+                      onPress={() => setProviderPackage(value)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      accessibilityLabel={text}
+                      style={[styles.radioOption, selected && styles.radioOptionActive]}
+                    >
+                      <View style={[styles.radio, selected && styles.radioActive]}>
+                        {selected ? <View style={styles.radioDot} /> : null}
+                      </View>
+                      <Text style={styles.radioText}>{text}</Text>
+                    </Pressable>
+                  )
+                })}
                 <Text style={styles.groupLabel}>Custom headers</Text>
                 {headers.map((header) => (
                   <View key={header.key} style={styles.headerRow}>
@@ -766,8 +774,9 @@ function AddProviderModal({
                       onPress={() => setHeaders((rows) => rows.filter((row) => row.key !== header.key))}
                       accessibilityRole="button"
                       accessibilityLabel="Remove header"
+                      style={styles.ghost}
                     >
-                      <Text style={styles.danger}>Remove</Text>
+                      <Text style={styles.ghostText}>Remove</Text>
                     </Pressable>
                   </View>
                 ))}
@@ -853,7 +862,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.accent,
-      borderRadius: 10,
+      borderRadius: 12,
       paddingHorizontal: 16,
       marginTop: 4,
     },
@@ -861,7 +870,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.onAccent,
       fontFamily: fonts.ui,
       fontSize: 14,
-      fontWeight: "600",
+      fontWeight: "500",
     },
     baseUrl: {
       color: colors.textMuted,
@@ -879,8 +888,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
-      borderRadius: 10,
-      backgroundColor: colors.canvas,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
@@ -909,14 +918,17 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     showAll: {
       minHeight: 44,
+      alignItems: "center",
       justifyContent: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
       marginTop: 8,
     },
     showAllText: {
       color: colors.textMuted,
       fontFamily: fonts.ui,
-      fontSize: 13,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "500",
     },
     card: {
       borderWidth: StyleSheet.hairlineWidth,
@@ -939,6 +951,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontWeight: "600",
     },
     connected: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.accentLine,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
       color: colors.accent,
       fontFamily: fonts.ui,
       fontSize: 11,
@@ -957,38 +975,59 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
     },
     active: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.accentLine,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
       color: colors.accent,
       fontFamily: fonts.ui,
       fontSize: 11,
       fontWeight: "600",
     },
     action: {
-      color: colors.text,
+      color: colors.textMuted,
       fontFamily: fonts.ui,
-      fontSize: 12,
-      fontWeight: "600",
+      fontSize: 13,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
     },
     danger: {
       color: colors.danger,
       fontFamily: fonts.ui,
-      fontSize: 12,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    dangerButton: {
+      alignSelf: "flex-start",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.dangerLine,
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
     connectButton: {
       alignSelf: "flex-start",
-      minHeight: 40,
+      minHeight: 44,
       justifyContent: "center",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
-      borderRadius: 10,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
       paddingHorizontal: 14,
+      paddingVertical: 10,
       marginTop: 10,
     },
     connectText: {
       color: colors.text,
       fontFamily: fonts.ui,
-      fontSize: 13,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "500",
     },
     form: {
       gap: 8,
@@ -998,8 +1037,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
-      borderRadius: 10,
-      backgroundColor: colors.canvas,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
@@ -1015,34 +1054,56 @@ function createStyles(colors: Palette, fonts: Fonts) {
       marginTop: 8,
     },
     secondary: {
-      minHeight: 40,
+      minHeight: 44,
+      alignItems: "center",
       justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
       paddingHorizontal: 14,
+      paddingVertical: 10,
     },
     secondaryText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    ghost: {
+      minHeight: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    ghostText: {
       color: colors.textMuted,
       fontFamily: fonts.ui,
-      fontSize: 13,
+      fontSize: 14,
+      fontWeight: "500",
     },
     primary: {
-      minHeight: 40,
+      minHeight: 44,
+      alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.accent,
-      borderRadius: 10,
+      borderRadius: 12,
       paddingHorizontal: 16,
+      paddingVertical: 10,
     },
     primaryText: {
       color: colors.onAccent,
       fontFamily: fonts.ui,
-      fontSize: 13,
-      fontWeight: "600",
+      fontSize: 14,
+      fontWeight: "500",
     },
     disabled: {
       opacity: 0.5,
     },
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.45)",
+      backgroundColor: colors.overlay,
       justifyContent: "flex-end",
     },
     modalCard: {
@@ -1090,26 +1151,43 @@ function createStyles(colors: Palette, fonts: Fonts) {
     advancedBox: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
-      borderRadius: 10,
+      borderRadius: 12,
       padding: 10,
       gap: 6,
       marginTop: 8,
     },
-    radioRow: {
+    radioOption: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      minHeight: 40,
+      gap: 10,
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+    },
+    radioOptionActive: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accentSoft,
+    },
+    radio: {
+      width: 16,
+      height: 16,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.hairlineStrong,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    radioActive: {
+      borderColor: colors.accent,
     },
     radioDot: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
-      borderWidth: 2,
-      borderColor: colors.hairlineStrong,
-    },
-    radioDotOn: {
-      borderColor: colors.accent,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
       backgroundColor: colors.accent,
     },
     radioText: {
