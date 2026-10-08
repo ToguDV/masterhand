@@ -1609,6 +1609,16 @@ body {
   line-height: 1.5;
 }
 
+/* Module header : "Add provider" sits above the list in normal flow so it
+   never floats over the catalog or the search. Wraps on narrow widths. */
+.mh-providers__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 /* Theme droplets: a stylized teardrop pointing up per theme, the two main
    colors meeting at an S-curved "liquid" division with the name above it. */
 .mh-theme-swatches {

@@ -25,6 +25,14 @@ import type { EventHub } from "./events.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
 import { createOpencodeProxy } from "./proxy.js"
 import {
+  CustomProvidersFileError,
+  createCustomProviderStore,
+  fetchProviderModels,
+  validateCustomProvider,
+  validateDiscoverInput,
+  type CustomProviderStore,
+} from "./providers.js"
+import {
   createRunManager,
   readRunFile,
   RunError,
@@ -69,6 +77,8 @@ export interface AppDeps {
   preview?: PreviewManager
   /** Overridable for tests: managed dev-server lifecycle. */
   runs?: RunManager
+  /** Overridable for tests: MasterHand-managed OpenAI-compatible providers. */
+  providers?: CustomProviderStore
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
@@ -204,6 +214,7 @@ export function createApp(deps: AppDeps): Hono {
     },
   }
   const runs = deps.runs ?? createRunManager({ opencode: runOpencode })
+  const providers = deps.providers ?? createCustomProviderStore({ file: config.customProvidersFile })
 
   /**
    * Drops every MasterHand-managed resource tied to a session id: its quick
@@ -355,6 +366,51 @@ export function createApp(deps: AppDeps): Hono {
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     })
+  }
+
+  /**
+   * Connects a stored key to a freshly written custom provider. opencode only
+   * registers the integration after it reloads the config, and `connect/key`
+   * answers `404` until then, so a bounded retry is safe (a 404 created
+   * nothing). A failure never fails the create: the provider stays and the card
+   * offers Connect.
+   */
+  async function connectCustomProviderKey(id: string, key: string, label?: string): Promise<boolean> {
+    const path = `/api/integration/${encodeURIComponent(id)}/connect/key`
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        const response = await callOpencode(path, {
+          method: "POST",
+          body: { key, ...(label ? { label } : {}) },
+        })
+        if (response.ok) return true
+        if (response.status !== 404) return false
+      } catch {
+        return false
+      }
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+    return false
+  }
+
+  /** Removes every stored credential of a custom provider (best effort). */
+  async function removeCustomProviderCredentials(id: string): Promise<void> {
+    try {
+      const response = await callOpencode(`/api/integration/${encodeURIComponent(id)}`)
+      if (!response.ok) return
+      const body = (await response.json()) as {
+        data?: { connections?: Array<{ type?: string; id?: string }> }
+      }
+      for (const connection of body.data?.connections ?? []) {
+        if (connection.type === "credential" && connection.id) {
+          await callOpencode(`/api/credential/${encodeURIComponent(connection.id)}`, { method: "DELETE" }).catch(
+            () => undefined,
+          )
+        }
+      }
+    } catch {
+      // opencode unreachable: removing the config entry is enough
+    }
   }
 
   /** Lists every session in a directory, following opencode's v2 cursor pagination. */
@@ -757,6 +813,93 @@ export function createApp(deps: AppDeps): Hono {
       })
     }
     return c.json({ commands })
+  })
+
+  /**
+   * Custom OpenAI-compatible providers. opencode has no API to
+   * register a provider, so MasterHand owns a dedicated config file; the API
+   * key still goes through opencode's `connect/key` endpoint from the client.
+   */
+  function customProvidersFailure(c: Context, error: unknown) {
+    if (error instanceof CustomProvidersFileError) {
+      return c.json({ error: "custom_providers_corrupt" }, 500)
+    }
+    const code = (error as { code?: string } | null)?.code
+    console.error("[masterhand] custom providers file failure:", error)
+    if (code === "EACCES" || code === "EROFS" || code === "ENOSPC") {
+      return c.json({ error: "custom_providers_unwritable" }, 503)
+    }
+    return c.json({ error: "custom_providers_failed" }, 500)
+  }
+
+  api.get("/providers/custom", async (c) => {
+    try {
+      return c.json({ providers: await providers.list() })
+    } catch (error) {
+      return customProvidersFailure(c, error)
+    }
+  })
+
+  /**
+   * Discovers a provider's models from its OpenAI-compatible `/models`
+   * endpoint, so the add dialog fills the list instead of demanding hand-typed
+   * ids. Read-only: nothing is stored and the transient key is only forwarded
+   * upstream. The URL is the same one opencode itself will call; self-hosted
+   * installs commonly point it at a LAN address, so no host allowlist applies.
+   */
+  api.post("/providers/custom/models", async (c) => {
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const result = validateDiscoverInput(body)
+    if (!result.ok) return c.json({ error: result.error }, 400)
+
+    const discovered = await fetchProviderModels(result.value, { fetchImpl })
+    if (!discovered.ok) {
+      return c.json({ error: discovered.error }, discovered.error === "provider_timeout" ? 504 : 502)
+    }
+    return c.json({ models: discovered.models })
+  })
+
+  /** Upsert by id: retrying the same body is safe (rule 4 in past-mistakes). */
+  api.post("/providers/custom", async (c) => {
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const result = validateCustomProvider(body)
+    if (!result.ok) return c.json({ error: result.error }, 400)
+
+    // `key`/`label` are consumed here, never part of the stored provider.
+    const record = body as Record<string, unknown>
+    const key = typeof record.key === "string" ? record.key.trim() : ""
+    const label = typeof record.label === "string" ? record.label.trim() : ""
+
+    let provider
+    try {
+      provider = await providers.upsert(result.provider)
+    } catch (error) {
+      return customProvidersFailure(c, error)
+    }
+    // The config write is the mutation; connecting the key is best effort.
+    const connected = key ? await connectCustomProviderKey(provider.id, key, label || undefined) : false
+    return c.json({ provider, connected }, 201)
+  })
+
+  api.delete("/providers/custom/:id", async (c) => {
+    const id = c.req.param("id")
+    await removeCustomProviderCredentials(id)
+    try {
+      await providers.remove(id)
+      return c.json({ ok: true })
+    } catch (error) {
+      return customProvidersFailure(c, error)
+    }
   })
 
   api.get("/workspaces", (c) => c.json({ workspaces: deps.store.listWorkspaces() }))

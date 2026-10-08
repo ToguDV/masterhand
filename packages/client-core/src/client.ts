@@ -35,6 +35,16 @@ import {
   type Integration,
   type ProviderCredential,
 } from "./integrations"
+import {
+  normalizeCustomProviderCreateResult,
+  normalizeCustomProviders,
+  normalizeDiscoveredModels,
+  type CustomProvider,
+  type CustomProviderCreateResult,
+  type CustomProviderInput,
+  type CustomProviderModel,
+  type DiscoverModelsInput,
+} from "./custom-providers"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
 export class ApiError extends Error {
@@ -183,6 +193,16 @@ export interface Client {
     removeCredential(credentialID: string): Promise<void>
     /** Marks one stored credential as the active one. */
     activateCredential(credentialID: string): Promise<void>
+    /**
+     * MasterHand-managed OpenAI-compatible providers. The list is
+     * what MasterHand wrote to opencode's config; `create` upserts by id.
+     */
+    customProviders(): Promise<CustomProvider[]>
+    createCustomProvider(input: CustomProviderInput): Promise<CustomProviderCreateResult>
+    /** Removes a custom provider from the config (idempotent). */
+    removeCustomProvider(id: string): Promise<void>
+    /** Loads a provider's models from its `/models` endpoint (read-only). */
+    listCustomProviderModels(input: DiscoverModelsInput): Promise<CustomProviderModel[]>
     statuses(): Promise<SessionStatuses>
     /** Live preview (Cloudflare quick tunnel) for a session. */
     preview(sessionID: string): Promise<PreviewStatus>
@@ -526,6 +546,26 @@ export function createClient(options: ClientOptions = {}): Client {
         opencodeRequest(() => opencode.credential.list().then(normalizeCredentials)),
       removeCredential: (credentialID) => opencodeRequest(() => opencode.credential.remove({ credentialID })),
       activateCredential: (credentialID) => opencodeRequest(() => opencode.credential.activate({ credentialID })),
+      customProviders: () =>
+        request<{ providers: unknown }>("/api/providers/custom").then((response) =>
+          normalizeCustomProviders(response.providers),
+        ),
+      createCustomProvider: (input) =>
+        request<unknown>("/api/providers/custom", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }).then((response) => {
+          const result = normalizeCustomProviderCreateResult(response)
+          if (!result) throw new ApiError(500, "invalid custom provider response")
+          return result
+        }),
+      removeCustomProvider: (id) =>
+        request<void>(`/api/providers/custom/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      listCustomProviderModels: (input) =>
+        request<{ models: unknown }>("/api/providers/custom/models", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }).then((response) => normalizeDiscoveredModels(response.models)),
       statuses: () =>
         opencodeRequest(async () => {
           const active = await opencode.session.active()

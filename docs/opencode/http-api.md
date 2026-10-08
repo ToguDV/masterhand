@@ -72,6 +72,15 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | `GET` | `/api/command` | Slash commands (`{ location, data: Command.Info[] }`); each item only has `name` and `description` — no argument metadata |
 | `GET` | `/api/config` | Configuration documents (`ConfigEntry[]`). Used by the BFF to read each command's `template` and derive argument hints (`$ARGUMENTS`, `$1..$N`); the raw config is never sent to clients |
 
+### Custom providers (verified against 2.0.6)
+
+- A custom OpenAI-compatible provider is **only** configurable through opencode's config file; there is no create-provider endpoint.
+- The v2 config key is **`providers`** (plural), each entry `{ name, package, settings, models }` — **not** the older `provider`/`npm`/`options` shape (verified live: a `provider`/`npm` file is silently ignored by 2.0.6).
+- `package` values: `@opencode/ai/providers/openai-compatible` (`/v1/chat/completions`) and `@opencode/ai/providers/openai` (`/v1/responses`).
+- After a config write on the watched global config dir, `/api/model` and `/api/integration` include the provider without a restart.
+- A registered custom provider exposes an `api`/`key` method: `POST /api/integration/{id}/connect/key` succeeds (204). Before opencode reloads the config it answers `404 IntegrationNotFoundError`; a 404 creates nothing, so retrying is safe.
+- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential`.
+
 ## Location (working directory) model
 
 opencode v2 resolves a **location** instead of the old `directory` header:

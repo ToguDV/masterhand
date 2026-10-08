@@ -44,6 +44,66 @@ export function providerConnectErrorMessage(error: unknown): string {
 }
 
 /**
+ * Maps a failed custom-provider create/remove (settings) to a user
+ * message. The create is an idempotent upsert, so a timeout is a safe
+ * "relaunch and check" rather than a hard failure.
+ */
+export function customProviderErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not answer in time — the provider may have been saved. Reopen settings to check."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "invalid_id":
+        return "Use lowercase letters, numbers, hyphens or underscores for the provider id."
+      case "invalid_name":
+        return "Enter a display name."
+      case "invalid_base_url":
+        return "Enter a valid http(s) base URL."
+      case "invalid_package":
+        return "Pick a supported transport."
+      case "invalid_models":
+        return "The provider's model list is not valid. Load the models again."
+      case "invalid_headers":
+        return "Check the custom headers."
+      case "custom_providers_corrupt":
+        return "The custom providers file is not valid JSON. Fix it on the server before adding more."
+      case "custom_providers_unwritable":
+        return "The server cannot write the providers file (read-only or full disk)."
+      default:
+        break
+    }
+    if (error.status === 400) return "Check the provider details and try again."
+    return `Could not save the provider (HTTP ${error.status})`
+  }
+  return "Could not save the provider"
+}
+
+/**
+ * Turns a model-discovery failure into an actionable message. Discovery is the
+ * only way to add models, so any upstream failure reads as "the provider does
+ * not expose models" (with validation/auth errors still called out).
+ */
+export function modelsLoadErrorMessage(error: unknown): string {
+  const notExposed = "This provider does not expose models."
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "invalid_base_url":
+        return "Enter a valid http(s) base URL first."
+      case "invalid_headers":
+        return "Check the custom headers."
+      case "invalid_key":
+        return "The API key is too long."
+      case "provider_unauthorized":
+        return "The provider rejected the API key. Check it and try again."
+      default:
+        return notExposed
+    }
+  }
+  return notExposed
+}
+
+/**
  * Turns an opencode structured error (`session.execution.failed`, assistant
  * message error) into a concise message for the UI. Returns `null` for
  * user-initiated aborts (expected, not worth a banner).

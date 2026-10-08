@@ -1104,3 +1104,55 @@ describe("event stream resilience", () => {
     expect(states).toContain(false)
   })
 })
+
+describe("custom providers ", () => {
+  it("lists, creates and removes OpenAI-compatible providers", async () => {
+    const { calls, fetchImpl } = recordingFetch(
+      () =>
+        jsonResponse({
+          providers: [
+            { id: "acme", name: "Acme", baseURL: "https://api.acme/v1", models: [{ id: "m1" }] },
+          ],
+        }),
+      () => jsonResponse({ provider: { id: "acme", name: "Acme", baseURL: "https://api.acme/v1", models: [] }, connected: true }, 201),
+      () => new Response(null, { status: 204 }),
+      () => jsonResponse({ models: [{ id: "m1", name: "Model One" }, { name: "no id" }] }),
+    )
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    const providers = await client.api.customProviders()
+    expect(providers).toEqual([
+      { id: "acme", name: "Acme", baseURL: "https://api.acme/v1", package: "openai-compatible", models: [{ id: "m1" }] },
+    ])
+
+    const created = await client.api.createCustomProvider({
+      id: "acme",
+      name: "Acme",
+      baseURL: "https://api.acme/v1",
+      models: [],
+      key: "sk-secret",
+    })
+    expect(created.connected).toBe(true)
+    expect(created.provider.id).toBe("acme")
+
+    await client.api.removeCustomProvider("acme")
+
+    const models = await client.api.listCustomProviderModels({
+      baseURL: "https://api.acme/v1",
+      key: "sk-secret",
+    })
+    expect(models).toEqual([{ id: "m1", name: "Model One" }])
+
+    expect(calls[0]?.url).toBe("/api/providers/custom")
+    expect(calls[1]?.url).toBe("/api/providers/custom")
+    expect(calls[1]?.init?.method).toBe("POST")
+    expect(calls[2]?.url).toBe("/api/providers/custom/acme")
+    expect(calls[2]?.init?.method).toBe("DELETE")
+    expect(calls[3]?.url).toBe("/api/providers/custom/models")
+    expect(calls[3]?.init?.method).toBe("POST")
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      baseURL: "https://api.acme/v1",
+      key: "sk-secret",
+    })
+  })
+})

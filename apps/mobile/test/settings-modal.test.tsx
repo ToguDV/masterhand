@@ -1,5 +1,5 @@
 import { Alert } from "react-native"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { SettingsModal } from "../src/components/SettingsModal"
 import { DEFAULT_PALETTE, ThemeProvider, paletteFor, useTheme } from "../src/theme"
 import { savePalette, saveTheme } from "../src/storage"
@@ -237,5 +237,73 @@ describe("SettingsModal providers (#128)", () => {
     expect(within(acme).getByTestId("provider-avatar").props.source).toEqual({
       uri: "https://example.com/acme.svg",
     })
+  })
+})
+
+describe("SettingsModal custom providers ", () => {
+  it("adds a custom OpenAI-compatible provider", async () => {
+    const { client } = await setup((c) => {
+      c.api.integrations.mockResolvedValue([])
+      c.api.credentials.mockResolvedValue([])
+      c.api.customProviders.mockResolvedValue([])
+      c.api.listCustomProviderModels.mockResolvedValue([{ id: "acme-coder" }])
+    })
+
+    await fireEvent.press(await screen.findByLabelText("Add provider"))
+    const dialog = screen.getByLabelText("Add OpenAI-compatible provider")
+    expect(dialog).toBeOnTheScreen()
+
+    await fireEvent.changeText(within(dialog).getByLabelText("Display name"), "Acme AI")
+    // The provider id is derived from the display name.
+    expect(within(dialog).getByLabelText("Provider id").props.value).toBe("acme-ai")
+    await fireEvent.changeText(within(dialog).getByLabelText("Base URL"), "https://api.acme.example/v1")
+    await fireEvent.changeText(within(dialog).getByLabelText("API key"), "sk-secret")
+    // Models are discovered from the provider, not typed.
+    await waitFor(() => expect(within(dialog).getByText("acme-coder")).toBeOnTheScreen())
+
+    await fireEvent.press(within(dialog).getByLabelText("Save provider"))
+
+    await waitFor(() =>
+      expect(client.api.createCustomProvider).toHaveBeenCalledWith({
+        id: "acme-ai",
+        name: "Acme AI",
+        baseURL: "https://api.acme.example/v1",
+        package: "openai-compatible",
+        models: [{ id: "acme-coder" }],
+        key: "sk-secret",
+      }),
+    )
+  })
+
+  it("shows a stored custom provider and removes it", async () => {
+    const { client } = await setup((c) => {
+      c.api.integrations.mockResolvedValue([
+        {
+          id: "acme",
+          name: "Acme",
+          methods: [{ id: "key", type: "key", label: "API key" }],
+          connections: [{ type: "credential", credentialID: "cred_1", label: "Acme", method: "key" }],
+        },
+      ])
+      c.api.credentials.mockResolvedValue([
+        { id: "cred_1", integrationID: "acme", label: "Acme", active: true },
+      ])
+      c.api.customProviders.mockResolvedValue([
+        { id: "acme", name: "Acme", baseURL: "https://api.acme.example/v1", package: "openai-compatible", models: [{ id: "m1" }] },
+      ])
+    })
+
+    const card = await screen.findByTestId("custom-provider-acme")
+    expect(within(card).getByText("Connected")).toBeOnTheScreen()
+
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+    await fireEvent.press(screen.getByLabelText("Remove Acme"))
+    const destructive = alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")
+    await act(async () => {
+      destructive?.onPress?.()
+    })
+
+    await waitFor(() => expect(client.api.removeCustomProvider).toHaveBeenCalledWith("acme"))
+    alert.mockRestore()
   })
 })

@@ -40,6 +40,8 @@ export {
   opencodeErrorMessage,
   previewErrorMessage,
   providerConnectErrorMessage,
+  customProviderErrorMessage,
+  modelsLoadErrorMessage,
 } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
@@ -97,6 +99,7 @@ export {
   useEventStream,
   useBranches,
   useIntegrations,
+  useCustomProviders,
   useMessages,
   useModels,
   usePreview,
@@ -124,6 +127,20 @@ export {
   type IntegrationMethodType,
   type ProviderCredential,
 } from "./integrations"
+export {
+  isValidProviderId,
+  normalizeCustomProvider,
+  normalizeCustomProviderCreateResult,
+  normalizeCustomProviders,
+  normalizeDiscoveredModels,
+  providerIdFromName,
+  type CustomProvider,
+  type CustomProviderCreateResult,
+  type CustomProviderInput,
+  type CustomProviderModel,
+  type CustomProviderPackage,
+  type DiscoverModelsInput,
+} from "./custom-providers"
 export {
   appCommands,
   argumentSuggestions,

@@ -9,6 +9,7 @@ import type { Config } from "../src/config.js"
 import { createEventHub, type EventHub } from "../src/events.js"
 import { createPreviewManager, type PreviewManager } from "../src/preview.js"
 import { createMemoryStore, type DeviceRecord, type Store } from "../src/store.js"
+import type { CustomProviderStore } from "../src/providers.js"
 import type { WorktreeManager } from "../src/worktrees.js"
 
 export async function waitFor(predicate: () => boolean, timeoutMs = 8000, intervalMs = 25): Promise<void> {
@@ -246,6 +247,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     previewReadinessMs: 25_000,
     cloudflaredBin: "cloudflared",
     diskLowWatermarkMb: 512,
+    customProvidersFile: "/tmp/masterhand-test/masterhand-providers.json",
     ...overrides,
   }
 }
@@ -380,6 +382,7 @@ export async function startTestApp(
     createDir?: (path: string) => Promise<void>
     removeDir?: (path: string) => Promise<void>
     worktrees?: WorktreeManager
+    providers?: CustomProviderStore
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
@@ -424,6 +427,7 @@ export async function startTestApp(
     createDir: options.createDir ?? (async () => {}),
     removeDir: options.removeDir ?? (async () => {}),
     worktrees: options.worktrees ?? createFakeWorktreeManager(),
+    providers: options.providers,
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,

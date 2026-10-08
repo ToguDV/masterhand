@@ -38,10 +38,16 @@ services:
       PREVIEW_ENABLED: ${PREVIEW_ENABLED:-true}
       PREVIEW_ORIGIN: opencode
       PREVIEW_PORT_RANGE: ${PREVIEW_PORT_RANGE:-3200-3299}
+      # MasterHand-owned custom-provider config, in opencode's global config dir
+      # (shared volume below). opencode loads it with OPENCODE_CONFIG.
+      OPENCODE_CUSTOM_PROVIDERS_FILE: /home/node/.config/opencode/masterhand-providers.json
     volumes:
       - masterhand_data:/data
       # Shared with opencode: the BFF creates each workspace subfolder here.
       - ${WORKSPACES_DIR:-../workspace}:/workspace
+      # MasterHand writes custom OpenAI-compatible providers into opencode's
+      # config dir so opencode picks them up without a restart.
+      - opencode_config:/home/node/.config/opencode
     ports:
       # Bind to 127.0.0.1 when your reverse proxy runs on the host.
       - "${MASTERHAND_BIND:-0.0.0.0}:${MASTERHAND_PORT:-8787}:8787"
@@ -87,6 +93,10 @@ services:
       # runs the engine. Inline config wins over a workspace's opencode.json,
       # so a project cannot opt out. See ARCHITECTURE.md ADR-22.
       OPENCODE_CONFIG_CONTENT: '{"shell":"/usr/local/bin/agent-exec"}'
+      # MasterHand-owned custom OpenAI-compatible providers . Loading it
+      # explicitly keeps the user's own opencode.json(c) untouched and lets the
+      # BFF add providers without a restart. See ARCHITECTURE.md ADR-30.
+      OPENCODE_CONFIG: /home/node/.config/opencode/masterhand-providers.json
     volumes:
       - opencode_config:/home/node/.config/opencode
       - opencode_data:/home/node/.local/share/opencode

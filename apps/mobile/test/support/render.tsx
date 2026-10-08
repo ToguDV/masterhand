@@ -37,6 +37,10 @@ export interface FakeClient {
     credentials: jest.Mock
     removeCredential: jest.Mock
     activateCredential: jest.Mock
+    customProviders: jest.Mock
+    createCustomProvider: jest.Mock
+    removeCustomProvider: jest.Mock
+    listCustomProviderModels: jest.Mock
     messages: jest.Mock
     prompt: jest.Mock
     runCommand: jest.Mock
@@ -71,6 +75,19 @@ export function fakeClient(): FakeClient & Client {
       credentials: jest.fn(async () => []),
       removeCredential: jest.fn(async () => {}),
       activateCredential: jest.fn(async () => {}),
+      customProviders: jest.fn(async () => []),
+      createCustomProvider: jest.fn(async () => ({
+        provider: {
+          id: "custom",
+          name: "Custom",
+          baseURL: "https://x.example/v1",
+          package: "openai-compatible" as const,
+          models: [{ id: "m" }],
+        },
+        connected: false,
+      })),
+      removeCustomProvider: jest.fn(async () => {}),
+      listCustomProviderModels: jest.fn(async () => []),
       messages: jest.fn(async () => []),
       prompt: jest.fn(async () => {}),
       runCommand: jest.fn(async () => {}),

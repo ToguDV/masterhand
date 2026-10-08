@@ -61,6 +61,8 @@ docker compose -f deploy/docker-compose.yml run --rm opencode auth login
 
 Credentials persist in the `opencode_config` volume.
 
+Custom OpenAI-compatible providers added from Settings > Providers are written by the BFF to `~/.config/opencode/masterhand-providers.json` inside that same volume and loaded by opencode through `OPENCODE_CONFIG`; their API keys are stored by opencode's credential system, not in that file (see `ARCHITECTURE.md` ADR-30).
+
 ### Git credentials (isolated sessions)
 
 "Finish & PR" runs inside the **BFF** container. Without credentials it still commits locally and reports the push error in the UI. To enable push + PR:
