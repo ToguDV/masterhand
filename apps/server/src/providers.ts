@@ -44,15 +44,17 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-_]*$/
 const MAX_ID = 64
 const MAX_NAME = 64
 const MAX_BASE_URL = 2048
-const MAX_MODELS = 50
+/**
+ * Models per provider. Shared by validation and discovery so a discovered list
+ * can never exceed what the config accepts (a mismatch rejected valid lists).
+ */
+const MAX_MODELS = 200
 const MAX_MODEL_ID = 128
 const MAX_MODEL_NAME = 100
 const MAX_HEADERS = 32
 const MAX_HEADER_KEY = 64
 const MAX_HEADER_VALUE = 1024
 const MAX_LIMIT = 100_000_000
-/** Models accepted from a provider's `/models` endpoint (deduplicated, in order). */
-const MAX_DISCOVERED_MODELS = 200
 /** Deadline for the provider's `/models` call; the client deadline is longer. */
 const MODELS_TIMEOUT_MS = 10_000
 
@@ -414,7 +416,7 @@ export function parseModelsResponse(raw: unknown): CustomProviderModel[] {
     seen.add(id)
     const name = (asString(entry?.name) ?? asString(entry?.display_name))?.trim() ?? ""
     models.push({ id, ...(name && name.length <= MAX_MODEL_NAME ? { name } : {}) })
-    if (models.length >= MAX_DISCOVERED_MODELS) break
+    if (models.length >= MAX_MODELS) break
   }
   return models
 }

@@ -63,7 +63,7 @@ export function customProviderErrorMessage(error: unknown): string {
       case "invalid_package":
         return "Pick a supported transport."
       case "invalid_models":
-        return "Add at least one valid model id (no duplicates)."
+        return "The provider's model list is not valid. Load the models again."
       case "invalid_headers":
         return "Check the custom headers."
       case "custom_providers_corrupt":

@@ -88,6 +88,16 @@ describe("validateCustomProvider ", () => {
     })
     expect(validateCustomProvider(null)).toEqual({ ok: false, error: "invalid_body" })
   })
+
+  it("accepts a discovered-size list up to the cap and rejects more", () => {
+    const atCap = Array.from({ length: 200 }, (_, index) => ({ id: `m${index}` }))
+    expect(validateCustomProvider({ ...validInput, models: atCap }).ok).toBe(true)
+    const overCap = Array.from({ length: 201 }, (_, index) => ({ id: `m${index}` }))
+    expect(validateCustomProvider({ ...validInput, models: overCap })).toEqual({
+      ok: false,
+      error: "invalid_models",
+    })
+  })
 })
 
 describe("createCustomProviderStore ", () => {
@@ -208,6 +218,11 @@ describe("parseModelsResponse ", () => {
     ])
     expect(parseModelsResponse({ nope: true })).toEqual([])
     expect(parseModelsResponse(null)).toEqual([])
+  })
+
+  it("caps the list at the provider cap", () => {
+    const items = Array.from({ length: 250 }, (_, index) => ({ id: `m${index}` }))
+    expect(parseModelsResponse({ data: items })).toHaveLength(200)
   })
 })
 
