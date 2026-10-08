@@ -535,23 +535,11 @@ function ProviderKeyDialog({
   )
 }
 
-interface ModelRow {
-  key: string
-  id: string
-  name: string
-  context: string
-  output: string
-}
-
 /** Stable row keys without `crypto.randomUUID` (unavailable over plain HTTP). */
 let rowSeq = 0
 function nextRowKey(): string {
   rowSeq += 1
   return `row-${rowSeq}`
-}
-
-function newModelRow(): ModelRow {
-  return { key: nextRowKey(), id: "", name: "", context: "", output: "" }
 }
 
 /** Validates an http(s) URL the same way the BFF does before enabling submit. */
@@ -562,36 +550,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false
   }
-}
-
-function positiveInteger(value: string): number | undefined {
-  const parsed = Number.parseInt(value, 10)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
-}
-
-/**
- * Folds discovered models into the current rows: a provider model keeps any
- * context/output the user already set for the same id, and manually added ids
- * the provider did not report are preserved (discovery never discards work).
- */
-function mergeDiscoveredModels(rows: ModelRow[], found: CustomProviderModel[]): ModelRow[] {
-  const byID = new Map(rows.filter((row) => row.id.trim()).map((row) => [row.id.trim(), row]))
-  const discovered = new Set(found.map((model) => model.id))
-  const merged: ModelRow[] = found.map((model) => {
-    const existing = byID.get(model.id)
-    return {
-      key: existing?.key ?? nextRowKey(),
-      id: model.id,
-      name: model.name ?? existing?.name ?? "",
-      context: existing?.context ?? "",
-      output: existing?.output ?? "",
-    }
-  })
-  for (const row of rows) {
-    const id = row.id.trim()
-    if (id && !discovered.has(id)) merged.push(row)
-  }
-  return merged.length > 0 ? merged : [newModelRow()]
 }
 
 function AddProviderDialog({
@@ -610,7 +568,7 @@ function AddProviderDialog({
   const [baseURL, setBaseURL] = useState("")
   const [key, setKey] = useState("")
   const [providerPackage, setProviderPackage] = useState<CustomProviderPackage>("openai-compatible")
-  const [models, setModels] = useState<ModelRow[]>([newModelRow()])
+  const [models, setModels] = useState<CustomProviderModel[]>([])
   const [advanced, setAdvanced] = useState(false)
   const [headers, setHeaders] = useState<Array<{ key: string; name: string; value: string }>>([])
   const [busy, setBusy] = useState(false)
@@ -620,17 +578,12 @@ function AddProviderDialog({
   const [modelsInfo, setModelsInfo] = useState<string | null>(null)
   const modelsRequest = useRef(0)
 
-  const validModels = models.filter((model) => model.id.trim().length > 0)
   const canSubmit =
     !busy &&
     Boolean(name.trim()) &&
     isValidProviderId(id.trim()) &&
     isHttpUrl(baseURL.trim()) &&
-    validModels.length > 0
-
-  function updateModel(key: string, patch: Partial<ModelRow>): void {
-    setModels((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
-  }
+    models.length > 0
 
   function addHeader(): void {
     setHeaders((rows) => [...rows, { key: nextRowKey(), name: "", value: "" }])
@@ -670,7 +623,7 @@ function AddProviderDialog({
       })
       if (requestID !== modelsRequest.current) return
       if (found.length > 0) {
-        setModels((rows) => mergeDiscoveredModels(rows, found))
+        setModels(found)
         setModelsInfo(found.length === 1 ? "1 model loaded from the provider." : `${found.length} models loaded from the provider.`)
       }
     } catch (err) {
@@ -709,15 +662,7 @@ function AddProviderDialog({
         name: name.trim(),
         baseURL: baseURL.trim(),
         package: providerPackage,
-        models: validModels.map((model) => {
-          const context = positiveInteger(model.context)
-          const output = positiveInteger(model.output)
-          return {
-            id: model.id.trim(),
-            ...(model.name.trim() ? { name: model.name.trim() } : {}),
-            ...(context !== undefined && output !== undefined ? { context, output } : {}),
-          }
-        }),
+        models,
         ...(Object.keys(headerObject).length > 0 ? { headers: headerObject } : {}),
         ...(key.trim() ? { key: key.trim() } : {}),
       })
@@ -831,70 +776,19 @@ function AddProviderDialog({
                 Models load automatically from the provider once the base URL is set.
               </span>
             )}
-            {models.map((model) => (
-              <div key={model.key} className="rounded-md border border-hairline p-2">
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    value={model.id}
-                    onChange={(event) => updateModel(model.key, { id: event.target.value })}
-                    placeholder="model-id"
-                    aria-label="Model id"
-                    className="mh-input flex-1"
-                  />
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    value={model.name}
-                    onChange={(event) => updateModel(model.key, { name: event.target.value })}
-                    placeholder="Display name (optional)"
-                    aria-label="Model display name"
-                    className="mh-input flex-1"
-                  />
-                </div>
-                {advanced && (
-                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="number"
-                      min={1}
-                      value={model.context}
-                      onChange={(event) => updateModel(model.key, { context: event.target.value })}
-                      placeholder="Context tokens"
-                      aria-label="Context tokens"
-                      className="mh-input flex-1"
-                    />
-                    <input
-                      type="number"
-                      min={1}
-                      value={model.output}
-                      onChange={(event) => updateModel(model.key, { output: event.target.value })}
-                      placeholder="Output tokens"
-                      aria-label="Output tokens"
-                      className="mh-input flex-1"
-                    />
-                  </div>
-                )}
-                {models.length > 1 && (
-                  <button
-                    type="button"
-                    className="mh-btn mh-btn--sm mh-btn--quiet mt-2"
-                    onClick={() => setModels((rows) => rows.filter((row) => row.key !== model.key))}
+            {models.length > 0 && (
+              <ul className="flex flex-col gap-1">
+                {models.map((model) => (
+                  <li
+                    key={model.id}
+                    className="flex items-center gap-2 rounded-md border border-hairline px-2 py-1 text-xs"
                   >
-                    Remove model
-                  </button>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              className="mh-btn mh-btn--sm mh-btn--quiet self-start"
-              onClick={() => setModels((rows) => [...rows, newModelRow()])}
-            >
-              Add model
-            </button>
+                    <span className="min-w-0 flex-1 truncate font-mono">{model.id}</span>
+                    {model.name && <span className="min-w-0 flex-1 truncate text-ink-muted">{model.name}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <button

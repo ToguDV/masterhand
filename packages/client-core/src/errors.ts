@@ -80,15 +80,12 @@ export function customProviderErrorMessage(error: unknown): string {
 }
 
 /**
- * Turns a model-discovery failure into an actionable message. Discovery is a
- * convenience, so every branch falls back to "add them manually" — the dialog
- * never blocks on it.
+ * Turns a model-discovery failure into an actionable message. Discovery is the
+ * only way to add models, so any upstream failure reads as "the provider does
+ * not expose models" (with validation/auth errors still called out).
  */
 export function modelsLoadErrorMessage(error: unknown): string {
-  const manual = "Add the model ids manually."
-  if (error instanceof RequestTimeoutError) {
-    return `The provider did not answer in time. ${manual}`
-  }
+  const notExposed = "This provider does not expose models."
   if (error instanceof ApiError) {
     switch (apiErrorCode(error)) {
       case "invalid_base_url":
@@ -99,17 +96,11 @@ export function modelsLoadErrorMessage(error: unknown): string {
         return "The API key is too long."
       case "provider_unauthorized":
         return "The provider rejected the API key. Check it and try again."
-      case "provider_timeout":
-        return `The provider did not answer in time. ${manual}`
-      case "provider_no_models":
-        return `The provider returned no models. ${manual}`
-      case "provider_invalid_response":
-        return `The provider's model list could not be read. ${manual}`
       default:
-        return `Could not load models from the provider. ${manual}`
+        return notExposed
     }
   }
-  return `Could not load models from the provider. ${manual}`
+  return notExposed
 }
 
 /**

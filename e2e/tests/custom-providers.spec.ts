@@ -27,15 +27,17 @@ test("adds and removes an OpenAI-compatible provider ", async ({ page }) => {
   // Typing the name derives the provider id.
   await dialog.getByLabel("Display name", { exact: true }).fill("Acme AI")
   await expect(dialog.getByLabel("Provider id")).toHaveValue("acme-ai")
-  await dialog.getByLabel("Base URL").fill("https://api.acme.example/v1")
+  // The mock serves this base URL's `/models` (OpenAI shape).
+  await dialog.getByLabel("Base URL").fill(MOCK_URL)
   await dialog.getByLabel("API key").fill("sk-acme-secret")
-  await dialog.getByLabel("Model id").fill("acme-coder")
+  // Models are discovered from the provider, never typed.
+  await expect(dialog.getByText("2 models loaded from the provider.")).toBeVisible()
   await dialog.getByRole("button", { name: "Add provider" }).click()
 
   await expect(dialog).toHaveCount(0)
   const card = settings.getByTestId("custom-provider-acme-ai")
   await expect(card).toContainText("Acme AI")
-  await expect(card).toContainText("https://api.acme.example/v1")
+  await expect(card).toContainText(MOCK_URL)
   await expect(card).toContainText("Connected")
   // The key is write-only: never echoed back.
   await expect(page.getByText("sk-acme-secret")).toHaveCount(0)
@@ -56,7 +58,6 @@ test("rejects an invalid provider id ", async ({ page }) => {
   // A space is not allowed in an id, so submit stays disabled.
   await dialog.getByLabel("Provider id").fill("My Provider")
   await dialog.getByLabel("Base URL").fill("https://api.example/v1")
-  await dialog.getByLabel("Model id").fill("m1")
   await expect(dialog.getByRole("button", { name: "Add provider" })).toBeDisabled()
 })
 
@@ -68,25 +69,30 @@ test("loads the provider's models automatically ", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Add OpenAI-compatible provider" })
 
   await dialog.getByLabel("Display name", { exact: true }).fill("Acme AI")
-  // The mock serves this base URL's `/models` (OpenAI shape).
   await dialog.getByLabel("Base URL").fill(MOCK_URL)
   await dialog.getByLabel("API key").fill("sk-acme-secret")
 
-  // No model id was typed: the rows come from the provider's /models response.
+  // No model id was typed: the list comes from the provider's /models response.
   await expect(dialog.getByText("2 models loaded from the provider.")).toBeVisible()
-  const ids = dialog.getByLabel("Model id")
-  await expect(ids).toHaveCount(2)
-  await expect(ids.nth(0)).toHaveValue("acme-coder")
-  await expect(ids.nth(1)).toHaveValue("acme-mini")
-  await expect(dialog.getByLabel("Model display name").first()).toHaveValue("Acme Coder")
+  await expect(dialog.getByText("acme-coder")).toBeVisible()
+  await expect(dialog.getByText("acme-mini")).toBeVisible()
+  await expect(dialog.getByText("Acme Coder")).toBeVisible()
+  // There is no manual model entry left.
+  await expect(dialog.getByLabel("Model id")).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Add model" })).toHaveCount(0)
+})
 
-  await dialog.getByRole("button", { name: "Add provider" }).click()
-  await expect(dialog).toHaveCount(0)
-  const card = settings.getByTestId("custom-provider-acme-ai")
-  await expect(card).toContainText("Acme AI")
-  await expect(card).toContainText("Connected")
+test("reports a provider that does not expose models ", async ({ page }) => {
+  await login(page)
+  const settings = await openSettings(page)
+  await settings.getByTestId("add-custom-provider").click()
+  const dialog = page.getByRole("dialog", { name: "Add OpenAI-compatible provider" })
 
-  await card.getByRole("button", { name: "Remove" }).click()
-  await card.getByRole("button", { name: "Yes" }).click()
-  await expect(settings.getByTestId("custom-provider-acme-ai")).toHaveCount(0)
+  await dialog.getByLabel("Display name", { exact: true }).fill("Acme AI")
+  // The mock 404s unknown paths, so `/nope/models` has no model list.
+  await dialog.getByLabel("Base URL").fill(`${MOCK_URL}/nope`)
+  await dialog.getByLabel("API key").fill("sk-acme-secret")
+  await expect(dialog.getByText("This provider does not expose models.")).toBeVisible()
+  // Creation is blocked until at least one model is loaded.
+  await expect(dialog.getByRole("button", { name: "Add provider" })).toBeDisabled()
 })

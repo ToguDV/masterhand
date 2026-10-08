@@ -33,6 +33,10 @@ describe("ProvidersSection custom providers (#138)", () => {
   it("walks the whole add-provider form", async () => {
     const { client } = await setup((c) => {
       c.api.customProviders.mockResolvedValue([])
+      c.api.listCustomProviderModels.mockResolvedValue([
+        { id: "acme-coder", name: "Acme Coder" },
+        { id: "acme-mini" },
+      ])
     })
 
     await fireEvent.press(await screen.findByLabelText("Add provider"))
@@ -47,19 +51,13 @@ describe("ProvidersSection custom providers (#138)", () => {
     await fireEvent.changeText(within(dialog).getByLabelText("Base URL"), "https://api.acme.example/v1")
     await fireEvent.changeText(within(dialog).getByLabelText("API key"), "sk-secret")
 
-    await fireEvent.changeText(within(dialog).getByLabelText("Model id"), "acme-coder")
-    await fireEvent.changeText(within(dialog).getByLabelText("Model display name"), "Acme Coder")
-    // A second model: added then removed.
-    await fireEvent.press(within(dialog).getByLabelText("Add model"))
-    const modelIds = within(dialog).getAllByLabelText("Model id")
-    await fireEvent.changeText(modelIds[1]!, "acme-mini")
-    await fireEvent.press(within(dialog).getAllByLabelText("Remove model")[1]!)
+    // Models are discovered, never typed.
+    await waitFor(() => expect(client.api.listCustomProviderModels).toHaveBeenCalled(), { timeout: 2000 })
+    await waitFor(() => expect(within(dialog).getByText("acme-coder")).toBeOnTheScreen())
 
-    // Advanced: transport, limits and headers.
+    // Advanced: transport and headers.
     await fireEvent.press(within(dialog).getByLabelText("Advanced"))
     await fireEvent.press(within(dialog).getByLabelText("Responses (/v1/responses)"))
-    await fireEvent.changeText(within(dialog).getByLabelText("Context tokens"), "128000")
-    await fireEvent.changeText(within(dialog).getByLabelText("Output tokens"), "4096")
     await fireEvent.press(within(dialog).getByLabelText("Add header"))
     await fireEvent.changeText(within(dialog).getByLabelText("Header name"), "X-Key")
     await fireEvent.changeText(within(dialog).getByLabelText("Header value"), "value")
@@ -79,7 +77,7 @@ describe("ProvidersSection custom providers (#138)", () => {
         name: "Acme Renamed",
         baseURL: "https://api.acme.example/v1",
         package: "openai",
-        models: [{ id: "acme-coder", name: "Acme Coder", context: 128000, output: 4096 }],
+        models: [{ id: "acme-coder", name: "Acme Coder" }, { id: "acme-mini" }],
         headers: { "X-Keep": "yes" },
         key: "sk-secret",
       }),
@@ -90,6 +88,7 @@ describe("ProvidersSection custom providers (#138)", () => {
     const { client } = await setup((c) => {
       c.api.customProviders.mockResolvedValue([])
       c.api.createCustomProvider.mockRejectedValue(new Error("nope"))
+      c.api.listCustomProviderModels.mockResolvedValue([{ id: "m1" }])
     })
 
     await fireEvent.press(await screen.findByLabelText("Add provider"))
@@ -108,7 +107,7 @@ describe("ProvidersSection custom providers (#138)", () => {
     const dialog2 = screen.getByLabelText("Add OpenAI-compatible provider")
     await fireEvent.changeText(within(dialog2).getByLabelText(/^Display name$/), "Acme")
     await fireEvent.changeText(within(dialog2).getByLabelText("Base URL"), "https://api.acme.example/v1")
-    await fireEvent.changeText(within(dialog2).getByLabelText("Model id"), "m1")
+    await waitFor(() => expect(within(dialog2).getByText("m1")).toBeOnTheScreen())
     await fireEvent.press(within(dialog2).getByLabelText("Save provider"))
     await waitFor(() => expect(screen.getByText("Could not save the provider")).toBeOnTheScreen())
   })
@@ -128,15 +127,13 @@ describe("ProvidersSection custom providers (#138)", () => {
     await fireEvent.changeText(within(dialog).getByLabelText("Base URL"), "https://api.acme.example/v1")
     await fireEvent.changeText(within(dialog).getByLabelText("API key"), "sk-secret")
 
-    // No model id typed: the debounced discovery fills the rows.
+    // No model id typed: the debounced discovery fills the list.
     await waitFor(() => expect(client.api.listCustomProviderModels).toHaveBeenCalled(), { timeout: 2000 })
-    const ids = await waitFor(() => {
-      const inputs = within(dialog).getAllByLabelText("Model id")
-      expect(inputs).toHaveLength(2)
-      return inputs
-    })
-    expect(ids[0]!.props.value).toBe("acme-coder")
-    expect(ids[1]!.props.value).toBe("acme-mini")
+    await waitFor(() => expect(within(dialog).getByText("acme-coder")).toBeOnTheScreen())
+    expect(within(dialog).getByText("acme-mini")).toBeOnTheScreen()
+    // The rows are read-only: no manual model inputs remain.
+    expect(within(dialog).queryByLabelText("Model id")).toBeNull()
+    expect(within(dialog).queryByLabelText("Add model")).toBeNull()
     expect(within(dialog).getByText("2 models loaded from the provider.")).toBeOnTheScreen()
   })
 

@@ -4,7 +4,9 @@ import {
   branchErrorMessage,
   composerErrorMessage,
   conversationErrorMessage,
+  customProviderErrorMessage,
   isAmbiguousError,
+  modelsLoadErrorMessage,
   opencodeErrorMessage,
   previewErrorMessage,
 } from "../src/errors"
@@ -144,5 +146,60 @@ describe("branchErrorMessage", () => {
     expect(branchErrorMessage(new RequestTimeoutError())).toContain("may have changed")
     expect(branchErrorMessage(apiError(504, { error: "git_timeout" }))).toContain("may have changed")
     expect(branchErrorMessage(new Error("offline"))).toBe("Could not update the branch")
+  })
+})
+
+describe("customProviderErrorMessage", () => {
+  function apiError(status: number, body: unknown): ApiError {
+    return new ApiError(status, JSON.stringify(body))
+  }
+
+  it("maps every validation and file failure", () => {
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_id" }))).toContain("lowercase")
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_name" }))).toContain("display name")
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_base_url" }))).toContain("base URL")
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_package" }))).toContain("transport")
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_models" }))).toContain("model")
+    expect(customProviderErrorMessage(apiError(400, { error: "invalid_headers" }))).toContain("headers")
+    expect(customProviderErrorMessage(apiError(500, { error: "custom_providers_corrupt" }))).toContain(
+      "not valid JSON",
+    )
+    expect(customProviderErrorMessage(apiError(503, { error: "custom_providers_unwritable" }))).toContain("read-only")
+  })
+
+  it("frames timeouts, generic 400s and unknown errors", () => {
+    expect(customProviderErrorMessage(new RequestTimeoutError())).toContain("may have been saved")
+    expect(customProviderErrorMessage(apiError(400, { error: "weird" }))).toBe(
+      "Check the provider details and try again.",
+    )
+    expect(customProviderErrorMessage(apiError(500, "x"))).toContain("HTTP 500")
+    expect(customProviderErrorMessage(new Error("offline"))).toBe("Could not save the provider")
+  })
+})
+
+describe("modelsLoadErrorMessage", () => {
+  function apiError(status: number, body: unknown): ApiError {
+    return new ApiError(status, JSON.stringify(body))
+  }
+
+  it("calls out validation and auth errors", () => {
+    expect(modelsLoadErrorMessage(apiError(400, { error: "invalid_base_url" }))).toContain("base URL")
+    expect(modelsLoadErrorMessage(apiError(400, { error: "invalid_headers" }))).toContain("headers")
+    expect(modelsLoadErrorMessage(apiError(400, { error: "invalid_key" }))).toContain("too long")
+    expect(modelsLoadErrorMessage(apiError(502, { error: "provider_unauthorized" }))).toContain("rejected the API key")
+  })
+
+  it("reads every other failure as an unexposed model list", () => {
+    for (const code of [
+      "provider_unreachable",
+      "provider_failed",
+      "provider_invalid_response",
+      "provider_no_models",
+      "provider_timeout",
+    ]) {
+      expect(modelsLoadErrorMessage(apiError(502, { error: code }))).toBe("This provider does not expose models.")
+    }
+    expect(modelsLoadErrorMessage(new RequestTimeoutError())).toBe("This provider does not expose models.")
+    expect(modelsLoadErrorMessage(new Error("offline"))).toBe("This provider does not expose models.")
   })
 })

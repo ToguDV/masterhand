@@ -490,14 +490,6 @@ function ProviderAvatar({ integration }: { integration: Pick<Integration, "id" |
   )
 }
 
-interface ModelRow {
-  key: number
-  id: string
-  name: string
-  context: string
-  output: string
-}
-
 function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value)
@@ -505,11 +497,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false
   }
-}
-
-function positiveInteger(value: string): number | undefined {
-  const parsed = Number.parseInt(value, 10)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
 function AddProviderModal({
@@ -524,14 +511,13 @@ function AddProviderModal({
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const nextKey = useRef(1)
-  const newRow = (): ModelRow => ({ key: nextKey.current++, id: "", name: "", context: "", output: "" })
   const [name, setName] = useState("")
   const [id, setID] = useState("")
   const [idTouched, setIDTouched] = useState(false)
   const [baseURL, setBaseURL] = useState("")
   const [key, setKey] = useState("")
   const [providerPackage, setProviderPackage] = useState<CustomProviderPackage>("openai-compatible")
-  const [models, setModels] = useState<ModelRow[]>([newRow()])
+  const [models, setModels] = useState<CustomProviderModel[]>([])
   const [advanced, setAdvanced] = useState(false)
   const [headers, setHeaders] = useState<Array<{ key: number; name: string; value: string }>>([])
   const [busy, setBusy] = useState(false)
@@ -541,17 +527,12 @@ function AddProviderModal({
   const [modelsError, setModelsError] = useState<string | null>(null)
   const [modelsInfo, setModelsInfo] = useState<string | null>(null)
 
-  const validModels = models.filter((model) => model.id.trim().length > 0)
   const canSubmit =
     !busy &&
     Boolean(name.trim()) &&
     isValidProviderId(id.trim()) &&
     isHttpUrl(baseURL.trim()) &&
-    validModels.length > 0
-
-  function updateModel(rowKey: number, patch: Partial<ModelRow>): void {
-    setModels((rows) => rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row)))
-  }
+    models.length > 0
 
   function collectHeaders(): Record<string, string> {
     const result: Record<string, string> = {}
@@ -559,31 +540,6 @@ function AddProviderModal({
       if (header.name.trim()) result[header.name.trim()] = header.value
     }
     return result
-  }
-
-  /**
-   * Folds discovered models into the current rows: a provider model keeps any
-   * context/output the user already set for the same id, and manually added ids
-   * the provider did not report are preserved (discovery never discards work).
-   */
-  function mergeDiscovered(rows: ModelRow[], found: CustomProviderModel[]): ModelRow[] {
-    const byID = new Map(rows.filter((row) => row.id.trim()).map((row) => [row.id.trim(), row]))
-    const discovered = new Set(found.map((model) => model.id))
-    const merged: ModelRow[] = found.map((model) => {
-      const existing = byID.get(model.id)
-      return {
-        key: existing?.key ?? nextKey.current++,
-        id: model.id,
-        name: model.name ?? existing?.name ?? "",
-        context: existing?.context ?? "",
-        output: existing?.output ?? "",
-      }
-    })
-    for (const row of rows) {
-      const id = row.id.trim()
-      if (id && !discovered.has(id)) merged.push(row)
-    }
-    return merged.length > 0 ? merged : [newRow()]
   }
 
   /**
@@ -608,7 +564,7 @@ function AddProviderModal({
       })
       if (requestID !== modelsRequest.current) return
       if (found.length > 0) {
-        setModels((rows) => mergeDiscovered(rows, found))
+        setModels(found)
         setModelsInfo(found.length === 1 ? "1 model loaded from the provider." : `${found.length} models loaded from the provider.`)
       }
     } catch (err) {
@@ -646,15 +602,7 @@ function AddProviderModal({
         name: name.trim(),
         baseURL: baseURL.trim(),
         package: providerPackage,
-        models: validModels.map((model) => {
-          const context = positiveInteger(model.context)
-          const output = positiveInteger(model.output)
-          return {
-            id: model.id.trim(),
-            ...(model.name.trim() ? { name: model.name.trim() } : {}),
-            ...(context !== undefined && output !== undefined ? { context, output } : {}),
-          }
-        }),
+        models,
         ...(Object.keys(headerObject).length > 0 ? { headers: headerObject } : {}),
         ...(key.trim() ? { key: key.trim() } : {}),
       })
@@ -741,68 +689,22 @@ function AddProviderModal({
             {!modelsInfo && !modelsError ? (
               <Text style={styles.hint}>Models load automatically from the provider once the base URL is set.</Text>
             ) : null}
-            {models.map((model) => (
-              <View key={model.key} style={styles.modelRow}>
-                <TextInput
-                  value={model.id}
-                  onChangeText={(value) => updateModel(model.key, { id: value })}
-                  placeholder="model-id"
-                  placeholderTextColor={colors.textFaint}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  accessibilityLabel="Model id"
-                  style={styles.input}
-                />
-                <TextInput
-                  value={model.name}
-                  onChangeText={(value) => updateModel(model.key, { name: value })}
-                  placeholder="Display name (optional)"
-                  placeholderTextColor={colors.textFaint}
-                  autoCapitalize="none"
-                  accessibilityLabel="Model display name"
-                  style={styles.input}
-                />
-                {advanced ? (
-                  <View style={styles.modelLimits}>
-                    <TextInput
-                      value={model.context}
-                      onChangeText={(value) => updateModel(model.key, { context: value })}
-                      placeholder="Context tokens"
-                      placeholderTextColor={colors.textFaint}
-                      keyboardType="number-pad"
-                      accessibilityLabel="Context tokens"
-                      style={[styles.input, styles.halfInput]}
-                    />
-                    <TextInput
-                      value={model.output}
-                      onChangeText={(value) => updateModel(model.key, { output: value })}
-                      placeholder="Output tokens"
-                      placeholderTextColor={colors.textFaint}
-                      keyboardType="number-pad"
-                      accessibilityLabel="Output tokens"
-                      style={[styles.input, styles.halfInput]}
-                    />
+            {models.length > 0 ? (
+              <View style={styles.modelList}>
+                {models.map((model) => (
+                  <View key={model.id} style={styles.modelItem}>
+                    <Text style={styles.modelId} numberOfLines={1}>
+                      {model.id}
+                    </Text>
+                    {model.name ? (
+                      <Text style={styles.modelName} numberOfLines={1}>
+                        {model.name}
+                      </Text>
+                    ) : null}
                   </View>
-                ) : null}
-                {models.length > 1 ? (
-                  <Pressable
-                    onPress={() => setModels((rows) => rows.filter((row) => row.key !== model.key))}
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove model"
-                  >
-                    <Text style={styles.action}>Remove model</Text>
-                  </Pressable>
-                ) : null}
+                ))}
               </View>
-            ))}
-            <Pressable
-              onPress={() => setModels((rows) => [...rows, newRow()])}
-              accessibilityRole="button"
-              accessibilityLabel="Add model"
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Add model</Text>
-            </Pressable>
+            ) : null}
 
             <Pressable
               onPress={() => setAdvanced((value) => !value)}
@@ -1159,17 +1061,31 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 16,
       fontWeight: "600",
     },
-    modelRow: {
+    modelList: {
+      gap: 6,
+      marginTop: 8,
+    },
+    modelItem: {
+      flexDirection: "row",
+      alignItems: "center",
       gap: 8,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
-      borderRadius: 10,
-      padding: 8,
-      marginTop: 8,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
     },
-    modelLimits: {
-      flexDirection: "row",
-      gap: 8,
+    modelId: {
+      flexShrink: 1,
+      color: colors.text,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+    },
+    modelName: {
+      flex: 1,
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
     },
     advancedBox: {
       borderWidth: StyleSheet.hairlineWidth,

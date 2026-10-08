@@ -246,6 +246,7 @@ describe("SettingsModal custom providers ", () => {
       c.api.integrations.mockResolvedValue([])
       c.api.credentials.mockResolvedValue([])
       c.api.customProviders.mockResolvedValue([])
+      c.api.listCustomProviderModels.mockResolvedValue([{ id: "acme-coder" }])
     })
 
     await fireEvent.press(await screen.findByLabelText("Add provider"))
@@ -257,7 +258,8 @@ describe("SettingsModal custom providers ", () => {
     expect(within(dialog).getByLabelText("Provider id").props.value).toBe("acme-ai")
     await fireEvent.changeText(within(dialog).getByLabelText("Base URL"), "https://api.acme.example/v1")
     await fireEvent.changeText(within(dialog).getByLabelText("API key"), "sk-secret")
-    await fireEvent.changeText(within(dialog).getByLabelText("Model id"), "acme-coder")
+    // Models are discovered from the provider, not typed.
+    await waitFor(() => expect(within(dialog).getByText("acme-coder")).toBeOnTheScreen())
 
     await fireEvent.press(within(dialog).getByLabelText("Save provider"))
 
