@@ -18,6 +18,7 @@ import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { BranchChip, BranchPicker } from "./BranchPicker"
 import { Composer, type ComposerHandle } from "./Composer"
+import { GoalStrip } from "./GoalStrip"
 import { PendingBubble } from "./PendingBubble"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { SessionStats } from "./SessionStats"
@@ -297,6 +298,7 @@ export function ChatView({
           )}
         </div>
       )}
+      <GoalStrip sessionID={sessionID} />
       <Composer
         ref={composerRef}
         sessionID={sessionID}
