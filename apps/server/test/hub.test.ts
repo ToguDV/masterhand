@@ -68,6 +68,26 @@ afterEach(() => {
 })
 
 describe("createEventHub", () => {
+  it("broadcasts synthetic events through emit to every subscriber and the hook", () => {
+    const hookEvents: unknown[] = []
+    const seenA: unknown[] = []
+    const seenB: unknown[] = []
+    hub = createEventHub({
+      url: "http://127.0.0.1:1/api/event",
+      fetchImpl: async () => sseResponse([]),
+      onEvent: (event) => hookEvents.push(event),
+    })
+    hub.subscribe((event) => seenA.push(event))
+    hub.subscribe((event) => seenB.push(event))
+
+    const frame = { type: "goal.updated", data: { sessionID: "ses_1", goal: null } }
+    hub.emit(frame)
+
+    expect(seenA).toEqual([frame])
+    expect(seenB).toEqual([frame])
+    expect(hookEvents).toEqual([frame])
+  })
+
   it("forwards v2 events to subscribers and the global hook, dropping invalid frames", async () => {
     const event = { id: "evt_1", type: "session.idle", data: { sessionID: "ses_1" } }
     const fetchImpl = vi.fn(async () =>

@@ -32,6 +32,16 @@ export interface MockOpencode {
     body?: string
   }[]
   emit(event: unknown): void
+  /** Makes the next `times` requests whose path contains `fragment` answer `status`. */
+  failNext(fragment: string, times: number, status?: number): void
+  /** Registers a session the adapter can resolve with `GET /api/session/:id`. */
+  addSession(input: { id: string; directory?: string; model?: string | null }): void
+  /** Appends an assistant reply to a session's history (no event emitted). */
+  reply(sessionID: string, text: string): void
+  /** First session id with an instruction entry under `key`, or null. */
+  sessionWithInstruction(key: string): string | null
+  /** Sessions reported as running by `GET /api/session/active`. */
+  setActive(sessionIDs: string[]): void
   close(): Promise<void>
 }
 
@@ -39,8 +49,20 @@ export async function startMockOpencode(): Promise<MockOpencode> {
   const requests: MockOpencode["requests"] = []
   const sseClients = new Set<import("node:http").ServerResponse>()
   const ptys: Array<{ id: string; title: string; status: string; pid: number; command: string; args: string[]; cwd: string }> = []
+  const messagesBySession = new Map<
+    string,
+    Array<{ id: string; type: string; metadata?: Record<string, unknown>; text?: string; content?: Array<{ type: string; text: string }> }>
+  >()
+  const sessions = new Map<
+    string,
+    { id: string; parentID?: string; metadata?: Record<string, unknown>; location: { directory: string }; model: { id: string; providerID: string } | null }
+  >()
+  const instructions = new Map<string, Map<string, string>>()
+  const active = new Set<string>()
+  const failures: Array<{ fragment: string; remaining: number; status: number }> = []
   let sessionCounter = 0
   let ptyCounter = 0
+  let messageCounter = 0
 
   const server = createServer((req, res) => {
     let body = ""
@@ -62,6 +84,49 @@ export async function startMockOpencode(): Promise<MockOpencode> {
         body: body || undefined,
       })
 
+      const failure = failures.find((entry) => entry.remaining > 0 && path.includes(entry.fragment))
+      if (failure) {
+        failure.remaining -= 1
+        res.writeHead(failure.status, { "content-type": "application/json" })
+        res.end(JSON.stringify({ error: "scripted_failure" }))
+        return
+      }
+
+      // Prompt + history (proxy retry reconciliation).
+      if (req.method === "POST" && path.startsWith("/api/session/") && path.endsWith("/prompt")) {
+        messageCounter += 1
+        let metadata: Record<string, unknown> | undefined
+        let text = ""
+        try {
+          const parsed = JSON.parse(body) as { metadata?: Record<string, unknown>; text?: string }
+          metadata = parsed.metadata
+          text = typeof parsed.text === "string" ? parsed.text : ""
+        } catch {
+          // keep the defaults
+        }
+        const sessionID = decodeURIComponent(path.split("/")[3] ?? "")
+        const id = `msg_mock_${messageCounter}`
+        messagesBySession.set(sessionID, [...(messagesBySession.get(sessionID) ?? []), { id, type: "user", metadata, text }])
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ data: { id, sessionID, type: "user", payload: { text }, delivery: "steer" } }))
+        return
+      }
+      if (req.method === "GET" && path.startsWith("/api/session/") && path.endsWith("/message")) {
+        const sessionID = decodeURIComponent(path.split("/")[3] ?? "")
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ data: [...(messagesBySession.get(sessionID) ?? [])].reverse() }))
+        return
+      }
+      if (
+        req.method === "POST" &&
+        path.startsWith("/api/session/") &&
+        (path.endsWith("/model") || path.endsWith("/agent"))
+      ) {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+
       if (req.method === "GET" && path === "/api/info") {
         res.writeHead(200, { "content-type": "application/json" })
         res.end(
@@ -76,28 +141,106 @@ export async function startMockOpencode(): Promise<MockOpencode> {
       }
 
       if (req.method === "GET" && path === "/api/session") {
+        const parentID = new URLSearchParams(search).get("parentID")
+        const data = [...sessions.values()].filter((session) => !parentID || session.parentID === parentID)
         res.writeHead(200, { "content-type": "application/json" })
-        res.end(JSON.stringify({ data: [], cursor: { previous: null, next: null } }))
+        res.end(JSON.stringify({ data, cursor: { previous: null, next: null } }))
         return
       }
 
       if (req.method === "POST" && path === "/api/session") {
         sessionCounter += 1
-        let directory = ""
+        let input: {
+          location?: { directory?: string }
+          parentID?: string
+          metadata?: Record<string, unknown>
+        } = {}
         try {
-          directory = (JSON.parse(body) as { location?: { directory?: string } }).location?.directory ?? ""
+          input = JSON.parse(body) as typeof input
         } catch {
           // an empty body is fine for the mock
         }
+        const session = {
+          id: `ses_mock_${sessionCounter}`,
+          ...(input.parentID ? { parentID: input.parentID } : {}),
+          ...(input.metadata ? { metadata: input.metadata } : {}),
+          location: { directory: input.location?.directory ?? "" },
+          model: null,
+        }
+        sessions.set(session.id, session)
         res.writeHead(200, { "content-type": "application/json" })
-        res.end(JSON.stringify({ data: { id: `ses_mock_${sessionCounter}`, directory } }))
+        res.end(JSON.stringify({ data: session }))
         return
       }
 
-      if (req.method === "PUT" && path.includes("/instructions/entries/")) {
-        res.writeHead(204)
-        res.end()
+      if (req.method === "GET" && path === "/api/session/active") {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ data: Object.fromEntries([...active].map((id) => [id, { type: "running" }])) }))
         return
+      }
+
+      if (req.method === "GET" && path === "/api/model") {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(
+          JSON.stringify({
+            data: [
+              { id: "test-model", providerID: "test" },
+              { id: "critic-model", providerID: "test" },
+              { id: "judge-model", providerID: "test" },
+            ],
+          }),
+        )
+        return
+      }
+
+      if (
+        req.method === "POST" &&
+        path.startsWith("/api/session/") &&
+        path.endsWith("/interrupt")
+      ) {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ interrupted: true }))
+        return
+      }
+
+      // One session detail: /api/session/:id (no sub-path).
+      if (req.method === "GET" && /^\/api\/session\/[^/]+$/.test(path)) {
+        const sessionID = decodeURIComponent(path.split("/")[3] ?? "")
+        const session = sessions.get(sessionID)
+        if (!session) {
+          res.writeHead(404, { "content-type": "application/json" })
+          res.end(JSON.stringify({ error: "not_found" }))
+          return
+        }
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ data: session }))
+        return
+      }
+
+      if (path.includes("/instructions/entries/")) {
+        const segments = path.split("/")
+        const sessionID = decodeURIComponent(segments[4] ?? "")
+        const key = decodeURIComponent(segments[7] ?? "")
+        if (req.method === "PUT") {
+          const entries = instructions.get(sessionID) ?? new Map<string, string>()
+          let value = ""
+          try {
+            value = String((JSON.parse(body) as { value?: unknown }).value ?? "")
+          } catch {
+            // keep the empty value
+          }
+          entries.set(key, value)
+          instructions.set(sessionID, entries)
+          res.writeHead(204)
+          res.end()
+          return
+        }
+        if (req.method === "DELETE") {
+          instructions.get(sessionID)?.delete(key)
+          res.writeHead(204)
+          res.end()
+          return
+        }
       }
 
       if (path === "/api/pty") {
@@ -146,6 +289,7 @@ export async function startMockOpencode(): Promise<MockOpencode> {
       }
 
       if (req.method === "DELETE" && path.startsWith("/api/session/")) {
+        sessions.delete(decodeURIComponent(path.split("/")[3] ?? ""))
         res.writeHead(204)
         res.end()
         return
@@ -215,6 +359,33 @@ export async function startMockOpencode(): Promise<MockOpencode> {
       for (const client of sseClients) {
         client.write(`data: ${JSON.stringify(event)}\n\n`)
       }
+    },
+    failNext(fragment, times, status = 503) {
+      failures.push({ fragment, remaining: times, status })
+    },
+    addSession(input) {
+      const [providerID = "", id = ""] = input.model ? input.model.split("/") : []
+      sessions.set(input.id, {
+        id: input.id,
+        location: { directory: input.directory ?? "/e2e" },
+        model: input.model ? { id, providerID } : null,
+      })
+    },
+    reply(sessionID, text) {
+      messageCounter += 1
+      const messages = messagesBySession.get(sessionID) ?? []
+      messages.push({ id: `msg_mock_${messageCounter}`, type: "assistant", content: [{ type: "text", text }] })
+      messagesBySession.set(sessionID, messages)
+    },
+    sessionWithInstruction(key) {
+      for (const [sessionID, entries] of instructions) {
+        if (entries.has(key)) return sessionID
+      }
+      return null
+    },
+    setActive(sessionIDs) {
+      active.clear()
+      for (const id of sessionIDs) active.add(id)
     },
     close: () =>
       new Promise((resolve) => {
@@ -383,6 +554,8 @@ export async function startTestApp(
     removeDir?: (path: string) => Promise<void>
     worktrees?: WorktreeManager
     providers?: CustomProviderStore
+    goals?: import("../src/goal.js").GoalManager
+    proxyRetry?: import("../src/proxy.js").ProxyRetryOptions
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
@@ -428,6 +601,8 @@ export async function startTestApp(
     removeDir: options.removeDir ?? (async () => {}),
     worktrees: options.worktrees ?? createFakeWorktreeManager(),
     providers: options.providers,
+    goals: options.goals,
+    proxyRetry: options.proxyRetry ?? { baseDelayMs: 1, jitter: false },
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
