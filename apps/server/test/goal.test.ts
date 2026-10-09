@@ -642,6 +642,20 @@ describe("goal manager", () => {
     })
   })
 
+  it("coalesces two concurrent starts into a single run", async () => {
+    const h = harness()
+    h.opencode.addSession({ id: "ses_main", directory: "/workspace/app", model: "test/test-model" })
+
+    const results = await Promise.allSettled([
+      h.manager.start({ sessionID: "ses_main", goal: "first" }),
+      h.manager.start({ sessionID: "ses_main", goal: "second" }),
+    ])
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    const rejected = results.find((result) => result.status === "rejected")
+    expect(rejected && rejected.status === "rejected" && rejected.reason).toMatchObject({ code: "goal_running" })
+    expect(h.opencode.prompts).toHaveLength(1)
+  })
+
   it("validates goal settings against the model catalog", async () => {
     const h = harness()
     await expect(h.manager.saveSettings({ maxRounds: 0 })).rejects.toBeInstanceOf(GoalError)

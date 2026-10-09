@@ -338,6 +338,25 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     return next
   }
 
+  /**
+   * Serialized check→create for a non-idempotent mutation (rule 12): two
+   * devices starting a goal at once must not create two runs. Unlike
+   * `enqueue`, failures propagate to the caller.
+   */
+  function runExclusive<T>(sessionID: string, task: () => Promise<T>): Promise<T> {
+    const tail = chains.get(sessionID) ?? Promise.resolve()
+    const next = tail.then(task)
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    chains.set(sessionID, settled)
+    void settled.finally(() => {
+      if (chains.get(sessionID) === settled) chains.delete(sessionID)
+    })
+    return next
+  }
+
   async function flush(): Promise<void> {
     while (chains.size > 0) await Promise.allSettled([...chains.values()])
   }
@@ -764,64 +783,67 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     if (!goal || goal.length > MAX_GOAL_LENGTH) {
       throw new GoalError("invalid_goal", 400, `the goal must be 1..${MAX_GOAL_LENGTH} characters`)
     }
-    const existing = store.getGoalRun(input.sessionID)
-    if (existing && !TERMINAL_STATES.has(existing.state)) {
-      throw new GoalError("goal_running", 409, "a goal run is already active for this session")
-    }
-    let info: GoalSessionInfo | null
-    let active: string[]
-    try {
-      info = await retryable(() => opencode.sessionInfo(input.sessionID), { includeTimeouts: true })
-      if (info) active = await retryable(() => opencode.activeSessions(), { includeTimeouts: true })
-      else active = []
-    } catch (error) {
-      throw new GoalError("opencode_unreachable", 502, errorMessage(error))
-    }
-    if (!info) throw new GoalError("session_not_found", 404, "unknown session")
-    if (active.includes(input.sessionID)) {
-      throw new GoalError("session_busy", 409, "the session is running a turn; wait for it to finish")
-    }
+    // Serialized check→create (rule 12): two devices starting at once must not
+    // create two runs; failures propagate to the route.
+    return runExclusive(input.sessionID, async () => {
+      const existing = store.getGoalRun(input.sessionID)
+      if (existing && !TERMINAL_STATES.has(existing.state)) {
+        throw new GoalError("goal_running", 409, "a goal run is already active for this session")
+      }
+      let info: GoalSessionInfo | null
+      let active: string[]
+      try {
+        info = await retryable(() => opencode.sessionInfo(input.sessionID), { includeTimeouts: true })
+        if (info) active = await retryable(() => opencode.activeSessions(), { includeTimeouts: true })
+        else active = []
+      } catch (error) {
+        throw new GoalError("opencode_unreachable", 502, errorMessage(error))
+      }
+      if (!info) throw new GoalError("session_not_found", 404, "unknown session")
+      if (active.includes(input.sessionID)) {
+        throw new GoalError("session_busy", 409, "the session is running a turn; wait for it to finish")
+      }
 
-    const settings = store.getGoalSettings()
-    const mainModel = normalizeRef(input.model) ?? info.model
-    const run: GoalRunRecord = {
-      sessionID: input.sessionID,
-      goal,
-      state: "running",
-      round: 1,
-      maxRounds: settings.maxRounds > 0 ? settings.maxRounds : defaultMaxRounds,
-      mainModel,
-      criticModel: normalizeRef(settings.criticModel) ?? mainModel,
-      judgeModel: normalizeRef(settings.judgeModel) ?? mainModel,
-      criticSessionID: null,
-      judgeSessionID: null,
-      lastReport: null,
-      lastCritique: null,
-      lastVerdict: null,
-      history: [],
-      error: null,
-      awaitingKind: null,
-      awaitingSessionID: null,
-      awaitingAssistantID: null,
-      attempt: 0,
-      nudged: false,
-      lastError: null,
-      pausedPhase: null,
-      promptSerial: 0,
-      createdAt: now(),
-      updatedAt: now(),
-    }
-    persist(run)
+      const settings = store.getGoalSettings()
+      const mainModel = normalizeRef(input.model) ?? info.model
+      const run: GoalRunRecord = {
+        sessionID: input.sessionID,
+        goal,
+        state: "running",
+        round: 1,
+        maxRounds: settings.maxRounds > 0 ? settings.maxRounds : defaultMaxRounds,
+        mainModel,
+        criticModel: normalizeRef(settings.criticModel) ?? mainModel,
+        judgeModel: normalizeRef(settings.judgeModel) ?? mainModel,
+        criticSessionID: null,
+        judgeSessionID: null,
+        lastReport: null,
+        lastCritique: null,
+        lastVerdict: null,
+        history: [],
+        error: null,
+        awaitingKind: null,
+        awaitingSessionID: null,
+        awaitingAssistantID: null,
+        attempt: 0,
+        nudged: false,
+        lastError: null,
+        pausedPhase: null,
+        promptSerial: 0,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      persist(run)
 
-    try {
-      await writeInstruction(run, run.sessionID, GOAL_INSTRUCTION_KEY, GOAL_INSTRUCTION)
-      await promptPhase(run, "main", goal)
-    } catch (error) {
-      fail(run, `could not start the goal: ${errorMessage(error)}`, "main")
-      throw new GoalError("opencode_unreachable", 502, errorMessage(error))
-    }
-    const live = store.getGoalRun(input.sessionID)
-    return live ?? run
+      try {
+        await writeInstruction(run, run.sessionID, GOAL_INSTRUCTION_KEY, GOAL_INSTRUCTION)
+        await promptPhase(run, "main", goal)
+      } catch (error) {
+        fail(run, `could not start the goal: ${errorMessage(error)}`, "main")
+        throw new GoalError("opencode_unreachable", 502, errorMessage(error))
+      }
+      return store.getGoalRun(input.sessionID) ?? run
+    })
   }
 
   function status(sessionID: string): GoalRunRecord | null {
