@@ -1438,6 +1438,15 @@ body {
   font-size: 12px;
 }
 
+.mh-goal__sessions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--mh-hairline);
+  padding-top: 10px;
+}
+
 .mh-goal__report {
   display: flex;
   flex-direction: column;

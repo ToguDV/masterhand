@@ -11,6 +11,7 @@ import {
   reconcilePermissions,
   rootSessions,
   sessionCreateMarker,
+  shouldAutoAccept,
   useBffStatus,
   useEventStream,
   useSessionDirectories,
@@ -22,6 +23,7 @@ import {
   type FormInfo,
   type Permission,
   type PermissionResponse,
+  type Session,
 } from "@masterhand/client-core"
 import { client } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
@@ -150,6 +152,10 @@ export default function App() {
   const autoPendingRef = useRef(new Set<string>())
   const autoAcceptAttemptsRef = useRef(new Map<string, number>())
   const autoAcceptTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  // Requests whose auto-accept budget is spent: the drain effect (which now also
+  // re-runs on every session refresh) must not restart the cycle until the
+  // request is gone or answered elsewhere.
+  const autoGivenUpRef = useRef(new Set<string>())
   const formsRef = useRef(forms)
   formsRef.current = forms
   // Set when the user switches workspace: drop the open session and open the
@@ -159,6 +165,10 @@ export default function App() {
   const knownSessionIDsRef = useRef<Set<string>>(new Set())
   const sessionIDRef = useRef(sessionID)
   sessionIDRef.current = sessionID
+  // Session graph mirror for the event handler: a permission raised in a
+  // subagent (or a Goal Mode critic/judge) resolves its auto-accept inheritance
+  // against the latest list without resubscribing the stream.
+  const sessionsRef = useRef<Session[]>([])
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(async (permission: Permission, retry = false) => {
@@ -167,7 +177,7 @@ export default function App() {
     if (
       retry &&
       (!autoPendingRef.current.has(permission.id) ||
-        !autoAcceptSessionsRef.current.includes(permission.sessionID))
+        !shouldAutoAccept(permission.sessionID, sessionsRef.current, autoAcceptSessionsRef.current))
     ) {
       autoPendingRef.current.delete(permission.id)
       autoAcceptAttemptsRef.current.delete(permission.id)
@@ -179,6 +189,7 @@ export default function App() {
       await client.api.respondPermission(permission.sessionID, permission.id, "once")
       autoPendingRef.current.delete(permission.id)
       autoAcceptAttemptsRef.current.delete(permission.id)
+      autoGivenUpRef.current.delete(permission.id)
       setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
       // Auto-answers stay in the transcript as resolved history.
       setAnsweredPermissions((prev) =>
@@ -198,6 +209,7 @@ export default function App() {
         // Stop retrying, keep the inline card reachable and say what to do.
         autoPendingRef.current.delete(permission.id)
         autoAcceptAttemptsRef.current.delete(permission.id)
+        autoGivenUpRef.current.add(permission.id)
         setBanner("Could not auto-accept the permission request — answer it in the chat")
       }
     } finally {
@@ -244,7 +256,7 @@ export default function App() {
     () =>
       createEventHandler(queryClient, {
         onPermission: (permission) => {
-          if (autoAcceptSessionsRef.current.includes(permission.sessionID)) {
+          if (shouldAutoAccept(permission.sessionID, sessionsRef.current, autoAcceptSessionsRef.current)) {
             void answerAutoRef.current(permission)
             return
           }
@@ -256,6 +268,7 @@ export default function App() {
           // any pending auto-accept retry for it too.
           autoPendingRef.current.delete(permissionID)
           autoAcceptAttemptsRef.current.delete(permissionID)
+          autoGivenUpRef.current.delete(permissionID)
           const timer = autoAcceptTimersRef.current.get(permissionID)
           if (timer) {
             clearTimeout(timer)
@@ -395,15 +408,6 @@ export default function App() {
     }
   }, [autoAcceptSessions])
 
-  // Drain the queue for sessions with auto-accept on. This also covers pending
-  // requests recovered on reconnect/reload (they never arrive as events).
-  useEffect(() => {
-    if (autoAcceptSessions.length === 0 || permissions.length === 0) return
-    for (const permission of permissions) {
-      if (autoAcceptSessions.includes(permission.sessionID)) void answerAuto(permission)
-    }
-  }, [autoAcceptSessions, permissions, answerAuto])
-
   const toggleAutoAccept = useCallback((id: string, on: boolean) => {
     setAutoAcceptSessions((prev) =>
       on ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter((item) => item !== id),
@@ -436,6 +440,20 @@ export default function App() {
     () => [...(sessionsQuery.data ?? [])].sort((a, b) => b.time.updated - a.time.updated),
     [sessionsQuery.data],
   )
+  sessionsRef.current = sessions
+
+  // Drain the queue for sessions whose permissions we auto-answer. This also
+  // covers pending requests recovered on reconnect/reload (they never arrive as
+  // events) and re-evaluates once the session graph loads, so a subagent that
+  // inherited auto-accept before its child session was listed still matches.
+  useEffect(() => {
+    if (permissions.length === 0) return
+    for (const permission of permissions) {
+      if (autoGivenUpRef.current.has(permission.id)) continue
+      if (shouldAutoAccept(permission.sessionID, sessions, autoAcceptSessions)) void answerAuto(permission)
+    }
+  }, [autoAcceptSessions, permissions, answerAuto, sessions])
+
   // Auto-open only targets sessions the sidebar can show: a Goal Mode critic
   // session is often the most recently updated and must never be opened by
   // fallback (it would leave the user on an invisible session).

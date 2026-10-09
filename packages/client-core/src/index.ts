@@ -192,6 +192,7 @@ export {
   finishResultFromIsolation,
   rootSessions,
   sessionCreateMarker,
+  shouldAutoAccept,
   type SessionFilter,
 } from "./sessions"
 export { reconcilePermissions } from "./permissions"

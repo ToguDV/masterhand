@@ -1394,11 +1394,13 @@ export function createApp(deps: AppDeps): Hono {
     // annotated with `goalRole` so clients keep them out of the sidebar while
     // still reaching them from the main session's review cards. The run store
     // wins over the metadata marker because opencode may return sessions
-    // created before the stable role key existed.
-    const goalRoles = new Map<string, GoalRole>()
+    // created before the stable role key existed. The pinned opencode drops
+    // `parentID` on create, so the run store also supplies the link back to the
+    // main session (the client uses it for the "Back to main agent" affordance).
+    const goalSessions = new Map<string, { role: GoalRole; parentID: string }>()
     for (const run of deps.store.listGoalRuns()) {
-      if (run.criticSessionID) goalRoles.set(run.criticSessionID, "critic")
-      if (run.judgeSessionID) goalRoles.set(run.judgeSessionID, "judge")
+      if (run.criticSessionID) goalSessions.set(run.criticSessionID, { role: "critic", parentID: run.sessionID })
+      if (run.judgeSessionID) goalSessions.set(run.judgeSessionID, { role: "judge", parentID: run.sessionID })
     }
 
     const byID = new Map(records.map((record) => [record.sessionID, record]))
@@ -1408,8 +1410,10 @@ export function createApp(deps: AppDeps): Hono {
     }
     const merged = new Map<string, MergedSession>()
     for (const session of lists.flat()) {
-      const goalRole = goalRoles.get(session.id) ?? goalRoleFromMetadata(session.metadata)
-      const annotated: MergedSession = goalRole ? { ...session, goalRole } : session
+      const fromStore = goalSessions.get(session.id)
+      const goalRole = fromStore?.role ?? goalRoleFromMetadata(session.metadata)
+      const parentID = session.parentID ?? fromStore?.parentID
+      const annotated: MergedSession = goalRole ? { ...session, goalRole, parentID } : session
       // Child (subagent) sessions inherit their parent's worktree annotation.
       const record = byID.get(session.id) ?? (session.parentID ? byID.get(session.parentID) : undefined)
       merged.set(session.id, record ? { ...annotated, isolation: isolationOf(record) } : annotated)

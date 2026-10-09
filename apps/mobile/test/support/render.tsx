@@ -26,6 +26,8 @@ export const RUNNING_GOAL: GoalRun = {
   lastReport: null,
   lastCritique: null,
   lastVerdict: null,
+  criticSessionID: null,
+  judgeSessionID: null,
   history: [],
   error: null,
   awaitingKind: null,

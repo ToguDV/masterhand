@@ -218,7 +218,13 @@ function RoundCard({
  * Per-round review history integrated in the main session thread. The latest
  * round is expanded by default; older rounds collapse to one line.
  */
-export function GoalReview({ sessionID }: { sessionID: string }) {
+export function GoalReview({
+  sessionID,
+  onOpenSession,
+}: {
+  sessionID: string
+  onOpenSession?: (id: string) => void
+}) {
   const run: GoalRun | null = useGoalRun(client, sessionID).data ?? null
   const [manual, setManual] = useState<Record<number, boolean>>({})
   if (!run) return null
@@ -227,6 +233,10 @@ export function GoalReview({ sessionID }: { sessionID: string }) {
   const latest = rounds.at(-1)?.round
   const active = isGoalActive(run.state)
   const activity = goalActivityLabel(run)
+  // Cancelling a run deletes its internal sessions, so their ids are stale.
+  const internalGone = run.state === "cancelled"
+  const criticSessionID = internalGone ? null : run.criticSessionID
+  const judgeSessionID = internalGone ? null : run.judgeSessionID
 
   return (
     <section className="mh-goal" aria-label="Goal review" data-testid="goal-review">
@@ -258,6 +268,28 @@ export function GoalReview({ sessionID }: { sessionID: string }) {
           />
         )
       })}
+      {onOpenSession && (criticSessionID || judgeSessionID) && (
+        <div className="mh-goal__sessions">
+          {criticSessionID && (
+            <button
+              type="button"
+              onClick={() => onOpenSession(criticSessionID)}
+              className="text-xs font-medium text-accent hover:text-accent-strong"
+            >
+              Open critic session →
+            </button>
+          )}
+          {judgeSessionID && (
+            <button
+              type="button"
+              onClick={() => onOpenSession(judgeSessionID)}
+              className="text-xs font-medium text-accent hover:text-accent-strong"
+            >
+              Open judge session →
+            </button>
+          )}
+        </div>
+      )}
     </section>
   )
 }

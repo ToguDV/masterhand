@@ -198,7 +198,15 @@ function RoundCard({
 }
 
 /** Per-round review history integrated in the chat thread. */
-export function GoalReview({ client, sessionID }: { client: Client; sessionID: string }) {
+export function GoalReview({
+  client,
+  sessionID,
+  onOpenSession,
+}: {
+  client: Client
+  sessionID: string
+  onOpenSession?: (id: string) => void
+}) {
   const { data } = useGoalRun(client, sessionID)
   const [manual, setManual] = useState<Record<number, boolean>>({})
   const styles = useThemedStyles(createStyles)
@@ -209,6 +217,10 @@ export function GoalReview({ client, sessionID }: { client: Client; sessionID: s
   const rounds = goalReviewRounds(data)
   const latest = rounds.at(-1)?.round
   const activity = goalActivityLabel(data)
+  // Cancelling a run deletes its internal sessions, so their ids are stale.
+  const internalGone = data.state === "cancelled"
+  const criticSessionID = internalGone ? null : data.criticSessionID
+  const judgeSessionID = internalGone ? null : data.judgeSessionID
 
   return (
     <View style={styles.container} accessibilityLabel="Goal review" testID="goal-review">
@@ -242,6 +254,20 @@ export function GoalReview({ client, sessionID }: { client: Client; sessionID: s
           />
         )
       })}
+      {onOpenSession && (criticSessionID || judgeSessionID) ? (
+        <View style={styles.sessions}>
+          {criticSessionID ? (
+            <Pressable onPress={() => onOpenSession(criticSessionID)} hitSlop={4}>
+              <Text style={styles.sessionLink}>Open critic session →</Text>
+            </Pressable>
+          ) : null}
+          {judgeSessionID ? (
+            <Pressable onPress={() => onOpenSession(judgeSessionID)} hitSlop={4}>
+              <Text style={styles.sessionLink}>Open judge session →</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -294,6 +320,21 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.textFaint,
       fontFamily: fonts.ui,
       fontSize: 11,
+    },
+    sessions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      paddingTop: 10,
+    },
+    sessionLink: {
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "600",
     },
     round: {
       borderTopWidth: StyleSheet.hairlineWidth,

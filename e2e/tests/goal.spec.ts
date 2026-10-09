@@ -52,6 +52,16 @@ test("drives a goal through a rejection round to approval", async ({ page, reque
   await expect(review.getByText("Judge's decision")).toBeVisible()
   await review.getByRole("button", { name: /Round 1/ }).click()
   await expect(review.getByText("flaky test still failing")).toBeVisible()
+
+  // The internal sessions are openable from the review cards (like subagent
+  // runs), and the header returns to the main agent even though the pinned
+  // opencode dropped `parentID` (the BFF synthesizes the link from the run).
+  await review.getByRole("button", { name: "Open critic session →" }).click()
+  await expect(page.locator("header").getByText("Goal critic", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Back to main agent" })).toBeVisible()
+  await page.getByRole("button", { name: "Back to main agent" }).click()
+  await review.getByRole("button", { name: "Open judge session →" }).click()
+  await expect(page.locator("header").getByText("Goal judge", { exact: true })).toBeVisible()
 })
 
 test("retries transient opencode failures and still completes", async ({ page, request }) => {

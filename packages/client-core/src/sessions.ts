@@ -42,6 +42,32 @@ export function rootSessions(sessions: Session[]): Session[] {
 }
 
 /**
+ * Whether a permission request raised in `sessionID` must be answered
+ * automatically. Goal Mode's critic/judge sessions are **always forced**
+ * (their review must never stall on an approval card), and a subagent child
+ * inherits the auto-accept setting of any ancestor session. The direct list is
+ * also honored so a permission for a session the list has not caught up with
+ * (a just-created child) can still match once the list refreshes.
+ */
+export function shouldAutoAccept(
+  sessionID: string,
+  sessions: Session[],
+  autoAcceptSessions: readonly string[],
+): boolean {
+  const byID = new Map(sessions.map((session) => [session.id, session]))
+  const seen = new Set<string>()
+  let cursor: string | null = sessionID
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor)
+    if (autoAcceptSessions.includes(cursor)) return true
+    // Critic/judge: forced regardless of the user's per-session choice.
+    if (byID.get(cursor)?.goalRole) return true
+    cursor = byID.get(cursor)?.parentID ?? null
+  }
+  return false
+}
+
+/**
  * Rebuilds a `finish` result from the isolated-session record when a lost
  * response is confirmed by it (`pushed`/`prUrl` set by the server). Returns
  * `null` when the record carries no evidence the operation completed, so the
