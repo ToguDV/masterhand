@@ -201,3 +201,40 @@ export function previewErrorMessage(error: unknown): string {
   }
   return "Could not start the preview"
 }
+
+/**
+ * Maps a failed goal action to a user message. Starts and cancels are
+ * bounded, marker-reconciled server-side; a timeout here still means the
+ * action may have applied, so the UI refreshes the run state instead of
+ * retrying blindly.
+ */
+export function goalErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not respond — the goal may have started or changed. Check its status before retrying."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "goal_running":
+        return "A goal run is already active in this session. Pause or cancel it first."
+      case "session_busy":
+        return "The agent is mid-turn. Wait for it to finish before starting a goal."
+      case "invalid_goal":
+        return "Describe the goal after /goal."
+      case "invalid_model":
+        return "That model is not available anymore. Pick another one in Settings > Goal review."
+      case "invalid_settings":
+        return "Max rounds must be a whole number between 1 and 50."
+      case "goal_not_active":
+        return "The goal run is not in a state that allows that action."
+      case "goal_not_found":
+        return "There is no goal run for this session."
+      case "opencode_timeout":
+        return "opencode did not answer in time. Try again."
+      case "opencode_unreachable":
+        return "opencode is not reachable right now."
+      default:
+        return `The goal action failed (HTTP ${error.status})`
+    }
+  }
+  return "The goal action failed"
+}

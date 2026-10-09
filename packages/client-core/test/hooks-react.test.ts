@@ -15,6 +15,8 @@ import {
   useBffStatus,
   useBranches,
   useEventStream,
+  useGoalRun,
+  useGoalSettings,
   useMessages,
   useModels,
   usePreview,
@@ -56,6 +58,15 @@ function makeClient(stream = makeEventStream()) {
       create: vi.fn(async () => ({ current: "dev", branches: ["main", "dev"] })),
       checkout: vi.fn(async () => ({ current: "dev", branches: ["main", "dev"] })),
     },
+    goal: {
+      start: vi.fn(async () => goalRun("running")),
+      status: vi.fn(async () => goalRun("running")),
+      pause: vi.fn(async () => goalRun("paused")),
+      resume: vi.fn(async () => goalRun("running")),
+      cancel: vi.fn(async () => goalRun("cancelled")),
+      settings: vi.fn(async () => ({ maxRounds: 5, criticModel: null, judgeModel: null })),
+      saveSettings: vi.fn(async () => ({ maxRounds: 5, criticModel: null, judgeModel: null })),
+    },
   }
   const eventStream = vi.fn((_options: Parameters<Client["eventStream"]>[0]) => stream)
   const workspaces = { list: vi.fn(async () => []) }
@@ -72,6 +83,17 @@ function makeClient(stream = makeEventStream()) {
 
 function newQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
+
+function goalRun(state: string): Record<string, unknown> {
+  return {
+    sessionID: "ses_1",
+    goal: "Make the suite green",
+    state,
+    round: 1,
+    maxRounds: 5,
+    history: [],
+  }
 }
 
 function wrapper(qc: QueryClient) {
@@ -299,6 +321,52 @@ describe("query hooks", () => {
     const run = renderHook(() => useSessionRun(client, "ses_1", "ws_1"), { wrapper: wrapper(qc) })
     await waitFor(() => expect(run.result.current.isSuccess).toBe(true))
     expect(api.sessionRun).toHaveBeenCalledWith("ses_1", "ws_1")
+  })
+
+  it("useGoalRun stays disabled without a session and fetches its state with one", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+
+    const disabled = renderHook(() => useGoalRun(client, null), { wrapper: wrapper(qc) })
+    expect(disabled.result.current.fetchStatus).toBe("idle")
+    expect(api.goal.status).not.toHaveBeenCalled()
+
+    const enabled = renderHook(() => useGoalRun(client, "ses_1"), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
+    expect(api.goal.status).toHaveBeenCalledWith("ses_1")
+    expect(enabled.result.current.data).toMatchObject({ state: "running" })
+  })
+
+  it("useGoalRun lets an event frame beat an in-flight snapshot", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+    let resolveStatus: (value: Record<string, unknown>) => void = () => {}
+    api.goal.status.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve
+        }),
+    )
+
+    const hook = renderHook(() => useGoalRun(client, "ses_1"), { wrapper: wrapper(qc) })
+    // The frame arrives while the fetch is still pending: it wins.
+    createEventHandler(qc)({
+      type: "goal.updated",
+      data: { sessionID: "ses_1", goal: { ...goalRun("judging"), round: 2 } },
+    })
+    resolveStatus(goalRun("running"))
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+    expect(hook.result.current.data).toMatchObject({ state: "judging", round: 2 })
+  })
+
+  it("useGoalSettings loads the review settings", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+
+    const hook = renderHook(() => useGoalSettings(client), { wrapper: wrapper(qc) })
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+    expect(api.goal.settings).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.data).toEqual({ maxRounds: 5, criticModel: null, judgeModel: null })
   })
 })
 

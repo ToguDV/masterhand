@@ -1156,3 +1156,65 @@ describe("custom providers ", () => {
     })
   })
 })
+
+describe("goal mode", () => {
+  const run = {
+    sessionID: "ses_1",
+    goal: "Make the suite green",
+    state: "running",
+    round: 1,
+    maxRounds: 5,
+    history: [],
+  }
+
+  it("targets the goal routes and unwraps the run", async () => {
+    const { calls, fetchImpl } = recordingFetch(
+      () => jsonResponse({ goal: run }, 201),
+      () => jsonResponse({ goal: run }),
+      () => jsonResponse({ goal: { ...run, state: "paused" } }),
+      () => jsonResponse({ goal: { ...run, state: "running" } }),
+      () => jsonResponse({ goal: { ...run, state: "cancelled" } }),
+      () => jsonResponse({ settings: { maxRounds: 5, criticModel: null, judgeModel: null } }),
+      () => jsonResponse({ settings: { maxRounds: 3, criticModel: "test/critic-model", judgeModel: null } }),
+      () => jsonResponse({ goal: null }),
+    )
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    const started = await client.api.goal.start("ses/1", { goal: "Make the suite green", model: "test/m" })
+    expect(started.state).toBe("running")
+    expect(await client.api.goal.status("ses/1")).toMatchObject({ state: "running" })
+    expect((await client.api.goal.pause("ses/1")).state).toBe("paused")
+    expect((await client.api.goal.resume("ses/1")).state).toBe("running")
+    expect((await client.api.goal.cancel("ses/1")).state).toBe("cancelled")
+    expect((await client.api.goal.settings()).maxRounds).toBe(5)
+    expect((await client.api.goal.saveSettings({ maxRounds: 3 })).maxRounds).toBe(3)
+    expect(await client.api.goal.status("ses/2")).toBeNull()
+
+    expect(calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)).toEqual([
+      "POST /api/sessions/ses%2F1/goal",
+      "GET /api/sessions/ses%2F1/goal",
+      "POST /api/sessions/ses%2F1/goal/pause",
+      "POST /api/sessions/ses%2F1/goal/resume",
+      "POST /api/sessions/ses%2F1/goal/cancel",
+      "GET /api/goal/settings",
+      "PUT /api/goal/settings",
+      "GET /api/sessions/ses%2F2/goal",
+    ])
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ goal: "Make the suite green", model: "test/m" })
+    expect(JSON.parse(String(calls[6]?.init?.body))).toEqual({ maxRounds: 3 })
+  })
+
+  it("fails when the BFF returns a run that cannot be normalized", async () => {
+    const { fetchImpl } = recordingFetch(() => jsonResponse({ goal: { nope: true } }, 201))
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    await expect(client.api.goal.start("ses_1", { goal: "g" })).rejects.toMatchObject({ status: 502 })
+  })
+
+  it("falls back to default settings when the payload is unexpected", async () => {
+    const { fetchImpl } = recordingFetch(() => jsonResponse({ settings: "nope" }))
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    expect(await client.api.goal.settings()).toEqual({ maxRounds: 5, criticModel: null, judgeModel: null })
+  })
+})

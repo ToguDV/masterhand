@@ -5,6 +5,7 @@ import {
   composerErrorMessage,
   conversationErrorMessage,
   customProviderErrorMessage,
+  goalErrorMessage,
   isAmbiguousError,
   modelsLoadErrorMessage,
   opencodeErrorMessage,
@@ -201,5 +202,29 @@ describe("modelsLoadErrorMessage", () => {
     }
     expect(modelsLoadErrorMessage(new RequestTimeoutError())).toBe("This provider does not expose models.")
     expect(modelsLoadErrorMessage(new Error("offline"))).toBe("This provider does not expose models.")
+  })
+})
+
+describe("goalErrorMessage", () => {
+  function apiError(status: number, body: unknown): ApiError {
+    return new ApiError(status, JSON.stringify(body))
+  }
+
+  it("explains every typed goal failure", () => {
+    expect(goalErrorMessage(apiError(409, { error: "goal_running" }))).toContain("already active")
+    expect(goalErrorMessage(apiError(409, { error: "session_busy" }))).toContain("mid-turn")
+    expect(goalErrorMessage(apiError(400, { error: "invalid_goal" }))).toContain("after /goal")
+    expect(goalErrorMessage(apiError(400, { error: "invalid_model" }))).toContain("Goal review")
+    expect(goalErrorMessage(apiError(400, { error: "invalid_settings" }))).toContain("1 and 50")
+    expect(goalErrorMessage(apiError(409, { error: "goal_not_active" }))).toContain("not in a state")
+    expect(goalErrorMessage(apiError(404, { error: "goal_not_found" }))).toContain("no goal run")
+    expect(goalErrorMessage(apiError(504, { error: "opencode_timeout" }))).toContain("in time")
+    expect(goalErrorMessage(apiError(502, { error: "opencode_unreachable" }))).toContain("not reachable")
+    expect(goalErrorMessage(apiError(500, { error: "weird" }))).toContain("HTTP 500")
+  })
+
+  it("frames a timeout as ambiguous and unknown errors generically", () => {
+    expect(goalErrorMessage(new RequestTimeoutError())).toContain("may have started")
+    expect(goalErrorMessage(new Error("offline"))).toBe("The goal action failed")
   })
 })

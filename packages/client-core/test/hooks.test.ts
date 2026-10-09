@@ -54,6 +54,8 @@ describe("queryKeys", () => {
     expect(queryKeys.preview("ses_1")).toEqual(["preview", "ses_1"])
     expect(queryKeys.branches("ws_1")).toEqual(["branches", "ws_1"])
     expect(queryKeys.branches()).toEqual(["branches", null])
+    expect(queryKeys.goal("ses_1")).toEqual(["goal", "ses_1"])
+    expect(queryKeys.goalSettings).toEqual(["goalSettings"])
   })
 })
 
@@ -82,11 +84,12 @@ describe("createEventHandler", () => {
     const handler = createEventHandler(qc, { onServerConnected })
     emit(handler, "server.connected", {})
     expect(onServerConnected).toHaveBeenCalledTimes(1)
-    expect(invalidate).toHaveBeenCalledTimes(7)
+    expect(invalidate).toHaveBeenCalledTimes(8)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statuses })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["directories"] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goal"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.agents })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.models })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["commands"] })
@@ -99,6 +102,27 @@ describe("createEventHandler", () => {
     emit(handler, "hub.connected", { connected: true })
     expect(invalidate).toHaveBeenCalledTimes(2)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.status })
+  })
+
+  it("writes goal.updated frames into the cache and reconciles them on reconnect", () => {
+    const { qc, invalidate } = makeQueryClient()
+    const handler = createEventHandler(qc)
+
+    emit(handler, "goal.updated", {
+      sessionID: SESSION,
+      goal: { sessionID: SESSION, goal: "g", state: "critiquing", round: 2, maxRounds: 5 },
+    })
+    expect(qc.getQueryData(queryKeys.goal(SESSION))).toMatchObject({ state: "critiquing", round: 2 })
+
+    emit(handler, "goal.updated", { sessionID: SESSION, goal: null })
+    expect(qc.getQueryData(queryKeys.goal(SESSION))).toBeNull()
+
+    // A malformed frame is ignored instead of clobbering the cache.
+    emit(handler, "goal.updated", { sessionID: SESSION, goal: { nope: true } })
+    expect(qc.getQueryData(queryKeys.goal(SESSION))).toBeNull()
+
+    invalidateOnReconnect(qc)
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goal"] })
   })
 
   it("coalesces catalog refreshes when opencode hot-reloads them", () => {

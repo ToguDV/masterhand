@@ -45,6 +45,7 @@ import {
   type CustomProviderModel,
   type DiscoverModelsInput,
 } from "./custom-providers"
+import { normalizeGoalRun, normalizeGoalSettings, type GoalRun, type GoalSettings } from "./goal"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
 export class ApiError extends Error {
@@ -223,6 +224,20 @@ export interface Client {
     sessionRun(sessionID: string, workspaceID: string): Promise<RunStatus>
     startSessionRun(sessionID: string, workspaceID: string): Promise<RunStatus>
     stopSessionRun(sessionID: string, workspaceID: string): Promise<void>
+    /**
+     * Goal Mode (`/goal`): the adversarial review loop. Starts/pause/resume/
+     * cancel are non-idempotent; the server retries and reconciles them, and
+     * the UI refreshes the run state after a timeout instead of retrying.
+     */
+    goal: {
+      start(sessionID: string, input: { goal: string; model?: string | null }): Promise<GoalRun>
+      status(sessionID: string): Promise<GoalRun | null>
+      pause(sessionID: string): Promise<GoalRun>
+      resume(sessionID: string): Promise<GoalRun>
+      cancel(sessionID: string): Promise<GoalRun>
+      settings(): Promise<GoalSettings>
+      saveSettings(patch: Partial<GoalSettings>): Promise<GoalSettings>
+    }
   }
   workspaces: {
     list(): Promise<WorkspaceRecord[]>
@@ -611,6 +626,56 @@ export function createClient(options: ClientOptions = {}): Client {
           `/api/sessions/${encodeURIComponent(sessionID)}/run?workspace=${encodeURIComponent(workspaceID)}`,
           { method: "DELETE" },
         ),
+      goal: {
+        start: (sessionID, input) =>
+          request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal`, {
+            method: "POST",
+            body: JSON.stringify({ goal: input.goal, model: input.model ?? undefined }),
+          }).then((response) => {
+            const run = normalizeGoalRun(response.goal)
+            if (!run) throw new ApiError(502, JSON.stringify({ error: "goal_failed" }))
+            return run
+          }),
+        status: (sessionID) =>
+          request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal`).then((response) =>
+            normalizeGoalRun(response.goal),
+          ),
+        pause: (sessionID) =>
+          request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal/pause`, {
+            method: "POST",
+          }).then((response) => {
+            const run = normalizeGoalRun(response.goal)
+            if (!run) throw new ApiError(502, JSON.stringify({ error: "goal_failed" }))
+            return run
+          }),
+        resume: (sessionID) =>
+          request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal/resume`, {
+            method: "POST",
+          }).then((response) => {
+            const run = normalizeGoalRun(response.goal)
+            if (!run) throw new ApiError(502, JSON.stringify({ error: "goal_failed" }))
+            return run
+          }),
+        cancel: (sessionID) =>
+          request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal/cancel`, {
+            method: "POST",
+          }).then((response) => {
+            const run = normalizeGoalRun(response.goal)
+            if (!run) throw new ApiError(502, JSON.stringify({ error: "goal_failed" }))
+            return run
+          }),
+        settings: () =>
+          request<{ settings: unknown }>("/api/goal/settings").then((response) => {
+            return normalizeGoalSettings(response.settings) ?? { maxRounds: 5, criticModel: null, judgeModel: null }
+          }),
+        saveSettings: (patch) =>
+          request<{ settings: unknown }>("/api/goal/settings", {
+            method: "PUT",
+            body: JSON.stringify(patch),
+          }).then((response) => {
+            return normalizeGoalSettings(response.settings) ?? { maxRounds: 5, criticModel: null, judgeModel: null }
+          }),
+      },
     },
     workspaces: {
       list: () => request<{ workspaces: WorkspaceRecord[] }>("/api/workspaces").then((response) => response.workspaces),
