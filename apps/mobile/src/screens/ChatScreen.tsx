@@ -21,6 +21,7 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer, type ComposerHandle } from "../components/Composer"
+import { GoalStrip } from "../components/GoalStrip"
 import { MessageBubble } from "../components/MessageBubble"
 import { PendingBubble } from "../components/PendingBubble"
 import { AuditModal } from "../components/AuditModal"
@@ -276,6 +277,8 @@ export function ChatScreen({
           {finishError ? <Text style={styles.finishError}>{finishError}</Text> : null}
         </View>
       ) : null}
+
+      <GoalStrip client={client} sessionID={sessionID} />
 
       <Composer
         key={sessionID}

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import type { Client, PreviewStatus, RunStatus } from "@masterhand/client-core"
+import type { Client, GoalRun, PreviewStatus, RunStatus } from "@masterhand/client-core"
 
 export const STOPPED_RUN: RunStatus = {
   status: "stopped",
@@ -12,6 +12,29 @@ export const STOPPED_RUN: RunStatus = {
 }
 
 export const STOPPED_PREVIEW: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
+
+/** A running goal run for tests that only need "some run" (e.g. fake defaults). */
+export const RUNNING_GOAL: GoalRun = {
+  sessionID: "s1",
+  goal: "Ship the feature",
+  state: "running",
+  round: 1,
+  maxRounds: 5,
+  mainModel: null,
+  criticModel: null,
+  judgeModel: null,
+  lastReport: null,
+  lastCritique: null,
+  lastVerdict: null,
+  history: [],
+  error: null,
+  awaitingKind: null,
+  attempt: 0,
+  lastError: null,
+  pausedPhase: null,
+  createdAt: 0,
+  updatedAt: 0,
+}
 
 export function makeQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -58,6 +81,15 @@ export interface FakeClient {
     sessionRun: jest.Mock
     startSessionRun: jest.Mock
     stopSessionRun: jest.Mock
+    goal: {
+      start: jest.Mock
+      status: jest.Mock
+      pause: jest.Mock
+      resume: jest.Mock
+      cancel: jest.Mock
+      settings: jest.Mock
+      saveSettings: jest.Mock
+    }
     sessions: { list: jest.Mock; finish: jest.Mock }
   }
   workspaces: { list: jest.Mock; create: jest.Mock; remove: jest.Mock }
@@ -111,6 +143,21 @@ export function fakeClient(): FakeClient & Client {
       sessionRun: jest.fn(async () => STOPPED_RUN),
       startSessionRun: jest.fn(async () => STOPPED_RUN),
       stopSessionRun: jest.fn(async () => {}),
+      goal: {
+        start: jest.fn(async () => RUNNING_GOAL),
+        status: jest.fn(async () => null),
+        pause: jest.fn(async () => RUNNING_GOAL),
+        resume: jest.fn(async () => RUNNING_GOAL),
+        cancel: jest.fn(async () => RUNNING_GOAL),
+        settings: jest.fn(async () => ({ maxRounds: 5, criticModel: null, judgeModel: null })),
+        saveSettings: jest.fn(
+          async (patch: { maxRounds?: number; criticModel?: string | null; judgeModel?: string | null }) => ({
+            maxRounds: patch.maxRounds ?? 5,
+            criticModel: patch.criticModel ?? null,
+            judgeModel: patch.judgeModel ?? null,
+          }),
+        ),
+      },
       sessions: {
         list: jest.fn(async () => []),
         finish: jest.fn(async () => ({
