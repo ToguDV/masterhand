@@ -249,16 +249,26 @@ export function createApp(deps: AppDeps): Hono {
         data?: {
           location?: { directory?: string }
           parentID?: string
-          model?: { id?: string; providerID?: string }
+          agent?: string
+          model?: { id?: string; providerID?: string; variant?: string }
         }
       }
       const directory = body.data?.location?.directory
       if (!body.data || !directory) return null
       const model =
         body.data.model?.providerID && body.data.model.id
-          ? `${body.data.model.providerID}/${body.data.model.id}`
+          ? {
+              providerID: body.data.model.providerID,
+              id: body.data.model.id,
+              variant: body.data.model.variant ?? null,
+            }
           : null
-      return { directory, parentID: body.data.parentID, model }
+      return {
+        directory,
+        parentID: body.data.parentID,
+        model,
+        agent: typeof body.data.agent === "string" && body.data.agent ? body.data.agent : null,
+      }
     },
     async createSession({ directory, parentID, title, marker }) {
       const response = await callOpencode("/api/session", {
@@ -324,12 +334,18 @@ export function createApp(deps: AppDeps): Hono {
       if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
     },
     async switchModel(sessionID, model) {
-      const separator = model.indexOf("/")
-      const providerID = model.slice(0, separator)
-      const id = model.slice(separator + 1)
+      const body: { id: string; providerID: string; variant?: string } = { id: model.id, providerID: model.providerID }
+      if (model.variant) body.variant = model.variant
       const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/model`, {
         method: "POST",
-        body: { model: { id, providerID } },
+        body: { model: body },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async switchAgent(sessionID, agent) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/agent`, {
+        method: "POST",
+        body: { agent },
       })
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
     },
@@ -1634,16 +1650,19 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   api.post("/sessions/:sessionID/goal", async (c) => {
-    let body: { goal?: unknown; model?: unknown } = {}
+    let body: { goal?: unknown; model?: unknown; agent?: unknown } = {}
     try {
       body = (await c.req.json()) as typeof body
     } catch {
       // an empty body fails goal validation below
     }
     const goal = typeof body.goal === "string" ? body.goal : ""
-    const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : null
+    const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim() : null
     try {
-      return c.json({ goal: await goals.start({ sessionID: c.req.param("sessionID"), goal, model }) }, 201)
+      return c.json(
+        { goal: await goals.start({ sessionID: c.req.param("sessionID"), goal, model: body.model ?? null, agent }) },
+        201,
+      )
     } catch (error) {
       return goalFailure(c, error)
     }

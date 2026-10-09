@@ -39,7 +39,11 @@ function runRecord(overrides: Partial<GoalRunRecord> = {}): GoalRunRecord {
 function fakeManager(overrides: Partial<GoalManager> = {}): GoalManager {
   const base: GoalManager = {
     start: async (input) =>
-      runRecord({ sessionID: input.sessionID, goal: input.goal, mainModel: input.model ?? null }),
+      runRecord({
+        sessionID: input.sessionID,
+        goal: input.goal,
+        mainModel: typeof input.model === "string" ? input.model : null,
+      }),
     status: () => null,
     pause: async () => {
       throw new GoalError("goal_not_active", 409, "the run is not active")
@@ -91,12 +95,12 @@ describe("goal routes", () => {
     expect(await found.json()).toMatchObject({ goal: { state: "judging", round: 2 } })
   })
 
-  it("starts a run with the composer model", async () => {
-    const seen: Array<{ goal: string; model: string | null }> = []
+  it("starts a run with the composer model and agent", async () => {
+    const seen: Array<{ goal: string; model: unknown; agent: string | null }> = []
     app = await startTestApp({
       goals: fakeManager({
         start: async (input) => {
-          seen.push({ goal: input.goal, model: input.model ?? null })
+          seen.push({ goal: input.goal, model: input.model ?? null, agent: input.agent ?? null })
           return runRecord({ sessionID: input.sessionID, goal: input.goal })
         },
       }),
@@ -106,10 +110,16 @@ describe("goal routes", () => {
     const response = await fetch(`${app.url}/api/sessions/ses_main/goal`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ goal: "Fix the flake", model: "test/test-model" }),
+      body: JSON.stringify({
+        goal: "Fix the flake",
+        model: { providerID: "test", id: "test-model", variant: "high" },
+        agent: "build",
+      }),
     })
     expect(response.status).toBe(201)
-    expect(seen).toEqual([{ goal: "Fix the flake", model: "test/test-model" }])
+    expect(seen).toEqual([
+      { goal: "Fix the flake", model: { providerID: "test", id: "test-model", variant: "high" }, agent: "build" },
+    ])
   })
 
   it("maps GoalError to its typed status", async () => {

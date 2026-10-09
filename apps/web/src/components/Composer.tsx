@@ -358,7 +358,10 @@ export function Composer({
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
       await client.api.goal.start(sessionID, {
         goal,
-        model: modelValue ? `${modelValue.providerID}/${modelValue.id}` : null,
+        model: modelValue
+          ? { providerID: modelValue.providerID, id: modelValue.id, variant: modelValue.variant ?? null }
+          : null,
+        agent: agent || null,
       })
       // SSE carries the run, but a lost frame must not hide the new strip.
       await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })

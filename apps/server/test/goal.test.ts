@@ -5,10 +5,12 @@ import {
   JUDGE_INSTRUCTION_KEY,
   GoalError,
   createGoalManager,
+  normalizeModelRef,
   parseCritique,
   parseGoalMarker,
   parseVerdict,
   type GoalManager,
+  type GoalModelRef,
   type GoalOpencode,
 } from "../src/goal.js"
 import { OpencodeTimeoutError, UpstreamStatusError } from "../src/retry.js"
@@ -31,7 +33,8 @@ interface FakeSession {
   id: string
   directory: string
   parentID: string | null
-  model: string | null
+  model: GoalModelRef | null
+  agent: string | null
   marker: string | null
   instructions: Map<string, string>
   messages: FakeMessage[]
@@ -50,7 +53,8 @@ class FakeOpencode implements GoalOpencode {
   promptCalls = 0
   interrupts: string[] = []
   removed: string[] = []
-  switched: Array<{ sessionID: string; model: string }> = []
+  switched: Array<{ sessionID: string; model: GoalModelRef }> = []
+  switchedAgents: Array<{ sessionID: string; agent: string }> = []
   activeSessionsSet = new Set<string>()
   catalog: string[] = ["test/test-model", "test/critic-model", "test/judge-model"]
   failPrompts: ScriptedFailure[] = []
@@ -67,12 +71,19 @@ class FakeOpencode implements GoalOpencode {
     return `${prefix}_${this.sequence}`
   }
 
-  addSession(input: { id: string; directory: string; model?: string | null; parentID?: string | null }): FakeSession {
+  addSession(input: {
+    id: string
+    directory: string
+    model?: string | null
+    agent?: string | null
+    parentID?: string | null
+  }): FakeSession {
     const session: FakeSession = {
       id: input.id,
       directory: input.directory,
       parentID: input.parentID ?? null,
-      model: input.model ?? null,
+      model: input.model ? normalizeModelRef(input.model) : null,
+      agent: input.agent ?? null,
       marker: null,
       instructions: new Map(),
       messages: [],
@@ -101,7 +112,12 @@ class FakeOpencode implements GoalOpencode {
     if (failure) throw failure
     const session = this.sessions.get(sessionID)
     if (!session) return null
-    return { directory: session.directory, parentID: session.parentID ?? undefined, model: session.model }
+    return {
+      directory: session.directory,
+      parentID: session.parentID ?? undefined,
+      model: session.model,
+      agent: session.agent,
+    }
   }
 
   async createSession(input: {
@@ -176,10 +192,16 @@ class FakeOpencode implements GoalOpencode {
     this.sessions.get(sessionID)?.instructions.delete(key)
   }
 
-  async switchModel(sessionID: string, model: string): Promise<void> {
+  async switchModel(sessionID: string, model: GoalModelRef): Promise<void> {
     this.switched.push({ sessionID, model })
     const session = this.sessions.get(sessionID)
     if (session) session.model = model
+  }
+
+  async switchAgent(sessionID: string, agent: string): Promise<void> {
+    this.switchedAgents.push({ sessionID, agent })
+    const session = this.sessions.get(sessionID)
+    if (session) session.agent = agent
   }
 
   async interrupt(sessionID: string): Promise<void> {
@@ -345,7 +367,10 @@ describe("goal manager", () => {
     expect(critic?.parentID).toBe("ses_main")
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
     // No critic model configured: the main session's model is used.
-    expect(h.opencode.switched).toContainEqual({ sessionID: critic?.id, model: "test/test-model" })
+    expect(h.opencode.switched).toContainEqual({
+      sessionID: critic?.id,
+      model: { providerID: "test", id: "test-model", variant: null },
+    })
 
     await reply(h, critic!.id, critiqueText())
     const judge = h.opencode.sessionWithInstruction(JUDGE_INSTRUCTION_KEY)
@@ -665,6 +690,53 @@ describe("goal manager", () => {
     const rejected = results.find((result) => result.status === "rejected")
     expect(rejected && rejected.status === "rejected" && rejected.reason).toMatchObject({ code: "goal_running" })
     expect(h.opencode.prompts).toHaveLength(1)
+  })
+
+  it("applies the composer's model and agent to the main session before prompting", async () => {
+    const h = harness()
+    h.opencode.addSession({ id: "ses_main", directory: "/workspace/app", model: "test/old-model", agent: "plan" })
+
+    const run = await h.manager.start({
+      sessionID: "ses_main",
+      goal: "Make it green",
+      model: { providerID: "test", id: "test-model", variant: "high" },
+      agent: "build",
+    })
+    await h.manager.flush()
+
+    expect(h.opencode.switched).toEqual([
+      { sessionID: "ses_main", model: { providerID: "test", id: "test-model", variant: "high" } },
+    ])
+    expect(h.opencode.switchedAgents).toEqual([{ sessionID: "ses_main", agent: "build" }])
+    expect(run.mainModel).toBe("test/test-model")
+    // Critic and judge fall back to the requested main model.
+    expect(run.criticModel).toBe("test/test-model")
+    expect(run.judgeModel).toBe("test/test-model")
+    expect(h.opencode.prompts).toHaveLength(1)
+  })
+
+  it("does not re-switch a model or agent the session already uses", async () => {
+    const h = harness()
+    h.opencode.addSession({ id: "ses_main", directory: "/workspace/app", model: "test/test-model", agent: "build" })
+
+    await h.manager.start({
+      sessionID: "ses_main",
+      goal: "Make it green",
+      model: { providerID: "test", id: "test-model" },
+      agent: "build",
+    })
+    await h.manager.flush()
+
+    expect(h.opencode.switched).toEqual([])
+    expect(h.opencode.switchedAgents).toEqual([])
+  })
+
+  it("rejects an invalid model reference", async () => {
+    const h = harness()
+    h.opencode.addSession({ id: "ses_main", directory: "/workspace/app" })
+    await expect(
+      h.manager.start({ sessionID: "ses_main", goal: "x", model: { providerID: "", id: "m" } }),
+    ).rejects.toMatchObject({ code: "invalid_model" })
   })
 
   it("validates goal settings against the model catalog", async () => {

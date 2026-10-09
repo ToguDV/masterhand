@@ -550,7 +550,8 @@ describe("Composer", () => {
     await waitFor(() =>
       expect(client.api.goal.start).toHaveBeenCalledWith("s1", {
         goal: "ship the feature",
-        model: "test/test-model",
+        model: { providerID: "test", id: "test-model", variant: null },
+        agent: "build",
       }),
     )
     expect(client.api.prompt).not.toHaveBeenCalled()

@@ -70,6 +70,13 @@ export interface GoalSettings {
   judgeModel: string | null
 }
 
+/** A model reference as the composer selects it (variant = reasoning effort). */
+export interface GoalModelRef {
+  providerID: string
+  id: string
+  variant?: string | null
+}
+
 export const GOAL_EVENT_TYPE = "goal.updated"
 
 const GOAL_STATES: readonly GoalState[] = [

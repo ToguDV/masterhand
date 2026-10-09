@@ -171,6 +171,7 @@ export {
   type GoalCritique,
   type GoalHistoryEntry,
   type GoalIssue,
+  type GoalModelRef,
   type GoalPhase,
   type GoalReport,
   type GoalRun,

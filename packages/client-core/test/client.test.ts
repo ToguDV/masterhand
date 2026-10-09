@@ -1180,7 +1180,11 @@ describe("goal mode", () => {
     )
     const client = createClient({ baseUrl: "", fetchImpl })
 
-    const started = await client.api.goal.start("ses/1", { goal: "Make the suite green", model: "test/m" })
+    const started = await client.api.goal.start("ses/1", {
+      goal: "Make the suite green",
+      model: { providerID: "test", id: "m", variant: "high" },
+      agent: "build",
+    })
     expect(started.state).toBe("running")
     expect(await client.api.goal.status("ses/1")).toMatchObject({ state: "running" })
     expect((await client.api.goal.pause("ses/1")).state).toBe("paused")
@@ -1200,7 +1204,11 @@ describe("goal mode", () => {
       "PUT /api/goal/settings",
       "GET /api/sessions/ses%2F2/goal",
     ])
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ goal: "Make the suite green", model: "test/m" })
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      goal: "Make the suite green",
+      model: { providerID: "test", id: "m", variant: "high" },
+      agent: "build",
+    })
     expect(JSON.parse(String(calls[6]?.init?.body))).toEqual({ maxRounds: 3 })
   })
 

@@ -95,7 +95,7 @@ A goal run wraps a session in an adversarial review loop: the main agent works t
 
 | Method | Route | Notes |
 |---|---|---|
-| `POST` | `/api/sessions/:id/goal` | Body `{ goal, model? }`. Writes the `masterhand.goal` instruction (completion-marker grammar) and prompts the main session. `201 { goal }`. `400 invalid_goal`, `409 goal_running` (already active), `409 session_busy` (mid-turn), `404 session_not_found`, `502 opencode_unreachable`. |
+| `POST` | `/api/sessions/:id/goal` | Body `{ goal, model?, agent? }` where `model` is `{ providerID, id, variant? }` (the composer selection) and `agent` the composer agent: both are applied to the session before the goal prompt, exactly like a normal prompt would. Writes the `masterhand.goal` instruction and prompts the main session. `201 { goal }`. `400 invalid_goal`/`invalid_model`, `409 goal_running` (already active), `409 session_busy` (mid-turn), `404 session_not_found`, `502 opencode_unreachable`/`goal_ambiguous`. |
 | `GET` | `/api/sessions/:id/goal` | `{ goal: GoalRun \| null }` — the durable run snapshot. |
 | `POST` | `/api/sessions/:id/goal/pause` | Interrupts the awaited phase; run becomes `paused` (resumable). |
 | `POST` | `/api/sessions/:id/goal/resume` | Re-drives the paused (or errored) phase; from a cap pause it extends the budget and feeds the judge's required changes back to the main agent. |

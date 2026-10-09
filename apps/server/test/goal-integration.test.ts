@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { login, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
+
+// Real timers + HTTP + SSE: give every case headroom so a loaded CI/hook run
+// (parallel suites, coverage instrumentation) cannot fail on the 15s default.
+vi.setConfig({ testTimeout: 30_000 })
 
 const TEST_AUTH = `Basic ${Buffer.from("opencode:oc-secret").toString("base64")}`
 
@@ -20,7 +24,7 @@ afterEach(async () => {
 describe("goal integration", () => {
   it("runs a full loop: prompt -> report -> critique -> verdict -> approved", async () => {
     upstream = await startMockOpencode()
-    upstream.addSession({ id: "ses_main", directory: "/e2e/workspace", model: "test/test-model" })
+    upstream.addSession({ id: "ses_main", directory: "/e2e/workspace", model: "test/old-model" })
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
     // The hub must be subscribed before events are emitted (SSE has no replay).
@@ -29,11 +33,29 @@ describe("goal integration", () => {
     const started = await fetch(`${app.url}/api/sessions/ses_main/goal`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ goal: "Make the suite green", model: "test/test-model" }),
+      body: JSON.stringify({
+        goal: "Make the suite green",
+        model: { providerID: "test", id: "test-model", variant: "high" },
+        agent: "build",
+      }),
     })
     expect(started.status).toBe(201)
 
     await waitFor(() => upstream!.requests.some((request) => request.path === "/api/session/ses_main/prompt"), 20_000)
+    // The composer's agent/model are applied to the main session before the
+    // goal prompt (regression: /goal used to keep the session's old model).
+    const switchIndex = upstream.requests.findIndex(
+      (request) => request.method === "POST" && request.path === "/api/session/ses_main/model",
+    )
+    const promptIndex = upstream.requests.findIndex((request) => request.path === "/api/session/ses_main/prompt")
+    expect(switchIndex).toBeGreaterThanOrEqual(0)
+    expect(switchIndex).toBeLessThan(promptIndex)
+    expect(JSON.parse(upstream.requests[switchIndex]!.body!)).toEqual({
+      model: { id: "test-model", providerID: "test", variant: "high" },
+    })
+    expect(
+      upstream.requests.some((request) => request.method === "POST" && request.path === "/api/session/ses_main/agent"),
+    ).toBe(true)
     expect(upstream.sessionWithInstruction("masterhand.goal")).toBe("ses_main")
     // The main prompt carries the goal delivery marker so a lost response can be reconciled.
     const mainPrompt = upstream.requests.find((request) => request.path === "/api/session/ses_main/prompt")

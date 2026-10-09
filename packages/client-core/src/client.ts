@@ -45,7 +45,7 @@ import {
   type CustomProviderModel,
   type DiscoverModelsInput,
 } from "./custom-providers"
-import { normalizeGoalRun, normalizeGoalSettings, type GoalRun, type GoalSettings } from "./goal"
+import { normalizeGoalRun, normalizeGoalSettings, type GoalModelRef, type GoalRun, type GoalSettings } from "./goal"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
 export class ApiError extends Error {
@@ -230,7 +230,10 @@ export interface Client {
      * the UI refreshes the run state after a timeout instead of retrying.
      */
     goal: {
-      start(sessionID: string, input: { goal: string; model?: string | null }): Promise<GoalRun>
+      start(
+        sessionID: string,
+        input: { goal: string; model?: GoalModelRef | null; agent?: string | null },
+      ): Promise<GoalRun>
       status(sessionID: string): Promise<GoalRun | null>
       pause(sessionID: string): Promise<GoalRun>
       resume(sessionID: string): Promise<GoalRun>
@@ -630,7 +633,11 @@ export function createClient(options: ClientOptions = {}): Client {
         start: (sessionID, input) =>
           request<{ goal: unknown }>(`/api/sessions/${encodeURIComponent(sessionID)}/goal`, {
             method: "POST",
-            body: JSON.stringify({ goal: input.goal, model: input.model ?? undefined }),
+            body: JSON.stringify({
+              goal: input.goal,
+              model: input.model ?? undefined,
+              agent: input.agent ?? undefined,
+            }),
           }).then((response) => {
             const run = normalizeGoalRun(response.goal)
             if (!run) throw new ApiError(502, JSON.stringify({ error: "goal_failed" }))

@@ -192,7 +192,46 @@ export class GoalError extends Error {
 export interface GoalSessionInfo {
   directory: string
   parentID?: string
-  model: string | null
+  model: GoalModelRef | null
+  agent: string | null
+}
+
+/** A model reference (composer selection): provider, model and optional variant. */
+export interface GoalModelRef {
+  providerID: string
+  id: string
+  variant: string | null
+}
+
+/** Tolerant model-ref parsing: accepts a `provider/model` string or a full ref. */
+export function normalizeModelRef(value: unknown): GoalModelRef | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    const separator = trimmed.indexOf("/")
+    if (separator <= 0 || separator === trimmed.length - 1) return null
+    return { providerID: trimmed.slice(0, separator), id: trimmed.slice(separator + 1), variant: null }
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const raw = value as { providerID?: unknown; id?: unknown; variant?: unknown }
+    const providerID = markerString(raw.providerID)
+    const id = markerString(raw.id)
+    if (!providerID || !id) return null
+    return { providerID, id, variant: markerString(raw.variant) }
+  }
+  return null
+}
+
+function refFromString(model: string | null): GoalModelRef | null {
+  return normalizeModelRef(model)
+}
+
+function refToString(model: GoalModelRef): string {
+  return `${model.providerID}/${model.id}`
+}
+
+function sameModelRef(a: GoalModelRef | null, b: GoalModelRef | null): boolean {
+  if (!a || !b) return !a && !b
+  return a.providerID === b.providerID && a.id === b.id && (a.variant ?? null) === (b.variant ?? null)
 }
 
 /**
@@ -212,7 +251,8 @@ export interface GoalOpencode {
   promptLanded(sessionID: string, marker: string): Promise<boolean>
   writeInstruction(sessionID: string, key: string, value: string): Promise<void>
   removeInstruction(sessionID: string, key: string): Promise<void>
-  switchModel(sessionID: string, model: string): Promise<void>
+  switchModel(sessionID: string, model: GoalModelRef): Promise<void>
+  switchAgent(sessionID: string, agent: string): Promise<void>
   interrupt(sessionID: string): Promise<void>
   removeSession(sessionID: string): Promise<void>
   lastAssistant(sessionID: string): Promise<{ id: string; text: string } | null>
@@ -244,7 +284,7 @@ export interface GoalManagerOptions {
 }
 
 export interface GoalManager {
-  start(input: { sessionID: string; goal: string; model?: string | null }): Promise<GoalRunRecord>
+  start(input: { sessionID: string; goal: string; model?: unknown; agent?: string | null }): Promise<GoalRunRecord>
   status(sessionID: string): GoalRunRecord | null
   pause(sessionID: string): Promise<GoalRunRecord>
   resume(sessionID: string): Promise<GoalRunRecord>
@@ -446,9 +486,14 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     await retryable(() => opencode.writeInstruction(sessionID, key, value), { includeTimeouts: true })
   }
 
-  async function switchModel(sessionID: string, model: string | null): Promise<void> {
+  async function applyModel(sessionID: string, model: GoalModelRef | null): Promise<void> {
     if (!model) return
     await retryable(() => opencode.switchModel(sessionID, model), { includeTimeouts: true })
+  }
+
+  async function applyAgent(sessionID: string, agent: string | null): Promise<void> {
+    if (!agent) return
+    await retryable(() => opencode.switchAgent(sessionID, agent), { includeTimeouts: true })
   }
 
   async function removeInstruction(run: GoalRunRecord, sessionID: string, key: string): Promise<void> {
@@ -554,7 +599,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         persist(run)
       }
       await writeInstruction(run, criticID, CRITIC_INSTRUCTION_KEY, CRITIC_INSTRUCTION)
-      await switchModel(criticID, run.criticModel)
+      await applyModel(criticID, refFromString(run.criticModel))
       await promptPhase(run, "critic", critiquePrompt(run, report))
     } catch (error) {
       await handlePhaseError(run, "critic", error, "the critic review")
@@ -582,7 +627,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         persist(run)
       }
       await writeInstruction(run, judgeID, JUDGE_INSTRUCTION_KEY, JUDGE_INSTRUCTION)
-      await switchModel(judgeID, run.judgeModel)
+      await applyModel(judgeID, refFromString(run.judgeModel))
       await promptPhase(run, "judge", judgePrompt(run, critique))
     } catch (error) {
       await handlePhaseError(run, "judge", error, "the judge decision")
@@ -834,7 +879,12 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     })
   }
 
-  async function start(input: { sessionID: string; goal: string; model?: string | null }): Promise<GoalRunRecord> {
+  async function start(input: {
+    sessionID: string
+    goal: string
+    model?: unknown
+    agent?: string | null
+  }): Promise<GoalRunRecord> {
     const goal = input.goal.trim()
     if (!goal) {
       throw new GoalError("invalid_goal", 400, "the goal is empty")
@@ -864,7 +914,13 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       }
 
       const settings = store.getGoalSettings()
-      const mainModel = normalizeRef(input.model) ?? info.model
+      const requestedModel =
+        input.model === undefined || input.model === null ? null : normalizeModelRef(input.model)
+      if (input.model !== undefined && input.model !== null && !requestedModel) {
+        throw new GoalError("invalid_model", 400, "the model reference is invalid")
+      }
+      const mainRef = requestedModel ?? info.model
+      const mainModel = mainRef ? refToString(mainRef) : null
       const run: GoalRunRecord = {
         sessionID: input.sessionID,
         runToken: randomUUID().replace(/-/g, "").slice(0, 12),
@@ -896,6 +952,15 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       persist(run)
 
       try {
+        // Apply the composer's agent/model exactly like a normal prompt would
+        // (the client switches before prompting; `/goal` bypasses that path, so
+        // without this the session keeps its previous model).
+        if (input.agent && input.agent !== info.agent) {
+          await applyAgent(input.sessionID, input.agent)
+        }
+        if (requestedModel && !sameModelRef(requestedModel, info.model)) {
+          await applyModel(input.sessionID, requestedModel)
+        }
         await writeInstruction(run, run.sessionID, GOAL_INSTRUCTION_KEY, GOAL_INSTRUCTION)
         await promptPhase(run, "main", goal)
       } catch (error) {
