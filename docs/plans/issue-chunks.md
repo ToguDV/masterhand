@@ -48,7 +48,7 @@ deferred).
 | C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ✅ 2026-10-07 — theme-system session batch |
 | C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
-| C14 — /goal (server + clients) | #129 #130 | 🟡 In review — session batch (goal mode + shared retry engine) |
+| C14 — /goal (server + clients) | #129 #130 | 🟡 In review — [PR #148](https://github.com/ToguDV/masterhand/pull/148) (goal mode + shared retry engine) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 
