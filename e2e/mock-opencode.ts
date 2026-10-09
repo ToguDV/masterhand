@@ -133,6 +133,26 @@ let heldForks = 0
 let failPermissionReplies = false
 let permissionReplyAttempts = 0
 
+// Goal Mode script: the mock plays the main agent, the critic and the judge.
+// `/e2e/goal-script` sets the judge verdict sequence (default: approve) and the
+// critic issue claims (one per review round); `/e2e/goal-fail-prompts` makes the
+// next N main-goal prompts answer 429 so the retry path can be exercised.
+const instructionsBySession = new Map<string, Map<string, string>>()
+let goalJudgeVerdicts: boolean[] = []
+let goalCriticIssues: string[] = []
+let goalPromptFailures = 0
+let goalRounds = 0
+let goalDelayMs = 0
+
+function goalRoleOf(sessionID: string): "main" | "critic" | "judge" | null {
+  const entries = instructionsBySession.get(sessionID)
+  if (!entries) return null
+  if (entries.has("masterhand.goal.critic")) return "critic"
+  if (entries.has("masterhand.goal.judge")) return "judge"
+  if (entries.has("masterhand.goal")) return "main"
+  return null
+}
+
 // Provider integrations and credentials (settings, issue #128). `/e2e/reset-integrations`
 // restores the initial catalog so specs stay independent.
 interface MockIntegrationConnection {
@@ -812,10 +832,50 @@ async function runLongLinePrompt(sessionID: string): Promise<void> {
   activeRuns.delete(sessionID)
 }
 
+/** Streams a scripted reply for one Goal Mode role (main, critic or judge). */
+async function runGoalPrompt(sessionID: string, role: "main" | "critic" | "judge"): Promise<void> {
+  const session = sessions.get(sessionID)
+  if (!session) return
+
+  activeRuns.add(sessionID)
+  broadcast("session.execution.started", { sessionID }, session.location.directory)
+  if (goalDelayMs > 0) await delay(goalDelayMs)
+  await delay(20)
+
+  const assistant = appendAssistantMessage(sessionID)
+  let marker: string
+  if (role === "main") {
+    goalRounds += 1
+    marker = `<masterhand:goal status="complete">{"summary": "round ${goalRounds} done", "evidence": ["npm test"]}</masterhand:goal>`
+  } else if (role === "critic") {
+    const issue = goalCriticIssues.shift()
+    marker = issue
+      ? `<masterhand:critique>{"argument": "one material issue", "issues": [{"severity": "medium", "claim": ${JSON.stringify(issue)}, "evidence": "not covered"}]}</masterhand:critique>`
+      : '<masterhand:critique>{"argument": "No material issue found", "issues": []}</masterhand:critique>'
+  } else {
+    const approved = goalJudgeVerdicts.length > 0 ? goalJudgeVerdicts.shift()! : true
+    marker = approved
+      ? '<masterhand:verdict>{"approved": true, "reasoning": "verified", "requiredChanges": []}</masterhand:verdict>'
+      : '<masterhand:verdict>{"approved": false, "reasoning": "not done yet", "requiredChanges": ["fix the flake"]}</masterhand:verdict>'
+  }
+  assistant.content = [{ type: "text", text: marker }]
+  streamText(sessionID, assistant.id, 0, marker)
+  completeAssistant(session, assistant, {
+    cost: 0.002,
+    tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+  })
+  broadcast("session.idle", { sessionID }, session.location.directory)
+  activeRuns.delete(sessionID)
+}
+
 async function runPrompt(sessionID: string, text: string): Promise<void> {
   const session = sessions.get(sessionID)
   const conversation = conversations.get(sessionID)
   if (!session || !conversation) return
+
+  // Goal Mode: the role comes from the instruction entries the BFF wrote.
+  const goalRole = goalRoleOf(sessionID)
+  if (goalRole) return runGoalPrompt(sessionID, goalRole)
 
   // E2E control: delay the echo of the send (start broadcast + streaming), so
   // the ghost bubble can be observed before the history confirms it (#125).
@@ -961,6 +1021,26 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && path === "/e2e/fail-prompts") {
       const body = await readBody(req)
       failPrompts = body.value !== false
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/goal-script") {
+      const body = await readBody(req)
+      goalJudgeVerdicts = Array.isArray(body.verdicts)
+        ? body.verdicts.filter((value): value is boolean => typeof value === "boolean")
+        : []
+      goalCriticIssues = Array.isArray(body.issues) ? body.issues.filter((value): value is string => typeof value === "string") : []
+      goalPromptFailures = 0
+      goalRounds = 0
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/goal-fail-prompts") {
+      const body = await readBody(req)
+      goalPromptFailures = typeof body.count === "number" && body.count > 0 ? Math.floor(body.count) : 0
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/goal-delay") {
+      const body = await readBody(req)
+      goalDelayMs = typeof body.ms === "number" && body.ms > 0 ? body.ms : 0
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/delay-echo") {
@@ -1115,7 +1195,9 @@ const server = createServer((req, res) => {
         body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
           ? (body.metadata as Record<string, unknown>)
           : undefined
-      const session = createSession({ directory, metadata })
+      const parentID = typeof body.parentID === "string" ? body.parentID : undefined
+      const title = typeof body.title === "string" ? body.title : undefined
+      const session = createSession({ directory, metadata, parentID, title })
       if (stallCreate) await new Promise<void>((resolve) => heldCreates.push(resolve))
       return json(res, 200, { data: session })
     }
@@ -1214,16 +1296,26 @@ const server = createServer((req, res) => {
       ])
     }
 
-    // The BFF writes the preview-port instruction entry on session create/start.
+    // The BFF writes the preview-port and goal instruction entries on session
+    // create/start; Goal Mode role detection reads them back here.
     if (
-      req.method === "PUT" &&
+      (req.method === "PUT" || req.method === "DELETE") &&
       segments[0] === "api" &&
       segments[1] === "experimental" &&
       segments[2] === "session" &&
       segments[4] === "instructions" &&
       segments[5] === "entries"
     ) {
-      await readBody(req)
+      const sessionID = decodeURIComponent(segments[3] ?? "")
+      const key = decodeURIComponent(segments[6] ?? "")
+      const entries = instructionsBySession.get(sessionID) ?? new Map<string, string>()
+      if (req.method === "PUT") {
+        const body = await readBody(req)
+        entries.set(key, typeof body.value === "string" ? body.value : "")
+        instructionsBySession.set(sessionID, entries)
+      } else {
+        entries.delete(key)
+      }
       return empty(res, 204)
     }
 
@@ -1231,6 +1323,10 @@ const server = createServer((req, res) => {
       const sessionID = decodeURIComponent(segments[2])
       const session = sessions.get(sessionID)
 
+      if (req.method === "GET" && segments.length === 3) {
+        if (!session) return json(res, 404, { error: "not_found" })
+        return json(res, 200, { data: session })
+      }
       if (req.method === "GET" && segments[3] === "message") {
         // opencode keeps the first page's `order` across cursor pages (verified
         // against 2.0.21); remember it per session instead of defaulting to asc.
@@ -1271,6 +1367,13 @@ const server = createServer((req, res) => {
           body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
             ? (body.metadata as Record<string, unknown>)
             : undefined
+        // E2E control: transient failures on the main goal prompt (the BFF
+        // retries with backoff and the goal still completes). Must fail before
+        // persisting the message, so the marker reconciliation sees nothing.
+        if (goalPromptFailures > 0 && goalRoleOf(sessionID) === "main") {
+          goalPromptFailures -= 1
+          return json(res, 429, { error: "rate_limited" })
+        }
         const message = appendUserMessage(sessionID, text, metadata)
         // E2E helper: `/seed N` fills the conversation with N more messages and
         // reports the session idle, so clients refetch the whole history.

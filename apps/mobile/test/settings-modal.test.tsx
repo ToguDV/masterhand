@@ -1,5 +1,6 @@
 import { Alert } from "react-native"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
+import { ApiError, queryKeys, type ModelInfo, type ProviderInfo } from "@masterhand/client-core"
 import { SettingsModal } from "../src/components/SettingsModal"
 import { DEFAULT_PALETTE, ThemeProvider, paletteFor, useTheme } from "../src/theme"
 import { savePalette, saveTheme } from "../src/storage"
@@ -53,7 +54,7 @@ async function setup(
       </ThemeProvider>
     </QueryWrapper>,
   )
-  return { client }
+  return { client, queryClient }
 }
 
 beforeEach(() => {
@@ -112,6 +113,99 @@ describe("SettingsModal palette (color themes)", () => {
 
     await fireEvent.press(screen.getByLabelText(`Reset to ${"Paper"}`))
     expect(mockedSavePalette).toHaveBeenLastCalledWith(DEFAULT_PALETTE)
+  })
+})
+
+describe("SettingsModal goal review (#130)", () => {
+  it("renders the Goal review section before the providers", async () => {
+    await setup()
+
+    expect(await screen.findByText("Goal review")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Critic model")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Judge model")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Max rounds before pausing")).toBeOnTheScreen()
+  })
+
+  it("saves the max rounds through the goal settings API", async () => {
+    const { client } = await setup()
+    const input = await screen.findByLabelText("Max rounds before pausing")
+    await waitFor(() => expect(input.props.value).toBe("5"))
+
+    await fireEvent.changeText(input, "9")
+    await fireEvent.press(screen.getByLabelText("Save"))
+
+    await waitFor(() =>
+      expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
+        maxRounds: 9,
+        criticModel: null,
+        judgeModel: null,
+      }),
+    )
+    expect(await screen.findByText("Saved.")).toBeOnTheScreen()
+  })
+
+  it("rejects a max rounds outside 1..50 without calling the API", async () => {
+    const { client } = await setup()
+    const input = await screen.findByLabelText("Max rounds before pausing")
+
+    await fireEvent.changeText(input, "0")
+    await fireEvent.press(screen.getByLabelText("Save"))
+
+    expect(await screen.findByText("Max rounds must be a whole number between 1 and 50.")).toBeOnTheScreen()
+    expect(client.api.goal.saveSettings).not.toHaveBeenCalled()
+  })
+
+  it("surfaces a failed save with the goal error message", async () => {
+    const { client } = await setup()
+    client.api.goal.saveSettings.mockRejectedValue(new ApiError(500, "x"))
+
+    const input = await screen.findByLabelText("Max rounds before pausing")
+    await fireEvent.changeText(input, "7")
+    await fireEvent.press(screen.getByLabelText("Save"))
+
+    expect(await screen.findByText("The goal action failed (HTTP 500)")).toBeOnTheScreen()
+  })
+
+  it("picks the critic and judge models through the catalog", async () => {
+    const { client } = await setup((c) => {
+      c.api.models.mockResolvedValue({
+        models: [
+          { id: "test-model", providerID: "test", name: "Test Model", variants: [], enabled: true },
+          { id: "alpha", providerID: "test", name: "Alpha", variants: [], enabled: true },
+        ] as unknown as ModelInfo[],
+        providers: [{ id: "test", name: "Test" }] as unknown as ProviderInfo[],
+        defaultModel: null,
+      })
+    })
+
+    await fireEvent.press(await screen.findByLabelText("Critic model"))
+    await fireEvent.press(await screen.findByText("Test · Alpha"))
+    await fireEvent.press(screen.getByLabelText("Judge model"))
+    await fireEvent.press(await screen.findByText("Test · Test Model"))
+    await fireEvent.press(screen.getByLabelText("Save"))
+
+    await waitFor(() =>
+      expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
+        maxRounds: 5,
+        criticModel: "test/alpha",
+        judgeModel: "test/test-model",
+      }),
+    )
+  })
+
+  it("does not let a late settings refetch clobber an edit", async () => {
+    const { client, queryClient } = await setup()
+    const input = await screen.findByLabelText("Max rounds before pausing")
+    await waitFor(() => expect(input.props.value).toBe("5"))
+
+    await fireEvent.changeText(input, "9")
+    // A refetch resolving after the user started editing (dirty) must be ignored.
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
+    })
+
+    await waitFor(() => expect(client.api.goal.settings).toHaveBeenCalledTimes(2))
+    expect(screen.getByLabelText("Max rounds before pausing").props.value).toBe("9")
   })
 })
 

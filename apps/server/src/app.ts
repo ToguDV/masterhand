@@ -22,8 +22,10 @@ import {
 } from "./commands.js"
 import type { Config } from "./config.js"
 import type { EventHub } from "./events.js"
+import { createGoalManager, GOAL_DELIVERY_MARKER_KEY, GOAL_SESSION_MARKER_KEY, GoalError, type GoalManager, type GoalOpencode } from "./goal.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
-import { createOpencodeProxy } from "./proxy.js"
+import { createOpencodeProxy, type ProxyRetryOptions } from "./proxy.js"
+import { OpencodeTimeoutError, RetryExhaustedError, UpstreamStatusError, isTransientStatus, withRetry } from "./retry.js"
 import {
   CustomProvidersFileError,
   createCustomProviderStore,
@@ -79,6 +81,10 @@ export interface AppDeps {
   runs?: RunManager
   /** Overridable for tests: MasterHand-managed OpenAI-compatible providers. */
   providers?: CustomProviderStore
+  /** Overridable for tests: Goal Mode orchestration. */
+  goals?: GoalManager
+  /** Overridable for tests: proxy retry tuning (attempts/backoff/sleep). */
+  proxyRetry?: ProxyRetryOptions
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
@@ -92,13 +98,11 @@ const MAX_DEVICE_NAME_LENGTH = 64
 /** Frames a single SSE client may fall behind before it is dropped. */
 const MAX_SSE_QUEUE = 1024
 
-/** An internal opencode call exceeded `OPENCODE_TIMEOUT_MS`. */
-export class OpencodeTimeoutError extends Error {
-  constructor() {
-    super("opencode call timed out")
-    this.name = "OpencodeTimeoutError"
-  }
-}
+/** Methods safe to retry outright: replaying them cannot duplicate state. */
+const IDEMPOTENT_OPENCODE_METHODS = new Set(["GET", "HEAD", "PUT", "PATCH", "DELETE"])
+/** Internal opencode retries for idempotent calls (transient statuses/network). */
+const OPENCODE_RETRY_ATTEMPTS = 4
+const OPENCODE_RETRY_BASE_MS = 250
 
 interface OpencodeSession {
   id: string
@@ -143,6 +147,21 @@ function sessionCreateBody(directory: string, marker: string | null) {
     location: { directory },
     ...(marker ? { metadata: { [CREATE_MARKER_KEY]: marker } } : {}),
   }
+}
+
+/** Concatenates the text parts of a v2 assistant message (marker parsing). */
+function assistantMessageText(message: { content?: unknown }): string {
+  const parts = Array.isArray(message.content) ? message.content : []
+  return parts
+    .filter(
+      (part): part is { type: string; text: string } =>
+        Boolean(part) &&
+        typeof part === "object" &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string",
+    )
+    .map((part) => part.text)
+    .join("\n")
 }
 
 /** Fields MasterHand adds to an isolated session for the clients. */
@@ -217,6 +236,175 @@ export function createApp(deps: AppDeps): Hono {
   const providers = deps.providers ?? createCustomProviderStore({ file: config.customProvidersFile })
 
   /**
+   * opencode adapter for Goal Mode. It translates HTTP outcomes into thrown
+   * typed errors; the retry policy (bounded backoff, marker reconciliation for
+   * non-idempotent calls) lives in the goal manager / shared retry engine.
+   */
+  const goalOpencode: GoalOpencode = {
+    async sessionInfo(sessionID) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { retry: false })
+      if (response.status === 404) return null
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: {
+          location?: { directory?: string }
+          parentID?: string
+          agent?: string
+          model?: { id?: string; providerID?: string; variant?: string }
+        }
+      }
+      const directory = body.data?.location?.directory
+      if (!body.data || !directory) return null
+      const model =
+        body.data.model?.providerID && body.data.model.id
+          ? {
+              providerID: body.data.model.providerID,
+              id: body.data.model.id,
+              variant: body.data.model.variant ?? null,
+            }
+          : null
+      return {
+        directory,
+        parentID: body.data.parentID,
+        model,
+        agent: typeof body.data.agent === "string" && body.data.agent ? body.data.agent : null,
+      }
+    },
+    async createSession({ directory, parentID, title, marker }) {
+      const response = await callOpencode("/api/session", {
+        method: "POST",
+        body: {
+          location: { directory },
+          parentID,
+          title,
+          metadata: { [GOAL_SESSION_MARKER_KEY]: marker },
+        },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: { id?: string } }
+      const id = body.data?.id
+      if (!id) throw new Error("opencode did not return a session id")
+      invalidateSessionsCache()
+      return { id }
+    },
+    async findSessionByMarker(parentID, marker) {
+      const response = await callOpencode(
+        `/api/session?parentID=${encodeURIComponent(parentID)}&limit=200`,
+        { retry: false },
+      )
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: Array<{ id?: string; metadata?: Record<string, unknown> }>
+      }
+      const found = (body.data ?? []).find((session) => session.metadata?.[GOAL_SESSION_MARKER_KEY] === marker)
+      return found?.id ? { id: found.id } : null
+    },
+    async prompt(sessionID, text, marker) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/prompt`, {
+        method: "POST",
+        body: { text, metadata: { [GOAL_DELIVERY_MARKER_KEY]: marker } },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async promptLanded(sessionID, marker) {
+      const response = await callOpencode(
+        `/api/session/${encodeURIComponent(sessionID)}/message?limit=20&order=desc`,
+        { retry: false },
+      )
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: Array<{ type?: string; metadata?: Record<string, unknown> }>
+      }
+      return (body.data ?? []).some(
+        (message) => message.type === "user" && message.metadata?.[GOAL_DELIVERY_MARKER_KEY] === marker,
+      )
+    },
+    async writeInstruction(sessionID, key, value) {
+      const response = await callOpencode(
+        `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
+        { method: "PUT", body: { value }, retry: false },
+      )
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async removeInstruction(sessionID, key) {
+      const response = await callOpencode(
+        `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
+        { method: "DELETE", retry: false },
+      )
+      if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
+    },
+    async switchModel(sessionID, model) {
+      const body: { id: string; providerID: string; variant?: string } = { id: model.id, providerID: model.providerID }
+      if (model.variant) body.variant = model.variant
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/model`, {
+        method: "POST",
+        body: { model: body },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async switchAgent(sessionID, agent) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/agent`, {
+        method: "POST",
+        body: { agent },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async interrupt(sessionID) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/interrupt`, {
+        method: "POST",
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async removeSession(sessionID) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
+        method: "DELETE",
+        retry: false,
+      })
+      if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
+    },
+    async lastAssistant(sessionID) {
+      const response = await callOpencode(
+        `/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`,
+        { retry: false },
+      )
+      if (response.status === 404) return null
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: Array<{ id?: string; type?: string; content?: unknown }> }
+      for (const message of body.data ?? []) {
+        if (message.type !== "assistant" || !message.id) continue
+        return { id: message.id, text: assistantMessageText(message) }
+      }
+      return null
+    },
+    async activeSessions() {
+      const response = await callOpencode("/api/session/active", { retry: false })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: Record<string, unknown> }
+      return Object.keys(body.data ?? {})
+    },
+    async models() {
+      const response = await callOpencode("/api/model", { retry: false })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: Array<{ id?: string; providerID?: string }> }
+      return (body.data ?? [])
+        .filter((model) => Boolean(model.id && model.providerID))
+        .map((model) => `${model.providerID}/${model.id}`)
+    },
+  }
+
+  const goals: GoalManager =
+    deps.goals ??
+    createGoalManager({
+      store: deps.store,
+      opencode: goalOpencode,
+      emit: (event) => deps.hub.emit(event),
+    })
+  deps.hub.subscribe((event) => goals.handleEvent(event))
+  // In-flight runs never auto-resume after a restart: they surface as paused
+  // with a resumable reason instead (docs/past-mistakes.md).
+  goals.reconcileOnBoot()
+
+  /**
    * Drops every MasterHand-managed resource tied to a session id: its quick
    * tunnel (a leaked one would stay publicly exposed), its dev-server PTY, its
    * reserved port and its worktree record/branch. Used when a session is
@@ -224,6 +412,7 @@ export function createApp(deps: AppDeps): Hono {
    * outside MasterHand (TUI/API), where no route runs.
    */
   async function releaseSession(sessionID: string): Promise<void> {
+    void goals.forget(sessionID).catch(() => {})
     preview.forget(sessionID)
     runs.forget(sessionID)
     const record = deps.store.getIsolatedSession(sessionID)
@@ -340,13 +529,32 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: fallback }, 502)
   }
 
+  /** Goal routes answer typed codes; unexpected failures stay 502. */
+  function goalFailure(c: Context, error: unknown): Response {
+    if (error instanceof GoalError) return c.json({ error: error.code, detail: error.message }, error.status)
+    if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
+    return c.json({ error: "goal_failed", detail: error instanceof Error ? error.message : undefined }, 502)
+  }
+
   /**
    * Calls opencode directly (injecting basic auth). The `directory` override
    * travels as a query parameter exactly like the clients' proxy calls.
+   *
+   * Idempotent methods inherit bounded retries (transient statuses and fast
+   * network failures) from the shared retry engine; POST stays single-shot
+   * because replaying it could duplicate state (callers that can reconcile,
+   * like Goal Mode, wrap it themselves).
    */
   function callOpencode(
     path: string,
-    options: { method?: string; directory?: string | null; location?: string | null; body?: unknown } = {},
+    options: {
+      method?: string
+      directory?: string | null
+      location?: string | null
+      body?: unknown
+      /** `false` opts out of the default idempotent-method retries (the caller owns the policy). */
+      retry?: boolean
+    } = {},
   ): Promise<Response> {
     const method = options.method ?? "GET"
     const headers = new Headers()
@@ -361,10 +569,40 @@ export function createApp(deps: AppDeps): Hono {
       // nested `location[directory]` query, unlike the flat `/api/session`.
       target.searchParams.set("location[directory]", options.location)
     }
-    return fetchOpencode(target, {
-      method,
-      headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    const request = (): Promise<Response> =>
+      fetchOpencode(target, {
+        method,
+        headers,
+        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      })
+
+    if (options.retry === false || !IDEMPOTENT_OPENCODE_METHODS.has(method)) return request()
+
+    return withRetry(
+      async () => {
+        const response = await request()
+        // A transient status is retried inside the engine; definitive 4xx and
+        // success responses pass through to the caller unchanged.
+        if (isTransientStatus(response.status)) throw new UpstreamStatusError(response.status, response)
+        return response
+      },
+      {
+        attempts: OPENCODE_RETRY_ATTEMPTS,
+        baseDelayMs: OPENCODE_RETRY_BASE_MS,
+        onRetry: (info) => {
+          console.warn(
+            `[opencode] ${method} ${path} failed (${info.error instanceof Error ? info.error.message : "unknown"}) — retrying in ${info.delayMs}ms`,
+          )
+        },
+      },
+    ).catch((error: unknown) => {
+      if (error instanceof RetryExhaustedError) {
+        // Surface the last upstream response (routes keep answering their
+        // existing status codes); network failures keep their original error.
+        if (error.lastError instanceof UpstreamStatusError && error.lastError.response) return error.lastError.response
+        throw error.lastError
+      }
+      throw error
     })
   }
 
@@ -637,7 +875,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.use("/api/oc/*", requireAuth(config, deps.store))
-  app.all("/api/oc/*", createOpencodeProxy(config, fetchImpl))
+  app.all("/api/oc/*", createOpencodeProxy(config, fetchImpl, undefined, deps.proxyRetry))
 
   const api = new Hono()
   api.use("*", requireAuth(config, deps.store))
@@ -1404,6 +1642,81 @@ export function createApp(deps: AppDeps): Hono {
     if (!config.previewEnabled) return c.json({ error: "preview_disabled" }, 404)
     preview.stop(c.req.param("sessionID"))
     return c.json({ ok: true })
+  })
+
+  /** Goal Mode: start a run, read its state, pause/resume/cancel it. */
+  api.get("/sessions/:sessionID/goal", (c) => {
+    return c.json({ goal: goals.status(c.req.param("sessionID")) })
+  })
+
+  api.post("/sessions/:sessionID/goal", async (c) => {
+    let body: { goal?: unknown; model?: unknown; agent?: unknown } = {}
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      // an empty body fails goal validation below
+    }
+    const goal = typeof body.goal === "string" ? body.goal : ""
+    const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim() : null
+    try {
+      return c.json(
+        { goal: await goals.start({ sessionID: c.req.param("sessionID"), goal, model: body.model ?? null, agent }) },
+        201,
+      )
+    } catch (error) {
+      return goalFailure(c, error)
+    }
+  })
+
+  api.post("/sessions/:sessionID/goal/pause", async (c) => {
+    try {
+      return c.json({ goal: await goals.pause(c.req.param("sessionID")) })
+    } catch (error) {
+      return goalFailure(c, error)
+    }
+  })
+
+  api.post("/sessions/:sessionID/goal/resume", async (c) => {
+    try {
+      return c.json({ goal: await goals.resume(c.req.param("sessionID")) })
+    } catch (error) {
+      return goalFailure(c, error)
+    }
+  })
+
+  api.post("/sessions/:sessionID/goal/cancel", async (c) => {
+    try {
+      return c.json({ goal: await goals.cancel(c.req.param("sessionID")) })
+    } catch (error) {
+      return goalFailure(c, error)
+    }
+  })
+
+  /** Goal review settings (critic/judge models, round budget). */
+  api.get("/goal/settings", (c) => c.json({ settings: goals.getSettings() }))
+
+  api.put("/goal/settings", async (c) => {
+    let body: { maxRounds?: unknown; criticModel?: unknown; judgeModel?: unknown } = {}
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      // an empty patch is valid: it returns the current settings
+    }
+    const patch: { maxRounds?: number; criticModel?: string | null; judgeModel?: string | null } = {}
+    if (body.maxRounds !== undefined) {
+      patch.maxRounds = typeof body.maxRounds === "number" ? body.maxRounds : Number.NaN
+    }
+    if (body.criticModel !== undefined) {
+      patch.criticModel = body.criticModel === null ? null : typeof body.criticModel === "string" ? body.criticModel : ""
+    }
+    if (body.judgeModel !== undefined) {
+      patch.judgeModel = body.judgeModel === null ? null : typeof body.judgeModel === "string" ? body.judgeModel : ""
+    }
+    try {
+      return c.json({ settings: await goals.saveSettings(patch) })
+    } catch (error) {
+      return goalFailure(c, error)
+    }
   })
 
   app.route("/api", api)

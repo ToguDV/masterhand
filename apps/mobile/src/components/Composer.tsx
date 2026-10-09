@@ -1,5 +1,6 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react"
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   buildComposerPopover,
   collectAgentMentions,
@@ -9,11 +10,13 @@ import {
   defaultModelValue,
   deliveryMetadata,
   flattenModels,
+  goalErrorMessage,
   isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
   parseModel,
+  queryKeys,
   recentModelValue,
   selectableAgents,
   sessionModelValue,
@@ -82,6 +85,7 @@ export function Composer({
   const modelsQuery = useModels(client)
   const sessionsQuery = useSessions(client, true, 10_000, workspaceID)
   const commandsQuery = useCommands(client, directory)
+  const queryClient = useQueryClient()
 
   const agents = useMemo(() => selectableAgents(agentsQuery.data ?? []), [agentsQuery.data])
   const subagents = useMemo(() => mentionableAgents(agentsQuery.data ?? []), [agentsQuery.data])
@@ -115,6 +119,7 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [sideQuestion, setSideQuestion] = useState<{ sessionID: string; question: string } | null>(null)
   const [startingSideQuestion, setStartingSideQuestion] = useState(false)
+  const [startingGoal, setStartingGoal] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   // Synchronous in-flight guards: the `sending` state is not a lock, so two
@@ -122,6 +127,7 @@ export function Composer({
   // `inFlight` is set before the first `await` and cleared by the request
   // outcome or by the delivery reconciliation.
   const startingSideQuestionRef = useRef(false)
+  const startingGoalRef = useRef(false)
   /** Fork created by this composer that must be removed if it is never shown. */
   const ownedForkRef = useRef<string | null>(null)
   /** False once the composer unmounted, so a fork in flight is removed later. */
@@ -293,10 +299,14 @@ export function Composer({
     const trimmed = text.trim()
     // Refs, not the `sending` state: two events in the same tick must not both
     // pass this check and fire two prompts (#72).
-    if (!trimmed || inFlight.current || startingSideQuestionRef.current) return
+    if (!trimmed || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const command = splitCommand(trimmed, commands)
     if (command?.command.name === "btw") {
       await askSideQuestion(command.text)
+      return
+    }
+    if (command?.command.name === "goal") {
+      await startGoal(command.text)
       return
     }
     const marker = createDeliveryMarker()
@@ -305,11 +315,51 @@ export function Composer({
     await deliver(trimmed, marker, command)
   }
 
+  /** `/goal`: starts the BFF adversarial review loop instead of a plain prompt. */
+  async function startGoal(goal: string) {
+    if (!goal) {
+      setError("Describe the goal after /goal")
+      return
+    }
+    if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
+    startingGoalRef.current = true
+    setStartingGoal(true)
+    setSending(true)
+    setError(null)
+    try {
+      const modelValue = model ? parseModel(model, variant || undefined) : undefined
+      await client.api.goal.start(sessionID, {
+        goal,
+        model: modelValue
+          ? { providerID: modelValue.providerID, id: modelValue.id, variant: modelValue.variant ?? null }
+          : null,
+        agent: agent || null,
+      })
+      // SSE carries the run, but a lost frame must not hide the new strip.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
+      if (textRef.current.trim() === `/goal ${goal}`) {
+        setText("")
+        setCaret(0)
+        setForcedSelection(undefined)
+      }
+      setDismissed(false)
+    } catch (err) {
+      setError(goalErrorMessage(err))
+      // The start is marker-reconciled server-side; refetch to show the run
+      // if it actually landed despite the error.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
+    } finally {
+      startingGoalRef.current = false
+      setStartingGoal(false)
+      setSending(false)
+    }
+  }
+
   /** Ghost-bubble retry: resends the failed text with a fresh marker. */
   function retry(): void {
     const current = pending.pending
     if (!current || current.status !== "failed") return
-    if (inFlight.current || startingSideQuestionRef.current) return
+    if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const marker = createDeliveryMarker()
     pending.begin(current.text, marker)
     void deliver(current.text, marker, null)
@@ -455,11 +505,17 @@ export function Composer({
           </Pressable>
         ) : (
           <Pressable
-            style={[styles.action, styles.send, (!text.trim() || sending || startingSideQuestion) && styles.actionDisabled]}
-            disabled={!text.trim() || sending || startingSideQuestion}
+            style={[
+              styles.action,
+              styles.send,
+              (!text.trim() || sending || startingSideQuestion || startingGoal) && styles.actionDisabled,
+            ]}
+            disabled={!text.trim() || sending || startingSideQuestion || startingGoal}
             onPress={() => void send()}
           >
-            <Text style={styles.actionText}>{startingSideQuestion ? "Starting…" : "Send"}</Text>
+            <Text style={styles.actionText}>
+              {startingSideQuestion || startingGoal ? "Starting…" : "Send"}
+            </Text>
           </Pressable>
         )}
       </View>

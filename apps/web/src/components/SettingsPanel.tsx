@@ -1,7 +1,8 @@
 import { useState, type ComponentType } from "react"
 import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterhand/client-core"
 import { useModalFocus } from "./useModalFocus"
-import { KeyIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import { KeyIcon, SparkleIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import type { ThemeMode } from "../theme"
 
@@ -10,10 +11,11 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
   { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
-type SettingsModule = "appearance" | "providers"
+type SettingsModule = "appearance" | "goal" | "providers"
 
 const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<IconProps> }> = [
   { id: "appearance", label: "Appearance", icon: SunIcon },
+  { id: "goal", label: "Goal review", icon: SparkleIcon },
   { id: "providers", label: "Providers", icon: KeyIcon },
 ]
 
@@ -88,6 +90,8 @@ export function SettingsDialog({
                 palette={palette}
                 onSelectPalette={onSelectPalette}
               />
+            ) : module === "goal" ? (
+              <GoalReviewSection />
             ) : (
               <ProvidersSection />
             )}

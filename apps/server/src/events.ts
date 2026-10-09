@@ -4,6 +4,12 @@ export interface EventHub {
   start(): void
   stop(): void
   subscribe(listener: (event: unknown) => void): () => void
+  /**
+   * Broadcasts a synthetic event to every subscriber (the same path the
+   * upstream frames take). MasterHand uses it for `goal.updated` frames; the
+   * clients ignore unknown types, so this never breaks them.
+   */
+  emit(event: unknown): void
   readonly connected: boolean
 }
 
@@ -153,6 +159,9 @@ export function createEventHub(options: EventHubOptions): EventHub {
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    emit(event) {
+      notify(event)
     },
     get connected() {
       return connected

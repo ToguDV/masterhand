@@ -11,6 +11,7 @@ import {
   upsertToolPart,
 } from "./chat"
 import { opencodeErrorMessage } from "./errors"
+import { goalPayloadOf, type GoalRun } from "./goal"
 import type {
   ChatMessage,
   FormInfo,
@@ -49,6 +50,10 @@ export const queryKeys = {
   credentials: ["credentials"] as const,
   /** MasterHand-managed OpenAI-compatible providers (settings). */
   customProviders: ["customProviders"] as const,
+  /** Goal Mode run state of a session (SSE-driven, see `useGoalRun`). */
+  goal: (sessionID: string) => ["goal", sessionID] as const,
+  /** Goal review settings (Settings > Goal review). */
+  goalSettings: ["goalSettings"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -289,6 +294,55 @@ export function useSessionRun(
   return { ...query, timedOut }
 }
 
+/**
+ * Timestamp of the last event-driven goal write per session: the status query
+ * uses it to tell whether its snapshot may be older than a `goal.updated`
+ * frame that arrived while the request was in flight.
+ */
+const goalWriteTimes = new WeakMap<QueryClient, Map<string, number>>()
+
+function goalWritesOf(queryClient: QueryClient): Map<string, number> {
+  let times = goalWriteTimes.get(queryClient)
+  if (!times) {
+    times = new Map()
+    goalWriteTimes.set(queryClient, times)
+  }
+  return times
+}
+
+/**
+ * Goal Mode run state. SSE-driven (`goal.updated` frames update the cache);
+ * the query only reconciles on reconnect and after mutations, so it never
+ * polls on its own.
+ */
+export function useGoalRun(client: Client, sessionID: string | null, enabled = true) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: queryKeys.goal(sessionID ?? ""),
+    queryFn: async () => {
+      const requestedAt = Date.now()
+      const snapshot = await client.api.goal.status(sessionID!)
+      // A frame that arrived while the fetch was in flight beats the snapshot
+      // (including a `goal: null` deletion — cached null must not fall back).
+      if ((goalWritesOf(queryClient).get(sessionID!) ?? 0) >= requestedAt) {
+        const cached = queryClient.getQueryData<GoalRun | null>(queryKeys.goal(sessionID!))
+        return cached !== undefined ? cached : snapshot
+      }
+      return snapshot
+    },
+    enabled: enabled && Boolean(sessionID),
+  })
+}
+
+/** Goal review settings (critic/judge models, round budget). */
+export function useGoalSettings(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.goalSettings,
+    queryFn: () => client.api.goal.settings(),
+    enabled,
+  })
+}
+
 export interface EventHandlerCallbacks {
   onPermission?: (permission: Permission) => void
   onPermissionReplied?: (permissionID: string) => void
@@ -376,6 +430,15 @@ export function createEventHandler(
       // connection. Refresh the health status now instead of waiting for the
       // next poll so the status indicator reacts immediately.
       void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+      return
+    }
+    // Goal Mode frames are BFF-synthesized with the full run payload: write
+    // them straight into the cache (stamped so an in-flight fetch cannot
+    // overwrite them with a stale snapshot).
+    const goalPayload = goalPayloadOf(raw)
+    if (goalPayload) {
+      goalWritesOf(queryClient).set(goalPayload.sessionID, Date.now())
+      queryClient.setQueryData<GoalRun | null>(queryKeys.goal(goalPayload.sessionID), goalPayload.goal)
       return
     }
     const event = raw as V2Event
@@ -696,6 +759,9 @@ export function invalidateOnReconnect(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ["messages"] })
   void queryClient.invalidateQueries({ queryKey: queryKeys.statuses })
   void queryClient.invalidateQueries({ queryKey: ["directories"] })
+  // Goal runs: `goal.updated` frames are never replayed, so a missed one is
+  // reconciled by refetching the run state.
+  void queryClient.invalidateQueries({ queryKey: ["goal"] })
   // Catalogs recover on their own too: a page loaded while opencode rejected
   // the BFF credentials would otherwise keep empty composer selectors until a
   // manual reload.

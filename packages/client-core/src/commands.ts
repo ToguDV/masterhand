@@ -115,6 +115,11 @@ export const appCommands: SlashCommand[] = [
     description: "Ask a side question (temporary session, does not affect this chat)",
     arguments: [{ position: 0, freeForm: true, suggestions: [] }],
   },
+  {
+    name: "goal",
+    description: "Work on a goal until an adversarial review approves it",
+    arguments: [{ position: 0, freeForm: true, suggestions: [] }],
+  },
 ]
 
 /** App commands first, then the server catalog without name collisions. */

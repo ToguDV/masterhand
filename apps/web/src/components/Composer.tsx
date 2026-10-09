@@ -1,4 +1,5 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   buildComposerPopover,
   collectAgentMentions,
@@ -8,11 +9,13 @@ import {
   defaultModelValue,
   deliveryMetadata,
   flattenModels,
+  goalErrorMessage,
   isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
   parseModel,
+  queryKeys,
   recentModelValue,
   selectableAgents,
   sessionModelValue,
@@ -122,6 +125,7 @@ export function Composer({
   // Per-session selections: restored on mount (the view is keyed by session)
   // and written back so switching sessions or reloading keeps them.
   const stored = useMemo(() => readPreferences(sessionID), [sessionID])
+  const queryClient = useQueryClient()
   const [text, setText] = useState("")
   const textRef = useRef(text)
   textRef.current = text
@@ -147,6 +151,8 @@ export function Composer({
   // (#72). `inFlight` and the side-question flag are set/cleared synchronously
   // around every non-idempotent send.
   const startingSideQuestionRef = useRef(false)
+  /** Same synchronous guard for a `/goal` start (the BFF run is non-idempotent). */
+  const startingGoalRef = useRef(false)
   /** Fork created by this composer that must be removed if it is never shown. */
   const ownedForkRef = useRef<string | null>(null)
   /** False once the composer unmounted, so a fork in flight is removed later. */
@@ -322,10 +328,14 @@ export function Composer({
     const trimmed = text.trim()
     // Refs, not the `sending` state: two events in the same tick must not both
     // pass this check and fire two prompts (#72).
-    if (!trimmed || inFlight.current || startingSideQuestionRef.current) return
+    if (!trimmed || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const command = splitCommand(trimmed, commands)
     if (command?.command.name === "btw") {
       await askSideQuestion(command.text)
+      return
+    }
+    if (command?.command.name === "goal") {
+      await startGoal(command.text)
       return
     }
     const marker = createDeliveryMarker()
@@ -334,11 +344,47 @@ export function Composer({
     await deliver(trimmed, marker, command)
   }
 
+  /** `/goal`: starts the BFF adversarial review loop instead of a plain prompt. */
+  async function startGoal(goal: string) {
+    if (!goal) {
+      setError("Describe the goal after /goal")
+      return
+    }
+    if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
+    startingGoalRef.current = true
+    setSending(true)
+    setError(null)
+    try {
+      const modelValue = model ? parseModel(model, variant || undefined) : undefined
+      await client.api.goal.start(sessionID, {
+        goal,
+        model: modelValue
+          ? { providerID: modelValue.providerID, id: modelValue.id, variant: modelValue.variant ?? null }
+          : null,
+        agent: agent || null,
+      })
+      // SSE carries the run, but a lost frame must not hide the new strip.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
+      if (textRef.current.trim() === `/goal ${goal}`) {
+        setText("")
+        setCaret(0)
+      }
+    } catch (err) {
+      setError(goalErrorMessage(err))
+      // The start is marker-reconciled server-side; refetch to show the run
+      // if it actually landed despite the error.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
+    } finally {
+      startingGoalRef.current = false
+      setSending(false)
+    }
+  }
+
   /** Ghost-bubble retry: resends the failed text with a fresh marker. */
   function retry(): void {
     const current = pending.pending
     if (!current || current.status !== "failed") return
-    if (inFlight.current || startingSideQuestionRef.current) return
+    if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const marker = createDeliveryMarker()
     pending.begin(current.text, marker)
     void deliver(current.text, marker, null)

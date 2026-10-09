@@ -3,8 +3,11 @@
 **Snapshot:** 2026-10-07. 5 open issues (#129–#131, #133–#134) grouped into **3 chunks**
 (C14–C16) by the code surface they share. The previous backlog (C1–C13) is fully merged or closed.
 
-**Last updated:** 2026-10-07 — C11 landed in the theme-system session batch
-(Android nav bar, 12 accent palettes, syntax highlighting). Stale trackers already shipped in #135
+**Last updated:** 2026-10-09 — **C14 merged** (goal mode, #129 + #130, PR #148)
+together with the shared opencode retry engine it relies on (ADR-32). The queue now is
+C15 (#131 releases + #133 F-Droid) and the deferred C16 (#134); the previous note
+(2026-10-07) recorded C11 landing in the theme-system session batch (Android nav bar,
+12 accent palettes, syntax highlighting). Stale trackers already shipped in #135
 (#120, #122, #125–#128) were closed as completed; #121 was closed as not planned (sign-out stays in
 the sessions options box per #136/#137). Re-chunked after the issue batch created from the maintainer's
 mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
@@ -46,7 +49,7 @@ deferred).
 | C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ✅ 2026-10-07 — theme-system session batch |
 | C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
-| C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
+| C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 
@@ -61,10 +64,10 @@ deferred).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** none open — the largest feature is **/goal** (C14), followed
-by the release/update system (C15). Suggested batch order: **C14 → C15 → C16** — C16 is deferred
-(opt-in). C15's foundation (#131: versioning + GHCR + the update endpoint) has no hard blocker
-beyond the settings section and can be pulled earlier.
+**Highest severity in the queue:** none open — C14 (goal mode) landed on 2026-10-09; the next
+batch is the release/update system (C15), followed by the deferred C16. Suggested batch order:
+**C15 → C16** — C16 is deferred (opt-in). C15's foundation (#131: versioning + GHCR + the update
+endpoint) has no hard blocker beyond the settings section and can be pulled earlier.
 
 ## Chunks — current batch (C14–C16)
 

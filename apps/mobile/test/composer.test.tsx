@@ -540,6 +540,49 @@ describe("Composer", () => {
     expect(client.api.removeSession).toHaveBeenCalledWith("fork_1")
   })
 
+  it("starts a goal run from /goal with the typed text and model", async () => {
+    const { client } = await setup()
+    const input = await screen.findByPlaceholderText("Write a message…")
+
+    await fireEvent.changeText(input, "/goal ship the feature")
+    await fireEvent.press(screen.getByText("Send"))
+
+    await waitFor(() =>
+      expect(client.api.goal.start).toHaveBeenCalledWith("s1", {
+        goal: "ship the feature",
+        model: { providerID: "test", id: "test-model", variant: null },
+        agent: "build",
+      }),
+    )
+    expect(client.api.prompt).not.toHaveBeenCalled()
+    await waitFor(() => expect(input.props.value).toBe(""))
+  })
+
+  it("requires a goal after /goal", async () => {
+    const { client } = await setup()
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "/goal")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText("Describe the goal after /goal")).toBeOnTheScreen()
+    expect(client.api.goal.start).not.toHaveBeenCalled()
+  })
+
+  it("maps a running goal error to its message", async () => {
+    const { client } = await setup()
+    client.api.goal.start.mockRejectedValue(new ApiError(409, JSON.stringify({ error: "goal_running" })))
+
+    const input = await screen.findByPlaceholderText("Write a message…")
+    await fireEvent.changeText(input, "/goal another goal")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(
+      await screen.findByText("A goal run is already active in this session. Pause or cancel it first."),
+    ).toBeOnTheScreen()
+    // The failed start keeps the text so the user can adjust and retry.
+    expect(input.props.value).toBe("/goal another goal")
+  })
+
   it("uses the emerald accent for the active auto-accept state (#92)", async () => {
     await setup({ autoAccept: true })
 

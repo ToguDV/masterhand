@@ -89,6 +89,28 @@ MasterHand owns the dev-server process so agents never start or kill servers the
 - The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Concurrent starts coalesce per session (one PTY even if two devices press Start at once). Deleting the session — or an out-of-band `session.deleted` event — forgets it.
 - Session creation writes a `masterhand.run` instruction telling the agent not to manage servers itself; the `masterhand.preview` instruction still carries the reserved port and the tunnel-host allowlist advice.
 
+## Goal Mode (`/goal`)
+
+A goal run wraps a session in an adversarial review loop: the main agent works the goal, an internal **critic** challenges the claimed completion (it may read files and run commands/tests to falsify), and an impartial **judge** decides. The loop repeats until approval or the round cap. All prompts are server-side constants (English); clients never build them.
+
+| Method | Route | Notes |
+|---|---|---|
+| `POST` | `/api/sessions/:id/goal` | Body `{ goal, model?, agent? }` where `model` is `{ providerID, id, variant? }` (the composer selection) and `agent` the composer agent: both are applied to the session before the goal prompt, exactly like a normal prompt would. Writes the `masterhand.goal` instruction and prompts the main session. `201 { goal }`. `400 invalid_goal`/`invalid_model`, `409 goal_running` (already active), `409 session_busy` (mid-turn), `404 session_not_found`, `502 opencode_unreachable`/`goal_ambiguous`. |
+| `GET` | `/api/sessions/:id/goal` | `{ goal: GoalRun \| null }` — the durable run snapshot. |
+| `POST` | `/api/sessions/:id/goal/pause` | Interrupts the awaited phase; run becomes `paused` (resumable). |
+| `POST` | `/api/sessions/:id/goal/resume` | Re-drives the paused (or errored) phase; from a cap pause it extends the budget and feeds the judge's required changes back to the main agent. |
+| `POST` | `/api/sessions/:id/goal/cancel` | Interrupts the awaited turn, removes the internal critic/judge sessions and the goal instruction; run becomes `cancelled` (history kept). |
+| `GET` / `PUT` | `/api/goal/settings` | Single-user `{ maxRounds (default 5, 1..50), criticModel, judgeModel }`; `provider/model` refs are validated against `/api/model` (an empty catalog accepts well-formed refs). |
+
+State machine: `running → critiquing → judging`, plus `approved`, `paused` (cap reached or manual), `cancelled` and `error`. Critic and judge are **internal child sessions** (`parentID` = main session; the existing `rootSessions` filter hides them). Completion is declared with markers parsed tolerantly from the last assistant reply: `<masterhand:goal status="complete|blocked">{…}</masterhand:goal>`, `<masterhand:critique>{…}</masterhand:critique>`, `<masterhand:verdict>{…}</masterhand:verdict>`.
+
+Reliability (see `ARCHITECTURE.md` §4.11 and `docs/past-mistakes.md`):
+
+- Every opencode call goes through the shared retry engine (ADR-32): idempotent calls retry transient failures (429/5xx/network) with incremental backoff; internal session creation and prompts reconcile their persisted marker first, so a retry can never duplicate them.
+- opencode's own provider retries (`session.retry.scheduled`) only update the run note; a failed turn re-drives its phase up to 3 times (2s/4s/8s). A missing completion marker gets a single corrective prompt, then the run errors.
+- A watchdog reconciles lost `session.idle` events (the awaited session is no longer active), `server.connected` refetches the run, and after a BFF restart in-flight runs become `paused` — never auto-resumed. Deleting the main session drops the run; deleting an awaited internal session fails it.
+- Every transition is broadcast as a synthetic `goal.updated` frame on `/api/events` (same payload as `GET …/goal`), so clients never poll.
+
 ## Workspace isolation & guardrails
 
 opencode resolves project-scoped features (`/init`, `/review`, `AGENTS.md` discovery, the reported "workspace root") from its **`project.directory`**, computed by walking up to the nearest `.git`/`.hg` — it does not use the session's `location.directory` for them. A workspace nested inside the MasterHand repo would therefore make opencode target the **server** repo. MasterHand prevents that on two layers:
@@ -108,6 +130,8 @@ This is defense in depth; it does **not** sandbox shell access in general (an ag
 | Method | Route | Notes |
 |---|---|---|
 | `*` | `/api/oc/*` | Forwards to `OPENCODE_URL` (e.g. `http://opencode:4096`) injecting `Authorization: Basic` with `OPENCODE_SERVER_PASSWORD`. The `/api/oc` prefix is removed: `/api/oc/api/info` → `GET /api/info`. Preserves method, body, query and `content-type` byte-for-byte (including the `location[directory]` query used to target a workspace). An opencode `401/403` is converted into `502 { error: "opencode_unauthorized" }` instead of being relayed (relaying it would sign the MasterHand user out). SSE streaming without buffering (`cache-control: no-cache`, `x-accel-buffering: no`). `502 opencode_unreachable` if opencode does not answer. `504 { error: "opencode_timeout" }` when the upstream stalls past the 60s proxy deadline (the clients abort sooner with their own request timeout). |
+
+Transport hardening (shared with every internal call, ADR-32): `GET`/`HEAD` and the idempotent `agent`/`model` switches retry transient upstream statuses (429/5xx) and fast network failures with incremental backoff, and a `POST …/prompt` carrying the client's `masterhand.delivery` marker is retried too — after verifying through `GET /api/session/:id/message` that the marker did **not** already land, so a replay can never duplicate the turn. Mutations without a reconciliation marker (slash commands, permission/form replies, forks) stay single-shot; the client's own lost-response reconciliation covers them.
 
 The same proxy carries the provider integration/credential endpoints behind Settings > Providers (issue #128), verified against the pinned opencode v2.0.6: `GET /api/oc/api/integration`, `POST /api/oc/api/integration/{id}/connect/key`, `GET /api/oc/api/credential`, `POST /api/oc/api/credential/{id}/activate` and `DELETE /api/oc/api/credential/{id}`. No dedicated BFF route exists: an API key transits client → BFF → opencode only, is stored in opencode's data volume, and is never persisted, logged or echoed back by MasterHand.
 

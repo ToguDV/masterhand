@@ -240,10 +240,16 @@ describe("app commands", () => {
     const merged = mergeCommands(server)
     expect(merged[0]).toBe(appCommands[0])
     expect(merged.find((command) => command.name === "btw")).toBe(appCommands[0])
-    expect(merged.map((command) => command.name)).toEqual(["btw", "review", "init", "component"])
+    expect(merged.map((command) => command.name)).toEqual(["btw", "goal", "review", "init", "component"])
   })
 
   it("routes /btw through splitCommand", () => {
     expect(splitCommand("/btw what changed?", mergeCommands(commands))?.command.name).toBe("btw")
+  })
+
+  it("routes /goal with its free-form goal text", () => {
+    const parsed = splitCommand("/goal make the suite green", mergeCommands(commands))
+    expect(parsed?.command.name).toBe("goal")
+    expect(parsed?.text).toBe("make the suite green")
   })
 })

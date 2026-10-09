@@ -153,6 +153,139 @@ describe("opencode proxy", () => {
     expect(response.status).toBe(504)
     expect(await response.json()).toEqual({ error: "opencode_timeout" })
   })
+
+  it("retries transient upstream statuses on idempotent GETs", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    upstream.failNext("/api/info", 1, 503)
+    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    expect(upstream.requests.filter((request) => request.path === "/api/info")).toHaveLength(2)
+  })
+
+  it("returns the last transient response after the attempt budget", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH },
+      proxyRetry: { attempts: 3, baseDelayMs: 1, jitter: false },
+    })
+    const cookie = await login(app.url)
+
+    upstream.failNext("/api/info", 5, 503)
+    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    expect(response.status).toBe(503)
+    expect(upstream.requests.filter((request) => request.path === "/api/info")).toHaveLength(3)
+  })
+
+  it("retries idempotent POST switches (agent/model)", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    upstream.failNext("/ses_1/model", 1, 503)
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_1/model`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ model: { id: "test-model", providerID: "test" } }),
+    })
+    expect(response.status).toBe(204)
+    expect(upstream.requests.filter((request) => request.path === "/api/session/ses_1/model")).toHaveLength(2)
+  })
+
+  it("retries a marked prompt and persists it exactly once", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    upstream.failNext("/prompt", 2, 429)
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_9/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", metadata: { "masterhand.delivery": "delivery_abc" } }),
+    })
+    expect(response.status).toBe(200)
+    expect(upstream.requests.filter((request) => request.path === "/api/session/ses_9/prompt")).toHaveLength(3)
+
+    const history = await fetch(`${app.url}/api/oc/api/session/ses_9/message`, { headers: { cookie } })
+    const body = (await history.json()) as { data: unknown[] }
+    expect(body.data).toHaveLength(1)
+  })
+
+  it("leaves an unmarked prompt single-shot (slash commands cannot be reconciled)", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    upstream.failNext("/prompt", 2, 503)
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_9/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "/review" }),
+    })
+    expect(response.status).toBe(503)
+    expect(upstream.requests.filter((request) => request.path === "/api/session/ses_9/prompt")).toHaveLength(1)
+  })
+
+  it("treats a timed-out marked prompt as landed when the marker is in the history", async () => {
+    upstream = await startMockOpencode()
+    let promptAttempts = 0
+    const wrapper: typeof fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/prompt")) {
+        promptAttempts += 1
+        await fetch(input, init)
+        // The prompt was applied, but the response never reached the client.
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      }
+      return fetch(input, init)
+    }
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH },
+      fetchImpl: wrapper,
+    })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_9/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", metadata: { "masterhand.delivery": "delivery_lost" } }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ data: { sessionID: "ses_9", delivered: true } })
+    expect(promptAttempts).toBe(1)
+    expect(upstream.requests.filter((request) => request.path === "/api/session/ses_9/prompt")).toHaveLength(1)
+  })
+
+  it("does not replay a marked prompt when the marker lookup is unavailable", async () => {
+    upstream = await startMockOpencode()
+    let promptAttempts = 0
+    const wrapper: typeof fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/prompt")) {
+        promptAttempts += 1
+        // The request never reached opencode.
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      }
+      return fetch(input, init)
+    }
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH },
+      fetchImpl: wrapper,
+    })
+    const cookie = await login(app.url)
+    // The marker lookup itself is down: the outcome is unknown, never replayed.
+    upstream.failNext("/message", 10, 503)
+
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_9/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", metadata: { "masterhand.delivery": "delivery_unknown" } }),
+    })
+    expect(response.status).toBe(504)
+    expect(promptAttempts).toBe(1)
+  })
 })
 
 describe("SSE relay", () => {

@@ -2,6 +2,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
+import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { CloseIcon, GearIcon } from "./icons"
 import {
@@ -138,6 +139,10 @@ export function SettingsModal({
               <Text style={styles.resetText}>Reset to {PALETTES[DEFAULT_PALETTE].label}</Text>
             </Pressable>
           ) : null}
+
+          <View style={styles.goalSection}>
+            <GoalReviewSection client={client} />
+          </View>
 
           <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>
           <ProvidersSection client={client} />
@@ -318,6 +323,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 13,
     },
     accountTitle: {
+      marginTop: 18,
+    },
+    goalSection: {
       marginTop: 18,
     },
   })
