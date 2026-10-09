@@ -32,7 +32,11 @@ interface FakeMessage {
 interface FakeSession {
   id: string
   directory: string
+  /** Faithful v2.0.6: `POST /api/session` drops `parentID`, so this stays null. */
   parentID: string | null
+  /** What the adapter asked for (proves it still sends `parentID`). */
+  requestedParentID: string | null
+  role: "critic" | "judge" | null
   model: GoalModelRef | null
   agent: string | null
   marker: string | null
@@ -77,11 +81,14 @@ class FakeOpencode implements GoalOpencode {
     model?: string | null
     agent?: string | null
     parentID?: string | null
+    role?: "critic" | "judge" | null
   }): FakeSession {
     const session: FakeSession = {
       id: input.id,
       directory: input.directory,
       parentID: input.parentID ?? null,
+      requestedParentID: input.parentID ?? null,
+      role: input.role ?? null,
       model: input.model ? normalizeModelRef(input.model) : null,
       agent: input.agent ?? null,
       marker: null,
@@ -125,25 +132,32 @@ class FakeOpencode implements GoalOpencode {
     parentID: string
     title: string
     marker: string
+    role: "critic" | "judge"
   }): Promise<{ id: string }> {
     const failure = this.failCreates.shift()
-    if (failure?.landed) {
+    const create = (): FakeSession => {
       const created = this.addSession({
         id: this.nextID("ses"),
         directory: input.directory,
-        parentID: input.parentID,
+        // Faithful to the pinned v2.0.6: the server drops `parentID`, so the
+        // created session is a root even though the adapter sent it.
+        parentID: null,
+        role: input.role,
       })
+      created.requestedParentID = input.parentID
       created.marker = input.marker
+      return created
     }
+    if (failure?.landed) create()
     if (failure) throw failure.error
-    const session = this.addSession({ id: this.nextID("ses"), directory: input.directory, parentID: input.parentID })
-    session.marker = input.marker
-    return { id: session.id }
+    return { id: create().id }
   }
 
-  async findSessionByMarker(parentID: string, marker: string): Promise<{ id: string } | null> {
+  async findSessionByMarker(directory: string, marker: string): Promise<{ id: string } | null> {
     for (const session of this.sessions.values()) {
-      if (session.marker === marker && session.parentID === parentID && !session.removed) return { id: session.id }
+      if (session.marker === marker && session.directory === directory && !session.removed) {
+        return { id: session.id }
+      }
     }
     return null
   }
@@ -364,7 +378,12 @@ describe("goal manager", () => {
     await reply(h, "ses_main", markerText("first pass"))
     const critic = h.opencode.sessionWithInstruction(CRITIC_INSTRUCTION_KEY)
     expect(critic).toBeDefined()
-    expect(critic?.parentID).toBe("ses_main")
+    // The adapter still asks for a child session (newer opencode versions
+    // parent it); the pinned v2.0.6 drops it, so the stable role marker is what
+    // actually lets the BFF hide these sessions.
+    expect(critic?.requestedParentID).toBe("ses_main")
+    expect(critic?.parentID).toBeNull()
+    expect(critic?.role).toBe("critic")
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
     // No critic model configured: the main session's model is used.
     expect(h.opencode.switched).toContainEqual({
@@ -375,6 +394,7 @@ describe("goal manager", () => {
     await reply(h, critic!.id, critiqueText())
     const judge = h.opencode.sessionWithInstruction(JUDGE_INSTRUCTION_KEY)
     expect(judge).toBeDefined()
+    expect(judge?.role).toBe("judge")
     expect(h.manager.status("ses_main")?.state).toBe("judging")
 
     await reply(h, judge!.id, verdictText(false))
@@ -543,14 +563,21 @@ describe("goal manager", () => {
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
   })
 
-  it("reuses a critic session created before an ambiguous create failure", async () => {
+  it("reuses a critic session created before an ambiguous create failure (reconciled by directory)", async () => {
     const h = harness()
-    h.opencode.failCreates.push({ error: new UpstreamStatusError(503), landed: true })
+    // The create landed but the response was lost. The reconcile must find the
+    // session by directory + marker: the fake (like the pinned v2.0.6) drops
+    // `parentID`, so a parent-scoped lookup would miss it and duplicate the
+    // internal session.
+    h.opencode.failCreates.push({ error: new OpencodeTimeoutError(), landed: true })
     await start(h)
     await reply(h, "ses_main", markerText())
 
-    const critics = [...h.opencode.sessions.values()].filter((session) => session.instructions.has(CRITIC_INSTRUCTION_KEY))
+    // One critic in total: a replay would leave the landed one orphaned (it
+    // never received the instruction, so counting instructions would miss it).
+    const critics = [...h.opencode.sessions.values()].filter((session) => session.role === "critic" && !session.removed)
     expect(critics).toHaveLength(1)
+    expect(h.opencode.prompts.filter((prompt) => prompt.sessionID === critics[0]!.id)).toHaveLength(1)
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
   })
 
@@ -757,12 +784,36 @@ describe("goal manager", () => {
     })
   })
 
-  it("forgets the run when its session is deleted", async () => {
+  it("forgets the run when its session is deleted and removes its internal sessions", async () => {
     const h = harness()
     await start(h)
+    await reply(h, "ses_main", markerText())
+    const critic = h.opencode.sessionWithInstruction(CRITIC_INSTRUCTION_KEY)!
+    await reply(h, critic.id, critiqueText())
+    const judge = h.opencode.sessionWithInstruction(JUDGE_INSTRUCTION_KEY)!
+
     await h.manager.forget("ses_main")
     expect(h.manager.status("ses_main")).toBeNull()
     expect(h.events.at(-1)?.goal).toBeNull()
+    // The pinned opencode does not cascade the main deletion (no parentID), so
+    // MasterHand must remove them itself or they leak as untracked sessions.
+    expect(h.opencode.removed).toEqual(expect.arrayContaining([critic.id, judge.id]))
+  })
+
+  it("removes a previous terminal run's internal sessions when a new one starts", async () => {
+    const h = harness()
+    await start(h)
+    await reply(h, "ses_main", markerText())
+    const critic = h.opencode.sessionWithInstruction(CRITIC_INSTRUCTION_KEY)!
+    await reply(h, critic.id, cleanCritiqueText())
+    const judge = h.opencode.sessionWithInstruction(JUDGE_INSTRUCTION_KEY)!
+    await reply(h, judge.id, verdictText(true))
+    expect(h.manager.status("ses_main")?.state).toBe("approved")
+
+    await h.manager.start({ sessionID: "ses_main", goal: "another goal" })
+    await h.manager.flush()
+    expect(h.opencode.removed).toEqual(expect.arrayContaining([critic.id, judge.id]))
+    expect(h.manager.status("ses_main")?.goal).toBe("another goal")
   })
 
   it("fails the run when an internal session it waits on is deleted", async () => {

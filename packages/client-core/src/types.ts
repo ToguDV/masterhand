@@ -65,6 +65,13 @@ export interface SessionIsolation {
 
 export interface Session extends SessionInfo {
   isolation?: SessionIsolation
+  /**
+   * Internal Goal Mode role (added by the BFF). Critic/judge sessions are
+   * reachable from the main session's review cards, never from the sidebar:
+   * the pinned opencode (v2.0.6) drops `parentID` on session create, so
+   * MasterHand marks them itself and `rootSessions` filters them.
+   */
+  goalRole?: "critic" | "judge"
 }
 
 export interface CreateSessionInput {

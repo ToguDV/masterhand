@@ -30,14 +30,28 @@ test("drives a goal through a rejection round to approval", async ({ page, reque
 
   // The loop runs fast: assert the outcome (rejected round 1 kept in the
   // history, round 2 approved) instead of racing the phase labels.
-  await expect(page.getByText("Goal approved")).toBeVisible({ timeout: 25_000 })
-  await expect(page.getByText("round 2/5")).toBeVisible()
+  const strip = page.getByTestId("goal-strip")
+  await expect(strip.getByText("Goal approved")).toBeVisible({ timeout: 25_000 })
+  await expect(strip.getByText("round 2/5")).toBeVisible()
   await expect(page.getByText("The judge rejected the previous attempt")).toBeVisible()
 
-  await page.getByRole("button", { name: "Details" }).click()
-  await expect(page.getByText("Round 1:")).toBeVisible()
-  await expect(page.getByText("Round 2:")).toBeVisible()
-  await expect(page.getByText("flaky test still failing").first()).toBeVisible()
+  // Critic/judge runs are integrated in the main session: their sessions never
+  // appear in the sidebar (where they rendered as "Goal critic"/"Goal judge").
+  await expect(page.getByText("Goal critic", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Goal judge", { exact: true })).toHaveCount(0)
+
+  // The custom completion marker renders as a report card, never raw JSON.
+  await expect(page.getByText("round 1 done")).toBeVisible()
+  await expect(page.getByText('"summary": "round 1 done"')).toHaveCount(0)
+
+  // The review history is integrated in the thread: the latest round is open,
+  // older rounds expand on demand.
+  const review = page.getByTestId("goal-review")
+  await expect(review).toBeVisible()
+  await expect(review.getByText("Critic's argument")).toBeVisible()
+  await expect(review.getByText("Judge's decision")).toBeVisible()
+  await review.getByRole("button", { name: /Round 1/ }).click()
+  await expect(review.getByText("flaky test still failing")).toBeVisible()
 })
 
 test("retries transient opencode failures and still completes", async ({ page, request }) => {
@@ -51,7 +65,7 @@ test("retries transient opencode failures and still completes", async ({ page, r
   await composer.fill("/goal survive the rate limits")
   await page.getByRole("button", { name: "Send" }).click()
 
-  await expect(page.getByText("Goal approved")).toBeVisible({ timeout: 25_000 })
+  await expect(page.getByTestId("goal-strip").getByText("Goal approved")).toBeVisible({ timeout: 25_000 })
 })
 
 test("cancels a running goal", async ({ page, request }) => {
@@ -63,12 +77,13 @@ test("cancels a running goal", async ({ page, request }) => {
   const composer = await composerOf(page)
   await composer.fill("/goal never finishes")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText("round 1/5")).toBeVisible()
-  await expect(page.getByText("Working", { exact: true })).toBeVisible()
+  const strip = page.getByTestId("goal-strip")
+  await expect(strip.getByText("round 1/5")).toBeVisible()
+  await expect(strip.getByText("Working", { exact: true })).toBeVisible()
 
-  await page.getByRole("button", { name: "Cancel" }).click()
-  await expect(page.getByText("Cancelled")).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeHidden()
+  await strip.getByRole("button", { name: "Cancel" }).click()
+  await expect(strip.getByText("Cancelled")).toBeVisible({ timeout: 15_000 })
+  await expect(strip.getByRole("button", { name: "Cancel" })).toBeHidden()
 })
 
 test("pauses at the round cap and resumes to approval", async ({ page, request }) => {
@@ -80,13 +95,14 @@ test("pauses at the round cap and resumes to approval", async ({ page, request }
   const composer = await composerOf(page)
   await composer.fill("/goal keep going until the judge agrees")
   await page.getByRole("button", { name: "Send" }).click()
+  const strip = page.getByTestId("goal-strip")
 
-  await expect(page.getByText("round 5/5")).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText("Paused")).toBeVisible({ timeout: 15_000 })
+  await expect(strip.getByText("round 5/5")).toBeVisible({ timeout: 30_000 })
+  await expect(strip.getByText("Paused")).toBeVisible({ timeout: 15_000 })
 
-  await page.getByRole("button", { name: "Resume" }).click()
-  await expect(page.getByText("round 6/10")).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText("Goal approved")).toBeVisible({ timeout: 20_000 })
+  await strip.getByRole("button", { name: "Resume" }).click()
+  await expect(strip.getByText("round 6/10")).toBeVisible({ timeout: 15_000 })
+  await expect(strip.getByText("Goal approved")).toBeVisible({ timeout: 20_000 })
 })
 
 test("asks for a goal when /goal has no text", async ({ page }) => {

@@ -299,3 +299,22 @@ export function PlayIcon({ size = 16, strokeWidth = 1.75, ...props }: IconProps)
     </IconBase>
   )
 }
+
+/** Pause a Goal Mode run. */
+export function PauseIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M9 5v14" />
+      <path d="M15 5v14" />
+    </IconBase>
+  )
+}
+
+/** Stop/cancel a Goal Mode run. */
+export function StopIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </IconBase>
+  )
+}

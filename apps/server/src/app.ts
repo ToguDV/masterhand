@@ -22,7 +22,15 @@ import {
 } from "./commands.js"
 import type { Config } from "./config.js"
 import type { EventHub } from "./events.js"
-import { createGoalManager, GOAL_DELIVERY_MARKER_KEY, GOAL_SESSION_MARKER_KEY, GoalError, type GoalManager, type GoalOpencode } from "./goal.js"
+import {
+  createGoalManager,
+  GOAL_DELIVERY_MARKER_KEY,
+  GOAL_INTERNAL_MARKER_KEY,
+  GOAL_SESSION_MARKER_KEY,
+  GoalError,
+  type GoalManager,
+  type GoalOpencode,
+} from "./goal.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
 import { createOpencodeProxy, type ProxyRetryOptions } from "./proxy.js"
 import { OpencodeTimeoutError, RetryExhaustedError, UpstreamStatusError, isTransientStatus, withRetry } from "./retry.js"
@@ -107,6 +115,26 @@ const OPENCODE_RETRY_BASE_MS = 250
 interface OpencodeSession {
   id: string
   parentID?: string
+  metadata?: Record<string, unknown>
+}
+
+type GoalRole = "critic" | "judge"
+
+/**
+ * The Goal Mode role of an internal session. The pinned opencode (v2.0.6)
+ * silently drops `parentID` on create, so a critic/judge session comes back as
+ * a root: it is recognized by the stable metadata role the BFF writes, or — for
+ * sessions created before that key existed — by the role prefix of the unique
+ * reconciliation marker (`masterhand.goal.role`).
+ */
+function goalRoleFromMetadata(metadata: Record<string, unknown> | undefined): GoalRole | null {
+  const role = metadata?.[GOAL_INTERNAL_MARKER_KEY]
+  if (role === "critic" || role === "judge") return role
+  const marker = metadata?.[GOAL_SESSION_MARKER_KEY]
+  if (typeof marker === "string" && /^(critic|judge)_[a-z0-9]+_\d+_\d+$/.test(marker)) {
+    return marker.startsWith("critic_") ? "critic" : "judge"
+  }
+  return null
 }
 
 function clientIp(c: Context): string {
@@ -270,14 +298,14 @@ export function createApp(deps: AppDeps): Hono {
         agent: typeof body.data.agent === "string" && body.data.agent ? body.data.agent : null,
       }
     },
-    async createSession({ directory, parentID, title, marker }) {
+    async createSession({ directory, parentID, title, marker, role }) {
       const response = await callOpencode("/api/session", {
         method: "POST",
         body: {
           location: { directory },
           parentID,
           title,
-          metadata: { [GOAL_SESSION_MARKER_KEY]: marker },
+          metadata: { [GOAL_SESSION_MARKER_KEY]: marker, [GOAL_INTERNAL_MARKER_KEY]: role },
         },
       })
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
@@ -287,9 +315,14 @@ export function createApp(deps: AppDeps): Hono {
       invalidateSessionsCache()
       return { id }
     },
-    async findSessionByMarker(parentID, marker) {
+    async findSessionByMarker(directory, marker) {
+      // Scoped by directory, NOT by parentID: the pinned opencode silently
+      // drops `parentID` on create, so the session is a root and a parentID
+      // filter would always miss it — the retry would replay the create and
+      // duplicate the internal session. The marker is unique per run, and the
+      // just-created session is the newest (desc order), so a single page wins.
       const response = await callOpencode(
-        `/api/session?parentID=${encodeURIComponent(parentID)}&limit=200`,
+        `/api/session?directory=${encodeURIComponent(directory)}&limit=200`,
         { retry: false },
       )
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
@@ -1357,12 +1390,29 @@ export function createApp(deps: AppDeps): Hono {
       return opencodeFailure(c, error)
     }
 
+    // Goal Mode's internal critic/judge sessions are never listed: they are
+    // annotated with `goalRole` so clients keep them out of the sidebar while
+    // still reaching them from the main session's review cards. The run store
+    // wins over the metadata marker because opencode may return sessions
+    // created before the stable role key existed.
+    const goalRoles = new Map<string, GoalRole>()
+    for (const run of deps.store.listGoalRuns()) {
+      if (run.criticSessionID) goalRoles.set(run.criticSessionID, "critic")
+      if (run.judgeSessionID) goalRoles.set(run.judgeSessionID, "judge")
+    }
+
     const byID = new Map(records.map((record) => [record.sessionID, record]))
-    const merged = new Map<string, OpencodeSession & { isolation?: ReturnType<typeof isolationOf> }>()
+    type MergedSession = OpencodeSession & {
+      isolation?: ReturnType<typeof isolationOf>
+      goalRole?: GoalRole
+    }
+    const merged = new Map<string, MergedSession>()
     for (const session of lists.flat()) {
+      const goalRole = goalRoles.get(session.id) ?? goalRoleFromMetadata(session.metadata)
+      const annotated: MergedSession = goalRole ? { ...session, goalRole } : session
       // Child (subagent) sessions inherit their parent's worktree annotation.
       const record = byID.get(session.id) ?? (session.parentID ? byID.get(session.parentID) : undefined)
-      merged.set(session.id, record ? { ...session, isolation: isolationOf(record) } : session)
+      merged.set(session.id, record ? { ...annotated, isolation: isolationOf(record) } : annotated)
     }
     return c.json({ sessions: [...merged.values()] })
   })

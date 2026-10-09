@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
   GOAL_EVENT_TYPE,
+  goalActivityLabel,
   goalPayloadOf,
   goalResultLine,
+  goalReviewRounds,
   goalStateLabel,
   isGoalActive,
   normalizeGoalRun,
   normalizeGoalSettings,
+  splitGoalMarkers,
   type GoalRun,
 } from "../src/goal"
 
@@ -155,5 +158,156 @@ describe("normalizeGoalSettings", () => {
       judgeModel: null,
     })
     expect(normalizeGoalSettings("nope")).toBeNull()
+  })
+})
+
+describe("splitGoalMarkers", () => {
+  it("splits prose from a parsed completion report", () => {
+    const text = [
+      "Working on it.",
+      '<masterhand:goal status="complete">{"summary": "done", "evidence": ["npm test"]}</masterhand:goal>',
+    ].join("\n")
+    const segments = splitGoalMarkers(text)
+    expect(segments).toHaveLength(2)
+    expect(segments[0]).toEqual({ kind: "text", text: "Working on it.\n" })
+    expect(segments[1]).toEqual({
+      kind: "report",
+      report: { status: "complete", summary: "done", evidence: ["npm test"], reason: null },
+    })
+  })
+
+  it("parses critique and verdict blocks", () => {
+    const critique = splitGoalMarkers(
+      '<masterhand:critique>{"argument": "weak", "issues": [{"severity": "high", "claim": "c", "evidence": "e"}]}</masterhand:critique>',
+    )
+    expect(critique).toEqual([
+      {
+        kind: "critique",
+        critique: { argument: "weak", issues: [{ severity: "high", claim: "c", evidence: "e" }] },
+      },
+    ])
+
+    const verdict = splitGoalMarkers(
+      '<masterhand:verdict>{"approved": false, "reasoning": "not yet", "requiredChanges": ["fix it"]}</masterhand:verdict>',
+    )
+    expect(verdict).toEqual([
+      {
+        kind: "verdict",
+        verdict: { approved: false, reasoning: "not yet", requiredChanges: ["fix it"] },
+      },
+    ])
+  })
+
+  it("reads a blocked status from the marker attribute", () => {
+    const segments = splitGoalMarkers(
+      '<masterhand:goal status="blocked">{"summary": "stuck", "reason": "no key"}</masterhand:goal>',
+    )
+    expect(segments).toEqual([
+      {
+        kind: "report",
+        report: { status: "blocked", summary: "stuck", evidence: [], reason: "no key" },
+      },
+    ])
+  })
+
+  it("keeps a malformed block visible instead of dropping text", () => {
+    const text = '<masterhand:goal>{not json}</masterhand:goal>'
+    expect(splitGoalMarkers(text)).toEqual([{ kind: "text", text }])
+  })
+
+  it("hides a trailing marker that is still streaming", () => {
+    const segments = splitGoalMarkers(
+      'All done.\n<masterhand:goal status="complete">{"summary": "str',
+    )
+    expect(segments).toEqual([{ kind: "text", text: "All done.\n" }])
+  })
+
+  it("keeps a prose mention of the protocol visible when no tag was opened", () => {
+    const text = "Finish by writing <masterhand:goal in your last message."
+    expect(splitGoalMarkers(text)).toEqual([{ kind: "text", text }])
+  })
+
+  it("returns the whole text when no marker is present", () => {
+    expect(splitGoalMarkers("plain reply")).toEqual([{ kind: "text", text: "plain reply" }])
+  })
+})
+
+describe("goalReviewRounds", () => {
+  it("appends the in-flight round after the settled history", () => {
+    const run = normalizeGoalRun(
+      goalRun({
+        round: 2,
+        state: "judging",
+        lastCritique: { argument: "still broken", issues: [] },
+        history: [
+          {
+            round: 1,
+            critique: { argument: "old", issues: [] },
+            verdict: { approved: false, reasoning: "r", requiredChanges: [] },
+          },
+        ],
+      }),
+    ) as GoalRun
+    const rounds = goalReviewRounds(run)
+    expect(rounds).toHaveLength(2)
+    expect(rounds[0]).toMatchObject({ round: 1, current: false })
+    expect(rounds[1]).toMatchObject({ round: 2, current: true })
+    expect(rounds[1]?.critique?.argument).toBe("still broken")
+  })
+
+  it("does not repeat the previous round's critique while the next one runs", () => {
+    const run = normalizeGoalRun(
+      goalRun({
+        round: 2,
+        state: "running",
+        lastCritique: { argument: "old", issues: [] },
+        history: [
+          {
+            round: 1,
+            critique: { argument: "old", issues: [] },
+            verdict: { approved: false, reasoning: "r", requiredChanges: [] },
+          },
+        ],
+      }),
+    ) as GoalRun
+    const rounds = goalReviewRounds(run)
+    expect(rounds.at(-1)).toMatchObject({ round: 2, current: true, critique: null, verdict: null })
+  })
+
+  it("returns the settled history only when the run is over", () => {
+    const run = normalizeGoalRun(
+      goalRun({
+        state: "approved",
+        round: 1,
+        lastCritique: { argument: "none", issues: [] },
+        lastVerdict: { approved: true, reasoning: "verified", requiredChanges: [] },
+        history: [
+          {
+            round: 1,
+            critique: { argument: "none", issues: [] },
+            verdict: { approved: true, reasoning: "verified", requiredChanges: [] },
+          },
+        ],
+      }),
+    ) as GoalRun
+    const rounds = goalReviewRounds(run)
+    expect(rounds).toHaveLength(1)
+    expect(rounds[0]?.current).toBe(false)
+  })
+})
+
+describe("goalActivityLabel", () => {
+  it("describes the awaited phase", () => {
+    const base = normalizeGoalRun(goalRun()) as GoalRun
+    expect(goalActivityLabel({ ...base, state: "critiquing", awaitingKind: "critic" })).toContain("critic")
+    expect(goalActivityLabel({ ...base, state: "judging", awaitingKind: "judge" })).toContain("judge")
+    expect(goalActivityLabel({ ...base, state: "running", awaitingKind: "main" })).toContain("main agent")
+    expect(goalActivityLabel({ ...base, state: "running", awaitingKind: null })).toContain("main agent")
+  })
+
+  it("prefers the transient error note and falls back to the state label", () => {
+    const base = normalizeGoalRun(goalRun()) as GoalRun
+    expect(goalActivityLabel({ ...base, lastError: "retrying the provider" })).toBe("retrying the provider")
+    expect(goalActivityLabel({ ...base, state: "approved", awaitingKind: null })).toBe("Goal approved")
   })
 })

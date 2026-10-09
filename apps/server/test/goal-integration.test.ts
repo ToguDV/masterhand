@@ -10,6 +10,22 @@ const TEST_AUTH = `Basic ${Buffer.from("opencode:oc-secret").toString("base64")}
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
 
+/**
+ * Waits until the BFF has actually prompted a phase session. The phase writes
+ * its instruction a few awaits before its prompt baseline is persisted, so a
+ * reply injected too early would be captured as the baseline and never seen as
+ * the phase's answer (the run would stall until the watchdog).
+ */
+async function waitForPrompt(sessionID: string): Promise<void> {
+  await waitFor(
+    () =>
+      upstream!.requests.some(
+        (request) => request.method === "POST" && request.path === `/api/session/${sessionID}/prompt`,
+      ),
+    20_000,
+  )
+}
+
 afterEach(async () => {
   await app?.close()
   await upstream?.close()
@@ -69,12 +85,16 @@ describe("goal integration", () => {
 
     await waitFor(() => Boolean(upstream!.sessionWithInstruction("masterhand.goal.critic")), 20_000)
     const critic = upstream.sessionWithInstruction("masterhand.goal.critic")!
+    await waitForPrompt(critic)
     const criticCreate = upstream.requests.find(
       (request) => request.method === "POST" && request.path === "/api/session" && request.body?.includes("masterhand.goal.role"),
     )
     expect(JSON.parse(criticCreate!.body!)).toMatchObject({
       parentID: "ses_main",
       location: { directory: "/e2e/workspace" },
+      // Stable role marker: the pinned opencode drops `parentID`, so this is
+      // what lets the BFF hide the internal sessions from the lists.
+      metadata: { "masterhand.goal.internal": "critic" },
     })
 
     upstream.reply(
@@ -85,6 +105,7 @@ describe("goal integration", () => {
 
     await waitFor(() => Boolean(upstream!.sessionWithInstruction("masterhand.goal.judge")), 20_000)
     const judge = upstream.sessionWithInstruction("masterhand.goal.judge")!
+    await waitForPrompt(judge)
     upstream.reply(
       judge,
       '<masterhand:verdict>{"approved": true, "reasoning": "verified", "requiredChanges": []}</masterhand:verdict>',

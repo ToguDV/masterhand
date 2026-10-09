@@ -9,6 +9,7 @@ import {
   isAmbiguousError,
   reconcileForms,
   reconcilePermissions,
+  rootSessions,
   sessionCreateMarker,
   useBffStatus,
   useEventStream,
@@ -435,6 +436,10 @@ export default function App() {
     () => [...(sessionsQuery.data ?? [])].sort((a, b) => b.time.updated - a.time.updated),
     [sessionsQuery.data],
   )
+  // Auto-open only targets sessions the sidebar can show: a Goal Mode critic
+  // session is often the most recently updated and must never be opened by
+  // fallback (it would leave the user on an invisible session).
+  const listableSessions = useMemo(() => rootSessions(sessions), [sessions])
 
   // Reconcile the open session when it disappears from the list (deleted from
   // another device/TUI: `session.deleted` invalidates the list and the refetch
@@ -447,9 +452,9 @@ export default function App() {
     const wasKnown = openID !== null && knownSessionIDsRef.current.has(openID)
     knownSessionIDsRef.current = current
     if (wasKnown && openID && !current.has(openID)) {
-      openSession(sessions[0]?.id ?? null)
+      openSession(listableSessions[0]?.id ?? null)
     }
-  }, [sessions, sessionsQuery.isSuccess, openSession])
+  }, [sessions, listableSessions, sessionsQuery.isSuccess, openSession])
   const statuses = statusesQuery.data ?? {}
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
@@ -463,9 +468,9 @@ export default function App() {
     if (!pendingWorkspaceAutoOpenRef.current) return
     if (!sessionsQuery.isSuccess) return
     pendingWorkspaceAutoOpenRef.current = false
-    const next = sessions[0]?.id ?? null
+    const next = listableSessions[0]?.id ?? null
     if (next !== sessionID) openSession(next)
-  }, [sessionsQuery.isSuccess, sessions, sessionID, openSession])
+  }, [sessionsQuery.isSuccess, listableSessions, sessionID, openSession])
 
   // Questions raised in another session still block their agents: surface them
   // as the choice-modal (the first not dismissed, so dismissing one reveals the

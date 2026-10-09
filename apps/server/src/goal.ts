@@ -32,8 +32,21 @@ export const JUDGE_INSTRUCTION_KEY = "masterhand.goal.judge"
 
 /** Metadata marker attached to every prompt so a lost response can be reconciled. */
 export const GOAL_DELIVERY_MARKER_KEY = "masterhand.goal.delivery"
-/** Metadata marker attached to internal session creation (create reconciliation). */
+/**
+ * Metadata key holding the **unique create-reconciliation marker** of an
+ * internal session. Historical naming: the key string is `masterhand.goal.role`
+ * although the value is a token (`critic_<runToken>_<round>_<serial>`); the key
+ * that stores the actual role is `GOAL_INTERNAL_MARKER_KEY`. Renaming a
+ * persisted key would orphan in-flight sessions, so it stays.
+ */
 export const GOAL_SESSION_MARKER_KEY = "masterhand.goal.role"
+/**
+ * Stable role marker on the internal critic/judge sessions. The pinned
+ * opencode (v2.0.6) silently drops `parentID` on session create, so the
+ * children cannot be recognized that way: MasterHand tags them and the BFF
+ * annotates the session list (`goalRole`) so clients never show them.
+ */
+export const GOAL_INTERNAL_MARKER_KEY = "masterhand.goal.internal"
 
 export const MAX_GOAL_LENGTH = 4000
 /** How many times a failed phase is re-driven before the run errors out. */
@@ -245,8 +258,9 @@ export interface GoalOpencode {
     parentID: string
     title: string
     marker: string
+    role: "critic" | "judge"
   }): Promise<{ id: string }>
-  findSessionByMarker(parentID: string, marker: string): Promise<{ id: string } | null>
+  findSessionByMarker(directory: string, marker: string): Promise<{ id: string } | null>
   prompt(sessionID: string, text: string, marker: string): Promise<void>
   promptLanded(sessionID: string, marker: string): Promise<boolean>
   writeInstruction(sessionID: string, key: string, value: string): Promise<void>
@@ -514,14 +528,22 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     const created = await retryable<{ id: string }>(
       () =>
         opencode.createSession({
+          // Keep sending `parentID` (newer opencode versions parent the child);
+          // the pinned v2.0.6 drops it, so the stable `role` marker is what
+          // actually keeps these sessions out of the sidebar.
           directory: info.directory,
           parentID: run.sessionID,
           title: kind === "critic" ? "Goal critic" : "Goal judge",
           marker,
+          role: kind,
         }),
       {
         includeTimeouts: true,
-        reconcile: async () => (await opencode.findSessionByMarker(run.sessionID, marker)) ?? undefined,
+        // Looked up by directory, not by `parentID`: the pinned opencode drops
+        // `parentID` on create, so a parent-scoped search would never find the
+        // session and the retry would duplicate it (the reconcile must prove
+        // the create landed — or it cannot be replayed).
+        reconcile: async () => (await opencode.findSessionByMarker(info.directory, marker)) ?? undefined,
         onRetry: (error) => {
           const live = store.getGoalRun(run.sessionID)
           if (!live) return
@@ -913,6 +935,11 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         throw new GoalError("session_busy", 409, "the session is running a turn; wait for it to finish")
       }
 
+      // Starting a new run replaces the record: drop the previous terminal
+      // run's internal sessions first so they do not linger unowned. Only after
+      // every validation passed — a rejected start must not destroy them.
+      if (existing) await removeInternalSessions(existing)
+
       const settings = store.getGoalSettings()
       const requestedModel =
         input.model === undefined || input.model === null ? null : normalizeModelRef(input.model)
@@ -1054,6 +1081,18 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     return store.getGoalRun(sessionID) ?? run
   }
 
+  /** Best-effort removal of a run's internal sessions (cancel/forget/replace). */
+  async function removeInternalSessions(run: GoalRunRecord): Promise<void> {
+    for (const id of [run.criticSessionID, run.judgeSessionID]) {
+      if (!id) continue
+      try {
+        await retryable(() => opencode.removeSession(id), { includeTimeouts: true })
+      } catch {
+        // hidden either way: the stable role marker keeps it out of the lists
+      }
+    }
+  }
+
   async function cancel(sessionID: string): Promise<GoalRunRecord> {
     const run = store.getGoalRun(sessionID)
     if (!run) throw new GoalError("goal_not_found", 404, "no goal run for this session")
@@ -1076,14 +1115,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
           // best effort
         }
       }
-      for (const id of [live.criticSessionID, live.judgeSessionID]) {
-        if (!id) continue
-        try {
-          await retryable(() => opencode.removeSession(id), { includeTimeouts: true })
-        } catch {
-          // the child sessions are hidden; leaving one is harmless
-        }
-      }
+      await removeInternalSessions(live)
       await removeInstruction(live, live.sessionID, GOAL_INSTRUCTION_KEY)
     })
     return store.getGoalRun(sessionID) ?? run
@@ -1091,9 +1123,14 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
 
   async function forget(sessionID: string): Promise<void> {
     await enqueue(sessionID, async () => {
-      if (!store.getGoalRun(sessionID)) return
+      const run = store.getGoalRun(sessionID)
+      if (!run) return
       store.removeGoalRun(sessionID)
       emit({ type: "goal.updated", data: { sessionID, goal: null } })
+      // The internal sessions do not die with their main session on the pinned
+      // opencode (create drops `parentID`): remove them explicitly so they do
+      // not leak as untracked sessions.
+      await removeInternalSessions(run)
     })
   }
 

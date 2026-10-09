@@ -162,7 +162,8 @@ export async function startMockOpencode(): Promise<MockOpencode> {
         }
         const session = {
           id: `ses_mock_${sessionCounter}`,
-          ...(input.parentID ? { parentID: input.parentID } : {}),
+          // Faithful to the pinned v2.0.6: `parentID` is accepted in the body
+          // but dropped, so a client-created session is always a root.
           ...(input.metadata ? { metadata: input.metadata } : {}),
           location: { directory: input.location?.directory ?? "" },
           model: null,

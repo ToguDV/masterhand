@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
@@ -7,6 +7,7 @@ import {
   sessionUsage,
   tokenSpeed,
   useBffStatus,
+  useGoalRun,
   useMessages,
   usePendingSend,
   usePreview,
@@ -21,6 +22,7 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer, type ComposerHandle } from "../components/Composer"
+import { GoalReview } from "../components/GoalReview"
 import { GoalStrip } from "../components/GoalStrip"
 import { MessageBubble } from "../components/MessageBubble"
 import { PendingBubble } from "../components/PendingBubble"
@@ -106,6 +108,15 @@ export function ChatScreen({
   const speedValue = tokenSpeed(usage, usage.durationMs)
   const hasStats =
     usage.cost > 0 || usage.input > 0 || usage.output > 0 || usage.reasoning > 0 || speedValue !== null
+  // The review footer grows with every goal transition: include it in the
+  // follow-scroll. Expanding a round is local state and must NOT yank the
+  // user to the bottom, so this replaces the old onContentSizeChange hook.
+  const goalUpdatedAt = useGoalRun(client, sessionID).data?.updatedAt
+
+  useEffect(() => {
+    if (messages.length === 0) return
+    listRef.current?.scrollToEnd({ animated: true })
+  }, [messages, goalUpdatedAt])
 
   async function finish() {
     setFinishing(true)
@@ -177,15 +188,17 @@ export function ChatScreen({
         keyExtractor={(entry) => entry.info.id}
         contentContainerStyle={styles.list}
         style={styles.listContainer}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         ListFooterComponent={
-          pendingSend.pending ? (
-            <PendingBubble
-              pending={pendingSend.pending}
-              onRetry={() => composerRef.current?.retry()}
-              onDismiss={pendingSend.dismiss}
-            />
-          ) : null
+          <>
+            <GoalReview client={client} sessionID={sessionID} />
+            {pendingSend.pending ? (
+              <PendingBubble
+                pending={pendingSend.pending}
+                onRetry={() => composerRef.current?.retry()}
+                onDismiss={pendingSend.dismiss}
+              />
+            ) : null}
+          </>
         }
         ListEmptyComponent={
           messagesQuery.isLoading ? (

@@ -1195,9 +1195,12 @@ const server = createServer((req, res) => {
         body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
           ? (body.metadata as Record<string, unknown>)
           : undefined
-      const parentID = typeof body.parentID === "string" ? body.parentID : undefined
       const title = typeof body.title === "string" ? body.title : undefined
-      const session = createSession({ directory, metadata, parentID, title })
+      // The pinned opencode (v2.0.6) does NOT accept `parentID` on create (the
+      // field is dropped silently): a client-created session is always a root.
+      // Keeping the mock faithful is what makes the sidebar hiding testable —
+      // Goal Mode must hide its internal sessions itself, never via parentID.
+      const session = createSession({ directory, metadata, title })
       if (stallCreate) await new Promise<void>((resolve) => heldCreates.push(resolve))
       return json(res, 200, { data: session })
     }

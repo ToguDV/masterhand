@@ -27,7 +27,7 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | Method | Route | Usage in MasterHand |
 |---|---|---|
 | `GET` | `/api/session` | List sessions. Query: `directory`, `limit`, `order`, `search`, `parentID`, `cursor`; responds `{ data, cursor: { previous, next } }` (newest 50 by default). A cursor cannot be combined with `order` |
-| `POST` | `/api/session` | Create session; body `{ title?, agent?, model?, location: { directory } }`; responds `{ data: SessionInfo }` |
+| `POST` | `/api/session` | Create session; body `{ title?, agent?, model?, metadata?, permission?, location }`; responds `{ data: SessionInfo }`. **No `parentID` on the pinned v2.0.6**: it is silently dropped, so a client-created session is always a root (upstream added the field after 2.0.6 and the generated SDK types lag). `metadata` is persisted and returned by the session list — the durable marker channel MasterHand uses for create reconciliation and role tagging |
 | `GET` | `/api/session/:id` | Session detail (`{ data }`) |
 | `PATCH` | `/api/session/:id` | Rename / metadata / permissions |
 | `DELETE` | `/api/session/:id` | Delete session and its children (session id resolves the location, no `directory` needed) |

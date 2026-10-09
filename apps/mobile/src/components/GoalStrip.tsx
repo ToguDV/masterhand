@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
@@ -9,16 +9,16 @@ import {
   queryKeys,
   useGoalRun,
   type Client,
-  type GoalRun,
 } from "@masterhand/client-core"
-import { SparkleIcon } from "./icons"
+import { PauseIcon, PlayIcon, SparkleIcon, StopIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
- * Goal Mode status strip (issue #130): one subtle block above the composer with
- * the loop phase, round and last review result, plus pause/resume/cancel/retry
- * actions. The run state is SSE-driven (`goal.updated` frames); mutations
+ * Goal Mode control strip: one subtle block above the composer with the loop
+ * phase, round and last review result, plus actions styled like the rest of
+ * the interface. The run state is SSE-driven (`goal.updated` frames); mutations
  * reconcile it by refetching and a timeout is reported as "may have changed".
+ * The review history itself lives in the thread (GoalReview).
  */
 export function GoalStrip({ client, sessionID }: { client: Client; sessionID: string }) {
   const queryClient = useQueryClient()
@@ -27,13 +27,13 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
   // Synchronous in-flight guard: a state flag is not a lock (rule 7).
   const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
 
   if (!data) return null
 
   const active = isGoalActive(data.state)
+  const resumable = data.state === "paused" || data.state === "error"
   const result = goalResultLine(data)
 
   async function act(action: () => Promise<unknown>): Promise<void> {
@@ -62,9 +62,9 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
       <View style={styles.infoRow}>
         <SparkleIcon size={13} color={active ? colors.accent : colors.textMuted} />
         <Text style={[styles.state, tone]}>{goalStateLabel(data.state)}</Text>
-        <Text style={styles.round}>
-          round {data.round}/{data.maxRounds}
-        </Text>
+        <View style={styles.roundChip}>
+          <Text style={styles.round}>{`${data.round}/${data.maxRounds}`}</Text>
+        </View>
         {data.lastError && active ? (
           <Text style={styles.warning} numberOfLines={1}>
             {data.lastError}
@@ -81,123 +81,83 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
           <>
             <Action
               label="Pause"
+              icon={<PauseIcon size={14} color={colors.text} />}
               disabled={busy}
               onPress={() => void act(() => client.api.goal.pause(sessionID))}
             />
             <Action
               label="Cancel"
-              danger
+              icon={<StopIcon size={14} color={colors.danger} />}
+              variant="danger"
               disabled={busy}
               onPress={() => void act(() => client.api.goal.cancel(sessionID))}
             />
           </>
         ) : null}
-        {data.state === "paused" || data.state === "error" ? (
+        {resumable ? (
           <>
             <Action
               label={data.state === "paused" ? "Resume" : "Retry"}
+              icon={<PlayIcon size={14} color={colors.onAccent} />}
+              variant="primary"
               disabled={busy}
               onPress={() => void act(() => client.api.goal.resume(sessionID))}
             />
             <Action
               label="Cancel"
-              danger
+              icon={<StopIcon size={14} color={colors.danger} />}
+              variant="danger"
               disabled={busy}
               onPress={() => void act(() => client.api.goal.cancel(sessionID))}
             />
           </>
         ) : null}
-        <Action
-          label={expanded ? "Hide" : "Details"}
-          expanded={expanded}
-          onPress={() => setExpanded((current) => !current)}
-        />
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {data.error ? <Text style={styles.error}>{data.error}</Text> : null}
-      {expanded ? <GoalDetails run={data} /> : null}
     </View>
   )
 }
 
 function Action({
   label,
+  icon,
   onPress,
-  danger = false,
+  variant = "secondary",
   disabled = false,
-  expanded,
 }: {
   label: string
+  icon: ReactNode
   onPress: () => void
-  danger?: boolean
+  variant?: "primary" | "secondary" | "danger"
   disabled?: boolean
-  /** Set for the Details/Hide toggle so screen readers announce its state. */
-  expanded?: boolean
 }) {
   const styles = useThemedStyles(createStyles)
   return (
     <Pressable
-      style={[styles.action, danger && styles.actionDanger, disabled && styles.disabled]}
+      style={[
+        styles.action,
+        variant === "primary" && styles.actionPrimary,
+        variant === "danger" && styles.actionDanger,
+        disabled && styles.disabled,
+      ]}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={expanded === undefined ? undefined : { expanded }}
     >
-      <Text style={[styles.actionText, danger && styles.dangerText]}>{label}</Text>
+      {icon}
+      <Text
+        style={[
+          styles.actionText,
+          variant === "primary" && styles.actionPrimaryText,
+          variant === "danger" && styles.dangerText,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
-  )
-}
-
-/** Collapsed-strip detail: goal, last report and the per-round review history. */
-function GoalDetails({ run }: { run: GoalRun }) {
-  const styles = useThemedStyles(createStyles)
-  return (
-    <View style={styles.details}>
-      <View style={styles.line}>
-        <Text style={styles.detailsStrong}>Goal: </Text>
-        <Text style={styles.detailsText}>{run.goal}</Text>
-      </View>
-      {run.lastReport ? (
-        <View style={styles.line}>
-          <Text style={styles.detailsStrong}>Report ({run.lastReport.status}): </Text>
-          <Text style={styles.detailsMuted}>{run.lastReport.summary}</Text>
-        </View>
-      ) : null}
-      {run.history.length === 0 ? (
-        <Text style={styles.detailsMuted}>No rounds reviewed yet.</Text>
-      ) : (
-        run.history.map((entry, index) => (
-          <View key={`${entry.round}-${index}`} style={index > 0 ? styles.historyEntry : undefined}>
-            <View style={styles.line}>
-              <Text style={styles.detailsStrong}>Round {entry.round}: </Text>
-              {entry.verdict?.approved ? (
-                <Text style={styles.detailsApproved}>approved — {entry.verdict.reasoning}</Text>
-              ) : (
-                <Text style={styles.detailsMuted}>
-                  rejected{entry.verdict?.reasoning ? ` — ${entry.verdict.reasoning}` : ""}
-                </Text>
-              )}
-            </View>
-            {entry.verdict && !entry.verdict.approved
-              ? entry.verdict.requiredChanges.map((change) => (
-                  <Text key={change} style={styles.detailsBullet}>
-                    • {change}
-                  </Text>
-                ))
-              : null}
-            {entry.critique
-              ? entry.critique.issues.map((issue, issueIndex) => (
-                  <Text key={`${issue.claim}-${issueIndex}`} style={styles.detailsBullet}>
-                    <Text style={styles.severity}>{issue.severity.toUpperCase()}</Text>: {issue.claim}
-                  </Text>
-                ))
-              : null}
-          </View>
-        ))
-      )}
-    </View>
   )
 }
 
@@ -228,10 +188,17 @@ function createStyles(colors: Palette, fonts: Fonts) {
     dangerText: {
       color: colors.danger,
     },
+    roundChip: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 8,
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+    },
     round: {
       color: colors.textMuted,
       fontFamily: fonts.mono,
-      fontSize: 11,
+      fontSize: 10,
     },
     result: {
       flexShrink: 1,
@@ -252,13 +219,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
       gap: 8,
     },
     action: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
       minHeight: 44,
       justifyContent: "center",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
-      borderRadius: 8,
+      borderRadius: 10,
       paddingHorizontal: 14,
+    },
+    actionPrimary: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accent,
     },
     actionDanger: {
       borderColor: colors.dangerLine,
@@ -273,68 +247,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
       fontWeight: "500",
     },
+    actionPrimaryText: {
+      color: colors.onAccent,
+    },
     error: {
       color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 11,
-    },
-    details: {
-      gap: 6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
-      padding: 8,
-    },
-    line: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      alignItems: "baseline",
-    },
-    detailsText: {
-      flexShrink: 1,
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      lineHeight: 15,
-    },
-    detailsStrong: {
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      lineHeight: 15,
-      fontWeight: "600",
-    },
-    detailsMuted: {
-      flexShrink: 1,
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      lineHeight: 15,
-    },
-    detailsApproved: {
-      flexShrink: 1,
-      color: colors.accent,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      lineHeight: 15,
-      fontWeight: "600",
-    },
-    detailsBullet: {
-      marginLeft: 10,
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      lineHeight: 15,
-    },
-    severity: {
-      color: colors.warning,
-      fontWeight: "600",
-    },
-    historyEntry: {
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-      paddingTop: 6,
     },
   })
 }

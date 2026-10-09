@@ -7,6 +7,7 @@ import {
   highlightCode,
   isQuestionTool,
   isTaskTool,
+  splitGoalMarkers,
   subagentInfo,
   subagentOutput,
   type ChatMessage,
@@ -24,6 +25,7 @@ import { StatusDot } from "./tools/StatusDot"
 import { QuestionCard } from "./QuestionCard"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { MessageStats } from "./MessageStats"
+import { CritiqueCard, GoalReportCard, VerdictCard } from "./GoalCards"
 
 // Assistant output is markdown; render it as such (GFM + single newlines as
 // breaks, matching what the model expects to see). Every element maps to the
@@ -103,6 +105,25 @@ const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
     </div>
   )
 })
+
+/**
+ * Assistant text carrying the agents' custom marker protocol: prose renders as
+ * markdown and every `<masterhand:goal|critique|verdict>` block becomes a card
+ * (the raw JSON is never shown).
+ */
+function TextWithMarkers({ text }: { text: string }) {
+  const segments = useMemo(() => splitGoalMarkers(text), [text])
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (segment.kind === "text") return <MarkdownText key={index} text={segment.text} />
+        if (segment.kind === "report") return <GoalReportCard key={index} report={segment.report} />
+        if (segment.kind === "critique") return <CritiqueCard key={index} critique={segment.critique} />
+        return <VerdictCard key={index} verdict={segment.verdict} />
+      })}
+    </>
+  )
+}
 
 const FENCED_TOKEN_CLASS: Record<string, string | null> = {
   keyword: "mh-tok-keyword",
@@ -254,7 +275,7 @@ function PartView({
 }: PartViewProps) {
   switch (part.type) {
     case "text":
-      return <MarkdownText text={part.text} />
+      return <TextWithMarkers text={part.text} />
     case "reasoning":
       return <ReasoningBlock part={part} />
     case "tool": {

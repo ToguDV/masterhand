@@ -4,6 +4,7 @@ import Markdown, { darkStyles, type MarkdownStyleMap } from "@ronradtke/react-na
 import {
   isQuestionTool,
   isTaskTool,
+  splitGoalMarkers,
   subagentInfo,
   subagentOutput,
   toolTitle,
@@ -20,6 +21,7 @@ import { statusColor } from "./tools/theme"
 import { ToolCard } from "./tools/ToolCard"
 import { QuestionCard } from "./QuestionCard"
 import { MessageStats } from "./MessageStats"
+import { CritiqueCard, GoalReportCard, VerdictCard } from "./GoalReview"
 
 // Assistant output is markdown: render it as such. The library ships a complete
 // dark preset; only the palette is overridden to match the app theme.
@@ -84,6 +86,25 @@ function MarkdownText({ text }: { text: string }) {
     <Markdown colorScheme="dark" style={markdownStyles}>
       {text}
     </Markdown>
+  )
+}
+
+/**
+ * Assistant text carrying the agents' custom marker protocol: prose renders as
+ * markdown and every `<masterhand:goal|critique|verdict>` block becomes a card
+ * (the raw JSON is never shown).
+ */
+function TextWithMarkers({ text }: { text: string }) {
+  const segments = useMemo(() => splitGoalMarkers(text), [text])
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (segment.kind === "text") return <MarkdownText key={index} text={segment.text} />
+        if (segment.kind === "report") return <GoalReportCard key={index} report={segment.report} />
+        if (segment.kind === "critique") return <CritiqueCard key={index} critique={segment.critique} />
+        return <VerdictCard key={index} verdict={segment.verdict} />
+      })}
+    </>
   )
 }
 
@@ -154,7 +175,7 @@ interface PartViewProps {
 function PartView({ part, onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm }: PartViewProps) {
   switch (part.type) {
     case "text":
-      return <MarkdownText text={part.text} />
+      return <TextWithMarkers text={part.text} />
     case "reasoning":
       return <Reasoning text={part.text} />
     case "tool":
