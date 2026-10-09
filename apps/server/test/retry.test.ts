@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  AmbiguousMutationError,
   OpencodeTimeoutError,
   RetryExhaustedError,
   UpstreamStatusError,
@@ -175,27 +176,29 @@ describe("withRetry", () => {
     expect(delays).toEqual([250])
   })
 
-  it("does not let a failing reconcile mask the retry path", async () => {
-    const { sleep } = fakeSleep()
+  it("aborts without replaying when reconciliation itself fails (unknown outcome)", async () => {
+    const { delays, sleep } = fakeSleep()
     let calls = 0
-    const result = await withRetry(
+    const original = new TypeError("fetch failed")
+    const failure = await withRetry(
       async () => {
         calls += 1
-        if (calls === 1) throw new TypeError("fetch failed")
-        return "ok"
+        throw original
       },
       {
         sleep,
         jitter: false,
         attempts: 3,
         reconcile: async () => {
-          throw new Error("reconcile is down too")
+          throw new Error("the marker lookup is down too")
         },
       },
-    )
+    ).catch((error: unknown) => error)
 
-    expect(result).toBe("ok")
-    expect(calls).toBe(2)
+    expect(calls).toBe(1)
+    expect(failure).toBeInstanceOf(AmbiguousMutationError)
+    expect((failure as AmbiguousMutationError).cause).toBe(original)
+    expect(delays).toEqual([])
   })
 
   it("reports every retry for observability", async () => {

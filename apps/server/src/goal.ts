@@ -1,4 +1,5 @@
-import { UpstreamStatusError, isTransientFailure, withRetry, type RetryOptions } from "./retry.js"
+import { randomUUID } from "node:crypto"
+import { AmbiguousMutationError, UpstreamStatusError, isTransientFailure, withRetry, type RetryOptions } from "./retry.js"
 import {
   DEFAULT_GOAL_MAX_ROUNDS,
   type GoalCritique,
@@ -206,7 +207,7 @@ export interface GoalOpencode {
     title: string
     marker: string
   }): Promise<{ id: string }>
-  findSessionByMarker(marker: string): Promise<{ id: string } | null>
+  findSessionByMarker(parentID: string, marker: string): Promise<{ id: string } | null>
   prompt(sessionID: string, text: string, marker: string): Promise<void>
   promptLanded(sessionID: string, marker: string): Promise<boolean>
   writeInstruction(sessionID: string, key: string, value: string): Promise<void>
@@ -409,7 +410,9 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     if (!sessionID) throw new GoalError("goal_not_active", 409, `no session for phase ${kind}`)
     const baseline = await retryable(() => opencode.lastAssistant(sessionID), { includeTimeouts: true })
     run.promptSerial += 1
-    const marker = `goal_${run.sessionID}_${run.promptSerial}`
+    // The run token keeps markers unique across runs in the same session (a
+    // new run must never reconcile against a previous run's message).
+    const marker = `goal_${run.runToken}_${run.promptSerial}`
     run.awaitingKind = kind
     run.awaitingSessionID = sessionID
     run.awaitingAssistantID = baseline?.id ?? null
@@ -462,7 +465,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
   ): Promise<{ id: string; directory: string }> {
     const info = await retryable(() => opencode.sessionInfo(run.sessionID), { includeTimeouts: true })
     if (!info) throw new GoalError("goal_not_active", 409, "the goal session no longer exists")
-    const marker = `${kind}_${run.sessionID}_${run.round}_${run.promptSerial}`
+    const marker = `${kind}_${run.runToken}_${run.round}_${run.promptSerial}`
     const created = await retryable<{ id: string }>(
       () =>
         opencode.createSession({
@@ -473,7 +476,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         }),
       {
         includeTimeouts: true,
-        reconcile: async () => (await opencode.findSessionByMarker(marker)) ?? undefined,
+        reconcile: async () => (await opencode.findSessionByMarker(run.sessionID, marker)) ?? undefined,
         onRetry: (error) => {
           const live = store.getGoalRun(run.sessionID)
           if (!live) return
@@ -516,12 +519,34 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     return lines.join("\n")
   }
 
+  /**
+   * One failure path for phase work: an unknown (unreconcilable) mutation
+   * outcome lands the run in a resumable error instead of re-driving the
+   * phase, which could duplicate a prompt that actually landed.
+   */
+  async function handlePhaseError(run: GoalRunRecord, kind: GoalPhase, error: unknown, action: string): Promise<void> {
+    if (error instanceof AmbiguousMutationError) {
+      fail(run, `could not confirm whether ${action} landed — check the run status before resuming`, kind)
+      return
+    }
+    await retryPhase(run, kind, errorMessage(error))
+  }
+
   async function startCritique(run: GoalRunRecord, report: GoalReport): Promise<void> {
     run.state = "critiquing"
     clearAwaiting(run)
     persist(run)
     try {
       let criticID = run.criticSessionID
+      if (criticID) {
+        // A critic deleted out-of-band must be recreated, not prompted into a 404.
+        const alive = await retryable(() => opencode.sessionInfo(criticID!), { includeTimeouts: true })
+        if (!alive) {
+          run.criticSessionID = null
+          criticID = null
+          persist(run)
+        }
+      }
       if (!criticID) {
         const created = await createInternalSession(run, "critic")
         criticID = created.id
@@ -532,7 +557,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       await switchModel(criticID, run.criticModel)
       await promptPhase(run, "critic", critiquePrompt(run, report))
     } catch (error) {
-      await retryPhase(run, "critic", errorMessage(error))
+      await handlePhaseError(run, "critic", error, "the critic review")
     }
   }
 
@@ -542,6 +567,14 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     persist(run)
     try {
       let judgeID = run.judgeSessionID
+      if (judgeID) {
+        const alive = await retryable(() => opencode.sessionInfo(judgeID!), { includeTimeouts: true })
+        if (!alive) {
+          run.judgeSessionID = null
+          judgeID = null
+          persist(run)
+        }
+      }
       if (!judgeID) {
         const created = await createInternalSession(run, "judge")
         judgeID = created.id
@@ -552,7 +585,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       await switchModel(judgeID, run.judgeModel)
       await promptPhase(run, "judge", judgePrompt(run, critique))
     } catch (error) {
-      await retryPhase(run, "judge", errorMessage(error))
+      await handlePhaseError(run, "judge", error, "the judge decision")
     }
   }
 
@@ -572,21 +605,35 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
 
     const current = store.getGoalRun(run.sessionID)
     if (!current || TERMINAL_STATES.has(current.state) || current.state === "paused") return
-    try {
-      if (kind === "main") {
-        current.state = "running"
-        persist(current)
+    if (kind === "main") {
+      current.state = "running"
+      persist(current)
+      try {
         await promptPhase(current, "main", mainContinuation(current, reason))
-      } else if (kind === "critic" && current.lastReport) {
-        await promptPhase(current, "critic", critiquePrompt(current, current.lastReport))
-      } else if (kind === "judge" && current.lastCritique) {
-        await promptPhase(current, "judge", judgePrompt(current, current.lastCritique))
-      } else {
-        fail(current, reason, kind)
+      } catch (error) {
+        if (error instanceof AmbiguousMutationError) {
+          fail(
+            current,
+            "could not confirm whether the follow-up prompt landed — check the run status before resuming",
+            "main",
+          )
+        } else {
+          fail(current, `${reason}: ${errorMessage(error)}`, kind)
+        }
       }
-    } catch (error) {
-      fail(current, `${reason}: ${errorMessage(error)}`, kind)
+      return
     }
+    if (kind === "critic" && current.lastReport) {
+      // Re-run the whole phase setup: the critic session, its instruction or
+      // the model may be what failed, not just the prompt (S2).
+      await startCritique(current, current.lastReport)
+      return
+    }
+    if (kind === "judge" && current.lastCritique) {
+      await startJudge(current, current.lastCritique)
+      return
+    }
+    fail(current, reason, kind)
   }
 
   async function settleRound(run: GoalRunRecord, verdict: GoalVerdict): Promise<void> {
@@ -619,7 +666,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     try {
       await promptPhase(run, "main", mainContinuation(run))
     } catch (error) {
-      await retryPhase(run, "main", errorMessage(error))
+      await handlePhaseError(run, "main", error, "the follow-up prompt")
     }
   }
 
@@ -635,7 +682,11 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     try {
       await promptPhase(run, "main", GOAL_MARKER_NUDGE)
     } catch (error) {
-      fail(run, `the completion marker was missing: ${errorMessage(error)}`, "main")
+      const message =
+        error instanceof AmbiguousMutationError
+          ? "could not confirm whether the corrective prompt landed — check the run status before resuming"
+          : `the completion marker was missing: ${errorMessage(error)}`
+      fail(run, message, "main")
     }
   }
 
@@ -720,13 +771,18 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       }
       const run = runForSession(sessionID)
       if (!run || TERMINAL_STATES.has(run.state)) return
-      if (run.awaitingSessionID === sessionID) {
-        void enqueue(run.sessionID, async () => {
-          const live = store.getGoalRun(run.sessionID)
-          if (!live || TERMINAL_STATES.has(live.state) || live.awaitingSessionID !== sessionID) return
-          fail(live, `the ${live.awaitingKind ?? "review"} session was deleted`, live.awaitingKind ?? "main")
-        })
-      }
+      void enqueue(run.sessionID, async () => {
+        const live = store.getGoalRun(run.sessionID)
+        if (!live || TERMINAL_STATES.has(live.state)) return
+        const wasAwaited = live.awaitingSessionID === sessionID
+        const kind = live.awaitingKind ?? "main"
+        // Clear the reference even when it is not the awaited session: a stale
+        // id would poison every later round (and every resume) with a 404.
+        if (live.criticSessionID === sessionID) live.criticSessionID = null
+        if (live.judgeSessionID === sessionID) live.judgeSessionID = null
+        persist(live)
+        if (wasAwaited) fail(live, `the ${kind} session was deleted`, kind)
+      })
       return
     }
 
@@ -780,8 +836,11 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
 
   async function start(input: { sessionID: string; goal: string; model?: string | null }): Promise<GoalRunRecord> {
     const goal = input.goal.trim()
-    if (!goal || goal.length > MAX_GOAL_LENGTH) {
-      throw new GoalError("invalid_goal", 400, `the goal must be 1..${MAX_GOAL_LENGTH} characters`)
+    if (!goal) {
+      throw new GoalError("invalid_goal", 400, "the goal is empty")
+    }
+    if (goal.length > MAX_GOAL_LENGTH) {
+      throw new GoalError("goal_too_long", 400, `the goal must be at most ${MAX_GOAL_LENGTH} characters`)
     }
     // Serialized check→create (rule 12): two devices starting at once must not
     // create two runs; failures propagate to the route.
@@ -808,6 +867,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       const mainModel = normalizeRef(input.model) ?? info.model
       const run: GoalRunRecord = {
         sessionID: input.sessionID,
+        runToken: randomUUID().replace(/-/g, "").slice(0, 12),
         goal,
         state: "running",
         round: 1,
@@ -839,6 +899,11 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         await writeInstruction(run, run.sessionID, GOAL_INSTRUCTION_KEY, GOAL_INSTRUCTION)
         await promptPhase(run, "main", goal)
       } catch (error) {
+        if (error instanceof AmbiguousMutationError) {
+          const message = "could not confirm whether the goal prompt landed — check the run status before resuming"
+          fail(run, message, "main")
+          throw new GoalError("goal_ambiguous", 502, message)
+        }
         fail(run, `could not start the goal: ${errorMessage(error)}`, "main")
         throw new GoalError("opencode_unreachable", 502, errorMessage(error))
       }
@@ -998,7 +1063,9 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
 
   function reconcileOnBoot(): void {
     for (const run of store.listGoalRuns()) {
-      if (TERMINAL_STATES.has(run.state)) continue
+      // Only in-flight phases are interrupted by a restart: runs already in
+      // paused/error keep their own reason and verdict.
+      if (run.state !== "running" && run.state !== "critiquing" && run.state !== "judging") continue
       run.pausedPhase = run.pausedPhase ?? run.awaitingKind ?? "main"
       run.state = "paused"
       run.error = "The run was interrupted by a MasterHand restart — resume to continue."

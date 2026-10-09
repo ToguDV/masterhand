@@ -214,6 +214,8 @@ describe("goalErrorMessage", () => {
     expect(goalErrorMessage(apiError(409, { error: "goal_running" }))).toContain("already active")
     expect(goalErrorMessage(apiError(409, { error: "session_busy" }))).toContain("mid-turn")
     expect(goalErrorMessage(apiError(400, { error: "invalid_goal" }))).toContain("after /goal")
+    expect(goalErrorMessage(apiError(400, { error: "goal_too_long" }))).toContain("too long")
+    expect(goalErrorMessage(apiError(502, { error: "goal_ambiguous" }))).toContain("could not confirm")
     expect(goalErrorMessage(apiError(400, { error: "invalid_model" }))).toContain("Goal review")
     expect(goalErrorMessage(apiError(400, { error: "invalid_settings" }))).toContain("1 and 50")
     expect(goalErrorMessage(apiError(409, { error: "goal_not_active" }))).toContain("not in a state")

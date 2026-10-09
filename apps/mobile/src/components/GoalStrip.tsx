@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
@@ -24,6 +24,8 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
   const [busy, setBusy] = useState(false)
+  // Synchronous in-flight guard: a state flag is not a lock (rule 7).
+  const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
@@ -35,7 +37,8 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
   const result = goalResultLine(data)
 
   async function act(action: () => Promise<unknown>): Promise<void> {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -46,6 +49,7 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
       // A timeout may still have applied; refresh instead of retrying blindly.
       await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }

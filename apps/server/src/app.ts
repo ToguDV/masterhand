@@ -242,7 +242,7 @@ export function createApp(deps: AppDeps): Hono {
    */
   const goalOpencode: GoalOpencode = {
     async sessionInfo(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`)
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { retry: false })
       if (response.status === 404) return null
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as {
@@ -277,8 +277,11 @@ export function createApp(deps: AppDeps): Hono {
       invalidateSessionsCache()
       return { id }
     },
-    async findSessionByMarker(marker) {
-      const response = await callOpencode("/api/session?limit=200")
+    async findSessionByMarker(parentID, marker) {
+      const response = await callOpencode(
+        `/api/session?parentID=${encodeURIComponent(parentID)}&limit=200`,
+        { retry: false },
+      )
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as {
         data?: Array<{ id?: string; metadata?: Record<string, unknown> }>
@@ -296,6 +299,7 @@ export function createApp(deps: AppDeps): Hono {
     async promptLanded(sessionID, marker) {
       const response = await callOpencode(
         `/api/session/${encodeURIComponent(sessionID)}/message?limit=20&order=desc`,
+        { retry: false },
       )
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as {
@@ -308,14 +312,14 @@ export function createApp(deps: AppDeps): Hono {
     async writeInstruction(sessionID, key, value) {
       const response = await callOpencode(
         `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
-        { method: "PUT", body: { value } },
+        { method: "PUT", body: { value }, retry: false },
       )
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
     },
     async removeInstruction(sessionID, key) {
       const response = await callOpencode(
         `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
-        { method: "DELETE" },
+        { method: "DELETE", retry: false },
       )
       if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
     },
@@ -336,11 +340,17 @@ export function createApp(deps: AppDeps): Hono {
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
     },
     async removeSession(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" })
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
+        method: "DELETE",
+        retry: false,
+      })
       if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
     },
     async lastAssistant(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`)
+      const response = await callOpencode(
+        `/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`,
+        { retry: false },
+      )
       if (response.status === 404) return null
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as { data?: Array<{ id?: string; type?: string; content?: unknown }> }
@@ -351,13 +361,13 @@ export function createApp(deps: AppDeps): Hono {
       return null
     },
     async activeSessions() {
-      const response = await callOpencode("/api/session/active")
+      const response = await callOpencode("/api/session/active", { retry: false })
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as { data?: Record<string, unknown> }
       return Object.keys(body.data ?? {})
     },
     async models() {
-      const response = await callOpencode("/api/model")
+      const response = await callOpencode("/api/model", { retry: false })
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as { data?: Array<{ id?: string; providerID?: string }> }
       return (body.data ?? [])
@@ -521,7 +531,14 @@ export function createApp(deps: AppDeps): Hono {
    */
   function callOpencode(
     path: string,
-    options: { method?: string; directory?: string | null; location?: string | null; body?: unknown } = {},
+    options: {
+      method?: string
+      directory?: string | null
+      location?: string | null
+      body?: unknown
+      /** `false` opts out of the default idempotent-method retries (the caller owns the policy). */
+      retry?: boolean
+    } = {},
   ): Promise<Response> {
     const method = options.method ?? "GET"
     const headers = new Headers()
@@ -543,7 +560,7 @@ export function createApp(deps: AppDeps): Hono {
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
       })
 
-    if (!IDEMPOTENT_OPENCODE_METHODS.has(method)) return request()
+    if (options.retry === false || !IDEMPOTENT_OPENCODE_METHODS.has(method)) return request()
 
     return withRetry(
       async () => {

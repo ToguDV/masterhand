@@ -59,6 +59,7 @@ class FakeOpencode implements GoalOpencode {
   failInstructions: Error[] = []
   failModels: Error[] = []
   failLastAssistant: Error[] = []
+  failPromptLanded: Error[] = []
   private sequence = 0
 
   nextID(prefix: string): string {
@@ -90,7 +91,7 @@ class FakeOpencode implements GoalOpencode {
 
   sessionWithInstruction(key: string): FakeSession | undefined {
     for (const session of this.sessions.values()) {
-      if (session.instructions.has(key)) return session
+      if (session.instructions.has(key) && !session.removed) return session
     }
     return undefined
   }
@@ -124,9 +125,9 @@ class FakeOpencode implements GoalOpencode {
     return { id: session.id }
   }
 
-  async findSessionByMarker(marker: string): Promise<{ id: string } | null> {
+  async findSessionByMarker(parentID: string, marker: string): Promise<{ id: string } | null> {
     for (const session of this.sessions.values()) {
-      if (session.marker === marker && !session.removed) return { id: session.id }
+      if (session.marker === marker && session.parentID === parentID && !session.removed) return { id: session.id }
     }
     return null
   }
@@ -154,6 +155,8 @@ class FakeOpencode implements GoalOpencode {
   }
 
   async promptLanded(sessionID: string, marker: string): Promise<boolean> {
+    const failure = this.failPromptLanded.shift()
+    if (failure) throw failure
     return (
       this.sessions.get(sessionID)?.messages.some(
         (message) => message.role === "user" && message.metadata?.["masterhand.goal.delivery"] === marker,
@@ -556,6 +559,7 @@ describe("goal manager", () => {
     const store = createMemoryStore()
     const running: GoalRunRecord = {
       sessionID: "ses_main",
+      runToken: "tok_boot",
       goal: "g",
       state: "running",
       round: 1,
@@ -595,6 +599,13 @@ describe("goal manager", () => {
     expect(paused.state).toBe("paused")
     expect(paused.pausedPhase).toBe("main")
     expect(paused.error).toContain("restart")
+
+    // A run already in error/paused keeps its own reason across reboots.
+    store.saveGoalRun({ ...running, sessionID: "ses_err", state: "error", error: "real failure", pausedPhase: "judge" })
+    manager.reconcileOnBoot()
+    const preserved = manager.status("ses_err")!
+    expect(preserved.state).toBe("error")
+    expect(preserved.error).toBe("real failure")
   })
 
   it("cancels a run, interrupts the awaited session and removes internal sessions", async () => {
@@ -853,6 +864,7 @@ describe("goal manager reliability", () => {
     const h = harness()
     const record: GoalRunRecord = {
       sessionID: "ses_main",
+      runToken: "tok_critic",
       goal: "g",
       state: "critiquing",
       round: 1,
@@ -1017,5 +1029,65 @@ describe("goal manager reliability", () => {
     })
     manager.stop()
     manager.stop()
+  })
+
+  it("keeps a new run's markers unique (no reconciliation against an old run)", async () => {
+    const h = harness()
+    await start(h)
+    const firstMarker = h.opencode.prompts[0]?.marker
+    await h.manager.cancel("ses_main")
+    await h.manager.flush()
+    expect(firstMarker).toBeDefined()
+
+    await h.manager.start({ sessionID: "ses_main", goal: "second goal" })
+    await h.manager.flush()
+    const secondMarker = h.opencode.prompts.at(-1)?.marker
+    expect(secondMarker).toBeDefined()
+    expect(secondMarker).not.toBe(firstMarker)
+  })
+
+  it("does not replay a prompt when the marker lookup is unavailable", async () => {
+    const h = harness()
+    h.opencode.failPrompts.push({ error: new OpencodeTimeoutError(), landed: false })
+    h.opencode.failPromptLanded.push(new TypeError("lookup down"))
+
+    await expect(start(h)).rejects.toMatchObject({ code: "goal_ambiguous" })
+    expect(h.opencode.promptCalls).toBe(1)
+
+    const run = h.manager.status("ses_main")!
+    expect(run.state).toBe("error")
+    expect(run.error).toContain("could not confirm")
+  })
+
+  it("clears a critic deleted out of band and recreates it next round", async () => {
+    const h = harness()
+    await start(h)
+    await reply(h, "ses_main", markerText())
+    const critic = h.opencode.sessionWithInstruction(CRITIC_INSTRUCTION_KEY)!
+    await reply(h, critic.id, cleanCritiqueText())
+    const judge = h.opencode.sessionWithInstruction(JUDGE_INSTRUCTION_KEY)!
+
+    h.manager.handleEvent({ type: "session.deleted", data: { sessionID: critic.id } })
+    await h.manager.flush()
+    expect(h.manager.status("ses_main")?.criticSessionID).toBeNull()
+    expect(h.manager.status("ses_main")?.state).toBe("judging")
+
+    await reply(h, judge.id, verdictText(false))
+    expect(h.manager.status("ses_main")?.state).toBe("running")
+    // Round 2: the main agent reports again; the critic is recreated on demand.
+    await reply(h, "ses_main", markerText("second"))
+    const run = h.manager.status("ses_main")!
+    expect(run.state).toBe("critiquing")
+    expect(run.criticSessionID).toBeDefined()
+    expect(run.criticSessionID).not.toBe(critic.id)
+    expect(h.opencode.sessions.get(run.criticSessionID!)?.instructions.has(CRITIC_INSTRUCTION_KEY)).toBe(true)
+  })
+
+  it("rejects an oversized goal with its own code", async () => {
+    const h = harness()
+    h.opencode.addSession({ id: "ses_main", directory: "/workspace/app" })
+    await expect(h.manager.start({ sessionID: "ses_main", goal: "x".repeat(4001) })).rejects.toMatchObject({
+      code: "goal_too_long",
+    })
   })
 })

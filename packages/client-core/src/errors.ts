@@ -219,7 +219,11 @@ export function goalErrorMessage(error: unknown): string {
       case "session_busy":
         return "The agent is mid-turn. Wait for it to finish before starting a goal."
       case "invalid_goal":
-        return "Describe the goal after /goal."
+        return "Write a goal after /goal."
+      case "goal_too_long":
+        return "That goal is too long (4000 characters max)."
+      case "goal_ambiguous":
+        return "The server could not confirm whether the goal action landed. Check the run status before retrying."
       case "invalid_model":
         return "That model is not available anymore. Pick another one in Settings > Goal review."
       case "invalid_settings":

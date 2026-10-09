@@ -1,6 +1,13 @@
 import type { Context } from "hono"
 import type { Config } from "./config.js"
-import { RetryExhaustedError, UpstreamStatusError, isTransientFailure, isTransientStatus, withRetry } from "./retry.js"
+import {
+  AmbiguousMutationError,
+  RetryExhaustedError,
+  UpstreamStatusError,
+  isTransientFailure,
+  isTransientStatus,
+  withRetry,
+} from "./retry.js"
 
 const FORWARD_REQUEST_HEADERS = [
   "content-type",
@@ -114,7 +121,9 @@ export function createOpencodeProxy(
         headers: { authorization: config.opencodeAuth ?? "", accept: "application/json" },
         signal: AbortSignal.timeout(upstreamTimeoutMs),
       })
-      if (!response.ok) return false
+      // An unavailable lookup proves nothing: throwing here makes the retry
+      // engine abort instead of replaying a possibly-landed prompt (rule 4).
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const payload = (await response.json()) as {
         data?: Array<{ type?: string; metadata?: Record<string, unknown> }>
       }
@@ -147,7 +156,7 @@ export function createOpencodeProxy(
             shouldRetry: (error) => isTransientFailure(error, { includeTimeouts: reconciledPrompt }),
             reconcile: reconciledPrompt
               ? async () => {
-                  const landed = await promptLanded().catch(() => false)
+                  const landed = await promptLanded()
                   if (!landed) return undefined
                   return new Response(JSON.stringify({ data: { sessionID: promptSessionID, delivered: true } }), {
                     status: 200,
@@ -170,6 +179,12 @@ export function createOpencodeProxy(
               return error.lastError.response
             }
             throw error.lastError
+          }
+          if (error instanceof AmbiguousMutationError) {
+            // Unknown outcome: never replayed. The client reconciles a marked
+            // prompt against the history (lost-response rules).
+            if (error.cause instanceof UpstreamStatusError && error.cause.response) return error.cause.response
+            throw error.cause
           }
           throw error
         })

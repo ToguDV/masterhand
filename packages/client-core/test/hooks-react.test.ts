@@ -359,6 +359,25 @@ describe("query hooks", () => {
     expect(hook.result.current.data).toMatchObject({ state: "judging", round: 2 })
   })
 
+  it("useGoalRun honors a deletion frame that beats an in-flight snapshot", async () => {
+    const qc = newQueryClient()
+    const { client, api } = makeClient()
+    let resolveStatus: (value: Record<string, unknown>) => void = () => {}
+    api.goal.status.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve
+        }),
+    )
+
+    const hook = renderHook(() => useGoalRun(client, "ses_1"), { wrapper: wrapper(qc) })
+    createEventHandler(qc)({ type: "goal.updated", data: { sessionID: "ses_1", goal: null } })
+    resolveStatus(goalRun("running"))
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true))
+    // The stale snapshot must not resurrect the deleted run.
+    expect(hook.result.current.data).toBeNull()
+  })
+
   it("useGoalSettings loads the review settings", async () => {
     const qc = newQueryClient()
     const { client, api } = makeClient()

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   goalErrorMessage,
@@ -22,6 +22,8 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
   const [busy, setBusy] = useState(false)
+  // Synchronous in-flight guard: a state flag is not a lock (rule 7).
+  const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
@@ -31,7 +33,8 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
   const result = goalResultLine(data)
 
   async function act(action: () => Promise<unknown>): Promise<void> {
-    if (busy) return
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -41,6 +44,7 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
       setError(goalErrorMessage(actionError))
       await queryClient.invalidateQueries({ queryKey: queryKeys.goal(sessionID) })
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }

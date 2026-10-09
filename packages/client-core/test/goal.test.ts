@@ -95,6 +95,10 @@ describe("goalPayloadOf", () => {
   it("ignores other events and malformed frames", () => {
     expect(goalPayloadOf({ type: "session.idle", data: { sessionID: "ses_1" } })).toBeNull()
     expect(goalPayloadOf({ type: GOAL_EVENT_TYPE, data: {} })).toBeNull()
+    expect(goalPayloadOf({ type: GOAL_EVENT_TYPE, data: { sessionID: "ses_1" } })).toBeNull()
+    // A malformed payload is NOT a deletion: only an explicit null is.
+    expect(goalPayloadOf({ type: GOAL_EVENT_TYPE, data: { sessionID: "ses_1", goal: { nope: true } } })).toBeNull()
+    expect(goalPayloadOf({ type: GOAL_EVENT_TYPE, data: { sessionID: "ses_1", goal: "garbage" } })).toBeNull()
     expect(goalPayloadOf(null)).toBeNull()
     expect(goalPayloadOf("goal.updated")).toBeNull()
   })

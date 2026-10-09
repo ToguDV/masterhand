@@ -322,9 +322,11 @@ export function useGoalRun(client: Client, sessionID: string | null, enabled = t
     queryFn: async () => {
       const requestedAt = Date.now()
       const snapshot = await client.api.goal.status(sessionID!)
-      // A frame that arrived while the fetch was in flight beats the snapshot.
+      // A frame that arrived while the fetch was in flight beats the snapshot
+      // (including a `goal: null` deletion — cached null must not fall back).
       if ((goalWritesOf(queryClient).get(sessionID!) ?? 0) >= requestedAt) {
-        return queryClient.getQueryData<GoalRun | null>(queryKeys.goal(sessionID!)) ?? snapshot
+        const cached = queryClient.getQueryData<GoalRun | null>(queryKeys.goal(sessionID!))
+        return cached !== undefined ? cached : snapshot
       }
       return snapshot
     },

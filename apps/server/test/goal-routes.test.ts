@@ -7,6 +7,7 @@ import { login, startTestApp, type TestApp } from "./helpers.js"
 function runRecord(overrides: Partial<GoalRunRecord> = {}): GoalRunRecord {
   return {
     sessionID: "ses_main",
+    runToken: "tok_routes",
     goal: "Make it green",
     state: "running",
     round: 1,

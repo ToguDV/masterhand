@@ -42,6 +42,22 @@ export class RetryExhaustedError extends Error {
   }
 }
 
+/**
+ * A non-idempotent mutation failed and its reconciliation could not prove
+ * whether it landed (marker lookup unreachable). The operation is NEVER
+ * replayed in this state: the caller must surface an ambiguity and let the
+ * user decide (rule 4). `cause` is the original mutation failure.
+ */
+export class AmbiguousMutationError extends Error {
+  constructor(
+    override readonly cause: unknown,
+    readonly reconcileError: unknown,
+  ) {
+    super(`cannot confirm whether the mutation landed (${describeError(reconcileError)})`)
+    this.name = "AmbiguousMutationError"
+  }
+}
+
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -91,8 +107,9 @@ export interface RetryOptions<T> {
   /**
    * Proves whether a failed non-idempotent mutation already landed (marker
    * lookup in opencode). A defined result resolves the operation; `undefined`
-   * lets the retry continue. Runs after every failed attempt, even when the
-   * error is not retryable, so an ambiguous outcome can still be recovered.
+   * lets the retry continue — but ONLY when the lookup itself succeeded.
+   * A throwing lookup means the outcome is unknown: the retry aborts with
+   * `AmbiguousMutationError` instead of risking a duplicate (rule 4).
    */
   reconcile?: (error: unknown) => Promise<T | undefined> | T | undefined
   onRetry?: (info: RetryInfo) => void
@@ -138,13 +155,15 @@ export async function withRetry<T>(
       lastError = error
 
       if (options.reconcile) {
+        let landed: T | undefined
         try {
-          const landed = await options.reconcile(error)
-          if (landed !== undefined) return landed
-        } catch {
-          // A failing reconciliation must not mask the retry path: the next
-          // attempt (or the exhausted error) is still the best signal.
+          landed = await options.reconcile(error)
+        } catch (reconcileError) {
+          // The outcome is unknown. Replaying now could duplicate a mutation
+          // that actually landed; abort instead and let the caller surface it.
+          throw new AmbiguousMutationError(error, reconcileError)
         }
+        if (landed !== undefined) return landed
       }
 
       if (attempt >= attempts || !shouldRetry(error)) {

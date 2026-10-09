@@ -113,6 +113,8 @@ export interface GoalHistoryEntry {
  */
 export interface GoalRunRecord {
   sessionID: string
+  /** Unique per run: prompt/session reconciliation markers embed it. */
+  runToken: string
   goal: string
   state: GoalState
   round: number
@@ -308,6 +310,7 @@ export function createSqliteStore(file: string): Store {
   db.exec(`
     CREATE TABLE IF NOT EXISTS goal_runs (
       session_id TEXT PRIMARY KEY,
+      run_token TEXT NOT NULL DEFAULT '',
       goal TEXT NOT NULL,
       state TEXT NOT NULL,
       round INTEGER NOT NULL,
@@ -433,7 +436,7 @@ export function createSqliteStore(file: string): Store {
   const removeWorkspaceRunStatement = db.prepare("DELETE FROM workspace_runs WHERE workspace_id = ?")
 
   const goalRunColumns = `
-    SELECT session_id AS sessionID, goal, state, round, max_rounds AS maxRounds,
+    SELECT session_id AS sessionID, run_token AS runToken, goal, state, round, max_rounds AS maxRounds,
            main_model AS mainModel, critic_model AS criticModel, judge_model AS judgeModel,
            critic_session_id AS criticSessionID, judge_session_id AS judgeSessionID,
            last_report AS lastReport, last_critique AS lastCritique, last_verdict AS lastVerdict,
@@ -447,12 +450,12 @@ export function createSqliteStore(file: string): Store {
   const listGoalRunsStatement = db.prepare(`${goalRunColumns} ORDER BY created_at ASC`)
   const saveGoalRunStatement = db.prepare(`
     INSERT OR REPLACE INTO goal_runs (
-      session_id, goal, state, round, max_rounds, main_model, critic_model, judge_model,
+      session_id, run_token, goal, state, round, max_rounds, main_model, critic_model, judge_model,
       critic_session_id, judge_session_id, last_report, last_critique, last_verdict,
       history, error, awaiting_kind, awaiting_session_id, awaiting_assistant_id, attempt,
       last_error, paused_phase, prompt_serial, nudged, created_at, updated_at
     ) VALUES (
-      @sessionID, @goal, @state, @round, @maxRounds, @mainModel, @criticModel, @judgeModel,
+      @sessionID, @runToken, @goal, @state, @round, @maxRounds, @mainModel, @criticModel, @judgeModel,
       @criticSessionID, @judgeSessionID, @lastReport, @lastCritique, @lastVerdict,
       @history, @error, @awaitingKind, @awaitingSessionID, @awaitingAssistantID, @attempt,
       @lastError, @pausedPhase, @promptSerial, @nudged, @createdAt, @updatedAt
@@ -499,6 +502,7 @@ export function createSqliteStore(file: string): Store {
     const history = parseJson<GoalHistoryEntry[]>(row.history)
     return {
       ...(row as unknown as GoalRunRecord),
+      runToken: typeof row.runToken === "string" ? row.runToken : "",
       nudged: row.nudged === 1,
       lastReport: parseJson<GoalReport>(row.lastReport),
       lastCritique: parseJson<GoalCritique>(row.lastCritique),

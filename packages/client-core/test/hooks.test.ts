@@ -114,11 +114,14 @@ describe("createEventHandler", () => {
     })
     expect(qc.getQueryData(queryKeys.goal(SESSION))).toMatchObject({ state: "critiquing", round: 2 })
 
-    emit(handler, "goal.updated", { sessionID: SESSION, goal: null })
-    expect(qc.getQueryData(queryKeys.goal(SESSION))).toBeNull()
-
-    // A malformed frame is ignored instead of clobbering the cache.
+    // A malformed frame is ignored: the live run must survive it.
     emit(handler, "goal.updated", { sessionID: SESSION, goal: { nope: true } })
+    expect(qc.getQueryData(queryKeys.goal(SESSION))).toMatchObject({ state: "critiquing", round: 2 })
+    emit(handler, "goal.updated", { sessionID: SESSION })
+    expect(qc.getQueryData(queryKeys.goal(SESSION))).toMatchObject({ state: "critiquing", round: 2 })
+
+    // Only an explicit null clears the cache (session deleted).
+    emit(handler, "goal.updated", { sessionID: SESSION, goal: null })
     expect(qc.getQueryData(queryKeys.goal(SESSION))).toBeNull()
 
     invalidateOnReconnect(qc)

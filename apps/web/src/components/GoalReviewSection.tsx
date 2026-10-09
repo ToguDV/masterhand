@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   flattenModels,
@@ -28,6 +28,9 @@ export function GoalReviewSection() {
   // A refetch that resolves after the user started editing must not clobber
   // the form (rule 3: never overwrite edits made while a request was in flight).
   const [dirty, setDirty] = useState(false)
+  /** Bumped on every edit so a save that lands late can tell it is stale. */
+  const editVersion = useRef(0)
+  const savingRef = useRef(false)
 
   useEffect(() => {
     if (!settings.data || dirty) return
@@ -45,15 +48,17 @@ export function GoalReviewSection() {
   ]
 
   async function save(): Promise<void> {
-    if (saving) return
+    if (savingRef.current) return
     const rounds = Number.parseInt(maxRounds, 10)
     if (!Number.isInteger(rounds) || rounds < 1 || rounds > 50) {
       setError("Max rounds must be a whole number between 1 and 50.")
       return
     }
+    savingRef.current = true
     setSaving(true)
     setError(null)
     setNotice(null)
+    const version = editVersion.current
     try {
       await client.api.goal.saveSettings({
         maxRounds: rounds,
@@ -61,11 +66,14 @@ export function GoalReviewSection() {
         judgeModel: judgeModel || null,
       })
       await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
-      setDirty(false)
+      // Only clear the dirty flag when nothing changed while the save was in
+      // flight; otherwise the user's newer edits stay (and can be saved again).
+      if (editVersion.current === version) setDirty(false)
       setNotice("Saved.")
     } catch (saveError) {
       setError(goalErrorMessage(saveError))
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -88,6 +96,7 @@ export function GoalReviewSection() {
           onChange={(value) => {
             setCriticModel(value)
             setDirty(true)
+            editVersion.current += 1
           }}
           ariaLabel="Critic model"
           placeholder="Use the session model"
@@ -99,6 +108,7 @@ export function GoalReviewSection() {
           onChange={(value) => {
             setJudgeModel(value)
             setDirty(true)
+            editVersion.current += 1
           }}
           ariaLabel="Judge model"
           placeholder="Use the session model"
@@ -113,6 +123,7 @@ export function GoalReviewSection() {
             onChange={(event) => {
               setMaxRounds(event.target.value)
               setDirty(true)
+              editVersion.current += 1
             }}
             className="mh-input w-24"
             aria-label="Max rounds before pausing"

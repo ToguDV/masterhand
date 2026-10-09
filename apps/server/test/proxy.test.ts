@@ -257,6 +257,35 @@ describe("opencode proxy", () => {
     expect(promptAttempts).toBe(1)
     expect(upstream.requests.filter((request) => request.path === "/api/session/ses_9/prompt")).toHaveLength(1)
   })
+
+  it("does not replay a marked prompt when the marker lookup is unavailable", async () => {
+    upstream = await startMockOpencode()
+    let promptAttempts = 0
+    const wrapper: typeof fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/prompt")) {
+        promptAttempts += 1
+        // The request never reached opencode.
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      }
+      return fetch(input, init)
+    }
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH },
+      fetchImpl: wrapper,
+    })
+    const cookie = await login(app.url)
+    // The marker lookup itself is down: the outcome is unknown, never replayed.
+    upstream.failNext("/message", 10, 503)
+
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_9/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", metadata: { "masterhand.delivery": "delivery_unknown" } }),
+    })
+    expect(response.status).toBe(504)
+    expect(promptAttempts).toBe(1)
+  })
 })
 
 describe("SSE relay", () => {

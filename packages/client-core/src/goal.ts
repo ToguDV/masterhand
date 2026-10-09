@@ -218,7 +218,7 @@ export function normalizeGoalRun(value: unknown): GoalRun | null {
   }
 }
 
-/** Parses a `goal.updated` SSE frame; null for any other event. */
+/** Parses a `goal.updated` SSE frame; null for any other or malformed event. */
 export function goalPayloadOf(event: unknown): { sessionID: string; goal: GoalRun | null } | null {
   if (!event || typeof event !== "object") return null
   if ((event as { type?: unknown }).type !== GOAL_EVENT_TYPE) return null
@@ -226,7 +226,14 @@ export function goalPayloadOf(event: unknown): { sessionID: string; goal: GoalRu
   if (!data || typeof data !== "object" || Array.isArray(data)) return null
   const sessionID = (data as { sessionID?: unknown }).sessionID
   if (typeof sessionID !== "string" || !sessionID) return null
-  return { sessionID, goal: normalizeGoalRun((data as { goal?: unknown }).goal) }
+  const goal = (data as { goal?: unknown }).goal
+  // Only an explicit null means "the run is gone"; a malformed or missing
+  // payload must never be interpreted as a deletion (it would wipe a live
+  // run's cache).
+  if (goal === null) return { sessionID, goal: null }
+  const run = normalizeGoalRun(goal)
+  if (!run) return null
+  return { sessionID, goal: run }
 }
 
 /** Tolerant settings snapshot. */
