@@ -543,6 +543,15 @@ describe("goal manager", () => {
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
   })
 
+  it("also wakes on execution.succeeded (servers that skip idle)", async () => {
+    const h = harness()
+    await start(h)
+    h.opencode.reply("ses_main", markerText())
+    h.manager.handleEvent({ type: "session.execution.succeeded", data: { sessionID: "ses_main" } })
+    await h.manager.flush()
+    expect(h.manager.status("ses_main")?.state).toBe("critiquing")
+  })
+
   it("pauses in-flight runs on boot instead of auto-resuming them", async () => {
     const store = createMemoryStore()
     const running: GoalRunRecord = {

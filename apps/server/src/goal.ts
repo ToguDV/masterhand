@@ -302,6 +302,7 @@ function eventErrorMessage(data: Record<string, unknown>): string {
 
 const WAKE_EVENTS = new Set([
   "session.idle",
+  "session.execution.succeeded",
   "session.execution.failed",
   "session.execution.interrupted",
   "session.retry.scheduled",
@@ -714,7 +715,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     if (!run || TERMINAL_STATES.has(run.state)) return
     if (run.awaitingSessionID !== sessionID) return
 
-    if (type === "session.idle") {
+    if (type === "session.idle" || type === "session.execution.succeeded") {
       void enqueue(run.sessionID, async () => {
         await processIdle(run.sessionID, sessionID)
       })
