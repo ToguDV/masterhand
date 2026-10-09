@@ -5,6 +5,7 @@ import {
   finishResultFromIsolation,
   isAmbiguousError,
   sessionUsage,
+  useGoalRun,
   useMessages,
   usePendingSend,
   type FinishSessionResult,
@@ -18,6 +19,7 @@ import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
 import { BranchChip, BranchPicker } from "./BranchPicker"
 import { Composer, type ComposerHandle } from "./Composer"
+import { GoalReview } from "./GoalCards"
 import { GoalStrip } from "./GoalStrip"
 import { PendingBubble } from "./PendingBubble"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
@@ -79,6 +81,9 @@ export function ChatView({
   const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const pendingSend = usePendingSend(sessionID)
+  // The review section below the transcript grows with every goal transition:
+  // include it in the stick-to-bottom effect so new rounds scroll into view.
+  const goalUpdatedAt = useGoalRun(client, sessionID).data?.updatedAt
   const composerRef = useRef<ComposerHandle>(null)
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
@@ -170,7 +175,7 @@ export function ChatView({
     if (element && stickToBottom.current) {
       element.scrollTop = element.scrollHeight
     }
-  }, [messages, pendingSend.pending])
+  }, [messages, pendingSend.pending, goalUpdatedAt])
 
   function handleScroll() {
     const element = scrollRef.current
@@ -228,6 +233,7 @@ export function ChatView({
               />
             ),
           )}
+          <GoalReview sessionID={sessionID} />
           {unmatchedPending.map((permission) => (
             <PermissionCard
               key={permission.id}

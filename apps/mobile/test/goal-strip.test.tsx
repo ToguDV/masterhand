@@ -57,7 +57,7 @@ describe("GoalStrip (#130)", () => {
     )
 
     expect(await screen.findByText("Under review")).toBeOnTheScreen()
-    expect(screen.getByText("round 2/5")).toBeOnTheScreen()
+    expect(screen.getByText("2/5")).toBeOnTheScreen()
     expect(screen.getByText("The tests do not cover the retry path")).toBeOnTheScreen()
   })
 
@@ -114,47 +114,13 @@ describe("GoalStrip (#130)", () => {
     expect(await screen.findByText("The goal action failed")).toBeOnTheScreen()
   })
 
-  it("expands the details with the goal, report and review history", async () => {
-    await setup(
-      makeRun({
-        goal: "Add Goal Mode to mobile",
-        lastReport: { status: "complete", summary: "The strip is wired", evidence: [], reason: null },
-        history: [
-          {
-            round: 1,
-            critique: {
-              argument: "The strip has no tests",
-              issues: [{ severity: "high", claim: "no coverage", evidence: "" }],
-            },
-            verdict: { approved: false, reasoning: "tests missing", requiredChanges: ["add strip tests"] },
-          },
-          {
-            round: 2,
-            critique: null,
-            verdict: { approved: true, reasoning: "tests landed", requiredChanges: [] },
-          },
-        ],
-      }),
-    )
+  it("shows the round chip and no history controls (the thread owns the review)", async () => {
+    await setup(makeRun({ round: 3, maxRounds: 7, state: "approved" }))
 
-    await fireEvent.press(await screen.findByText("Details"))
-
-    expect(screen.getByText("Add Goal Mode to mobile")).toBeOnTheScreen()
-    expect(screen.getByText("The strip is wired")).toBeOnTheScreen()
-    expect(screen.getByText(/rejected — tests missing/)).toBeOnTheScreen()
-    expect(screen.getByText(/• add strip tests/)).toBeOnTheScreen()
-    expect(screen.getByText(/no coverage/)).toBeOnTheScreen()
-    expect(screen.getByText(/approved — tests landed/)).toBeOnTheScreen()
-
-    await fireEvent.press(screen.getByText("Hide"))
-    expect(screen.queryByText("Add Goal Mode to mobile")).toBeNull()
-  })
-
-  it("shows an empty history placeholder before any review", async () => {
-    await setup(makeRun())
-
-    await fireEvent.press(await screen.findByText("Details"))
-
-    expect(screen.getByText("No rounds reviewed yet.")).toBeOnTheScreen()
+    expect(await screen.findByText("3/7")).toBeOnTheScreen()
+    // The review history moved into the chat thread (GoalReview); the strip is
+    // only the control/status line.
+    expect(screen.queryByText("Details")).toBeNull()
+    expect(screen.queryByText("Hide")).toBeNull()
   })
 })

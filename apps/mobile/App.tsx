@@ -18,6 +18,7 @@ import {
   invalidateOnReconnect,
   reconcileForms,
   reconcilePermissions,
+  rootSessions,
   useEventStream,
   useSessionDirectories,
   useSessions,
@@ -367,7 +368,9 @@ function AuthenticatedApp({
     if (!pendingWorkspaceAutoOpenRef.current) return
     if (!sessionsQuery.isSuccess) return
     pendingWorkspaceAutoOpenRef.current = false
-    const next = [...sessions].sort((a, b) => b.time.updated - a.time.updated)[0]?.id ?? null
+    // Auto-open only listable sessions: a Goal Mode critic session is often the
+    // most recently updated and must never be opened by fallback.
+    const next = rootSessions([...sessions].sort((a, b) => b.time.updated - a.time.updated))[0]?.id ?? null
     if (next !== sessionID) setSessionID(next)
   }, [sessionsQuery.isSuccess, sessions, sessionID])
 

@@ -90,6 +90,16 @@ export function PlayIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="play" size={size} color={color} />
 }
 
+/** Pause a Goal Mode run. */
+export function PauseIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="pause" size={size} color={color} />
+}
+
+/** Stop/cancel a Goal Mode run. */
+export function StopIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="stop" size={size} color={color} />
+}
+
 /** Effort (reasoning) variants; generic variants use `SlidersIcon` instead. */
 export function BrainIcon({ size = 16, color }: IconProps) {
   return <MaterialCommunityIcons name="brain" size={size} color={color} />

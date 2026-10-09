@@ -1,10 +1,44 @@
 import { describe, expect, it, vi } from "vitest"
 import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, waitFor } from "./helpers.js"
+import type { GoalRunRecord } from "../src/store.js"
 
 interface MockSession {
   id: string
   directory: string
   parentID?: string
+  metadata?: Record<string, unknown>
+}
+
+function goalRun(overrides: Partial<GoalRunRecord> = {}): GoalRunRecord {
+  return {
+    sessionID: "ses_main",
+    runToken: "tok_1",
+    goal: "g",
+    state: "running",
+    round: 1,
+    maxRounds: 5,
+    mainModel: null,
+    criticModel: null,
+    judgeModel: null,
+    criticSessionID: null,
+    judgeSessionID: null,
+    lastReport: null,
+    lastCritique: null,
+    lastVerdict: null,
+    history: [],
+    error: null,
+    awaitingKind: null,
+    awaitingSessionID: null,
+    awaitingAssistantID: null,
+    attempt: 0,
+    nudged: false,
+    lastError: null,
+    pausedPhase: null,
+    promptSerial: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  }
 }
 
 interface OpencodeCall {
@@ -256,6 +290,39 @@ describe("GET /api/workspaces/:id/sessions", () => {
       expect(byID.get(standardBody.session.id)?.isolation).toBeUndefined()
       expect(byID.get(isolatedBody.session.id)?.isolation?.branch).toBe(isolatedBody.session.isolation.branch)
       expect(byID.get("ses_child")?.isolation?.branch).toBe(isolatedBody.session.isolation.branch)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("annotates Goal Mode's internal sessions so clients hide them from the list", async () => {
+    const { app, opencode, headers, workspace } = await setupApp()
+    try {
+      opencode.sessions.set(workspace.path, [
+        { id: "ses_main", directory: workspace.path },
+        // The pinned opencode drops `parentID`: the stable role marker is the
+        // source of truth for sessions created after this change…
+        { id: "ses_critic", directory: workspace.path, metadata: { "masterhand.goal.internal": "critic" } },
+        // …and the legacy reconciliation marker for sessions created before it.
+        {
+          id: "ses_judge",
+          directory: workspace.path,
+          metadata: { "masterhand.goal.role": "judge_abcdef123456_1_1" },
+        },
+        { id: "ses_plain", directory: workspace.path },
+      ])
+      // The run store covers sessions whose metadata never made it upstream.
+      app.store.saveGoalRun(goalRun({ sessionID: "ses_main", judgeSessionID: "ses_store_judge" }))
+      opencode.sessions.get(workspace.path)!.push({ id: "ses_store_judge", directory: workspace.path })
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, { headers })
+      const body = (await response.json()) as { sessions: Array<{ id: string; goalRole?: string }> }
+      const byID = new Map(body.sessions.map((session) => [session.id, session]))
+      expect(byID.get("ses_critic")?.goalRole).toBe("critic")
+      expect(byID.get("ses_judge")?.goalRole).toBe("judge")
+      expect(byID.get("ses_store_judge")?.goalRole).toBe("judge")
+      expect(byID.get("ses_plain")?.goalRole).toBeUndefined()
+      expect(byID.get("ses_main")?.goalRole).toBeUndefined()
     } finally {
       await app.close()
     }

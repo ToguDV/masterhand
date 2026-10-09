@@ -33,10 +33,12 @@ export function filterSessions(sessions: Session[], filter: SessionFilter): Sess
  * Sessions that belong in the session list. Subagent children are linked to
  * their parent through `parentID` and are only reachable from the parent's
  * subagent card, so they never show up as top-level sessions. Forks (used for
- * `/btw` side questions) are temporary and stay out of the list too.
+ * `/btw` side questions) are temporary and stay out of the list too, and the
+ * BFF marks Goal Mode's internal critic/judge sessions (`goalRole`) because the
+ * pinned opencode ignores `parentID` on create.
  */
 export function rootSessions(sessions: Session[]): Session[] {
-  return sessions.filter((session) => !session.parentID && !session.fork)
+  return sessions.filter((session) => !session.parentID && !session.fork && !session.goalRole)
 }
 
 /**

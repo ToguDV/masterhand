@@ -253,3 +253,153 @@ export function normalizeGoalSettings(value: unknown): GoalSettings | null {
     judgeModel: asString(raw.judgeModel),
   }
 }
+
+// ---------------------------------------------------------------------------
+// In-message markers (the agents' custom protocol)
+// ---------------------------------------------------------------------------
+
+/** A structured block found inside an assistant message. */
+export type GoalMarker =
+  | { kind: "report"; report: GoalReport }
+  | { kind: "critique"; critique: GoalCritique }
+  | { kind: "verdict"; verdict: GoalVerdict }
+
+/** One renderable fragment of an assistant message: prose or a marker. */
+export type GoalSegment = { kind: "text"; text: string } | GoalMarker
+
+const MARKER_TAGS = ["goal", "critique", "verdict"] as const
+
+const MARKER_PATTERN = new RegExp(
+  `<masterhand:(${MARKER_TAGS.join("|")})([^>]*)>([\\s\\S]*?)<\\/masterhand:\\1>`,
+  "g",
+)
+
+function markerAttribute(attrs: string, name: string): string | null {
+  const match = new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(attrs)
+  return match?.[1] ?? null
+}
+
+function markerJson(body: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(body.trim())
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function markerSegment(tag: string, attrs: string, body: string): GoalMarker | null {
+  const data = markerJson(body)
+  if (!data) return null
+  if (tag === "goal") {
+    // The status attribute wins over the JSON body (the instruction documents
+    // `<masterhand:goal status="complete|blocked">`).
+    const status = markerAttribute(attrs, "status") ?? data.status
+    const report = normalizeReport({ ...data, status })
+    return report ? { kind: "report", report } : null
+  }
+  if (tag === "critique") {
+    const critique = normalizeCritique(data)
+    return critique ? { kind: "critique", critique } : null
+  }
+  const verdict = normalizeVerdict(data)
+  return verdict ? { kind: "verdict", verdict } : null
+}
+
+/**
+ * Splits an assistant message into renderable segments: prose stays markdown
+ * and every `<masterhand:goal|critique|verdict>` block becomes a typed marker,
+ * so clients render the protocol as cards instead of raw JSON. Tolerant: a
+ * malformed block stays visible as text, and a trailing incomplete block (the
+ * tag is still streaming) is hidden instead of flashing as raw JSON.
+ */
+export function splitGoalMarkers(text: string): GoalSegment[] {
+  const segments: GoalSegment[] = []
+  let cursor = 0
+  MARKER_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = MARKER_PATTERN.exec(text)) !== null) {
+    if (match.index > cursor) segments.push({ kind: "text", text: text.slice(cursor, match.index) })
+    const parsed = markerSegment(match[1] ?? "", match[2] ?? "", match[3] ?? "")
+    segments.push(parsed ?? { kind: "text", text: match[0] })
+    cursor = match.index + match[0].length
+  }
+  let tail = text.slice(cursor)
+  const pending = tail.search(/<masterhand:(?:goal|critique|verdict)\b/)
+  if (pending >= 0) {
+    const afterTag = tail.slice(pending)
+    // Hide only a *streaming* marker: the opening tag completed (`>`) but the
+    // closing tag has not arrived. A bare name mention without `>` stays
+    // visible, so prose that merely names the protocol is never swallowed.
+    const opened = afterTag.includes(">")
+    const closed = afterTag.includes("</masterhand:")
+    if (opened && !closed) tail = tail.slice(0, pending)
+  }
+  if (tail) segments.push({ kind: "text", text: tail })
+  return segments
+}
+
+// ---------------------------------------------------------------------------
+// Review timeline (the cards integrated in the main session)
+// ---------------------------------------------------------------------------
+
+/** One review round ready to render: settled history plus the in-flight round. */
+export interface GoalReviewRound {
+  round: number
+  critique: GoalCritique | null
+  verdict: GoalVerdict | null
+  /** True for the in-flight round (its review is still being produced). */
+  current: boolean
+}
+
+function sameCritique(a: GoalCritique | null, b: GoalCritique | null): boolean {
+  if (!a || !b) return a === b
+  if (a.argument !== b.argument || a.issues.length !== b.issues.length) return false
+  return a.issues.every((issue, index) => {
+    const other = b.issues[index]
+    return (
+      other !== undefined &&
+      issue.severity === other.severity &&
+      issue.claim === other.claim &&
+      issue.evidence === other.evidence
+    )
+  })
+}
+
+/**
+ * Completed rounds plus the in-flight one. `lastCritique` outlives its round (a
+ * rejection keeps it while the next round runs), so it is only attached to the
+ * in-flight round when it is not already the critique of the latest settled one.
+ */
+export function goalReviewRounds(run: GoalRun): GoalReviewRound[] {
+  const rounds: GoalReviewRound[] = run.history.map((entry) => ({ ...entry, current: false }))
+  const latest = rounds.at(-1)
+  if (latest?.round === run.round) return rounds
+  const stale = sameCritique(latest?.critique ?? null, run.lastCritique)
+  rounds.push({
+    round: run.round,
+    critique: stale ? null : run.lastCritique,
+    verdict: null,
+    current: true,
+  })
+  return rounds
+}
+
+/** What the loop is doing right now, for the live review card. */
+export function goalActivityLabel(run: GoalRun): string {
+  if (run.lastError) return run.lastError
+  switch (run.awaitingKind) {
+    case "critic":
+      return "The critic is challenging the completion claim"
+    case "judge":
+      return "The judge is deciding"
+    case "main":
+      return "The main agent is working on the goal"
+    default:
+      if (run.state === "critiquing") return "The critic is challenging the completion claim"
+      if (run.state === "judging") return "The judge is deciding"
+      if (run.state === "running") return "The main agent is working on the goal"
+      return goalStateLabel(run.state)
+  }
+}

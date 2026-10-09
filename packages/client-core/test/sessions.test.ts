@@ -66,6 +66,15 @@ describe("rootSessions", () => {
     } as Session
     expect(rootSessions([parent, fork]).map((item) => item.id)).toEqual(["ses_parent"])
   })
+
+  it("hides Goal Mode's internal critic/judge sessions", () => {
+    const parent = session("ses_parent")
+    // The pinned opencode drops `parentID` on create, so the BFF marks these
+    // with a role instead: they must never render as top-level sessions.
+    const critic = { id: "ses_critic", goalRole: "critic" } as Session
+    const judge = { id: "ses_judge", goalRole: "judge" } as Session
+    expect(rootSessions([parent, critic, judge]).map((item) => item.id)).toEqual(["ses_parent"])
+  })
 })
 
 describe("finishResultFromIsolation", () => {
