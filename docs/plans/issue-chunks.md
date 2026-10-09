@@ -3,7 +3,9 @@
 **Snapshot:** 2026-10-07. 5 open issues (#129–#131, #133–#134) grouped into **3 chunks**
 (C14–C16) by the code surface they share. The previous backlog (C1–C13) is fully merged or closed.
 
-**Last updated:** 2026-10-07 — C11 landed in the theme-system session batch
+**Last updated:** 2026-10-09 — C14 (goal mode) is in review as the session batch
+(#129 + #130) together with the shared opencode retry engine it relies on (ADR-32).
+The previous note (2026-10-07) recorded C11 landing in the theme-system session batch
 (Android nav bar, 12 accent palettes, syntax highlighting). Stale trackers already shipped in #135
 (#120, #122, #125–#128) were closed as completed; #121 was closed as not planned (sign-out stays in
 the sessions options box per #136/#137). Re-chunked after the issue batch created from the maintainer's
@@ -46,7 +48,7 @@ deferred).
 | C11 — Theme system (palettes, syntax, system bars) | #118 #124 #123 | ✅ 2026-10-07 — theme-system session batch |
 | C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
-| C14 — /goal (server + clients) | #129 #130 | ⬜ Pending |
+| C14 — /goal (server + clients) | #129 #130 | 🟡 In review — session batch (goal mode + shared retry engine) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 
