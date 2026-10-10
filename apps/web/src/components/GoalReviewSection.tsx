@@ -13,7 +13,9 @@ import { SearchSelect } from "./SearchSelect"
 /**
  * Settings > Goal review: which models run the adversarial critic and the
  * impartial judge (empty = the session model) and the round budget before a
- * run pauses for a user decision. Persisted through the BFF.
+ * run pauses for a user decision. Persisted through the BFF. Every change
+ * saves automatically, like the other settings sections — there is no Save
+ * button.
  */
 export function GoalReviewSection() {
   const queryClient = useQueryClient()
@@ -23,7 +25,6 @@ export function GoalReviewSection() {
   const [judgeModel, setJudgeModel] = useState("")
   const [maxRounds, setMaxRounds] = useState("5")
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // A refetch that resolves after the user started editing must not clobber
   // the form (rule 3: never overwrite edits made while a request was in flight).
@@ -31,6 +32,12 @@ export function GoalReviewSection() {
   /** Bumped on every edit so a save that lands late can tell it is stale. */
   const editVersion = useRef(0)
   const savingRef = useRef(false)
+  /**
+   * Version of the last failed save: a failed autosave must not retry on
+   * every refetch — only a newer user edit (which bumps `editVersion`)
+   * schedules another attempt.
+   */
+  const failedVersion = useRef(-1)
 
   useEffect(() => {
     if (!settings.data || dirty) return
@@ -38,6 +45,63 @@ export function GoalReviewSection() {
     setJudgeModel(settings.data.judgeModel ?? "")
     setMaxRounds(String(settings.data.maxRounds))
   }, [settings.data, dirty])
+
+  // Autosave: every edit persists after a short debounce, like the other
+  // settings sections. The settings write is idempotent, so a save that lands
+  // late is reconciled by refetching instead of retrying blindly (rule 4).
+  useEffect(() => {
+    if (!settings.data || !dirty || saving) return
+    const rounds = Number.parseInt(maxRounds, 10)
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 50) {
+      setError("Max rounds must be a whole number between 1 and 50.")
+      return
+    }
+    // Already in sync with the server (e.g. a refetch confirmed the write):
+    // nothing to save, and any earlier error is stale.
+    if (
+      (settings.data.criticModel ?? "") === criticModel &&
+      (settings.data.judgeModel ?? "") === judgeModel &&
+      settings.data.maxRounds === rounds
+    ) {
+      setDirty(false)
+      setError(null)
+      failedVersion.current = -1
+      return
+    }
+    if (editVersion.current === failedVersion.current) return
+    const version = editVersion.current
+    const snapshot = {
+      maxRounds: rounds,
+      criticModel: criticModel || null,
+      judgeModel: judgeModel || null,
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (savingRef.current) return
+        savingRef.current = true
+        setSaving(true)
+        setError(null)
+        try {
+          await client.api.goal.saveSettings(snapshot)
+          await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
+          // Only clear the dirty flag when nothing changed while the save was
+          // in flight; otherwise the newer edits stay and save again.
+          if (editVersion.current === version) setDirty(false)
+          failedVersion.current = -1
+        } catch (saveError) {
+          setError(goalErrorMessage(saveError))
+          failedVersion.current = version
+          // A lost response may still have landed (rule 4): reconcile instead
+          // of retrying. The write is idempotent, so refetching is safe.
+          await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
+        } finally {
+          savingRef.current = false
+          setSaving(false)
+        }
+      })()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [settings.data, dirty, saving, criticModel, judgeModel, maxRounds, queryClient])
 
   const modelOptions = [
     { value: "", label: "Use the session model" },
@@ -47,59 +111,15 @@ export function GoalReviewSection() {
     })),
   ]
 
-  async function save(): Promise<void> {
-    if (savingRef.current) return
-    const rounds = Number.parseInt(maxRounds, 10)
-    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 50) {
-      setError("Max rounds must be a whole number between 1 and 50.")
-      return
-    }
-    savingRef.current = true
-    setSaving(true)
-    setError(null)
-    setNotice(null)
-    const version = editVersion.current
-    try {
-      await client.api.goal.saveSettings({
-        maxRounds: rounds,
-        criticModel: criticModel || null,
-        judgeModel: judgeModel || null,
-      })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
-      // Only clear the dirty flag when nothing changed while the save was in
-      // flight; otherwise the user's newer edits stay (and can be saved again).
-      if (editVersion.current === version) setDirty(false)
-      setNotice("Saved.")
-    } catch (saveError) {
-      setError(goalErrorMessage(saveError))
-    } finally {
-      savingRef.current = false
-      setSaving(false)
-    }
-  }
-
   return (
     <section aria-labelledby="settings-goal">
-      {/* Pinned above the cards, like Providers: saving never scrolls away. */}
-      <div className="mh-settings__module-head">
-        <div className="min-w-0">
-          <h3 id="settings-goal" className="mh-settings__title">
-            Goal review
-          </h3>
-          <p className="mh-settings__desc">
-            A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty
-            to use the session&apos;s own model.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
-          disabled={saving}
-          onClick={() => void save()}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
+      <h3 id="settings-goal" className="mh-settings__title">
+        Goal review
+      </h3>
+      <p className="mh-settings__desc">
+        A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty to
+        use the session&apos;s own model. Changes save automatically.
+      </p>
 
       {settings.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading goal settings…</p>}
       {settings.error && <p className="mt-4 text-xs text-danger">Could not load the goal settings.</p>}
@@ -158,7 +178,7 @@ export function GoalReviewSection() {
         <p className="mt-2 text-[11px] text-ink-muted">Pauses for a decision after this many rounds (1–50).</p>
       </div>
 
-      {notice && <p className="mt-2 text-xs text-accent">{notice}</p>}
+      {saving && <p className="mt-2 text-xs text-ink-muted">Saving…</p>}
       {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </section>
   )

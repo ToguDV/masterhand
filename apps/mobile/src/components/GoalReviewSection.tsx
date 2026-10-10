@@ -16,7 +16,9 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 /**
  * Settings > Goal review (issue #130): which models run the adversarial critic
  * and the impartial judge (empty = the session model) and the round budget
- * before a run pauses for a user decision. Persisted through the BFF.
+ * before a run pauses for a user decision. Persisted through the BFF. Every
+ * change saves automatically, like the other settings sections — there is no
+ * Save button.
  */
 export function GoalReviewSection({ client }: { client: Client }) {
   const queryClient = useQueryClient()
@@ -26,7 +28,6 @@ export function GoalReviewSection({ client }: { client: Client }) {
   const [judgeModel, setJudgeModel] = useState("")
   const [maxRounds, setMaxRounds] = useState("5")
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [picker, setPicker] = useState<"critic" | "judge" | null>(null)
   const styles = useThemedStyles(createStyles)
@@ -37,6 +38,12 @@ export function GoalReviewSection({ client }: { client: Client }) {
   /** Bumped on every edit so a save that lands late can tell it is stale. */
   const editVersion = useRef(0)
   const savingRef = useRef(false)
+  /**
+   * Version of the last failed save: a failed autosave must not retry on
+   * every refetch — only a newer user edit (which bumps `editVersion`)
+   * schedules another attempt.
+   */
+  const failedVersion = useRef(-1)
 
   useEffect(() => {
     if (!settings.data || dirty) return
@@ -44,6 +51,63 @@ export function GoalReviewSection({ client }: { client: Client }) {
     setJudgeModel(settings.data.judgeModel ?? "")
     setMaxRounds(String(settings.data.maxRounds))
   }, [settings.data, dirty])
+
+  // Autosave: every edit persists after a short debounce, like the other
+  // settings sections. The settings write is idempotent, so a save that lands
+  // late is reconciled by refetching instead of retrying blindly (rule 4).
+  useEffect(() => {
+    if (!settings.data || !dirty || saving) return
+    const rounds = Number.parseInt(maxRounds, 10)
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 50) {
+      setError("Max rounds must be a whole number between 1 and 50.")
+      return
+    }
+    // Already in sync with the server (e.g. a refetch confirmed the write):
+    // nothing to save, and any earlier error is stale.
+    if (
+      (settings.data.criticModel ?? "") === criticModel &&
+      (settings.data.judgeModel ?? "") === judgeModel &&
+      settings.data.maxRounds === rounds
+    ) {
+      setDirty(false)
+      setError(null)
+      failedVersion.current = -1
+      return
+    }
+    if (editVersion.current === failedVersion.current) return
+    const version = editVersion.current
+    const snapshot = {
+      maxRounds: rounds,
+      criticModel: criticModel || null,
+      judgeModel: judgeModel || null,
+    }
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (savingRef.current) return
+        savingRef.current = true
+        setSaving(true)
+        setError(null)
+        try {
+          await client.api.goal.saveSettings(snapshot)
+          await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
+          // Only clear the dirty flag when nothing changed while the save was
+          // in flight; otherwise the newer edits stay and save again.
+          if (editVersion.current === version) setDirty(false)
+          failedVersion.current = -1
+        } catch (saveError) {
+          setError(goalErrorMessage(saveError))
+          failedVersion.current = version
+          // A lost response may still have landed (rule 4): reconcile instead
+          // of retrying. The write is idempotent, so refetching is safe.
+          await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
+        } finally {
+          savingRef.current = false
+          setSaving(false)
+        }
+      })()
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [settings.data, dirty, saving, criticModel, judgeModel, maxRounds, queryClient, client])
 
   const modelOptions: ChoiceOption[] = [
     { value: "", label: "Use the session model" },
@@ -57,57 +121,13 @@ export function GoalReviewSection({ client }: { client: Client }) {
     return modelOptions.find((option) => option.value === value)?.label ?? (value || "Use the session model")
   }
 
-  async function save(): Promise<void> {
-    if (savingRef.current) return
-    const rounds = Number.parseInt(maxRounds, 10)
-    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 50) {
-      setError("Max rounds must be a whole number between 1 and 50.")
-      return
-    }
-    savingRef.current = true
-    setSaving(true)
-    setError(null)
-    setNotice(null)
-    const version = editVersion.current
-    try {
-      await client.api.goal.saveSettings({
-        maxRounds: rounds,
-        criticModel: criticModel || null,
-        judgeModel: judgeModel || null,
-      })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
-      // Only clear the dirty flag when nothing changed while the save was in
-      // flight; otherwise the user's newer edits stay (and can be saved again).
-      if (editVersion.current === version) setDirty(false)
-      setNotice("Saved.")
-    } catch (saveError) {
-      setError(goalErrorMessage(saveError))
-    } finally {
-      savingRef.current = false
-      setSaving(false)
-    }
-  }
-
   return (
     <View accessibilityLabel="Goal review">
-      <View style={styles.head}>
-        <View style={styles.headText}>
-          <Text style={styles.sectionTitle}>Goal review</Text>
-          <Text style={styles.hint}>
-            A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty
-            to use the session&apos;s own model.
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => void save()}
-          disabled={saving}
-          accessibilityRole="button"
-          accessibilityLabel="Save"
-          style={[styles.primary, saving && styles.disabled]}
-        >
-          <Text style={styles.primaryText}>{saving ? "Saving…" : "Save"}</Text>
-        </Pressable>
-      </View>
+      <Text style={styles.sectionTitle}>Goal review</Text>
+      <Text style={styles.hint}>
+        A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty to
+        use the session&apos;s own model. Changes save automatically.
+      </Text>
 
       {settings.isLoading ? <Text style={styles.hint}>Loading goal settings…</Text> : null}
       {settings.error ? <Text style={styles.error}>Could not load the goal settings.</Text> : null}
@@ -160,7 +180,7 @@ export function GoalReviewSection({ client }: { client: Client }) {
         <Text style={styles.cardHint}>Pauses for a decision after this many rounds (1–50).</Text>
       </View>
 
-      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      {saving ? <Text style={styles.hint}>Saving…</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <ChoiceModal
@@ -222,14 +242,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontWeight: "600",
       marginTop: 14,
     },
-    head: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 12,
-    },
-    headText: {
-      flex: 1,
-    },
     card: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
@@ -279,28 +291,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 14,
       paddingHorizontal: 12,
       marginTop: 6,
-    },
-    primary: {
-      minHeight: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 12,
-      paddingHorizontal: 16,
-    },
-    disabled: {
-      opacity: 0.5,
-    },
-    primaryText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "500",
-    },
-    notice: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 12,
     },
     error: {
       flexShrink: 1,

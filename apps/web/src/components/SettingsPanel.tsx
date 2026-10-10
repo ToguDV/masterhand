@@ -73,6 +73,16 @@ export function SettingsDialog({
         className="mh-settings pb-safe outline-none"
       >
         <header className="mh-settings__head">
+          {!mobileList && (
+            <button
+              type="button"
+              className="mh-settings__back-header mh-btn mh-btn--quiet"
+              aria-label="Back to settings"
+              onClick={() => setMobileList(true)}
+            >
+              <ArrowLeftIcon size={16} />
+            </button>
+          )}
           <h2 className="mh-heading-4">Settings</h2>
           <button
             type="button"
@@ -109,15 +119,6 @@ export function SettingsDialog({
           </nav>
 
           <div className="mh-settings__content scroll-thin">
-            <button
-              type="button"
-              className="mh-settings__back mh-btn mh-btn--ghost mh-btn--sm"
-              aria-label="Back to settings"
-              onClick={() => setMobileList(true)}
-            >
-              <ArrowLeftIcon size={16} />
-              Settings
-            </button>
             {module === "appearance" ? (
               <AppearanceSection
                 mode={mode}

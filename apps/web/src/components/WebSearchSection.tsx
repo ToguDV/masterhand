@@ -2,19 +2,23 @@ import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
+  providerIcon,
+  providerMonogram,
   queryKeys,
   useIntegrations,
   useProviderCredentials,
   useWebsearchSettings,
   useWebsearchSources,
+  websearchIcon,
   websearchSaveErrorMessage,
   websearchTestErrorMessage,
+  type Integration,
   type WebsearchSource,
   type WebsearchTestResult,
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { ConnectKeyDialog } from "./ConnectKeyDialog"
-import { ExternalLinkIcon } from "./icons"
+import { ExternalLinkIcon, SearchIcon } from "./icons"
 
 /**
  * Settings > Web search: pick the default source opencode uses for agent web
@@ -147,6 +151,9 @@ export function WebSearchSection() {
           className={`mh-option w-full${selection === "random" ? " is-selected" : ""}`}
         >
           <span className="mh-option__mark" aria-hidden="true" />
+          <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-ink">
+            <SearchIcon size={14} />
+          </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm">Automatic</span>
             <span className="block text-[11px] text-ink-muted">
@@ -174,6 +181,7 @@ export function WebSearchSection() {
                 className={`mh-option w-full${checked ? " is-selected" : ""}`}
               >
                 <span className="mh-option__mark" aria-hidden="true" />
+                <SourceAvatar integration={integration} name={source.name} />
                 <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                   <span className="truncate text-sm">{source.name}</span>
                   {source.keyless && <span className="mh-chip mh-chip--outline shrink-0">No API key required</span>}
@@ -316,5 +324,45 @@ export function WebSearchSection() {
         />
       )}
     </section>
+  )
+}
+
+/**
+ * Source glyph, like the Providers catalog: the real brand mark when vendored
+ * (`websearch-icons.ts`), the backend icon URL or a shared provider mark when
+ * the integration exposes one, otherwise a deterministic monogram.
+ */
+function SourceAvatar({ integration, name }: { integration?: Integration; name: string }) {
+  const id = integration?.id ?? name
+  const brand = websearchIcon(id) ?? providerIcon(id)
+  if (integration?.icon) {
+    return (
+      <img
+        src={integration.icon}
+        alt=""
+        data-testid="source-avatar"
+        className="h-7 w-7 shrink-0 rounded-md border border-hairline bg-canvas object-contain p-0.5"
+      />
+    )
+  }
+  const icon = brand
+  if (icon) {
+    return (
+      <span
+        aria-hidden="true"
+        data-testid="source-avatar"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-ink [&_svg]:h-4 [&_svg]:w-4"
+        dangerouslySetInnerHTML={{ __html: icon }}
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="source-avatar"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-accent-line bg-accent-soft text-xs font-semibold text-accent"
+    >
+      {providerMonogram(name)}
+    </span>
   )
 }

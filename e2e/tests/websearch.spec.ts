@@ -26,6 +26,9 @@ test("seeds the keyless source as the default and keeps sources out of Providers
   await expect(tinyfish).toContainText("TinyFish")
   await expect(tinyfish).toContainText("No API key required")
   await expect(tinyfish.getByRole("radio")).toHaveAttribute("aria-checked", "true")
+  // Real brand marks, not monograms: every built-in source renders its logo.
+  await expect(tinyfish.getByTestId("source-avatar").locator("svg")).toHaveCount(1)
+  await expect(settings.getByTestId("websearch-source-tavily").getByTestId("source-avatar").locator("svg")).toHaveCount(1)
 
   // The built-in sources are integrations too, but they are not model
   // providers: they must not show up in the Providers catalog.

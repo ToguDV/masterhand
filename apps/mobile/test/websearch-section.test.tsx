@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { Alert } from "react-native"
 import { WebSearchSection } from "../src/components/WebSearchSection"
 import { ThemeProvider } from "../src/theme"
@@ -104,5 +104,25 @@ describe("WebSearchSection", () => {
 
     await waitFor(() => expect(client.api.testWebsearch).toHaveBeenCalledWith("effect"))
     expect(await screen.findByText("Effect documentation")).toBeOnTheScreen()
+  })
+
+  it("renders the vendored brand mark or the monogram per source", async () => {
+    await setup((c) => {
+      c.api.websearchSources.mockResolvedValue([
+        { id: "tavily", name: "Tavily", keyless: false },
+        { id: "obscure", name: "Obscure", keyless: false },
+      ])
+      c.api.websearchSettings.mockResolvedValue("tavily")
+    })
+
+    // Vendored original logo: an inline SVG instead of the monogram letter.
+    const tavily = await screen.findByTestId("websearch-source-tavily")
+    expect(within(tavily).getByTestId("source-brand-icon")).toBeOnTheScreen()
+    expect(within(tavily).queryByText("T")).toBeNull()
+
+    // No vendored logo: deterministic monogram.
+    const obscure = screen.getByTestId("websearch-source-obscure")
+    expect(within(obscure).queryByTestId("source-brand-icon")).toBeNull()
+    expect(within(obscure).getByText("O")).toBeOnTheScreen()
   })
 })
