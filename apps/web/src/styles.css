@@ -1733,6 +1733,13 @@ body {
   transform: translateY(-50%);
 }
 
+.mh-settings__back-header {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  transform: translateY(-50%);
+}
+
 .mh-settings__body {
   display: flex;
   flex: 1;
@@ -1812,9 +1819,8 @@ body {
   color: var(--mh-text-faint);
 }
 
-.mh-settings__back {
+.mh-settings__back-header {
   display: none;
-  margin-bottom: 12px;
 }
 
 .mh-settings__content {
@@ -1990,7 +1996,7 @@ body {
     display: none;
   }
 
-  .mh-settings[data-mobile-view="detail"] .mh-settings__back {
+  .mh-settings[data-mobile-view="detail"] .mh-settings__back-header {
     display: inline-flex;
   }
 }
