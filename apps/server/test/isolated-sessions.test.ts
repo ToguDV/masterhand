@@ -316,13 +316,19 @@ describe("GET /api/workspaces/:id/sessions", () => {
       opencode.sessions.get(workspace.path)!.push({ id: "ses_store_judge", directory: workspace.path })
 
       const response = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, { headers })
-      const body = (await response.json()) as { sessions: Array<{ id: string; goalRole?: string }> }
+      const body = (await response.json()) as {
+        sessions: Array<{ id: string; goalRole?: string; parentID?: string }>
+      }
       const byID = new Map(body.sessions.map((session) => [session.id, session]))
       expect(byID.get("ses_critic")?.goalRole).toBe("critic")
       expect(byID.get("ses_judge")?.goalRole).toBe("judge")
       expect(byID.get("ses_store_judge")?.goalRole).toBe("judge")
       expect(byID.get("ses_plain")?.goalRole).toBeUndefined()
       expect(byID.get("ses_main")?.goalRole).toBeUndefined()
+      // The pinned opencode drops `parentID`: the run store supplies the link
+      // back to the main session so clients can return to it.
+      expect(byID.get("ses_store_judge")?.parentID).toBe("ses_main")
+      expect(byID.get("ses_main")?.parentID).toBeUndefined()
     } finally {
       await app.close()
     }

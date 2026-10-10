@@ -52,6 +52,10 @@ export interface GoalRun {
   lastReport: GoalReport | null
   lastCritique: GoalCritique | null
   lastVerdict: GoalVerdict | null
+  /** Internal critic session (null until the first review); openable from the thread. */
+  criticSessionID: string | null
+  /** Internal judge session (null until the first decision); openable from the thread. */
+  judgeSessionID: string | null
   history: GoalHistoryEntry[]
   error: string | null
   /** Set while the orchestrator waits on a phase (used to render live activity). */
@@ -214,6 +218,8 @@ export function normalizeGoalRun(value: unknown): GoalRun | null {
     lastReport: normalizeReport(raw.lastReport),
     lastCritique: normalizeCritique(raw.lastCritique),
     lastVerdict: normalizeVerdict(raw.lastVerdict),
+    criticSessionID: asString(raw.criticSessionID),
+    judgeSessionID: asString(raw.judgeSessionID),
     history: normalizeHistory(raw.history),
     error: asString(raw.error),
     awaitingKind: phase(raw.awaitingKind),

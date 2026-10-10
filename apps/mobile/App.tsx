@@ -19,6 +19,7 @@ import {
   reconcileForms,
   reconcilePermissions,
   rootSessions,
+  shouldAutoAccept,
   useEventStream,
   useSessionDirectories,
   useSessions,
@@ -29,6 +30,7 @@ import {
   type FormAnswer,
   type FormInfo,
   type Permission,
+  type Session,
 } from "@masterhand/client-core"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { LoginScreen } from "./src/screens/LoginScreen"
@@ -275,6 +277,13 @@ function AuthenticatedApp({
   const autoPendingRef = useRef(new Set<string>())
   const autoAcceptAttemptsRef = useRef(new Map<string, number>())
   const autoAcceptTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  // Requests whose auto-accept budget is spent: the drain effect (which now also
+  // re-runs on every session refresh) must not restart the cycle until the
+  // request is gone or answered elsewhere.
+  const autoGivenUpRef = useRef(new Set<string>())
+  // Session graph mirror for the event handler (subagent inheritance and the
+  // forced Goal Mode critic/judge auto-accept), kept fresh without resubscribing.
+  const sessionsRef = useRef<Session[]>([])
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(
@@ -284,7 +293,7 @@ function AuthenticatedApp({
       if (
         retry &&
         (!autoPendingRef.current.has(permission.id) ||
-          !autoAcceptSessionsRef.current.includes(permission.sessionID))
+          !shouldAutoAccept(permission.sessionID, sessionsRef.current, autoAcceptSessionsRef.current))
       ) {
         autoPendingRef.current.delete(permission.id)
         autoAcceptAttemptsRef.current.delete(permission.id)
@@ -296,6 +305,7 @@ function AuthenticatedApp({
         await client.api.respondPermission(permission.sessionID, permission.id, "once")
         autoPendingRef.current.delete(permission.id)
         autoAcceptAttemptsRef.current.delete(permission.id)
+        autoGivenUpRef.current.delete(permission.id)
         setPermissions((prev) => prev.filter((item) => item.id !== permission.id))
       } catch {
         const attempts = (autoAcceptAttemptsRef.current.get(permission.id) ?? 0) + 1
@@ -313,6 +323,7 @@ function AuthenticatedApp({
           // Stop retrying, keep the inline card reachable and say what to do.
           autoPendingRef.current.delete(permission.id)
           autoAcceptAttemptsRef.current.delete(permission.id)
+          autoGivenUpRef.current.add(permission.id)
           setBanner("Could not auto-accept the permission request — answer it in the chat")
         }
       } finally {
@@ -356,6 +367,7 @@ function AuthenticatedApp({
   const statusesQuery = useSessionStatuses(client, true, connected)
   const statuses = statusesQuery.data ?? {}
   const sessions = sessionsQuery.data ?? []
+  sessionsRef.current = sessions
   const selected = sessions.find((session) => session.id === sessionID) ?? null
   const parentSessionID = selected?.parentID ?? null
   const busy = sessionID ? statuses[sessionID]?.type === "busy" : false
@@ -378,7 +390,7 @@ function AuthenticatedApp({
     () =>
       createEventHandler(queryClient, {
         onPermission: (permission) => {
-          if (autoAcceptSessionsRef.current.includes(permission.sessionID)) {
+          if (shouldAutoAccept(permission.sessionID, sessionsRef.current, autoAcceptSessionsRef.current)) {
             void answerAutoRef.current(permission)
             return
           }
@@ -386,6 +398,7 @@ function AuthenticatedApp({
         },
         onPermissionReplied: (permissionID) => {
           autoPendingRef.current.delete(permissionID)
+          autoGivenUpRef.current.delete(permissionID)
           const timer = autoAcceptTimersRef.current.get(permissionID)
           if (timer) {
             clearTimeout(timer)
@@ -470,14 +483,17 @@ function AuthenticatedApp({
     return () => subscription.remove()
   }, [forceReconnect, syncPending])
 
-  // Drain the queue for sessions with auto-accept on. This also covers pending
-  // requests recovered on reconnect/reload (they never arrive as events).
+  // Drain the queue for sessions whose permissions we auto-answer. This also
+  // covers pending requests recovered on reconnect/reload (they never arrive as
+  // events) and re-evaluates once the session graph loads, so a subagent that
+  // inherited auto-accept before its child session was listed still matches.
   useEffect(() => {
-    if (autoAcceptSessions.length === 0 || permissions.length === 0) return
+    if (permissions.length === 0) return
     for (const permission of permissions) {
-      if (autoAcceptSessions.includes(permission.sessionID)) void answerAuto(permission)
+      if (autoGivenUpRef.current.has(permission.id)) continue
+      if (shouldAutoAccept(permission.sessionID, sessions, autoAcceptSessions)) void answerAuto(permission)
     }
-  }, [autoAcceptSessions, permissions, answerAuto])
+  }, [autoAcceptSessions, permissions, answerAuto, sessions])
 
   const toggleAutoAccept = useCallback((id: string, on: boolean) => {
     setAutoAcceptSessions((prev) =>

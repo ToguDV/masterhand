@@ -16,6 +16,8 @@ function makeRun(overrides: Partial<GoalRun> = {}): GoalRun {
     lastReport: null,
     lastCritique: null,
     lastVerdict: null,
+    criticSessionID: null,
+    judgeSessionID: null,
     history: [],
     error: null,
     awaitingKind: null,

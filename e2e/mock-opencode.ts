@@ -143,6 +143,9 @@ let goalCriticIssues: string[] = []
 let goalPromptFailures = 0
 let goalRounds = 0
 let goalDelayMs = 0
+// `/e2e/subagent-permission`: makes the next subagent run raise a permission in
+// its child session, so the client's auto-accept inheritance can be observed.
+let subagentPermission = false
 
 function goalRoleOf(sessionID: string): "main" | "critic" | "judge" | null {
   const entries = instructionsBySession.get(sessionID)
@@ -431,6 +434,32 @@ async function runSubagentPrompt(sessionID: string, text: string): Promise<void>
   childAssistant.finish = "stop"
   childAssistant.cost = 0
   childAssistant.tokens = emptyTokens()
+
+  // Optional: the child raises a permission so the client's inheritance of the
+  // parent's auto-accept setting (or the forced critic/judge rule) is exercised.
+  if (subagentPermission) {
+    subagentPermission = false
+    const request: Record<string, unknown> = {
+      id: nextId("per"),
+      sessionID: child.id,
+      action: "bash",
+      resources: ["ls"],
+      save: ["ls *"],
+      metadata: { command: "ls" },
+    }
+    const decision = new Promise<string>((resolve) =>
+      pendingPermissions.set(request.id as string, {
+        request,
+        sessionID: child.id,
+        directory: session.location.directory,
+        resolve,
+      }),
+    )
+    broadcast("permission.asked", request, session.location.directory)
+    // Bounded: an unanswered request must not hang the whole run.
+    await Promise.race([decision, delay(4000)])
+    pendingPermissions.delete(request.id as string)
+  }
 
   await delay(60)
 
@@ -1031,6 +1060,11 @@ const server = createServer((req, res) => {
       goalCriticIssues = Array.isArray(body.issues) ? body.issues.filter((value): value is string => typeof value === "string") : []
       goalPromptFailures = 0
       goalRounds = 0
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/subagent-permission") {
+      const body = await readBody(req)
+      subagentPermission = body.value !== false
       return empty(res, 204)
     }
     if (req.method === "POST" && path === "/e2e/goal-fail-prompts") {

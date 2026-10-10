@@ -190,7 +190,7 @@ export function ChatScreen({
         style={styles.listContainer}
         ListFooterComponent={
           <>
-            <GoalReview client={client} sessionID={sessionID} />
+            <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
             {pendingSend.pending ? (
               <PendingBubble
                 pending={pendingSend.pending}

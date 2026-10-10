@@ -233,7 +233,7 @@ export function ChatView({
               />
             ),
           )}
-          <GoalReview sessionID={sessionID} />
+          <GoalReview sessionID={sessionID} onOpenSession={onOpenSession} />
           {unmatchedPending.map((permission) => (
             <PermissionCard
               key={permission.id}

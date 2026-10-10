@@ -6,6 +6,7 @@ import {
   finishResultFromIsolation,
   rootSessions,
   sessionCreateMarker,
+  shouldAutoAccept,
 } from "../src/sessions"
 import type { Session } from "../src/types"
 
@@ -74,6 +75,43 @@ describe("rootSessions", () => {
     const critic = { id: "ses_critic", goalRole: "critic" } as Session
     const judge = { id: "ses_judge", goalRole: "judge" } as Session
     expect(rootSessions([parent, critic, judge]).map((item) => item.id)).toEqual(["ses_parent"])
+  })
+})
+
+describe("shouldAutoAccept", () => {
+  const parent = session("ses_parent")
+  const child = { id: "ses_child", parentID: "ses_parent" } as Session
+  const grandchild = { id: "ses_grandchild", parentID: "ses_child" } as Session
+  const unrelated = session("ses_other")
+  const sessions = [parent, child, grandchild, unrelated]
+
+  it("honors the session's own setting", () => {
+    expect(shouldAutoAccept("ses_parent", sessions, ["ses_parent"])).toBe(true)
+    expect(shouldAutoAccept("ses_parent", sessions, [])).toBe(false)
+  })
+
+  it("inherits the setting from a subagent's ancestor", () => {
+    expect(shouldAutoAccept("ses_child", sessions, ["ses_parent"])).toBe(true)
+    expect(shouldAutoAccept("ses_grandchild", sessions, ["ses_parent"])).toBe(true)
+    expect(shouldAutoAccept("ses_child", sessions, ["ses_other"])).toBe(false)
+  })
+
+  it("always forces Goal Mode critic/judge sessions", () => {
+    const critic = { id: "ses_critic", goalRole: "critic" } as Session
+    const judge = { id: "ses_judge", goalRole: "judge" } as Session
+    expect(shouldAutoAccept("ses_critic", [critic, judge], [])).toBe(true)
+    expect(shouldAutoAccept("ses_judge", [critic, judge], [])).toBe(true)
+  })
+
+  it("falls back to the direct list for a session the list has not caught up with", () => {
+    expect(shouldAutoAccept("ses_unknown", [], ["ses_unknown"])).toBe(true)
+    expect(shouldAutoAccept("ses_unknown", [], [])).toBe(false)
+  })
+
+  it("does not loop on a malformed parent cycle", () => {
+    const a = { id: "ses_a", parentID: "ses_b" } as Session
+    const b = { id: "ses_b", parentID: "ses_a" } as Session
+    expect(shouldAutoAccept("ses_a", [a, b], ["ses_missing"])).toBe(false)
   })
 })
 
