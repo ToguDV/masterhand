@@ -172,7 +172,7 @@ function AppearanceSection({
               onClick={() => onSelectMode(option.value)}
               className="mh-theme-option"
             >
-              <span className="mh-body-sm font-medium">{option.label}</span>
+              <span className="mh-theme-name mh-body-sm font-medium" title={option.label}>{option.label}</span>
               <ThemeDrop
                 top={option.canvas}
                 bottom={accent}

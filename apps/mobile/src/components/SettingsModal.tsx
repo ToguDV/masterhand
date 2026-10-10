@@ -141,13 +141,15 @@ export function SettingsModal({
               return (
                 <Pressable
                   key={option.value}
-                  style={styles.swatchOption}
+                  style={[styles.swatchOption, selected && styles.swatchOptionSelected]}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   accessibilityLabel={option.label}
                   onPress={() => onSelectMode(option.value)}
                 >
-                  <Text style={styles.swatchName}>{option.label}</Text>
+                  <Text style={styles.swatchName} numberOfLines={1} ellipsizeMode="tail">
+                    {option.label}
+                  </Text>
                   <ThemeDrop
                     top={option.canvas}
                     bottom={accent}
@@ -345,20 +347,37 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     swatches: {
       flexDirection: "row",
-      gap: 20,
+      flexWrap: "wrap",
+      gap: 8,
       marginTop: 12,
     },
     swatchOption: {
       alignItems: "center",
+      justifyContent: "center",
       gap: 8,
-      minWidth: 64,
-      padding: 4,
+      minWidth: 88,
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 88,
+      minHeight: 44,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: "transparent",
+      borderRadius: 12,
+      overflow: "hidden",
+    },
+    swatchOptionSelected: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accentSoft,
     },
     swatchName: {
+      width: "100%",
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 13,
       fontWeight: "500",
+      textAlign: "center",
     },
     paletteGrid: {
       flexDirection: "row",
