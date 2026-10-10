@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react"
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { Alert, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { SvgXml } from "react-native-svg"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   RequestTimeoutError,
   providerConnectErrorMessage,
+  providerIcon,
+  providerMonogram,
   queryKeys,
   useIntegrations,
   useProviderCredentials,
@@ -12,9 +15,11 @@ import {
   websearchSaveErrorMessage,
   websearchTestErrorMessage,
   type Client,
+  type Integration,
   type WebsearchTestResult,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { SearchIcon } from "./icons"
 
 /**
  * Settings > Web search: pick the default source opencode uses for agent web
@@ -233,6 +238,9 @@ export function WebSearchSection({ client }: { client: Client }) {
           style={[styles.option, selection === "random" && styles.optionSelected]}
         >
           <View style={[styles.mark, selection === "random" && styles.markSelected]} />
+          <View style={styles.avatar} accessible={false}>
+            <SearchIcon size={14} color={colors.text} />
+          </View>
           <View style={styles.optionBody}>
             <Text style={styles.optionName}>Automatic</Text>
             <Text style={styles.optionHint}>Picks an available source per search, retrying another on rate limits.</Text>
@@ -257,6 +265,7 @@ export function WebSearchSection({ client }: { client: Client }) {
                 style={[styles.option, checked && styles.optionSelected]}
               >
                 <View style={[styles.mark, checked && styles.markSelected]} />
+                <SourceAvatar integration={integration} name={source.name} />
                 <View style={styles.optionBody}>
                   <Text style={styles.optionName}>{source.name}</Text>
                   {source.keyless ? <Text style={styles.keyless}>No API key required</Text> : null}
@@ -368,8 +377,55 @@ export function WebSearchSection({ client }: { client: Client }) {
   )
 }
 
+function SourceAvatar({
+  integration,
+  name,
+}: {
+  integration?: Pick<Integration, "id" | "name"> & Partial<Integration>
+  name: string
+}) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+  if (integration?.icon) {
+    return <Image source={{ uri: integration.icon }} style={styles.avatar} testID="source-avatar" />
+  }
+  const icon = providerIcon(integration?.id ?? name)
+  if (icon) {
+    return (
+      <View style={[styles.avatar, styles.avatarBrand]} testID="source-avatar" accessible={false}>
+        <SvgXml xml={icon} width={16} height={16} color={colors.text} testID="source-brand-icon" />
+      </View>
+    )
+  }
+  return (
+    <View style={styles.avatar} testID="source-avatar">
+      <Text style={styles.avatarText}>{providerMonogram(name)}</Text>
+    </View>
+  )
+}
+
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
+    avatar: {
+      width: 28,
+      height: 28,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.accentLine,
+      borderRadius: 8,
+      backgroundColor: colors.accentSoft,
+    },
+    avatarBrand: {
+      borderColor: colors.hairline,
+      backgroundColor: colors.canvas,
+    },
+    avatarText: {
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "700",
+    },
     sectionTitle: {
       color: colors.textMuted,
       fontFamily: fonts.ui,

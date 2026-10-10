@@ -126,19 +126,22 @@ test("asks for a goal when /goal has no text", async ({ page }) => {
   await expect(page.getByText("Describe the goal after /goal")).toBeVisible()
 })
 
-test("persists the goal review settings", async ({ page, request }) => {
+test("persists the goal review settings automatically", async ({ page, request }) => {
   await resetGoal(request)
   await login(page)
 
   await page.getByRole("button", { name: "Settings" }).click()
   await page.getByRole("button", { name: "Goal review" }).click()
+  // No Save button: every change persists on its own.
+  await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0)
   await page.getByLabel("Max rounds before pausing").fill("3")
-  await page.getByRole("button", { name: "Save" }).click()
-  await expect(page.getByText("Saved.")).toBeVisible()
 
   // The server persisted it (not just the local input).
-  const persisted = await page.evaluate(async () => (await fetch("/api/goal/settings")).json())
-  expect(persisted).toMatchObject({ settings: { maxRounds: 3 } })
+  await expect
+    .poll(async () => (await page.evaluate(async () => (await fetch("/api/goal/settings")).json())).settings.maxRounds, {
+      timeout: 10_000,
+    })
+    .toBe(3)
 
   await page.getByRole("button", { name: "Close settings" }).click()
   await page.getByRole("button", { name: "Settings" }).click()

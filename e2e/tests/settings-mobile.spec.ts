@@ -31,8 +31,9 @@ test("settings uses a vertical list with back navigation on mobile", async ({ pa
   await expect(dialog.getByRole("button", { name: "Providers" })).toBeVisible()
   await expect(dialog.getByPlaceholder("Search providers…")).toBeHidden()
 
-  // Goal review keeps its fields and save control in the detail view.
+  // Goal review keeps its fields in the detail view; changes save
+  // automatically, without a Save button.
   await dialog.getByRole("button", { name: "Goal review" }).click()
   await expect(dialog.getByLabel("Max rounds before pausing")).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Save" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Save" })).toHaveCount(0)
 })

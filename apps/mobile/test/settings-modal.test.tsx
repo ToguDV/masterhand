@@ -163,23 +163,26 @@ describe("SettingsModal goal review (#130)", () => {
     expect(screen.getByLabelText("Max rounds before pausing")).toBeOnTheScreen()
   })
 
-  it("saves the max rounds through the goal settings API", async () => {
+  it("saves the max rounds automatically through the goal settings API", async () => {
     const { client } = await setup()
     await openSection("Goal review")
     const input = await screen.findByLabelText("Max rounds before pausing")
     await waitFor(() => expect(input.props.value).toBe("5"))
 
-    await fireEvent.changeText(input, "9")
-    await fireEvent.press(screen.getByLabelText("Save"))
+    // No Save button: every change persists on its own.
+    expect(screen.queryByLabelText("Save")).toBeNull()
 
-    await waitFor(() =>
-      expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
-        maxRounds: 9,
-        criticModel: null,
-        judgeModel: null,
-      }),
+    await fireEvent.changeText(input, "9")
+
+    await waitFor(
+      () =>
+        expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
+          maxRounds: 9,
+          criticModel: null,
+          judgeModel: null,
+        }),
+      { timeout: 5000 },
     )
-    expect(await screen.findByText("Saved.")).toBeOnTheScreen()
   })
 
   it("rejects a max rounds outside 1..50 without calling the API", async () => {
@@ -188,22 +191,20 @@ describe("SettingsModal goal review (#130)", () => {
     const input = await screen.findByLabelText("Max rounds before pausing")
 
     await fireEvent.changeText(input, "0")
-    await fireEvent.press(screen.getByLabelText("Save"))
 
     expect(await screen.findByText("Max rounds must be a whole number between 1 and 50.")).toBeOnTheScreen()
     expect(client.api.goal.saveSettings).not.toHaveBeenCalled()
   })
 
-  it("surfaces a failed save with the goal error message", async () => {
+  it("surfaces a failed autosave with the goal error message", async () => {
     const { client } = await setup()
     await openSection("Goal review")
     client.api.goal.saveSettings.mockRejectedValue(new ApiError(500, "x"))
 
     const input = await screen.findByLabelText("Max rounds before pausing")
     await fireEvent.changeText(input, "7")
-    await fireEvent.press(screen.getByLabelText("Save"))
 
-    expect(await screen.findByText("The goal action failed (HTTP 500)")).toBeOnTheScreen()
+    expect(await screen.findByText("The goal action failed (HTTP 500)", {}, { timeout: 5000 })).toBeOnTheScreen()
   })
 
   it("picks the critic and judge models through the catalog", async () => {
@@ -223,14 +224,15 @@ describe("SettingsModal goal review (#130)", () => {
     await fireEvent.press(await screen.findByText("Test · Alpha"))
     await fireEvent.press(screen.getByLabelText("Judge model"))
     await fireEvent.press(await screen.findByText("Test · Test Model"))
-    await fireEvent.press(screen.getByLabelText("Save"))
 
-    await waitFor(() =>
-      expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
-        maxRounds: 5,
-        criticModel: "test/alpha",
-        judgeModel: "test/test-model",
-      }),
+    await waitFor(
+      () =>
+        expect(client.api.goal.saveSettings).toHaveBeenCalledWith({
+          maxRounds: 5,
+          criticModel: "test/alpha",
+          judgeModel: "test/test-model",
+        }),
+      { timeout: 5000 },
     )
   })
 
@@ -246,7 +248,7 @@ describe("SettingsModal goal review (#130)", () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.goalSettings })
     })
 
-    await waitFor(() => expect(client.api.goal.settings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(client.api.goal.settings).toHaveBeenCalled(), { timeout: 5000 })
     expect(screen.getByLabelText("Max rounds before pausing").props.value).toBe("9")
   })
 })
