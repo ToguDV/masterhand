@@ -179,6 +179,13 @@ function initialIntegrations(): MockIntegration[] {
     { id: "github", name: "GitHub", methods: [{ id: "oauth", type: "oauth", label: "Sign in" }], connections: [] },
     { id: "gitlab", name: "GitLab", methods: [{ type: "key", label: "API key" }], connections: [] },
     { id: "openrouter", name: "OpenRouter", methods: [{ type: "key", label: "API key" }], connections: [] },
+    // The built-in web search sources register as integrations too; they
+    // belong to Settings > Web search and stay out of the provider catalog.
+    { id: "exa", name: "Exa", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "firecrawl", name: "Firecrawl", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "parallel", name: "Parallel", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "tavily", name: "Tavily", methods: [{ type: "key", label: "API key" }], connections: [] },
+    { id: "tinyfish", name: "TinyFish", methods: [{ type: "key", label: "API key" }], connections: [] },
   ]
 }
 let integrations: MockIntegration[] = initialIntegrations()
@@ -1315,6 +1322,34 @@ const server = createServer((req, res) => {
     }
     if (req.method === "POST" && /^\/api\/credential\/[^/]+\/activate$/.test(path)) {
       return empty(res, 204)
+    }
+    // Web search sources (Settings > Web search). The selection itself lives in
+    // the BFF's config file; these endpoints only serve the source list and a
+    // real search for the test probe.
+    if (req.method === "GET" && path === "/api/websearch/provider") {
+      return json(res, 200, {
+        location: { directory: "/e2e" },
+        data: [
+          { id: "exa", name: "Exa" },
+          { id: "firecrawl", name: "Firecrawl" },
+          { id: "parallel", name: "Parallel" },
+          { id: "tavily", name: "Tavily" },
+          { id: "tinyfish", name: "TinyFish" },
+        ],
+      })
+    }
+    if (req.method === "POST" && path === "/api/websearch") {
+      const body = await readBody(req)
+      const providerID = typeof body.providerID === "string" && body.providerID ? body.providerID : "tinyfish"
+      return json(res, 200, {
+        location: { directory: "/e2e" },
+        data: {
+          providerID,
+          results: [
+            { url: "https://example.com/effect", title: "Effect documentation", content: "snippet", time: {} },
+          ],
+        },
+      })
     }
     if (req.method === "GET" && path === "/api/command") {
       return json(res, 200, { location: { directory: "/e2e" }, data: COMMANDS })

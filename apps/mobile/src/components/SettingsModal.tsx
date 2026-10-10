@@ -4,6 +4,7 @@ import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
+import { WebSearchSection } from "./WebSearchSection"
 import { CloseIcon, GearIcon } from "./icons"
 import {
   PALETTE_IDS,
@@ -142,6 +143,10 @@ export function SettingsModal({
 
           <View style={styles.goalSection}>
             <GoalReviewSection client={client} />
+          </View>
+
+          <View style={styles.goalSection}>
+            <WebSearchSection client={client} />
           </View>
 
           <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>

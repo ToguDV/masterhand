@@ -36,11 +36,14 @@ import { createOpencodeProxy, type ProxyRetryOptions } from "./proxy.js"
 import { OpencodeTimeoutError, RetryExhaustedError, UpstreamStatusError, isTransientStatus, withRetry } from "./retry.js"
 import {
   CustomProvidersFileError,
+  DEFAULT_WEBSEARCH_PROVIDER,
   createCustomProviderStore,
   fetchProviderModels,
   validateCustomProvider,
   validateDiscoverInput,
+  validateWebsearchSelection,
   type CustomProviderStore,
+  type WebsearchSelection,
 } from "./providers.js"
 import {
   createRunManager,
@@ -1170,6 +1173,64 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ ok: true })
     } catch (error) {
       return customProvidersFailure(c, error)
+    }
+  })
+
+  /**
+   * Web search source selection: opencode reads the `websearch` key from its
+   * config, so MasterHand stores it in the same owned file (hot-reloaded) and
+   * the API keys still go through opencode's own `connect/key` per source.
+   */
+  function websearchFailure(c: Context, error: unknown) {
+    if (error instanceof CustomProvidersFileError) {
+      return c.json({ error: "websearch_corrupt" }, 500)
+    }
+    const code = (error as { code?: string } | null)?.code
+    console.error("[masterhand] websearch config failure:", error)
+    if (code === "EACCES" || code === "EROFS" || code === "ENOSPC") {
+      return c.json({ error: "websearch_unwritable" }, 503)
+    }
+    return c.json({ error: "websearch_failed" }, 500)
+  }
+
+  api.get("/websearch", async (c) => {
+    try {
+      return c.json({ provider: await readWebsearchSelection(providers) })
+    } catch (error) {
+      return websearchFailure(c, error)
+    }
+  })
+
+  /**
+   * Reads the stored selection, seeding the keyless default when the key is
+   * absent. The boot-time seed covers installs that never open settings; this
+   * lazy pass keeps it true when the owned file is recreated under a running
+   * server (the E2E harness wipes its scratch dir after boot). A present but
+   * unrecognized value is never overwritten.
+   */
+  async function readWebsearchSelection(store: CustomProviderStore): Promise<WebsearchSelection | null> {
+    const current = await store.getWebsearch()
+    if (current !== null) return current
+    if (await store.hasWebsearch()) return null
+    await store.setWebsearch(DEFAULT_WEBSEARCH_PROVIDER)
+    return DEFAULT_WEBSEARCH_PROVIDER
+  }
+
+  /** Full-state replacement: retrying the same body is safe (rule 4). */
+  api.put("/websearch", async (c) => {
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const result = validateWebsearchSelection(body)
+    if (!result.ok) return c.json({ error: result.error }, 400)
+    try {
+      await providers.setWebsearch(result.value)
+      return c.json({ provider: result.value })
+    } catch (error) {
+      return websearchFailure(c, error)
     }
   })
 

@@ -46,6 +46,14 @@ import {
   type DiscoverModelsInput,
 } from "./custom-providers"
 import { normalizeGoalRun, normalizeGoalSettings, type GoalModelRef, type GoalRun, type GoalSettings } from "./goal"
+import {
+  normalizeWebsearchSelection,
+  normalizeWebsearchSources,
+  normalizeWebsearchTestResult,
+  type WebsearchSelection,
+  type WebsearchSource,
+  type WebsearchTestResult,
+} from "./websearch"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 
 export class ApiError extends Error {
@@ -204,6 +212,17 @@ export interface Client {
     removeCustomProvider(id: string): Promise<void>
     /** Loads a provider's models from its `/models` endpoint (read-only). */
     listCustomProviderModels(input: DiscoverModelsInput): Promise<CustomProviderModel[]>
+    /**
+     * Web search (Settings > Web search): opencode's sources, the default
+     * selection MasterHand stores in the config file it owns, and a read-only
+     * probe that runs one real search with the current selection.
+     */
+    websearchSources(): Promise<WebsearchSource[]>
+    websearchSettings(): Promise<WebsearchSelection>
+    /** Saves the default source (full-state replacement; safe to retry). */
+    saveWebsearchSettings(provider: Exclude<WebsearchSelection, null>): Promise<WebsearchSelection>
+    /** Runs one real search with the current selection (read-only probe). */
+    testWebsearch(query: string, providerID?: string): Promise<WebsearchTestResult>
     statuses(): Promise<SessionStatuses>
     /** Live preview (Cloudflare quick tunnel) for a session. */
     preview(sessionID: string): Promise<PreviewStatus>
@@ -584,6 +603,27 @@ export function createClient(options: ClientOptions = {}): Client {
           method: "POST",
           body: JSON.stringify(input),
         }).then((response) => normalizeDiscoveredModels(response.models)),
+      websearchSources: () =>
+        opencodeRequest(() =>
+          opencode.websearch.providers().then((response) => normalizeWebsearchSources(response.data)),
+        ),
+      websearchSettings: () =>
+        request<{ provider: unknown }>("/api/websearch").then((response) => normalizeWebsearchSelection(response)),
+      saveWebsearchSettings: (provider) =>
+        request<{ provider: unknown }>("/api/websearch", {
+          method: "PUT",
+          body: JSON.stringify({ provider }),
+        }).then((response) => normalizeWebsearchSelection(response)),
+      testWebsearch: (query, providerID) =>
+        opencodeRequest(() =>
+          opencode.websearch
+            .query({ query, ...(providerID ? { providerID } : {}) })
+            .then((response) => {
+              const result = normalizeWebsearchTestResult(response.data)
+              if (!result) throw new ApiError(500, "invalid websearch response")
+              return result
+            }),
+        ),
       statuses: () =>
         opencodeRequest(async () => {
           const active = await opencode.session.active()

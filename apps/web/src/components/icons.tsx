@@ -291,6 +291,16 @@ export function LogOutIcon(props: IconProps) {
   )
 }
 
+/** Web search sources (Settings > Web search). */
+export function SearchIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8" />
+    </IconBase>
+  )
+}
+
 /** Run & preview trigger (replaces the text label, issue #120). */
 export function PlayIcon({ size = 16, strokeWidth = 1.75, ...props }: IconProps) {
   return (

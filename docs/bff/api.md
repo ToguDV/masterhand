@@ -43,6 +43,8 @@ Other rules:
 | `POST` | `/api/providers/custom` | `201 { provider, connected }` | Body `{ id, name, baseURL, package?, models, headers?, key?, label? }`. **Upsert by id** (retry-safe); writes the provider to opencode's config file, then connects `key` best-effort (`connected: false` when opencode lagged or none was sent). `400` validation codes (`invalid_id`, `invalid_name`, `invalid_base_url`, `invalid_package`, `invalid_models`, `invalid_headers`), `503 custom_providers_unwritable` on a read-only/full disk |
 | `DELETE` | `/api/providers/custom/:id` | `{ ok: true }` | Removes the provider from the config and its stored credentials (best effort). Idempotent |
 | `POST` | `/api/providers/custom/models` | `{ models: CustomProviderModel[] }` | Discovers the models of a **not-yet-registered** provider from its OpenAI-compatible `/models` endpoint (the add dialog fills the list automatically). Body `{ baseURL, key?, headers? }`; read-only, the transient key is only forwarded upstream. `400` validation codes (`invalid_body`, `invalid_base_url`, `invalid_headers`, `invalid_key`), `502 provider_unauthorized`/`provider_unreachable`/`provider_failed`/`provider_invalid_response`/`provider_no_models`, `504 provider_timeout` |
+| `GET` | `/api/websearch` | `{ provider: string \| "random" \| false \| null }` | The web search source opencode uses (read from the same config file MasterHand owns). When the `websearch` key is absent it seeds the keyless default (`tinyfish`) and returns it; a present but unrecognized value reads as `null` and is never overwritten. `500 websearch_corrupt` when the file is not valid JSON |
+| `PUT` | `/api/websearch` | `{ provider }` | Body `{ provider: "<source id>" \| "random" \| false }`. **Full-state replacement** (retry-safe); writes opencode's `websearch` key atomically and opencode hot-reloads it. `400 invalid_provider`/`invalid_body`, `503 websearch_unwritable`, `500 websearch_corrupt`/`websearch_failed` |
 | `GET` | `/api/devices` | `{ devices: DeviceRecord[] }` | Lists registered devices |
 | `DELETE` | `/api/devices/:id` | `{ ok: true }` | Revokes a device token |
 | `GET` | `/api/commands` | `{ commands: SlashCommand[] }` | Slash commands for a location (`?directory=/abs`), with deterministic argument hints. Composes opencode's `/api/command` catalog with the `template` only `/api/config` exposes (`$ARGUMENTS`, `$1..$N`, `[a\|b\|c]`), so raw config never reaches the clients. `502` when opencode is unreachable; a broken config degrades to commands without hints |
@@ -158,6 +160,24 @@ opencode has **no HTTP API to register a provider** — the definition only live
 - The **API key never enters the config**: `POST /api/providers/custom` connects it through opencode's `connect/key` with a bounded retry (opencode registers the integration only after reloading the config, answering `404` until then; a `404` created nothing, so retrying is safe). A failed connect never fails the create — the card offers Connect.
 - The add dialog **loads the model list automatically**: once the base URL is valid, it debounces a `POST /api/providers/custom/models`, which calls `<baseURL>/models` on a 10 s budget and returns `{ id, name? }` entries (accepts the OpenAI `{ data }` shape, `{ models }` or a bare array; deduplicated, cap 200 — the same cap the config write enforces, so a discovered list can never be rejected as `invalid_models`). It is read-only and the transient key is only forwarded to the provider. There is **no manual model entry**: a failed discovery shows `This provider does not expose models.` and keeps Create disabled until the list loads (an auth failure is reported separately). Because self-hosted installs commonly point the base URL at a LAN address, no host allowlist applies — the URL is the same one opencode will call once the provider is saved.
 - opencode reloads the watched config dir, so `/api/model` and `/api/integration` pick the provider up without a restart; a custom provider then exposes a `key` method, and its connection state shows up in `GET /api/integration/{id}` (`/api/credential` does **not** list it).
+
+## Web search
+
+opencode v2 ships five web search sources (**Exa, Firecrawl, Parallel, Tavily, TinyFish**), selected with its `websearch` config key (verified against the pinned **2.0.6**: `GET /api/websearch/provider` lists the sources and `POST /api/websearch` runs a search; each source also registers as an integration with a `key` method, so API keys connect through the same `connect/key` endpoint as providers). MasterHand stores the selection in the config file it already owns:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "websearch": { "provider": "tinyfish" },
+  "providers": {}
+}
+```
+
+- **Keyless default**: TinyFish works without an API key (opencode documents its `TINYFISH_API_KEY` as optional; Tavily also has a keyless fallback in the pinned build, but its key is documented as required). The BFF seeds `websearch.provider = "tinyfish"` at boot when the key is absent, and `GET /api/websearch` repeats the seed lazily (self-healing when the owned file is recreated under a running server). It never overrides a present value — a hand-edited one included — and a malformed file is never overwritten.
+- **Why seed it**: without a selection opencode asks a form (`metadata.kind = "websearch.provider"`) before the first search; MasterHand clients only render `question` forms, so the agent's search would time out as "Web search cancelled". The seed makes agent web searches work out of the box.
+- **Selection writes** are full-state replacements (atomic temp file + rename, serialized with the provider writes) and every other top-level key of the shared file is preserved; opencode watches the config dir, so the new source applies without a restart.
+- **Keys stay in opencode**: each source is an integration (`exa`, `firecrawl`, `parallel`, `tavily`, `tinyfish`), so Settings > Web search connects/disconnects through `POST /api/oc/api/integration/{id}/connect/key` and `DELETE /api/oc/api/credential/{id}` — no dedicated BFF route, and MasterHand never stores a key.
+- **Test probe**: `POST /api/oc/api/websearch` (opencode) runs one real search with the current selection; the UI shows the answering source or a mapped error. It is read-only.
 
 Examples:
 

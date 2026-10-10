@@ -54,6 +54,10 @@ export const queryKeys = {
   goal: (sessionID: string) => ["goal", sessionID] as const,
   /** Goal review settings (Settings > Goal review). */
   goalSettings: ["goalSettings"] as const,
+  /** Web search sources served by opencode (Settings > Web search). */
+  websearchSources: ["websearchSources"] as const,
+  /** Default web search source stored in MasterHand's config file. */
+  websearch: ["websearch"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -199,6 +203,26 @@ export function useCustomProviders(client: Client, enabled = true) {
   return useQuery({
     queryKey: queryKeys.customProviders,
     queryFn: () => client.api.customProviders(),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+/** Web search sources served by opencode (Settings > Web search). */
+export function useWebsearchSources(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.websearchSources,
+    queryFn: () => client.api.websearchSources(),
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** Default web search source stored in MasterHand's config file. */
+export function useWebsearchSettings(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.websearch,
+    queryFn: () => client.api.websearchSettings(),
     enabled,
     staleTime: 60_000,
   })

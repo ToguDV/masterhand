@@ -4,11 +4,14 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   CustomProvidersFileError,
+  DEFAULT_WEBSEARCH_PROVIDER,
   createCustomProviderStore,
+  ensureWebsearchDefault,
   fetchProviderModels,
   parseModelsResponse,
   validateCustomProvider,
   validateDiscoverInput,
+  validateWebsearchSelection,
   type CustomProvider,
 } from "../src/providers.js"
 
@@ -175,6 +178,159 @@ describe("createCustomProviderStore ", () => {
       ),
     )
     expect((await store.list()).length).toBe(8)
+  })
+
+  it("preserves unknown top-level config keys on every write", async () => {
+    const file = await tempFile()
+    await writeFile(
+      file,
+      JSON.stringify({
+        $schema: "https://opencode.ai/config.json",
+        websearch: { provider: "tavily" },
+        theme: "opencode",
+        providers: {},
+      }),
+      "utf8",
+    )
+    const store = createCustomProviderStore({ file })
+
+    await store.upsert({
+      id: "acme",
+      name: "Acme",
+      baseURL: "https://api.acme.example/v1",
+      package: "openai-compatible",
+      models: [{ id: "m1" }],
+    })
+
+    const after = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(after.websearch).toEqual({ provider: "tavily" })
+    expect(after.theme).toBe("opencode")
+    expect(after.providers).toHaveProperty("acme")
+
+    await store.remove("acme")
+    const final = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(final.websearch).toEqual({ provider: "tavily" })
+    expect(final.theme).toBe("opencode")
+  })
+})
+
+describe("websearch selection ", () => {
+  it("reads the selection and reports key presence", async () => {
+    const file = await tempFile()
+    const store = createCustomProviderStore({ file })
+
+    // Absent file and absent key both read as "no selection".
+    expect(await store.getWebsearch()).toBeNull()
+    expect(await store.hasWebsearch()).toBe(false)
+
+    await store.setWebsearch("tinyfish")
+    expect(await store.getWebsearch()).toBe("tinyfish")
+    expect(await store.hasWebsearch()).toBe(true)
+    let raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(raw.websearch).toEqual({ provider: "tinyfish" })
+
+    await store.setWebsearch("random")
+    expect(await store.getWebsearch()).toBe("random")
+
+    await store.setWebsearch(false)
+    expect(await store.getWebsearch()).toBe(false)
+    raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(raw.websearch).toBe(false)
+
+    // `null` removes the key entirely (opencode falls back to its own prompt).
+    await store.setWebsearch(null)
+    expect(await store.getWebsearch()).toBeNull()
+    expect(await store.hasWebsearch()).toBe(false)
+    raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect("websearch" in raw).toBe(false)
+  })
+
+  it("keeps a hand-edited websearch value present but unrecognized values read as none", async () => {
+    const file = await tempFile()
+    await writeFile(file, JSON.stringify({ providers: {}, websearch: "not-an-object" }), "utf8")
+    const store = createCustomProviderStore({ file })
+    expect(await store.hasWebsearch()).toBe(true)
+    expect(await store.getWebsearch()).toBeNull()
+  })
+
+  it("writes a websearch selection without touching the providers", async () => {
+    const file = await tempFile()
+    const store = createCustomProviderStore({ file })
+    await store.upsert({
+      id: "acme",
+      name: "Acme",
+      baseURL: "https://api.acme.example/v1",
+      package: "openai-compatible",
+      models: [{ id: "m1" }],
+    })
+    await store.setWebsearch("exa")
+    const providers = await store.list()
+    expect(providers.map((provider) => provider.id)).toEqual(["acme"])
+    expect(await store.getWebsearch()).toBe("exa")
+  })
+
+  it("never overwrites a corrupt file when setting the selection", async () => {
+    const file = await tempFile()
+    await writeFile(file, "{ not json", "utf8")
+    const store = createCustomProviderStore({ file })
+    await expect(store.setWebsearch("tinyfish")).rejects.toBeInstanceOf(CustomProvidersFileError)
+    expect(await readFile(file, "utf8")).toBe("{ not json")
+  })
+
+  it("validates the selection payload", () => {
+    expect(validateWebsearchSelection({ provider: "tavily" })).toEqual({ ok: true, value: "tavily" })
+    expect(validateWebsearchSelection({ provider: "random" })).toEqual({ ok: true, value: "random" })
+    expect(validateWebsearchSelection({ provider: false })).toEqual({ ok: true, value: false })
+    expect(validateWebsearchSelection({ provider: " exa " })).toEqual({ ok: true, value: "exa" })
+    expect(validateWebsearchSelection({})).toEqual({ ok: false, error: "invalid_provider" })
+    expect(validateWebsearchSelection({ provider: "" })).toEqual({ ok: false, error: "invalid_provider" })
+    expect(validateWebsearchSelection({ provider: "Bad Id" })).toEqual({ ok: false, error: "invalid_provider" })
+    expect(validateWebsearchSelection({ provider: 42 })).toEqual({ ok: false, error: "invalid_provider" })
+    expect(validateWebsearchSelection({ provider: null })).toEqual({ ok: false, error: "invalid_provider" })
+    expect(validateWebsearchSelection(null)).toEqual({ ok: false, error: "invalid_body" })
+  })
+})
+
+describe("ensureWebsearchDefault ", () => {
+  it("writes the keyless default when the file has no selection", async () => {
+    const file = await tempFile()
+    const store = createCustomProviderStore({ file })
+    expect(await ensureWebsearchDefault(store)).toBe(true)
+    expect(await store.getWebsearch()).toBe(DEFAULT_WEBSEARCH_PROVIDER)
+  })
+
+  it("creates the file when it does not exist", async () => {
+    const file = await tempFile()
+    const store = createCustomProviderStore({ file })
+    await ensureWebsearchDefault(store)
+    const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(raw.websearch).toEqual({ provider: "tinyfish" })
+    expect(raw.providers).toEqual({})
+  })
+
+  it("never overrides an existing selection, including a hand-edited one", async () => {
+    const file = await tempFile()
+    await writeFile(file, JSON.stringify({ providers: {}, websearch: { provider: "exa" } }), "utf8")
+    const store = createCustomProviderStore({ file })
+    expect(await ensureWebsearchDefault(store)).toBe(false)
+    expect(await store.getWebsearch()).toBe("exa")
+
+    await writeFile(file, JSON.stringify({ providers: {}, websearch: false }), "utf8")
+    expect(await ensureWebsearchDefault(store)).toBe(false)
+    expect(await store.getWebsearch()).toBe(false)
+
+    await writeFile(file, JSON.stringify({ providers: {}, websearch: "weird" }), "utf8")
+    expect(await ensureWebsearchDefault(store)).toBe(false)
+    const raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>
+    expect(raw.websearch).toBe("weird")
+  })
+
+  it("refuses to touch a corrupt file", async () => {
+    const file = await tempFile()
+    await writeFile(file, "{ not json", "utf8")
+    const store = createCustomProviderStore({ file })
+    await expect(ensureWebsearchDefault(store)).rejects.toBeInstanceOf(CustomProvidersFileError)
+    expect(await readFile(file, "utf8")).toBe("{ not json")
   })
 })
 

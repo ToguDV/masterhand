@@ -17,6 +17,7 @@ import {
   compareIntegrations,
   customProviderErrorMessage,
   isValidProviderId,
+  isWebsearchSourceId,
   modelsLoadErrorMessage,
   providerConnectErrorMessage,
   providerIcon,
@@ -63,6 +64,9 @@ export function ProvidersSection({ client }: { client: Client }) {
   const { colors } = useTheme()
 
   const filtered = [...(integrationsQuery.data ?? [])]
+    // The built-in web search sources are integrations too; they belong to
+    // Settings > Web search, not to the model-provider catalog.
+    .filter((integration) => !isWebsearchSourceId(integration.id))
     .sort(compareIntegrations)
     .filter((integration) => {
       const needle = search.trim().toLowerCase()

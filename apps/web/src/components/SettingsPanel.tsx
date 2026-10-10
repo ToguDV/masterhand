@@ -1,9 +1,10 @@
 import { useState, type ComponentType } from "react"
 import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterhand/client-core"
 import { useModalFocus } from "./useModalFocus"
-import { KeyIcon, SparkleIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import { KeyIcon, SearchIcon, SparkleIcon, SunIcon, XIcon, type IconProps } from "./icons"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
+import { WebSearchSection } from "./WebSearchSection"
 import type { ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
@@ -11,11 +12,12 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
   { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
-type SettingsModule = "appearance" | "goal" | "providers"
+type SettingsModule = "appearance" | "goal" | "websearch" | "providers"
 
 const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<IconProps> }> = [
   { id: "appearance", label: "Appearance", icon: SunIcon },
   { id: "goal", label: "Goal review", icon: SparkleIcon },
+  { id: "websearch", label: "Web search", icon: SearchIcon },
   { id: "providers", label: "Providers", icon: KeyIcon },
 ]
 
@@ -92,6 +94,8 @@ export function SettingsDialog({
               />
             ) : module === "goal" ? (
               <GoalReviewSection />
+            ) : module === "websearch" ? (
+              <WebSearchSection />
             ) : (
               <ProvidersSection />
             )}
