@@ -228,6 +228,8 @@ export function ProvidersSection({ client }: { client: Client }) {
 
   return (
     <View accessibilityLabel="Providers">
+      <Text style={styles.sectionTitle}>Providers</Text>
+      <Text style={styles.headDesc}>Connect provider API keys and manage the stored credentials.</Text>
       <Pressable
         onPress={() => {
           setAdding(true)
@@ -825,6 +827,20 @@ function AddProviderModal({
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
+    sectionTitle: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      fontWeight: "600",
+    },
+    headDesc: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      marginTop: 8,
+    },
     hint: {
       color: colors.textMuted,
       fontFamily: fonts.ui,

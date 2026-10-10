@@ -174,7 +174,7 @@ export function ProvidersSection() {
   return (
     <section aria-labelledby="settings-providers">
       {/* Pinned above the provider list: adding a provider never scrolls away. */}
-      <div className="mh-providers__head">
+      <div className="mh-settings__module-head">
         <div className="min-w-0">
           <h3 id="settings-providers" className="mh-settings__title">
             Providers

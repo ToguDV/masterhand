@@ -19,6 +19,24 @@ export function ChevronDownIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="chevron-down" size={size} color={color} />
 }
 
+export function ChevronRightIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="chevron-forward" size={size} color={color} />
+}
+
+export function BackIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="arrow-back" size={size} color={color} />
+}
+
+/** Provider credentials / API keys (Settings > Providers). */
+export function KeyIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="key-outline" size={size} color={color} />
+}
+
+/** Web search sources (Settings > Web search). */
+export function SearchIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="search-outline" size={size} color={color} />
+}
+
 export function PlusIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="add" size={size} color={color} />
 }

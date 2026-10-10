@@ -1,3 +1,4 @@
+import { useState, type ComponentType } from "react"
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
@@ -5,7 +6,17 @@ import { Screen } from "./Screen"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
-import { CloseIcon, GearIcon } from "./icons"
+import {
+  BackIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  GearIcon,
+  KeyIcon,
+  SearchIcon,
+  SparkleIcon,
+  SunIcon,
+  type IconProps,
+} from "./icons"
 import {
   PALETTE_IDS,
   useTheme,
@@ -24,10 +35,20 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
 const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
+type SectionID = "appearance" | "goal" | "websearch" | "providers"
+
+const SECTIONS: Array<{ id: SectionID; label: string; desc: string; icon: ComponentType<IconProps> }> = [
+  { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
+  { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
+  { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
+  { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
+]
+
 /**
  * App-level settings (issue #119): a full-screen modal opened from the Sessions
- * header gear. Appearance owns the explicit theme (light/dark) plus the accent
- * palette (#124); Account (sign out) and later sections append below.
+ * header gear. It opens on a vertical section list; tapping a section shows
+ * only that section, with a back control returning to the list. Appearance
+ * owns the explicit theme (light/dark) plus the accent palette (#124).
  */
 export function SettingsModal({
   visible,
@@ -48,12 +69,26 @@ export function SettingsModal({
 }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  // null = the section list; otherwise only that section is mounted.
+  const [section, setSection] = useState<SectionID | null>(null)
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <Screen>
         <View style={styles.header}>
-          <GearIcon size={18} color={colors.textMuted} />
+          {section === null ? (
+            <GearIcon size={18} color={colors.textMuted} />
+          ) : (
+            <Pressable
+              onPress={() => setSection(null)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Back to settings"
+              style={styles.back}
+            >
+              <BackIcon size={20} color={colors.textMuted} />
+            </Pressable>
+          )}
           <Text style={styles.title}>Settings</Text>
           <Pressable
             onPress={onClose}
@@ -66,9 +101,34 @@ export function SettingsModal({
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.sectionTitle}>Appearance</Text>
-          <Text style={styles.themeLabel}>Theme color</Text>
+        {section === null ? (
+          <ScrollView contentContainerStyle={styles.content}>
+            {SECTIONS.map((item) => {
+              const Icon = item.icon
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setSection(item.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${item.label}`}
+                  style={styles.row}
+                >
+                  <Icon size={18} color={colors.textMuted} />
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowLabel}>{item.label}</Text>
+                    <Text style={styles.rowDesc}>{item.desc}</Text>
+                  </View>
+                  <ChevronRightIcon size={18} color={colors.textFaint} />
+                </Pressable>
+              )
+            })}
+          </ScrollView>
+        ) : (
+          <ScrollView contentContainerStyle={styles.content}>
+            {section === "appearance" && (
+              <>
+                <Text style={styles.sectionTitle}>Appearance</Text>
+                <Text style={styles.themeLabel}>Theme color</Text>
           <View
             accessibilityRole="radiogroup"
             accessibilityLabel="Theme color"
@@ -141,17 +201,13 @@ export function SettingsModal({
             </Pressable>
           ) : null}
 
-          <View style={styles.goalSection}>
-            <GoalReviewSection client={client} />
-          </View>
-
-          <View style={styles.goalSection}>
-            <WebSearchSection client={client} />
-          </View>
-
-          <Text style={[styles.sectionTitle, styles.accountTitle]}>Providers</Text>
-          <ProvidersSection client={client} />
-        </ScrollView>
+          </>
+            )}
+          {section === "goal" && <GoalReviewSection client={client} />}
+          {section === "websearch" && <WebSearchSection client={client} />}
+          {section === "providers" && <ProvidersSection client={client} />}
+          </ScrollView>
+        )}
       </Screen>
     </Modal>
   )
@@ -236,9 +292,42 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       justifyContent: "center",
     },
+    back: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     content: {
       padding: 14,
       gap: 8,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      minHeight: 56,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    rowText: {
+      flex: 1,
+      gap: 2,
+    },
+    rowLabel: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    rowDesc: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
     },
     sectionTitle: {
       color: colors.textMuted,
@@ -326,12 +415,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 13,
-    },
-    accountTitle: {
-      marginTop: 18,
-    },
-    goalSection: {
-      marginTop: 18,
     },
   })
 }

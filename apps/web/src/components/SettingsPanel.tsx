@@ -1,7 +1,16 @@
 import { useState, type ComponentType } from "react"
 import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterhand/client-core"
 import { useModalFocus } from "./useModalFocus"
-import { KeyIcon, SearchIcon, SparkleIcon, SunIcon, XIcon, type IconProps } from "./icons"
+import {
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  KeyIcon,
+  SearchIcon,
+  SparkleIcon,
+  SunIcon,
+  XIcon,
+  type IconProps,
+} from "./icons"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
@@ -14,11 +23,11 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
 
 type SettingsModule = "appearance" | "goal" | "websearch" | "providers"
 
-const MODULES: Array<{ id: SettingsModule; label: string; icon: ComponentType<IconProps> }> = [
-  { id: "appearance", label: "Appearance", icon: SunIcon },
-  { id: "goal", label: "Goal review", icon: SparkleIcon },
-  { id: "websearch", label: "Web search", icon: SearchIcon },
-  { id: "providers", label: "Providers", icon: KeyIcon },
+const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: ComponentType<IconProps> }> = [
+  { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
+  { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
+  { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
+  { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
 ]
 
 /**
@@ -42,6 +51,15 @@ export function SettingsDialog({
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onClose)
   const [module, setModule] = useState<SettingsModule>("appearance")
+  // Mobile (<768px) is a master-detail flow: the dialog opens on the vertical
+  // section list and shows only the selected section, with a back control.
+  // Desktop keeps the two-pane layout and ignores this flag.
+  const [mobileList, setMobileList] = useState(true)
+
+  function openModule(id: SettingsModule): void {
+    setModule(id)
+    setMobileList(false)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center mh-overlay md:items-center md:p-4">
@@ -51,6 +69,7 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
+        data-mobile-view={mobileList ? "list" : "detail"}
         className="mh-settings pb-safe outline-none"
       >
         <header className="mh-settings__head">
@@ -74,17 +93,31 @@ export function SettingsDialog({
                   key={item.id}
                   type="button"
                   className="mh-settings__nav-item"
+                  aria-label={item.label}
                   aria-current={module === item.id ? "page" : undefined}
-                  onClick={() => setModule(item.id)}
+                  onClick={() => openModule(item.id)}
                 >
                   <Icon size={16} />
-                  {item.label}
+                  <span className="mh-settings__nav-text">
+                    <span className="mh-settings__nav-label">{item.label}</span>
+                    <span className="mh-settings__nav-desc">{item.desc}</span>
+                  </span>
+                  <ChevronRightIcon size={16} className="mh-settings__nav-chevron" />
                 </button>
               )
             })}
           </nav>
 
           <div className="mh-settings__content scroll-thin">
+            <button
+              type="button"
+              className="mh-settings__back mh-btn mh-btn--ghost mh-btn--sm"
+              aria-label="Back to settings"
+              onClick={() => setMobileList(true)}
+            >
+              <ArrowLeftIcon size={16} />
+              Settings
+            </button>
             {module === "appearance" ? (
               <AppearanceSection
                 mode={mode}
