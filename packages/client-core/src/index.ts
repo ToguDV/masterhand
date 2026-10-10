@@ -160,6 +160,7 @@ export {
   type WebsearchSource,
   type WebsearchTestResult,
 } from "./websearch"
+export { websearchIcon } from "./websearch-icons"
 export {
   appCommands,
   argumentSuggestions,

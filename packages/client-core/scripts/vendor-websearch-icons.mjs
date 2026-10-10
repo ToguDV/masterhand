@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+/**
+ * Regenerates `src/websearch-icons.ts` from the search vendors' own sites.
+ *
+ * models.dev (the source of `provider-icons.generated.ts`) serves its generic
+ * fallback logo for the five built-in web search sources, so their real brand
+ * marks are vendored here instead: Exa, Tavily, Parallel and Firecrawl ship an
+ * official SVG mark; TinyFish only ships a multi-color illustration and a
+ * raster favicon, so its avatar is a minimal recreated fish silhouette
+ * (clearly marked below — geometry ours, concept theirs).
+ *
+ * Logos are trademarks of their owners and are used here only to identify the
+ * web search source. Paints are normalized to `currentColor` (same rule as
+ * `generate-provider-icons.mjs`) so one asset works on light and dark themes.
+ *
+ * Usage: npm run icons:websearch -w @masterhand/client-core
+ */
+import { writeFile } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const OUT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "websearch-icons.ts")
+
+const SOURCES = [
+  {
+    id: "tavily",
+    url: "https://tavily.com/logos/tavily-mark-black.svg",
+  },
+  {
+    id: "firecrawl",
+    url: "https://raw.githubusercontent.com/firecrawl/firecrawl/main/apps/test-site/src/assets/firecrawl-logo.svg",
+  },
+  {
+    id: "parallel",
+    url: "https://parallel.ai/views/icons/logo-parallel.svg",
+  },
+]
+
+const EXA_URL = "https://exa.ai/images/logo/exa-logo-blue.svg"
+/** The "E" glyph is the first path of Exa's lockup, spanning this sub-box. */
+const EXA_GLYPH_VIEWBOX = "0 0 107 129"
+
+/**
+ * Minimal recreated fish silhouette for TinyFish (their mark only exists as a
+ * multi-color illustration and a raster favicon, neither usable in a
+ * single-paint avatar). Body + tail + eye cutout via even-odd.
+ */
+const TINYFISH_RECREATED =
+  '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 12C5 8 8.5 6 12.5 6c3.4 0 6.1 1.8 7.8 5.4L23 7v10l-2.7-4.4C18.6 16.2 15.9 18 12.5 18c-4 0-7.5-2-10-6zM8 9.4a1.3 1.3 0 100 2.6 1.3 1.3 0 000-2.6z" fill="currentColor" fill-rule="evenodd"/></svg>'
+
+/**
+ * Same normalization as `generate-provider-icons.mjs`: strip the fixed size
+ * and force every painted fill/stroke to `currentColor`, so one asset works
+ * on both themes; the served files still carry their original paint.
+ */
+function normalize(svg) {
+  return svg
+    .replace(/<svg\b([^>]*)>/i, (_, attributes) =>
+      `<svg${attributes.replace(/\s(width|height)="[^"]*"/gi, "").replace(/\sstyle="[^"]*"/gi, "")}>`,
+    )
+    .replace(/<path\b([^>]*)>/gi, (_, attributes) => `<path${attributes.replace(/\sstyle="[^"]*"/gi, "")}>`)
+    .replace(/\sfill="(?!none|currentColor)[^"]*"/gi, ' fill="currentColor"')
+    .replace(/\sstroke="(?!none|currentColor)[^"]*"/gi, ' stroke="currentColor"')
+    .replace(/>\s+</g, "><")
+    .trim()
+}
+
+async function fetchSvg(id, url) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`${id}: HTTP ${response.status} (${url})`)
+  const svg = await response.text()
+  if (!svg.includes("<svg") || !svg.includes("</svg>")) throw new Error(`${id}: not an SVG (${url})`)
+  return svg
+}
+
+function constName(id) {
+  return id.replace(/[^a-zA-Z0-9]+(.)/g, (_, char) => char.toUpperCase()).replace(/[^a-zA-Z0-9]/g, "")
+}
+
+async function main() {
+  const blocks = []
+  const entries = []
+
+  for (const { id, url } of SOURCES) {
+    const raw = await fetchSvg(id, url)
+    // Vendor SVGs must be background-free: a backdrop fill would normalize to
+    // a solid currentColor disc. Fail loudly instead of shipping a blob.
+    if (/#(?:fff|ffffff)\b/i.test(raw)) throw new Error(`${id}: source artwork has a light backdrop, pick the mark-only asset`)
+    const name = constName(id)
+    blocks.push(`const ${name} = ${JSON.stringify(normalize(raw))}`)
+    entries.push(`  ${constName(id) === id ? id : `"${id}"`}: ${name},`)
+    console.log(`${id} (vendored from ${url})`)
+  }
+
+  // Exa ships a lockup (glyph + wordmark): vendor only the "E" glyph path.
+  const exaRaw = await fetchSvg("exa", EXA_URL)
+  const exaPath = exaRaw.match(/<path\b[^>]*\bd="([^"]+)"[^>]*>/i)?.[1]
+  if (!exaPath) throw new Error("exa: no glyph path found in the lockup")
+  const exaAttrs = exaRaw.match(/<path\b([^>]*)>/i)?.[1] ?? ""
+  const exaRule = /fill-rule="[^"]*"/i.test(exaAttrs) ? ' fill-rule="evenodd" clip-rule="evenodd"' : ""
+  blocks.push(
+    `const exa = ${JSON.stringify(`<svg viewBox="${EXA_GLYPH_VIEWBOX}" xmlns="http://www.w3.org/2000/svg"><path d="${exaPath}" fill="currentColor"${exaRule}/></svg>`)}`,
+  )
+  entries.push("  exa: exa,")
+  console.log(`exa (glyph extracted from ${EXA_URL})`)
+
+  blocks.push(`/** Recreated fish silhouette (see above): TinyFish ships no flat vector mark. */\nconst tinyfish = ${JSON.stringify(TINYFISH_RECREATED)}`)
+  entries.push("  tinyfish: tinyfish,")
+  console.log("tinyfish (recreated silhouette)")
+
+  const file = `// Generated by scripts/vendor-websearch-icons.mjs — do not edit by hand.
+//
+// Original brand marks from the search vendors' own sites (Exa, Tavily,
+// Parallel, Firecrawl); TinyFish's avatar is a recreated silhouette because
+// the vendor only ships a multi-color illustration and a raster favicon.
+// Each mark keeps the vendor's original geometry; paints are normalized to
+// currentColor so one asset works on light and dark themes. Logos are the
+// vendors' trademarks and identify their source only.
+
+${blocks.join("\n\n")}
+
+/** Brand SVG markup by web search source id. */
+export const websearchIconSvgs: Readonly<Record<string, string>> = {
+${entries.join("\n")}
+}
+
+/**
+ * Original brand mark for a web search source id, as normalized SVG markup
+ * ready to be rendered inline. \`null\` for unknown ids, so the caller can
+ * fall back to \`providerIcon\` and then the monogram.
+ */
+export function websearchIcon(id: string): string | null {
+  return websearchIconSvgs[id.trim().toLowerCase()] ?? null
+}
+`
+  await writeFile(OUT_FILE, file)
+  console.log(`\nWrote ${entries.length} entries to ${path.relative(process.cwd(), OUT_FILE)}`)
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

@@ -12,6 +12,7 @@ import {
   useProviderCredentials,
   useWebsearchSettings,
   useWebsearchSources,
+  websearchIcon,
   websearchSaveErrorMessage,
   websearchTestErrorMessage,
   type Client,
@@ -389,7 +390,7 @@ function SourceAvatar({
   if (integration?.icon) {
     return <Image source={{ uri: integration.icon }} style={styles.avatar} testID="source-avatar" />
   }
-  const icon = providerIcon(integration?.id ?? name)
+  const icon = websearchIcon(integration?.id ?? name) ?? providerIcon(integration?.id ?? name)
   if (icon) {
     return (
       <View style={[styles.avatar, styles.avatarBrand]} testID="source-avatar" accessible={false}>

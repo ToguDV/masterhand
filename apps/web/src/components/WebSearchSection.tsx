@@ -9,6 +9,7 @@ import {
   useProviderCredentials,
   useWebsearchSettings,
   useWebsearchSources,
+  websearchIcon,
   websearchSaveErrorMessage,
   websearchTestErrorMessage,
   type Integration,
@@ -327,12 +328,13 @@ export function WebSearchSection() {
 }
 
 /**
- * Source glyph, like the Providers catalog: the backend icon URL when the
- * integration exposes one, a vendored brand mark when known, otherwise a
- * deterministic monogram of the source name.
+ * Source glyph, like the Providers catalog: the real brand mark when vendored
+ * (`websearch-icons.ts`), the backend icon URL or a shared provider mark when
+ * the integration exposes one, otherwise a deterministic monogram.
  */
 function SourceAvatar({ integration, name }: { integration?: Integration; name: string }) {
   const id = integration?.id ?? name
+  const brand = websearchIcon(id) ?? providerIcon(id)
   if (integration?.icon) {
     return (
       <img
@@ -343,7 +345,7 @@ function SourceAvatar({ integration, name }: { integration?: Integration; name: 
       />
     )
   }
-  const icon = providerIcon(id)
+  const icon = brand
   if (icon) {
     return (
       <span
