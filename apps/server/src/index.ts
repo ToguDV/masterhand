@@ -6,6 +6,7 @@ import { createApp } from "./app.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
+import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchDefault } from "./providers.js"
 import { createSqliteStore } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
@@ -41,6 +42,19 @@ const worktrees = createWorktreeManager({
 
 const preview = createPreviewManager({ config, store })
 
+// MasterHand owns opencode's `websearch` selection through the same config
+// file that holds custom providers. When the key is absent it seeds the
+// keyless source, so agent web searches work without an API key and without
+// opencode's own provider prompt (which MasterHand clients do not render).
+const providers = createCustomProviderStore({ file: config.customProvidersFile })
+try {
+  if (await ensureWebsearchDefault(providers)) {
+    console.log(`[masterhand] web search default set to ${DEFAULT_WEBSEARCH_PROVIDER}`)
+  }
+} catch (error) {
+  console.warn("[masterhand] web search default skipped:", error)
+}
+
 try {
   const reconciled = await reconcileWorktrees(store, worktrees, config.worktreesRoot)
   if (reconciled.skipped) {
@@ -56,7 +70,7 @@ try {
   console.warn("[masterhand] worktree reconciliation skipped:", error)
 }
 
-const app = createApp({ config, store, hub, worktrees, preview })
+const app = createApp({ config, store, hub, worktrees, preview, providers })
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist

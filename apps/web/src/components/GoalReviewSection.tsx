@@ -80,40 +80,66 @@ export function GoalReviewSection() {
 
   return (
     <section aria-labelledby="settings-goal">
-      <h3 id="settings-goal" className="mh-settings__title">
-        Goal review
-      </h3>
-      <p className="mh-settings__desc">
-        A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty to
-        use the session&apos;s own model.
-      </p>
+      {/* Pinned above the cards, like Providers: saving never scrolls away. */}
+      <div className="mh-settings__module-head">
+        <div className="min-w-0">
+          <h3 id="settings-goal" className="mh-settings__title">
+            Goal review
+          </h3>
+          <p className="mh-settings__desc">
+            A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty
+            to use the session&apos;s own model.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
 
-      <div className="mt-4 flex flex-col gap-2">
+      {settings.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading goal settings…</p>}
+      {settings.error && <p className="mt-4 text-xs text-danger">Could not load the goal settings.</p>}
+
+      <p className="mh-caption mh-muted mt-4">Models</p>
+      <div className="mt-2 rounded-md border border-hairline bg-surface p-3">
         <p className="mh-caption mh-muted">Critic model</p>
-        <SearchSelect
-          value={criticModel}
-          options={modelOptions}
-          onChange={(value) => {
-            setCriticModel(value)
-            setDirty(true)
-            editVersion.current += 1
-          }}
-          ariaLabel="Critic model"
-          placeholder="Use the session model"
-        />
-        <p className="mh-caption mh-muted mt-2">Judge model</p>
-        <SearchSelect
-          value={judgeModel}
-          options={modelOptions}
-          onChange={(value) => {
-            setJudgeModel(value)
-            setDirty(true)
-            editVersion.current += 1
-          }}
-          ariaLabel="Judge model"
-          placeholder="Use the session model"
-        />
-        <label className="mt-2 flex flex-col gap-1 text-xs text-ink-muted">
+        <div className="mt-1">
+          <SearchSelect
+            value={criticModel}
+            options={modelOptions}
+            onChange={(value) => {
+              setCriticModel(value)
+              setDirty(true)
+              editVersion.current += 1
+            }}
+            ariaLabel="Critic model"
+            placeholder="Use the session model"
+          />
+        </div>
+        <p className="mh-caption mh-muted mt-3">Judge model</p>
+        <div className="mt-1">
+          <SearchSelect
+            value={judgeModel}
+            options={modelOptions}
+            onChange={(value) => {
+              setJudgeModel(value)
+              setDirty(true)
+              editVersion.current += 1
+            }}
+            ariaLabel="Judge model"
+            placeholder="Use the session model"
+          />
+        </div>
+        <p className="mt-2 text-[11px] text-ink-muted">Empty = the session model.</p>
+      </div>
+
+      <p className="mh-caption mh-muted mt-4">Budget</p>
+      <div className="mt-2 rounded-md border border-hairline bg-surface p-3">
+        <label className="flex flex-col gap-1 text-xs text-ink-muted">
           Max rounds
           <input
             type="number"
@@ -129,15 +155,11 @@ export function GoalReviewSection() {
             aria-label="Max rounds before pausing"
           />
         </label>
+        <p className="mt-2 text-[11px] text-ink-muted">Pauses for a decision after this many rounds (1–50).</p>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button type="button" className="mh-btn mh-btn--secondary mh-btn--sm" disabled={saving} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save"}
-        </button>
-        {notice && <span className="text-xs text-ink-muted">{notice}</span>}
-        {error && <span className="text-xs text-danger">{error}</span>}
-      </div>
+      {notice && <p className="mt-2 text-xs text-accent">{notice}</p>}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </section>
   )
 }

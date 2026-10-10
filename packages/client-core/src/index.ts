@@ -43,6 +43,8 @@ export {
   providerConnectErrorMessage,
   customProviderErrorMessage,
   modelsLoadErrorMessage,
+  websearchSaveErrorMessage,
+  websearchTestErrorMessage,
 } from "./errors"
 export { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 export { parseSseStream, type SseMessage } from "./sse"
@@ -111,6 +113,8 @@ export {
   useSessionRun,
   useSessionStatuses,
   useSessions,
+  useWebsearchSettings,
+  useWebsearchSources,
   useWorkspaceRun,
   useWorkspaces,
   type EventHandlerCallbacks,
@@ -144,6 +148,18 @@ export {
   type CustomProviderPackage,
   type DiscoverModelsInput,
 } from "./custom-providers"
+export {
+  KEYLESS_WEBSEARCH_PROVIDER,
+  WEBSEARCH_SOURCE_IDS,
+  isKeylessWebsearchSource,
+  isWebsearchSourceId,
+  normalizeWebsearchSelection,
+  normalizeWebsearchSources,
+  normalizeWebsearchTestResult,
+  type WebsearchSelection,
+  type WebsearchSource,
+  type WebsearchTestResult,
+} from "./websearch"
 export {
   appCommands,
   argumentSuggestions,

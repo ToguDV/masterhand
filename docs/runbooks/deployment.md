@@ -63,6 +63,8 @@ Credentials persist in the `opencode_config` volume.
 
 Custom OpenAI-compatible providers added from Settings > Providers are written by the BFF to `~/.config/opencode/masterhand-providers.json` inside that same volume and loaded by opencode through `OPENCODE_CONFIG`; their API keys are stored by opencode's credential system, not in that file (see `ARCHITECTURE.md` ADR-30).
 
+The same file carries opencode's `websearch` selection (Settings > Web search). The BFF seeds the keyless source (`tinyfish`) when the key is absent, so agent web searches work without any API key; connecting a key for another source (Exa, Firecrawl, Parallel, Tavily) also stores it in opencode's credential system, never in the file (ADR-34).
+
 ### Git credentials (isolated sessions)
 
 "Finish & PR" runs inside the **BFF** container. Without credentials it still commits locally and reports the push error in the UI. To enable push + PR:

@@ -253,16 +253,81 @@ export class CustomProvidersFileError extends Error {
   }
 }
 
+/**
+ * Web-search selection stored in the owned config file, mirroring opencode's
+ * `websearch` key: `false` disables the tool, `"random"` picks an available
+ * provider per query, and any other string is a provider id.
+ */
+export type WebsearchSelection = false | "random" | string
+
+/** Keyless source written as the default so web search works without an API key. */
+export const DEFAULT_WEBSEARCH_PROVIDER = "tinyfish"
+
+export type WebsearchValidationResult =
+  | { ok: true; value: WebsearchSelection }
+  | { ok: false; error: "invalid_body" | "invalid_provider" }
+
+/** Validates a `PUT /api/websearch` body (`{ provider }`). */
+export function validateWebsearchSelection(input: unknown): WebsearchValidationResult {
+  const record = asRecord(input)
+  if (!record) return { ok: false, error: "invalid_body" }
+  const provider = record.provider
+  if (provider === false) return { ok: true, value: false }
+  if (typeof provider !== "string") return { ok: false, error: "invalid_provider" }
+  const trimmed = provider.trim()
+  if (trimmed === "random") return { ok: true, value: "random" }
+  if (!trimmed || trimmed.length > MAX_ID || !ID_PATTERN.test(trimmed)) {
+    return { ok: false, error: "invalid_provider" }
+  }
+  return { ok: true, value: trimmed }
+}
+
+/** Tolerant read of the raw `websearch` value; unrecognized shapes read as none. */
+function selectionFromValue(value: unknown): WebsearchSelection | null {
+  if (value === false) return false
+  const record = asRecord(value)
+  if (!record) return null
+  const provider = record.provider
+  if (typeof provider !== "string") return null
+  const trimmed = provider.trim()
+  if (!trimmed || trimmed.length > MAX_ID) return null
+  return trimmed
+}
+
 export interface CustomProviderStore {
   list(): Promise<CustomProvider[]>
   /** Idempotent upsert by id. */
   upsert(provider: CustomProvider): Promise<CustomProvider>
   /** Idempotent: removing an unknown id is a no-op. */
   remove(id: string): Promise<void>
+  /** Current web-search selection, or null when absent/unrecognized. */
+  getWebsearch(): Promise<WebsearchSelection | null>
+  /** True when the `websearch` key is present with any value (hand-edited ones included). */
+  hasWebsearch(): Promise<boolean>
+  /** Writes the selection; `null` removes the key so opencode keeps its own state. */
+  setWebsearch(selection: WebsearchSelection | null): Promise<void>
 }
 
 interface Document {
   providers: Record<string, unknown>
+  /** Every other top-level key of the owned file, preserved verbatim on write. */
+  rest: Record<string, unknown>
+}
+
+/**
+ * Writes the keyless default selection when the owned file has none, so agent
+ * web searches work out of the box (opencode's own provider prompt is not
+ * rendered by MasterHand clients). Never overrides a present value — a
+ * hand-edited one included — and a corrupt file stays untouched (it throws,
+ * and the caller logs and moves on).
+ */
+export async function ensureWebsearchDefault(
+  store: Pick<CustomProviderStore, "hasWebsearch" | "setWebsearch">,
+  provider: string = DEFAULT_WEBSEARCH_PROVIDER,
+): Promise<boolean> {
+  if (await store.hasWebsearch()) return false
+  await store.setWebsearch(provider)
+  return true
 }
 
 /**
@@ -288,10 +353,10 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
     try {
       text = await readFile(file, "utf8")
     } catch (error) {
-      if ((error as { code?: string } | null)?.code === "ENOENT") return { providers: {} }
+      if ((error as { code?: string } | null)?.code === "ENOENT") return { providers: {}, rest: {} }
       throw error
     }
-    if (!text.trim()) return { providers: {} }
+    if (!text.trim()) return { providers: {}, rest: {} }
     let parsed: unknown
     try {
       parsed = JSON.parse(text)
@@ -299,13 +364,20 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
       throw new CustomProvidersFileError()
     }
     const root = asRecord(parsed)
-    const providers = root ? asRecord(root.providers) : null
-    return { providers: providers ? { ...providers } : {} }
+    if (!root) return { providers: {}, rest: {} }
+    const { providers, ...rest } = root
+    return { providers: asRecord(providers) ?? {}, rest }
   }
 
   async function writeDocument(document: Document): Promise<void> {
     await mkdir(dirname(file), { recursive: true })
-    const payload = { $schema: "https://opencode.ai/config.json", providers: document.providers }
+    // Every top-level key the file carried (a hand-added `websearch`, another
+    // tool's section, …) is written back untouched: this file is shared.
+    const payload = {
+      $schema: "https://opencode.ai/config.json",
+      ...document.rest,
+      providers: document.providers,
+    }
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`
     await writeFile(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8")
     await rename(temp, file)
@@ -334,6 +406,16 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
         const document = await readDocument()
         if (!(id in document.providers)) return
         delete document.providers[id]
+        await writeDocument(document)
+      }),
+    getWebsearch: () => serialize(async () => selectionFromValue((await readDocument()).rest.websearch)),
+    hasWebsearch: () =>
+      serialize(async () => Object.prototype.hasOwnProperty.call((await readDocument()).rest, "websearch")),
+    setWebsearch: (selection) =>
+      serialize(async () => {
+        const document = await readDocument()
+        if (selection === null) delete document.rest.websearch
+        else document.rest.websearch = selection === false ? false : { provider: selection }
         await writeDocument(document)
       }),
   }

@@ -81,6 +81,14 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 - A registered custom provider exposes an `api`/`key` method: `POST /api/integration/{id}/connect/key` succeeds (204). Before opencode reloads the config it answers `404 IntegrationNotFoundError`; a 404 creates nothing, so retrying is safe.
 - Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential`.
 
+### Web search (verified against 2.0.6)
+
+- Five built-in sources: **Exa, Firecrawl, Parallel, Tavily, TinyFish**. `GET /api/websearch/provider` lists them (`{ location, data: [{ id, name }] }`); `POST /api/websearch` runs a search (`{ query, providerID? }` → `{ location, data: { providerID, results: [{ url, title?, content?, time: { published? } }] } }`). `400 websearch_provider_required` / `websearch_provider_not_found` / `websearch_disabled`, `503` when the source request fails.
+- The selection lives in the config key `websearch`: `{ "provider": "<id>" | "random" }`, or `false` to remove the tool. `Config.latest` gives the last-loaded document precedence, and a project `opencode.json(c)` outranks the `OPENCODE_CONFIG` file. When the config has no selection, opencode remembers a TUI choice in its KV (`websearch:provider`) and otherwise asks a form (`metadata.kind = "websearch.provider"`) on the first search — **MasterHand clients do not render that form** (only `question` forms), which is why the BFF seeds the keyless default.
+- Each source registers as an integration with a `key` method plus an `env` method (`EXA_API_KEY`, `FIRECRAWL_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `TINYFISH_API_KEY`), so API keys connect through `POST /api/integration/{id}/connect/key` exactly like model providers.
+- **Keyless modes** (from the pinned source): TinyFish sends `X-TinyFish-Access-Mode: keyless` and Tavily `X-Tavily-Access-Mode: keyless` when no credential is connected; Exa appends its key only when present, and Firecrawl/Parallel send no auth header keyless. TinyFish is the source opencode documents as optional-key, so it is MasterHand's seeded default.
+- `random` picks an available source per query and retries another only on HTTP 429 (the rate-limited source cools down for its `Retry-After` or 60 s); a rate-limited provider is remembered per session until the session moves or the server restarts.
+
 ## Location (working directory) model
 
 opencode v2 resolves a **location** instead of the old `directory` header:

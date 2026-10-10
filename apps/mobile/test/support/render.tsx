@@ -66,6 +66,10 @@ export interface FakeClient {
     createCustomProvider: jest.Mock
     removeCustomProvider: jest.Mock
     listCustomProviderModels: jest.Mock
+    websearchSources: jest.Mock
+    websearchSettings: jest.Mock
+    saveWebsearchSettings: jest.Mock
+    testWebsearch: jest.Mock
     messages: jest.Mock
     prompt: jest.Mock
     runCommand: jest.Mock
@@ -122,6 +126,10 @@ export function fakeClient(): FakeClient & Client {
       })),
       removeCustomProvider: jest.fn(async () => {}),
       listCustomProviderModels: jest.fn(async () => []),
+      websearchSources: jest.fn(async () => []),
+      websearchSettings: jest.fn(async () => null),
+      saveWebsearchSettings: jest.fn(async (provider: string | "random" | false) => provider),
+      testWebsearch: jest.fn(async () => ({ providerID: "tinyfish", results: [] })),
       messages: jest.fn(async () => []),
       prompt: jest.fn(async () => {}),
       runCommand: jest.fn(async () => {}),

@@ -61,9 +61,42 @@ beforeEach(() => {
   jest.clearAllMocks()
 })
 
+/** Opens a settings section from the section list. */
+async function openSection(label: string) {
+  await fireEvent.press(screen.getByLabelText(`Open ${label}`))
+}
+
+describe("SettingsModal section navigation", () => {
+  it("starts on the section list and hides every section", async () => {
+    await setup()
+
+    expect(screen.getByLabelText("Open Appearance")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Open Goal review")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Open Web search")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Open Providers")).toBeOnTheScreen()
+    // No section content is mounted until one is opened.
+    expect(screen.queryByLabelText("Critic model")).toBeNull()
+    expect(screen.queryByLabelText("Search providers")).toBeNull()
+    expect(screen.queryByText("Theme color")).toBeNull()
+  })
+
+  it("opens a section and returns to the list with back", async () => {
+    await setup()
+
+    await openSection("Goal review")
+    expect(await screen.findByLabelText("Critic model")).toBeOnTheScreen()
+    expect(screen.queryByLabelText("Open Providers")).toBeNull()
+
+    await fireEvent.press(screen.getByLabelText("Back to settings"))
+    expect(screen.getByLabelText("Open Providers")).toBeOnTheScreen()
+    expect(screen.queryByLabelText("Critic model")).toBeNull()
+  })
+})
+
 describe("SettingsModal (#119)", () => {
   it("shows the theme droplets and the active selection", async () => {
     await setup()
+    await openSection("Appearance")
 
     expect(screen.getByText("Appearance")).toBeOnTheScreen()
     expect(screen.getByText("Theme color")).toBeOnTheScreen()
@@ -75,6 +108,7 @@ describe("SettingsModal (#119)", () => {
 
   it("persists an explicit theme", async () => {
     await setup()
+    await openSection("Appearance")
 
     await fireEvent.press(screen.getByLabelText("Dark"))
     expect(mockedSave).toHaveBeenCalledWith("dark")
@@ -97,6 +131,7 @@ describe("SettingsModal (#119)", () => {
 describe("SettingsModal palette (color themes)", () => {
   it("shows the theme picker with paper selected by default", async () => {
     await setup()
+    await openSection("Appearance")
 
     expect(screen.getByLabelText("Paper").props.accessibilityState?.checked).toBe(true)
     expect(screen.getByLabelText("Dracula").props.accessibilityState?.checked).toBe(false)
@@ -106,6 +141,7 @@ describe("SettingsModal palette (color themes)", () => {
 
   it("persists the picked theme and offers a reset", async () => {
     await setup()
+    await openSection("Appearance")
 
     await fireEvent.press(screen.getByLabelText("Dracula"))
     expect(mockedSavePalette).toHaveBeenCalledWith("dracula")
@@ -117,8 +153,9 @@ describe("SettingsModal palette (color themes)", () => {
 })
 
 describe("SettingsModal goal review (#130)", () => {
-  it("renders the Goal review section before the providers", async () => {
+  it("renders the Goal review section once opened", async () => {
     await setup()
+    await openSection("Goal review")
 
     expect(await screen.findByText("Goal review")).toBeOnTheScreen()
     expect(screen.getByLabelText("Critic model")).toBeOnTheScreen()
@@ -128,6 +165,7 @@ describe("SettingsModal goal review (#130)", () => {
 
   it("saves the max rounds through the goal settings API", async () => {
     const { client } = await setup()
+    await openSection("Goal review")
     const input = await screen.findByLabelText("Max rounds before pausing")
     await waitFor(() => expect(input.props.value).toBe("5"))
 
@@ -146,6 +184,7 @@ describe("SettingsModal goal review (#130)", () => {
 
   it("rejects a max rounds outside 1..50 without calling the API", async () => {
     const { client } = await setup()
+    await openSection("Goal review")
     const input = await screen.findByLabelText("Max rounds before pausing")
 
     await fireEvent.changeText(input, "0")
@@ -157,6 +196,7 @@ describe("SettingsModal goal review (#130)", () => {
 
   it("surfaces a failed save with the goal error message", async () => {
     const { client } = await setup()
+    await openSection("Goal review")
     client.api.goal.saveSettings.mockRejectedValue(new ApiError(500, "x"))
 
     const input = await screen.findByLabelText("Max rounds before pausing")
@@ -177,6 +217,7 @@ describe("SettingsModal goal review (#130)", () => {
         defaultModel: null,
       })
     })
+    await openSection("Goal review")
 
     await fireEvent.press(await screen.findByLabelText("Critic model"))
     await fireEvent.press(await screen.findByText("Test · Alpha"))
@@ -195,6 +236,7 @@ describe("SettingsModal goal review (#130)", () => {
 
   it("does not let a late settings refetch clobber an edit", async () => {
     const { client, queryClient } = await setup()
+    await openSection("Goal review")
     const input = await screen.findByLabelText("Max rounds before pausing")
     await waitFor(() => expect(input.props.value).toBe("5"))
 
@@ -218,6 +260,7 @@ describe("SettingsModal providers (#128)", () => {
       ])
       c.api.credentials.mockResolvedValue([])
     })
+    await openSection("Providers")
 
     // OpenCode Go is highlighted first (its Connect button comes first).
     const connectButtons = await screen.findAllByLabelText(/^Connect /)
@@ -246,6 +289,7 @@ describe("SettingsModal providers (#128)", () => {
         { id: "cred_1", integrationID: "opencode-go", label: "Personal", active: true },
       ])
     })
+    await openSection("Providers")
 
     expect(await screen.findByText("Connected")).toBeOnTheScreen()
 
@@ -266,6 +310,7 @@ describe("SettingsModal providers (#128)", () => {
       ])
       c.api.credentials.mockResolvedValue([])
     })
+    await openSection("Providers")
 
     expect(await screen.findByText(/opencode CLI\/TUI/)).toBeOnTheScreen()
     expect(screen.queryByLabelText("Connect GitHub")).toBeNull()
@@ -283,6 +328,7 @@ describe("SettingsModal providers (#128)", () => {
       )
       c.api.credentials.mockResolvedValue([])
     })
+    await openSection("Providers")
 
     // First five only, each with an avatar.
     expect(await screen.findAllByTestId("provider-avatar")).toHaveLength(5)
@@ -313,6 +359,7 @@ describe("SettingsModal providers (#128)", () => {
       ])
       c.api.credentials.mockResolvedValue([])
     })
+    await openSection("Providers")
 
     // Vendored original logo: an inline SVG instead of the monogram letter.
     const anthropic = await screen.findByTestId("integration-anthropic")
@@ -342,6 +389,7 @@ describe("SettingsModal custom providers ", () => {
       c.api.customProviders.mockResolvedValue([])
       c.api.listCustomProviderModels.mockResolvedValue([{ id: "acme-coder" }])
     })
+    await openSection("Providers")
 
     await fireEvent.press(await screen.findByLabelText("Add provider"))
     const dialog = screen.getByLabelText("Add OpenAI-compatible provider")
@@ -386,6 +434,7 @@ describe("SettingsModal custom providers ", () => {
         { id: "acme", name: "Acme", baseURL: "https://api.acme.example/v1", package: "openai-compatible", models: [{ id: "m1" }] },
       ])
     })
+    await openSection("Providers")
 
     const card = await screen.findByTestId("custom-provider-acme")
     expect(within(card).getByText("Connected")).toBeOnTheScreen()

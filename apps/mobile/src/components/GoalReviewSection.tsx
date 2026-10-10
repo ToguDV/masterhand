@@ -90,53 +90,14 @@ export function GoalReviewSection({ client }: { client: Client }) {
 
   return (
     <View accessibilityLabel="Goal review">
-      <Text style={styles.sectionTitle}>Goal review</Text>
-      <Text style={styles.hint}>
-        A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty
-        to use the session&apos;s own model.
-      </Text>
-
-      <Text style={styles.label}>Critic model</Text>
-      <Pressable
-        onPress={() => setPicker("critic")}
-        accessibilityRole="button"
-        accessibilityLabel="Critic model"
-        style={styles.select}
-      >
-        <Text style={[styles.selectText, !criticModel && styles.selectPlaceholder]} numberOfLines={1}>
-          {optionLabel(criticModel)}
-        </Text>
-        <ChevronDownIcon size={14} color={colors.textMuted} />
-      </Pressable>
-
-      <Text style={styles.label}>Judge model</Text>
-      <Pressable
-        onPress={() => setPicker("judge")}
-        accessibilityRole="button"
-        accessibilityLabel="Judge model"
-        style={styles.select}
-      >
-        <Text style={[styles.selectText, !judgeModel && styles.selectPlaceholder]} numberOfLines={1}>
-          {optionLabel(judgeModel)}
-        </Text>
-        <ChevronDownIcon size={14} color={colors.textMuted} />
-      </Pressable>
-
-      <Text style={styles.label}>Max rounds</Text>
-      <TextInput
-        value={maxRounds}
-        onChangeText={(value) => {
-          setMaxRounds(value)
-          setDirty(true)
-          editVersion.current += 1
-        }}
-        keyboardType="numeric"
-        accessibilityLabel="Max rounds before pausing"
-        style={styles.input}
-        testID="goal-max-rounds"
-      />
-
-      <View style={styles.actions}>
+      <View style={styles.head}>
+        <View style={styles.headText}>
+          <Text style={styles.sectionTitle}>Goal review</Text>
+          <Text style={styles.hint}>
+            A goal run is challenged by an adversarial critic and decided by an impartial judge. Leave a model empty
+            to use the session&apos;s own model.
+          </Text>
+        </View>
         <Pressable
           onPress={() => void save()}
           disabled={saving}
@@ -146,9 +107,61 @@ export function GoalReviewSection({ client }: { client: Client }) {
         >
           <Text style={styles.primaryText}>{saving ? "Saving…" : "Save"}</Text>
         </Pressable>
-        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
-        {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
+
+      {settings.isLoading ? <Text style={styles.hint}>Loading goal settings…</Text> : null}
+      {settings.error ? <Text style={styles.error}>Could not load the goal settings.</Text> : null}
+
+      <Text style={styles.groupLabel}>Models</Text>
+      <View style={styles.card}>
+        <Text style={[styles.label, styles.labelFirst]}>Critic model</Text>
+        <Pressable
+          onPress={() => setPicker("critic")}
+          accessibilityRole="button"
+          accessibilityLabel="Critic model"
+          style={styles.select}
+        >
+          <Text style={[styles.selectText, !criticModel && styles.selectPlaceholder]} numberOfLines={1}>
+            {optionLabel(criticModel)}
+          </Text>
+          <ChevronDownIcon size={14} color={colors.textMuted} />
+        </Pressable>
+
+        <Text style={styles.label}>Judge model</Text>
+        <Pressable
+          onPress={() => setPicker("judge")}
+          accessibilityRole="button"
+          accessibilityLabel="Judge model"
+          style={styles.select}
+        >
+          <Text style={[styles.selectText, !judgeModel && styles.selectPlaceholder]} numberOfLines={1}>
+            {optionLabel(judgeModel)}
+          </Text>
+          <ChevronDownIcon size={14} color={colors.textMuted} />
+        </Pressable>
+        <Text style={styles.cardHint}>Empty = the session model.</Text>
+      </View>
+
+      <Text style={styles.groupLabel}>Budget</Text>
+      <View style={styles.card}>
+        <Text style={[styles.label, styles.labelFirst]}>Max rounds</Text>
+        <TextInput
+          value={maxRounds}
+          onChangeText={(value) => {
+            setMaxRounds(value)
+            setDirty(true)
+            editVersion.current += 1
+          }}
+          keyboardType="numeric"
+          accessibilityLabel="Max rounds before pausing"
+          style={styles.input}
+          testID="goal-max-rounds"
+        />
+        <Text style={styles.cardHint}>Pauses for a decision after this many rounds (1–50).</Text>
+      </View>
+
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <ChoiceModal
         visible={picker === "critic"}
@@ -194,11 +207,45 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
       marginTop: 8,
     },
+    cardHint: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      marginTop: 8,
+    },
+    groupLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      letterSpacing: 0.6,
+      textTransform: "uppercase",
+      fontWeight: "600",
+      marginTop: 14,
+    },
+    head: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 12,
+    },
+    headText: {
+      flex: 1,
+    },
+    card: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      padding: 12,
+      marginTop: 8,
+    },
     label: {
       marginTop: 12,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+    },
+    labelFirst: {
+      marginTop: 2,
     },
     select: {
       minHeight: 44,
@@ -232,12 +279,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 14,
       paddingHorizontal: 12,
       marginTop: 6,
-    },
-    actions: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      marginTop: 14,
     },
     primary: {
       minHeight: 44,

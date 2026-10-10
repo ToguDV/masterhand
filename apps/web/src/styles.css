@@ -1783,6 +1783,40 @@ body {
   color: var(--mh-text);
 }
 
+.mh-settings__nav-text {
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.mh-settings__nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Section descriptions and the list chevron only appear in the mobile
+   section list; the desktop sidebar and the back control stay as they were. */
+.mh-settings__nav-desc {
+  display: none;
+  color: var(--mh-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mh-settings__nav-chevron {
+  display: none;
+  flex: none;
+  margin-left: auto;
+  color: var(--mh-text-faint);
+}
+
+.mh-settings__back {
+  display: none;
+  margin-bottom: 12px;
+}
+
 .mh-settings__content {
   flex: 1;
   min-width: 0;
@@ -1803,9 +1837,9 @@ body {
   line-height: 1.5;
 }
 
-/* Module header : "Add provider" sits above the list in normal flow so it
-   never floats over the catalog or the search. Wraps on narrow widths. */
-.mh-providers__head {
+/* Module header: the primary action sits above the section in normal flow so
+   it never floats over the list or the search. Wraps on narrow widths. */
+.mh-settings__module-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1923,18 +1957,41 @@ body {
     flex-direction: column;
   }
 
-  .mh-settings__nav {
-    flex-direction: row;
-    width: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--mh-hairline);
-    overflow-x: auto;
-    overflow-y: hidden;
+  /* Master-detail: the list fills the dialog and the content stays hidden
+     until a section is opened; the detail hides the list and gains a back
+     control instead. Desktop ignores `data-mobile-view` entirely. */
+  .mh-settings[data-mobile-view="list"] .mh-settings__content {
+    display: none;
   }
 
-  .mh-settings__nav-item {
+  .mh-settings[data-mobile-view="list"] .mh-settings__nav {
+    flex-direction: column;
     width: auto;
-    white-space: nowrap;
+    border-right: 0;
+    overflow-x: visible;
+    overflow-y: auto;
+  }
+
+  .mh-settings[data-mobile-view="list"] .mh-settings__nav-item {
+    width: 100%;
+    min-height: 56px;
+    white-space: normal;
+  }
+
+  .mh-settings[data-mobile-view="list"] .mh-settings__nav-desc {
+    display: block;
+  }
+
+  .mh-settings[data-mobile-view="list"] .mh-settings__nav-chevron {
+    display: inline-flex;
+  }
+
+  .mh-settings[data-mobile-view="detail"] .mh-settings__nav {
+    display: none;
+  }
+
+  .mh-settings[data-mobile-view="detail"] .mh-settings__back {
+    display: inline-flex;
   }
 }
 

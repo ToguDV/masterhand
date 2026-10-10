@@ -104,6 +104,60 @@ export function modelsLoadErrorMessage(error: unknown): string {
 }
 
 /**
+ * Maps a failed web search default save (Settings > Web search) to a user
+ * message. The write is an idempotent full-state replacement, so a timeout is
+ * a safe "reopen and check" rather than a hard failure.
+ */
+export function websearchSaveErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not answer in time — the selection may have been saved. Reopen settings to check."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "websearch_corrupt":
+        return "The config file is not valid JSON. Fix it on the server first."
+      case "websearch_unwritable":
+        return "The server cannot write the config file (read-only or full disk)."
+      case "invalid_provider":
+        return "That source is not valid. Pick one from the list."
+      default:
+        return "Could not save the default source"
+    }
+  }
+  return "Could not save the default source"
+}
+
+/**
+ * Maps a failed test search (Settings > Web search) to a user message. The
+ * probe is read-only; failures come from the selected source or the config.
+ */
+export function websearchTestErrorMessage(error: unknown): string {
+  if (error instanceof RequestTimeoutError) {
+    return "The test search timed out."
+  }
+  if (error instanceof ApiError) {
+    switch (apiErrorCode(error)) {
+      case "websearch_provider_required":
+      case "websearch_provider_not_found":
+        return "No default source is set — choose one first."
+      case "websearch_disabled":
+        return "Web search is disabled in opencode's config."
+      case "opencode_unauthorized":
+        return "opencode rejected MasterHand's credentials."
+      case "opencode_unreachable":
+        return "opencode is not reachable right now."
+      default:
+        break
+    }
+    if (error.status === 503) {
+      return "The search failed — the source may be rate-limited or need an API key. Try again or pick another source."
+    }
+    return "Could not run the test search"
+  }
+  return "Could not run the test search"
+}
+
+/**
  * Turns an opencode structured error (`session.execution.failed`, assistant
  * message error) into a concise message for the UI. Returns `null` for
  * user-initiated aborts (expected, not worth a banner).
