@@ -229,24 +229,28 @@ export function WebSearchSection({ client }: { client: Client }) {
         <Text style={styles.error}>Could not load the web search sources from opencode.</Text>
       ) : null}
 
-      <View style={styles.options}>
-        <Pressable
-          onPress={() => void select("random")}
-          disabled={saving !== null}
-          accessibilityRole="radio"
-          accessibilityState={{ checked: selection === "random" }}
-          accessibilityLabel="Automatic"
-          style={[styles.option, selection === "random" && styles.optionSelected]}
-        >
-          <View style={[styles.mark, selection === "random" && styles.markSelected]} />
-          <View style={styles.avatar} accessible={false}>
-            <SearchIcon size={14} color={colors.text} />
-          </View>
-          <View style={styles.optionBody}>
-            <Text style={styles.optionName}>Automatic</Text>
-            <Text style={styles.optionHint}>Picks an available source per search, retrying another on rate limits.</Text>
-          </View>
-        </Pressable>
+      <Text style={styles.groupLabel}>Sources</Text>
+      <View style={styles.list}>
+        <View style={[styles.card, selection === "random" && styles.cardSelected]}>
+          <Pressable
+            onPress={() => void select("random")}
+            disabled={saving !== null}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: selection === "random" }}
+            accessibilityLabel="Automatic"
+            style={styles.cardHeader}
+          >
+            <View style={[styles.mark, selection === "random" && styles.markSelected]} />
+            <View style={styles.avatar} accessible={false}>
+              <SearchIcon size={14} color={colors.text} />
+            </View>
+            <View style={styles.cardBody}>
+              <Text style={styles.cardTitle}>Automatic</Text>
+              <Text style={styles.cardDesc}>Picks an available source per search, retrying another on rate limits.</Text>
+            </View>
+            {selection === "random" ? <Text style={styles.connected}>Default</Text> : null}
+          </Pressable>
+        </View>
 
         {sources.map((source) => {
           const integration = integrationByID.get(source.id)
@@ -255,31 +259,40 @@ export function WebSearchSection({ client }: { client: Client }) {
           )
           const envConnections = (integration?.connections ?? []).filter((connection) => connection.type === "env")
           const checked = selection === source.id
+          // The label often defaults to the source name already shown
+          // in the card header — do not repeat it.
           return (
-            <View key={source.id} testID={`websearch-source-${source.id}`}>
+            <View
+              key={source.id}
+              testID={`websearch-source-${source.id}`}
+              style={[styles.card, checked && styles.cardSelected]}
+            >
               <Pressable
                 onPress={() => void select(source.id)}
                 disabled={saving !== null}
                 accessibilityRole="radio"
                 accessibilityState={{ checked }}
                 accessibilityLabel={source.name}
-                style={[styles.option, checked && styles.optionSelected]}
+                style={styles.cardHeader}
               >
                 <View style={[styles.mark, checked && styles.markSelected]} />
                 <SourceAvatar integration={integration} name={source.name} />
-                <View style={styles.optionBody}>
-                  <Text style={styles.optionName}>{source.name}</Text>
-                  {source.keyless ? <Text style={styles.keyless}>No API key required</Text> : null}
-                  {credentialConnections.length > 0 || envConnections.length > 0 ? (
-                    <Text style={styles.connected}>Connected</Text>
-                  ) : null}
-                </View>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {source.name}
+                </Text>
+                {checked ? <Text style={styles.connected}>Default</Text> : null}
+                {source.keyless ? <Text style={styles.keyless}>No API key required</Text> : null}
+                {credentialConnections.length > 0 || envConnections.length > 0 ? (
+                  <Text style={styles.connected}>Connected</Text>
+                ) : null}
               </Pressable>
 
               {credentialConnections.map((connection) => {
                 const credentialID = connection.credentialID!
                 const credential = credentials.find((entry) => entry.id === credentialID)
-                const name = connection.label?.trim() || "API key"
+                const rawLabel = connection.label?.trim()
+                const name =
+                  rawLabel && rawLabel.toLowerCase() !== source.name.trim().toLowerCase() ? rawLabel : "API key"
                 return (
                   <View key={credentialID} style={styles.credentialRow}>
                     <Pressable
@@ -287,16 +300,16 @@ export function WebSearchSection({ client }: { client: Client }) {
                       disabled={busyCredentialID === credentialID}
                       accessibilityRole="button"
                       accessibilityLabel={`Disconnect ${source.name}`}
-                      style={styles.secondary}
+                      style={styles.dangerButton}
                     >
-                      <Text style={styles.dangerText}>
+                      <Text style={styles.danger}>
                         {busyCredentialID === credentialID ? "Removing…" : "Disconnect"}
                       </Text>
                     </Pressable>
                     <Text style={styles.credentialLabel} numberOfLines={1}>
                       {name}
                     </Text>
-                    {credential?.active ? <Text style={styles.connected}>Active</Text> : null}
+                    {credential?.active ? <Text style={styles.active}>Active</Text> : null}
                   </View>
                 )
               })}
@@ -311,7 +324,7 @@ export function WebSearchSection({ client }: { client: Client }) {
                   onPress={() => openConnect(source.id)}
                   accessibilityRole="button"
                   accessibilityLabel={`Connect ${source.name}`}
-                  style={styles.connect}
+                  style={styles.connectButton}
                 >
                   <Text style={styles.connectText}>Connect</Text>
                 </Pressable>
@@ -447,25 +460,34 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
       marginTop: 8,
     },
-    options: {
-      marginTop: 12,
+    groupLabel: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      letterSpacing: 0.6,
+      textTransform: "uppercase",
+      fontWeight: "600",
+      marginTop: 14,
+    },
+    list: {
+      marginTop: 8,
       gap: 8,
     },
-    option: {
-      minHeight: 44,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
+    card: {
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
+      borderColor: colors.hairline,
       borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
+      backgroundColor: colors.surface,
+      padding: 12,
     },
-    optionSelected: {
+    cardSelected: {
       borderColor: colors.accent,
       backgroundColor: colors.accentSoft,
+    },
+    cardHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
     },
     mark: {
       width: 16,
@@ -479,39 +501,82 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderColor: colors.accent,
       backgroundColor: colors.accent,
     },
-    optionBody: {
+    cardBody: {
       flex: 1,
       minWidth: 0,
     },
-    optionName: {
+    cardTitle: {
+      flex: 1,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
+      fontWeight: "600",
     },
-    optionHint: {
+    cardDesc: {
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 11,
       marginTop: 2,
     },
     keyless: {
+      backgroundColor: "transparent",
+      borderColor: colors.hairlineStrong,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 11,
-      marginTop: 2,
+      fontWeight: "600",
     },
     connected: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.accentLine,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
       color: colors.accent,
       fontFamily: fonts.ui,
       fontSize: 11,
-      marginTop: 2,
+      fontWeight: "600",
+    },
+    active: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.accentLine,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      fontWeight: "600",
+    },
+    danger: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "500",
+    },
+    dangerButton: {
+      alignSelf: "flex-start",
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.dangerLine,
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
     credentialRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      marginTop: 6,
-      paddingHorizontal: 4,
+      gap: 10,
+      marginTop: 8,
     },
     credentialLabel: {
       flex: 1,
@@ -526,16 +591,23 @@ function createStyles(colors: Palette, fonts: Fonts) {
       marginTop: 6,
       paddingHorizontal: 4,
     },
-    connect: {
+    connectButton: {
       alignSelf: "flex-start",
-      marginTop: 6,
-      marginLeft: 4,
-      paddingVertical: 6,
+      minHeight: 44,
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginTop: 10,
     },
     connectText: {
-      color: colors.accent,
+      color: colors.text,
       fontFamily: fonts.ui,
-      fontSize: 13,
+      fontSize: 14,
+      fontWeight: "500",
     },
     form: {
       gap: 8,
@@ -568,11 +640,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     secondaryText: {
       color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 13,
-    },
-    dangerText: {
-      color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 13,
     },

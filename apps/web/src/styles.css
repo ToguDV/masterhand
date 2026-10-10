@@ -1853,11 +1853,12 @@ body {
   gap: 12px;
 }
 
-/* Theme droplets: a stylized teardrop pointing up per theme, the two main
-   colors meeting at an S-curved "liquid" division with the name above it. */
+/* Theme picker: same grid and option box as the color-theme picker below,
+   so both rows align. Only the swatch differs (droplet vs. dot). */
 .mh-theme-swatches {
-  display: flex;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
   margin-top: 12px;
 }
 
@@ -1865,16 +1866,38 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-width: 64px;
+  min-width: 0;
   min-height: 44px;
-  padding: 4px;
-  border: 0;
+  padding: 6px 8px;
+  border: 1px solid transparent;
   border-radius: var(--r-md);
   background: transparent;
-  color: var(--mh-text);
-  font: inherit;
+  color: var(--mh-text-soft);
+  font-family: var(--font-ui);
+  font-size: 13px;
   cursor: pointer;
+  overflow: hidden;
+}
+
+.mh-theme-name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.mh-theme-option:hover {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-theme-option[aria-checked="true"] {
+  border-color: var(--mh-accent);
+  background: var(--mh-accent-soft);
+  color: var(--mh-text);
 }
 
 .mh-theme-drop {
@@ -2170,11 +2193,13 @@ body {
   background: var(--mh-surface);
 }
 
-.mh-option.is-selected .mh-option__mark {
+.mh-option.is-selected .mh-option__mark,
+[role="radio"][aria-checked="true"] .mh-option__mark {
   border-color: var(--mh-accent);
 }
 
-.mh-option.is-selected .mh-option__mark::after {
+.mh-option.is-selected .mh-option__mark::after,
+[role="radio"][aria-checked="true"] .mh-option__mark::after {
   content: "";
   width: 8px;
   height: 8px;

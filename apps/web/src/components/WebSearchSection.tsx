@@ -113,6 +113,53 @@ export function WebSearchSection() {
     return sources.find((source) => source.id === id)?.name ?? id
   }
 
+  function credentialRow(source: WebsearchSource, connection: { credentialID?: string; label?: string }) {
+    const credentialID = connection.credentialID!
+    const credential = credentials.find((entry) => entry.id === credentialID)
+    const label = connection.label?.trim()
+    const showLabel = Boolean(label) && label!.toLowerCase() !== source.name.trim().toLowerCase()
+    return (
+      <li key={credentialID} className="flex items-center gap-2 text-xs text-ink-muted">
+        {confirmingID === credentialID ? (
+          <>
+            <span className="text-danger">Disconnect?</span>
+            <button
+              type="button"
+              className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
+              disabled={busyID === credentialID}
+              onClick={() => void disconnect(credentialID)}
+            >
+              {busyID === credentialID ? "Removing…" : "Yes"}
+            </button>
+            <button
+              type="button"
+              className="mh-btn mh-btn--sm mh-btn--ghost"
+              onClick={() => setConfirmingID(null)}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
+            disabled={busyID === credentialID}
+            onClick={() => setConfirmingID(credentialID)}
+          >
+            Disconnect
+          </button>
+        )}
+        <span className="min-w-0 flex-1 truncate">{showLabel ? label : "API key"}</span>
+        {credential?.active && <span className="text-accent">Active</span>}
+      </li>
+    )
+  }
+
+  /** Same card as the Providers catalog, plus the radio mark and the selected ring. */
+  function cardClass(checked: boolean): string {
+    return `rounded-md border p-3${checked ? " border-accent bg-accent-soft" : " border-hairline bg-surface"}`
+  }
+
   return (
     <section aria-labelledby="settings-websearch">
       <h3 id="settings-websearch" className="mh-settings__title">
@@ -141,118 +188,82 @@ export function WebSearchSection() {
         <p className="mt-3 text-xs text-danger">Could not load the web search sources from opencode.</p>
       )}
 
-      <div role="radiogroup" aria-label="Default web search source" className="mh-options mt-4">
-        <button
-          type="button"
-          role="radio"
-          aria-checked={selection === "random"}
-          disabled={saving !== null}
-          onClick={() => void select("random")}
-          className={`mh-option w-full${selection === "random" ? " is-selected" : ""}`}
-        >
-          <span className="mh-option__mark" aria-hidden="true" />
-          <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-ink">
-            <SearchIcon size={14} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm">Automatic</span>
-            <span className="block text-[11px] text-ink-muted">
-              Picks an available source per search, retrying another on rate limits.
-            </span>
-          </span>
-        </button>
+      <p className="mh-caption mh-muted mt-4">Sources</p>
+      <div role="radiogroup" aria-label="Default web search source" className="mt-2">
+        <ul className="flex flex-col gap-2">
+          <li className={cardClass(selection === "random")} data-testid="websearch-source-automatic">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selection === "random"}
+              disabled={saving !== null}
+              onClick={() => void select("random")}
+              className="flex w-full items-center gap-2 text-left"
+            >
+              <span className="mh-option__mark" aria-hidden="true" />
+              <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-canvas text-ink">
+                <SearchIcon size={14} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">Automatic</span>
+                <span className="block truncate text-[11px] text-ink-muted">
+                  Picks an available source per search, retrying another on rate limits.
+                </span>
+              </span>
+              {selection === "random" && <span className="mh-chip mh-chip--accent shrink-0">Default</span>}
+            </button>
+          </li>
 
-        {sources.map((source) => {
-          const integration = integrationByID.get(source.id)
-          const credentialConnections = (integration?.connections ?? []).filter(
-            (connection) => connection.type === "credential" && connection.credentialID,
-          )
-          const envConnections = (integration?.connections ?? []).filter((connection) => connection.type === "env")
-          const connected = credentialConnections.length > 0 || envConnections.length > 0
-          const checked = selection === source.id
-          return (
-            <div key={source.id} data-testid={`websearch-source-${source.id}`}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                disabled={saving !== null}
-                onClick={() => void select(source.id)}
-                className={`mh-option w-full${checked ? " is-selected" : ""}`}
-              >
-                <span className="mh-option__mark" aria-hidden="true" />
-                <SourceAvatar integration={integration} name={source.name} />
-                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <span className="truncate text-sm">{source.name}</span>
+          {sources.map((source) => {
+            const integration = integrationByID.get(source.id)
+            const credentialConnections = (integration?.connections ?? []).filter(
+              (connection) => connection.type === "credential" && connection.credentialID,
+            )
+            const envConnections = (integration?.connections ?? []).filter((connection) => connection.type === "env")
+            const connected = credentialConnections.length > 0 || envConnections.length > 0
+            const checked = selection === source.id
+            return (
+              <li key={source.id} className={cardClass(checked)} data-testid={`websearch-source-${source.id}`}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={checked}
+                  disabled={saving !== null}
+                  onClick={() => void select(source.id)}
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <span className="mh-option__mark" aria-hidden="true" />
+                  <SourceAvatar integration={integration} name={source.name} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{source.name}</span>
+                  {checked && <span className="mh-chip mh-chip--accent shrink-0">Default</span>}
                   {source.keyless && <span className="mh-chip mh-chip--outline shrink-0">No API key required</span>}
                   {connected && <span className="mh-chip mh-chip--accent shrink-0">Connected</span>}
-                </span>
-              </button>
+                </button>
 
-              {(credentialConnections.length > 0 || envConnections.length > 0) && (
-                <ul className="mt-1.5 flex flex-col gap-1 pl-1">
-                  {credentialConnections.map((connection) => {
-                    const credentialID = connection.credentialID!
-                    const credential = credentials.find((entry) => entry.id === credentialID)
-                    const label = connection.label?.trim() || "API key"
-                    return (
-                      <li key={credentialID} className="flex items-center gap-2 text-xs text-ink-muted">
-                        {confirmingID === credentialID ? (
-                          <>
-                            <span className="text-danger">Disconnect?</span>
-                            <button
-                              type="button"
-                              className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
-                              disabled={busyID === credentialID}
-                              onClick={() => void disconnect(credentialID)}
-                            >
-                              {busyID === credentialID ? "Removing…" : "Yes"}
-                            </button>
-                            <button
-                              type="button"
-                              className="mh-btn mh-btn--sm mh-btn--ghost"
-                              onClick={() => setConfirmingID(null)}
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            className="mh-btn mh-btn--sm mh-btn--danger shrink-0"
-                            disabled={busyID === credentialID}
-                            onClick={() => setConfirmingID(credentialID)}
-                          >
-                            Disconnect
-                          </button>
-                        )}
-                        <span className="min-w-0 flex-1 truncate">{label}</span>
-                        {credential?.active && <span className="text-accent">Active</span>}
-                      </li>
-                    )
-                  })}
-                  {envConnections.length > 0 && (
-                    <li className="truncate text-xs text-ink-muted">
-                      Using {envConnections.map((connection) => connection.label).filter(Boolean).join(", ")}
-                    </li>
-                  )}
-                </ul>
-              )}
+                {credentialConnections.length > 0 && (
+                  <ul className="mt-2 flex flex-col gap-1">
+                    {credentialConnections.map((connection) => credentialRow(source, connection))}
+                  </ul>
+                )}
+                {envConnections.length > 0 && (
+                  <p className="mt-1 truncate text-[11px] text-ink-muted">
+                    Using {envConnections.map((connection) => connection.label).filter(Boolean).join(", ")}
+                  </p>
+                )}
 
-              {credentialConnections.length === 0 && (
-                <div className="mt-1.5 pl-1">
+                {credentialConnections.length === 0 && (
                   <button
                     type="button"
-                    className="mh-btn mh-btn--sm mh-btn--ghost"
+                    className="mh-btn mh-btn--secondary mh-btn--sm mt-2"
                     onClick={() => setConnecting(source)}
                   >
                     Connect
                   </button>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                )}
+              </li>
+            )
+          })}
+        </ul>
       </div>
 
       {saving && <p className="mt-2 text-xs text-ink-muted">Saving…</p>}
