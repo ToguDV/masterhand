@@ -2,7 +2,7 @@
 
 Project status: what is done, in progress, pending, and the changelog. Updated **when each task finishes** (see rules in `AGENTS.md`).
 
-**Last updated:** 2026-10-10
+**Last updated:** 2026-10-12
 
 ## Overall status
 
@@ -202,6 +202,8 @@ Code review of PR #24 (opencode v2 migration) and PR #25 (catalog recovery) on
 - [x] All findings closed: every high/medium/low is fixed; F24-13, F25-2 and F25-6 are intentionally left open (reasoning recorded in the review document).
 
 ## Changelog
+
+- **2026-10-12** — **Composer dock: the chat footer is one integrated card (web).** The footer used to be three loose strips each with its own border (Goal/worktree line, workspace toolbar, textarea with its own box plus an outside Send button, pickers row). They now share a single `surface` dock card (`.mh-composer-dock`, `rounded-lg`, level-1 shadow, accent ring on `focus-within`): the workspace/branch/stats toolbar is the dock head behind a hairline, the Goal Mode and isolated-worktree strips render as inner rows when active, the textarea is borderless, and agent/model/effort (new borderless `ghost` triggers in `SearchSelect`) plus auto-accept plus Send/Stop (now `sm` with icons, same accessible names and `Send`/`Sending…` text) sit in one toolbar below the field. No logic changed — handlers, ARIA, popover anchoring and reconciliation are untouched; mobile keeps its layout (follow-up if wanted). Tests: new E2E `composer-dock.spec.ts` (red: no `.mh-composer-dock`; green after), existing composer/goal/isolated/design suites unchanged (53 green total in the touched areas). Verified: typecheck, coverage gate, E2E subsets and web build green.
 
 - **2026-10-10** — **Settings: Web search mirrors the Providers catalog, theme picker aligns with the color picker (web + mobile).** The Web search list used `mh-option` radio rows while Providers uses bordered cards, so each source (plus Automatic) is now a Providers-style card on both clients — avatar, semibold name, `Default`/`No API key required`/`Connected` chips, credential rows with confirm-before-Disconnect, and a secondary Connect button — keeping the radio semantics (header is the radio, selected card gets the accent ring) and every `websearch-source-*` testid and accessible name. Labels that duplicate the source name collapse to "API key", like Providers. The Light/Dark picker used its own flex row and borderless options while the color-theme picker uses a grid with bordered selectable cards, so both pickers now share the same grid, option box, centered ellipsis label and selected ring (web `mh-theme-swatches`/`mh-theme-option` match `mh-palette-grid`/`mh-palette-option`; the native swatch styles match the palette styles, including the selected state). The radio dot fill for card headers is covered by a generalized `[role="radio"][aria-checked="true"] .mh-option__mark` rule. Tests: mobile `websearch-section`/`settings-modal`/`theme` suites (33 green), vitest (432 green), E2E websearch/design/providers/settings-mobile/goal (25 green). Verified: typecheck, coverage-adjacent unit suites, E2E subset and web build green.
 

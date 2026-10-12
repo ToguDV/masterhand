@@ -15,6 +15,7 @@ export function SearchSelect({
   placeholder,
   previewCount = 6,
   compact = false,
+  ghost = false,
   icon,
   title,
 }: {
@@ -26,6 +27,8 @@ export function SearchSelect({
   previewCount?: number
   /** Condensed trigger (composer footer) instead of the full-width field. */
   compact?: boolean
+  /** Borderless trigger for use inside the composer dock (still hoverable). */
+  ghost?: boolean
   /** Optional leading glyph (kept out of the accessible name). */
   icon?: ReactNode
   title?: string
@@ -72,7 +75,7 @@ export function SearchSelect({
           }
         }}
         title={title ?? ariaLabel}
-        className={compact ? compactTriggerClass : triggerClass}
+        className={ghost ? ghostTriggerClass : compact ? compactTriggerClass : triggerClass}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
@@ -148,3 +151,6 @@ const triggerClass =
 
 const compactTriggerClass =
   "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-sm border border-hairline-strong bg-surface px-2 py-1 text-xs outline-none transition-colors hover:bg-surface-muted focus-visible:border-accent"
+
+const ghostTriggerClass =
+  "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-full border border-transparent px-2.5 py-1 text-xs text-ink-soft outline-none transition-colors hover:bg-surface-muted hover:text-ink focus-visible:border-accent"

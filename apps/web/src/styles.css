@@ -2307,6 +2307,70 @@ body {
   resize: none;
 }
 
+/* Composer dock: context bar, message field and toolbar share one surface,
+   so the footer reads as a single control instead of three loose strips.
+   The textarea carries no box of its own; focus rings the whole dock. */
+.mh-composer-dock {
+  background: var(--mh-surface);
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--mh-shadow-1);
+}
+
+.mh-composer-dock:focus-within {
+  border-color: var(--mh-accent);
+  box-shadow: 0 0 0 3px var(--mh-accent-soft);
+}
+
+.mh-composer-dock__head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mh-hairline);
+}
+
+.mh-composer-dock__strip {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--mh-hairline);
+}
+
+.mh-composer-dock__strip--tint {
+  background: color-mix(in srgb, var(--mh-accent-soft) 30%, transparent);
+}
+
+.mh-composer-dock__body {
+  position: relative;
+}
+
+.mh-composer-dock__field {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--mh-text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+.mh-composer-dock__field::placeholder {
+  color: var(--mh-text-faint);
+}
+
+.mh-composer-dock__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px 8px 8px;
+}
+
+.mh-composer-dock__error {
+  padding: 0 12px 10px;
+}
+
 /* The brand mark scales with the wordmark it sits next to. */
 .mh-brand {
   display: flex;

@@ -33,7 +33,7 @@ import { client } from "../client"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { BrainIcon, ShieldCheckIcon, SlidersIcon } from "./icons"
+import { ArrowUpIcon, BrainIcon, ShieldCheckIcon, SlidersIcon, StopIcon } from "./icons"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
 
@@ -86,6 +86,8 @@ export function Composer({
   onToggleAutoAccept,
   pending,
   header,
+  goalStrip,
+  isolationBar,
 }: {
   /** Retry handle used by the chat container's ghost bubble. */
   ref?: Ref<ComposerHandle>
@@ -98,8 +100,12 @@ export function Composer({
   onToggleAutoAccept: (on: boolean) => void
   /** Pending-send state owned by the chat container (#125). */
   pending: PendingSendController
-  /** Composer top bar (workspace menu, new session, stats). */
+  /** Composer context bar (workspace menu, branch, stats). Rendered as the dock head. */
   header?: ReactNode
+  /** Goal Mode strip. Rendered inside the dock when a run exists. */
+  goalStrip?: ReactNode
+  /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
+  isolationBar?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -472,10 +478,8 @@ export function Composer({
   )
 
   return (
-    <div className="pb-safe border-t border-hairline bg-canvas px-3 pt-2 md:px-6">
+    <div className="pb-safe border-t border-hairline bg-canvas px-3 pt-3 md:px-6">
       <div className="mh-chat-col space-y-2">
-        {header}
-
         {sideQuestion && (
           <SideQuestionPanel
             sessionID={sideQuestion.sessionID}
@@ -485,20 +489,24 @@ export function Composer({
           />
         )}
 
-        <div className="relative">
-          {popover && (
-            <ComposerSuggestions
-              id="composer-suggestions"
-              title={popover.title}
-              hint={popover.hint}
-              items={popover.items}
-              activeIndex={Math.min(activeIndex, Math.max(0, popover.items.length - 1))}
-              emptyLabel={popover.emptyLabel}
-              onActive={setActiveIndex}
-              onSelect={selectSuggestion}
-            />
-          )}
-          <div className="flex items-end gap-2">
+        <div className="mh-composer-dock">
+          {header && <div className="mh-composer-dock__head">{header}</div>}
+          {isolationBar}
+          {goalStrip}
+
+          <div className="mh-composer-dock__body relative">
+            {popover && (
+              <ComposerSuggestions
+                id="composer-suggestions"
+                title={popover.title}
+                hint={popover.hint}
+                items={popover.items}
+                activeIndex={Math.min(activeIndex, Math.max(0, popover.items.length - 1))}
+                emptyLabel={popover.emptyLabel}
+                onActive={setActiveIndex}
+                onSelect={selectSuggestion}
+              />
+            )}
             <textarea
               ref={textareaRef}
               value={text}
@@ -556,10 +564,65 @@ export function Composer({
               }}
               rows={1}
               placeholder="Write a message…"
-              className="mh-input mh-composer-input scroll-thin field-sizing-content max-h-40 flex-1"
+              className="mh-composer-dock__field scroll-thin field-sizing-content max-h-40"
             />
+          </div>
+
+          <div className="mh-composer-dock__toolbar">
+            <SearchSelect
+              compact
+              ghost
+              value={agent}
+              options={agents.map((item) => ({ value: item.id, label: item.name }))}
+              onChange={setAgent}
+              ariaLabel="Agent"
+              placeholder="agent…"
+            />
+            <SearchSelect
+              compact
+              ghost
+              value={model}
+              options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={(value) => {
+                modelTouched.current = true
+                setModel(value)
+              }}
+              ariaLabel="Model"
+              placeholder="model…"
+            />
+            {variants.length > 0 && (
+              <SearchSelect
+                compact
+                ghost
+                icon={effortIcon}
+                value={variant}
+                options={[
+                  { value: "", label: "Default" },
+                  ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
+                ]}
+                onChange={setVariant}
+                ariaLabel="Effort"
+                placeholder="Default"
+              />
+            )}
+            <button
+              type="button"
+              aria-pressed={autoAccept}
+              onClick={() => onToggleAutoAccept(!autoAccept)}
+              title="Auto-accept permission requests for this session (answers “once”)"
+              className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--accent" : "mh-chip--outline"}`}
+            >
+              <ShieldCheckIcon size={13} />
+              {autoAccept ? "Auto-accept: on" : "Auto-accept"}
+            </button>
             {busy ? (
-              <button type="button" onClick={() => void stop()} className="mh-btn mh-btn--danger h-11 shrink-0">
+              <button
+                type="button"
+                onClick={() => void stop()}
+                title="Stop the agent"
+                className="mh-btn mh-btn--danger mh-btn--sm shrink-0"
+              >
+                <StopIcon size={14} />
                 Stop
               </button>
             ) : (
@@ -567,61 +630,17 @@ export function Composer({
                 type="button"
                 onClick={() => void send()}
                 disabled={!text.trim() || sending || startingSideQuestion}
-                className="mh-btn mh-btn--primary h-11 shrink-0"
+                title="Send message"
+                className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
               >
+                <ArrowUpIcon size={14} />
                 {startingSideQuestion ? "Starting…" : sending ? "Sending…" : "Send"}
               </button>
             )}
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <SearchSelect
-            compact
-            value={agent}
-            options={agents.map((item) => ({ value: item.id, label: item.name }))}
-            onChange={setAgent}
-            ariaLabel="Agent"
-            placeholder="agent…"
-          />
-          <SearchSelect
-            compact
-            value={model}
-            options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
-            onChange={(value) => {
-              modelTouched.current = true
-              setModel(value)
-            }}
-            ariaLabel="Model"
-            placeholder="model…"
-          />
-          {variants.length > 0 && (
-            <SearchSelect
-              compact
-              icon={effortIcon}
-              value={variant}
-              options={[
-                { value: "", label: "Default" },
-                ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
-              ]}
-              onChange={setVariant}
-              ariaLabel="Effort"
-              placeholder="Default"
-            />
-          )}
-          <button
-            type="button"
-            aria-pressed={autoAccept}
-            onClick={() => onToggleAutoAccept(!autoAccept)}
-            title="Auto-accept permission requests for this session (answers “once”)"
-            className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--accent" : "mh-chip--outline"}`}
-          >
-            <ShieldCheckIcon size={13} />
-            {autoAccept ? "Auto-accept: on" : "Auto-accept"}
-          </button>
+          {error && <p className="mh-composer-dock__error text-xs text-danger">{error}</p>}
         </div>
-
-        {error && <p className="text-xs text-danger">{error}</p>}
       </div>
     </div>
   )
