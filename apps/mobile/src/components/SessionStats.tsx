@@ -56,7 +56,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexDirection: "row",
       flexWrap: "wrap",
       alignItems: "center",
-      justifyContent: "flex-end",
+      justifyContent: "flex-start",
       gap: 10,
     },
     item: {

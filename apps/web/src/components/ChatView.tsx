@@ -17,7 +17,7 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
-import { BranchPicker } from "./BranchPicker"
+import { BranchChip, BranchPicker } from "./BranchPicker"
 import { Composer, type ComposerHandle } from "./Composer"
 import { GoalReview } from "./GoalCards"
 import { GoalStrip } from "./GoalStrip"
@@ -185,7 +185,6 @@ export function ChatView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <GoalStrip sessionID={sessionID} />
       <div ref={scrollRef} onScroll={handleScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
         <div className="mh-chat-col mh-thread">
           <p className="sr-only" role="status">
@@ -255,6 +254,7 @@ export function ChatView({
           )}
         </div>
       </div>
+      <GoalStrip sessionID={sessionID} />
       <Composer
         ref={composerRef}
         sessionID={sessionID}
@@ -273,9 +273,14 @@ export function ChatView({
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
             branch={
-              // Isolated sessions show their branch in the worktree strip
-              // below; repeating it here doubles the info.
-              !isolation && workspaceID ? <BranchPicker workspaceID={workspaceID} /> : undefined
+              // The header chip is the only branch shown: read-only for
+              // isolated sessions (their branch cannot be switched), the
+              // picker for standard ones.
+              isolation ? (
+                <BranchChip branch={isolation.branch} />
+              ) : workspaceID ? (
+                <BranchPicker workspaceID={workspaceID} />
+              ) : undefined
             }
             trailing={<SessionStats usage={usage} />}
           />
@@ -285,12 +290,6 @@ export function ChatView({
             <div className="mh-composer-dock__strip">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-ink-muted">Isolated worktree</span>
-                <code
-                  className="mh-chip mh-chip--accent mh-chip--mono max-w-full truncate"
-                  title={isolation.worktreePath}
-                >
-                  {isolation.branch}
-                </code>
                 {isolation.prUrl && (
                   <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
                     Pull request

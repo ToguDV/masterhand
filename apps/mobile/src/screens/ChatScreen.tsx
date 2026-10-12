@@ -179,9 +179,14 @@ export function ChatScreen({
       }}
       onRemoveWorkspace={(id, options) => onRemoveWorkspace?.(id, options)}
       branch={
-        // Isolated sessions show their branch in the worktree strip below;
-        // repeating it here doubles the info.
-        !isolation && workspaceID ? <BranchPicker client={client} workspaceID={workspaceID} /> : undefined
+        // The header chip is the only branch shown: read-only for isolated
+        // sessions (their branch cannot be switched), the picker for
+        // standard ones.
+        isolation ? (
+          <BranchChip branch={isolation.branch} />
+        ) : workspaceID ? (
+          <BranchPicker client={client} workspaceID={workspaceID} />
+        ) : undefined
       }
       trailing={<SessionStats usage={usage} />}
     />
@@ -191,7 +196,6 @@ export function ChatScreen({
     <View>
       <View style={styles.isolationRow}>
         <Text style={styles.isolationLabel}>Isolated</Text>
-        <BranchChip branch={isolation.branch} />
         <View style={styles.isolationSpacer} />
         {isolation.prUrl ? (
           <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)} hitSlop={4}>
@@ -273,8 +277,6 @@ export function ChatScreen({
         </Pressable>
       ) : null}
 
-      <GoalStrip client={client} sessionID={sessionID} />
-
       <FlatList
         ref={listRef}
         data={messages}
@@ -315,6 +317,8 @@ export function ChatScreen({
           />
         )}
       />
+
+      <GoalStrip client={client} sessionID={sessionID} />
 
       <Composer
         key={sessionID}

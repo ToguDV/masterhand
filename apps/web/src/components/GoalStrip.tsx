@@ -52,7 +52,7 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
   const tone = data.state === "error" ? "text-danger" : data.state === "approved" ? "text-accent" : "text-ink"
 
   return (
-    <div data-testid="goal-strip" className="border-b border-hairline bg-surface">
+    <div data-testid="goal-strip" className="border-t border-hairline bg-surface">
       <div className="mh-chat-col">
         <button
           type="button"

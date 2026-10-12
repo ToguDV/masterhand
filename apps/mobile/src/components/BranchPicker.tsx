@@ -154,7 +154,10 @@ export function BranchPicker({ client, workspaceID }: { client: Client; workspac
   )
 }
 
-/** Read-only branch chip for isolated sessions (their branch is worktree-owned). */
+/**
+ * Read-only branch chip for isolated sessions: a plain view, never a
+ * pressable — the branch cannot be switched and opens no picker.
+ */
 export function BranchChip({ branch }: { branch: string }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
@@ -178,7 +181,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
-      borderRadius: 999,
+      borderRadius: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },

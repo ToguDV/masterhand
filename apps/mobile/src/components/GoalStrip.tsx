@@ -178,8 +178,8 @@ function Action({
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
     fold: {
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.hairline,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
       backgroundColor: colors.surface,
       paddingHorizontal: 14,
       paddingVertical: 6,

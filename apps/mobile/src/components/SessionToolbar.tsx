@@ -84,7 +84,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
-      borderRadius: 999,
+      borderRadius: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
@@ -95,9 +95,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
     },
     trailing: {
-      flex: 1,
       flexBasis: "100%",
-      alignItems: "flex-end",
+      alignItems: "flex-start",
     },
   })
 }
