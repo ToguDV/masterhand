@@ -17,7 +17,7 @@
     />
     <link rel="stylesheet" href="design.css" />
     <script>
-      // Resolve the theme before first paint: stored choice, else system.
+      // Resolve the theme and palette before first paint: stored choice, else system.
       (function () {
         try {
           var stored = localStorage.getItem("mh-theme");
@@ -28,6 +28,10 @@
                 ? "dark"
                 : "light";
           document.documentElement.setAttribute("data-theme", theme);
+          var palette = localStorage.getItem("mh-palette");
+          if (palette && palette !== "paper") {
+            document.documentElement.setAttribute("data-palette", palette);
+          }
         } catch (error) {
           /* file:// or private mode: the CSS media query still applies */
         }
@@ -132,7 +136,7 @@
               <div class="mh-msg--user">Move session storage to SQLite and keep the API stable.</div>
               <details class="mh-tool" open>
                 <summary class="mh-tool__header">
-                  <span class="mh-tool__glyph">&gt;_</span>
+                  <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                   <span class="mh-tool__title"><strong>bash</strong> · npm test</span>
                   <span class="mh-dot mh-dot--connected"></span>
                 </summary>
@@ -300,6 +304,90 @@
                 <div class="mh-swatch__token">{colors.code-surface} · dark in both themes</div>
               </figcaption>
             </figure>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Color themes</h3>
+          <p class="mh-lede mh-body-sm" style="margin-bottom: 12px; max-width: 68ch">
+            Settings &gt; Appearance offers 13 color themes, each with light and dark variants.
+            Light/dark stays an independent axis: the mode picks the column, the theme picks the row.
+            Only color tokens change — layout, spacing and radii never do. Pick one to repaint this page:
+          </p>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>theme-swatches · palette-grid</span><span>click to preview</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-palette-grid" role="radiogroup" aria-label="Preview color theme">
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="true" data-palette-target="paper">
+                    <span class="mh-palette-name">Paper</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FAFAF7"></span><span class="mh-palette-dot" style="background: #0B6B53; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="catppuccin">
+                    <span class="mh-palette-name">Catppuccin</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #EFF1F5"></span><span class="mh-palette-dot" style="background: #8839EF; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="dracula">
+                    <span class="mh-palette-name">Dracula</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #F8F8F2"></span><span class="mh-palette-dot" style="background: #7B3FD4; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="tokyo-night">
+                    <span class="mh-palette-name">Tokyo Night</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #E1E2E7"></span><span class="mh-palette-dot" style="background: #1B5FC1; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="nord">
+                    <span class="mh-palette-name">Nord</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #ECEFF4"></span><span class="mh-palette-dot" style="background: #3A6592; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="synthwave-84">
+                    <span class="mh-palette-name">Synthwave '84</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #F7ECF5"></span><span class="mh-palette-dot" style="background: #A81A8B; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="gruvbox">
+                    <span class="mh-palette-name">Gruvbox</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FBF1C7"></span><span class="mh-palette-dot" style="background: #AF3A03; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="rose-pine">
+                    <span class="mh-palette-name">Rosé Pine</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FAF4ED"></span><span class="mh-palette-dot" style="background: #B4637A; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="everforest">
+                    <span class="mh-palette-name">Everforest</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FDF6E3"></span><span class="mh-palette-dot" style="background: #5F7E00; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="solarized">
+                    <span class="mh-palette-name">Solarized</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FDF6E3"></span><span class="mh-palette-dot" style="background: #1A6DA5; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="one-dark">
+                    <span class="mh-palette-name">One Dark</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FAFAFA"></span><span class="mh-palette-dot" style="background: #026795; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="monokai">
+                    <span class="mh-palette-name">Monokai</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #F9F8F0"></span><span class="mh-palette-dot" style="background: #A8124A; border-color: transparent"></span></span>
+                  </button>
+                  <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="ayu">
+                    <span class="mh-palette-name">Ayu</span>
+                    <span class="mh-demo__row" style="gap: 6px"><span class="mh-palette-dot" style="background: #FAFAFA"></span><span class="mh-palette-dot" style="background: #C24A1F; border-color: transparent"></span></span>
+                  </button>
+                </div>
+                <p class="mh-caption mh-muted">Unknown stored values fall back to paper. Light accents are dark shades, dark accents are light shades.</p>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Syntax</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>syntax tokens · one palette for the dark code surface</span><span>both themes</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-code">
+                  <div class="mh-code__header">store.ts · function follows the palette dark accent</div>
+                  <pre><span class="mh-tok-comment">// sessions persist in SQLite; the HTTP API stays stable</span>
+<span class="mh-tok-keyword">const</span> store = <span class="mh-tok-keyword">new</span> <span class="mh-tok-type">SqliteStore</span>(<span class="mh-tok-function">join</span>(dataDir, <span class="mh-tok-string">"masterhand.db"</span>))
+<span class="mh-tok-keyword">await</span> <span class="mh-tok-function">migrate</span>(store, { budget: <span class="mh-tok-number">5000</span> })</pre>
+                </div>
+              </div>
+            </div>
           </div>
 
           <h3 class="mh-heading-4" style="margin: 40px 0 12px">Typography</h3>
@@ -531,10 +619,92 @@
                   </div>
                 </div>
                 <div class="mh-search">
-                  <span class="mh-search__glyph" aria-hidden="true">⌕</span>
+                  <span class="mh-search__glyph" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>
                   <input class="mh-input mh-search__field" type="search" placeholder="Search sessions…" />
                 </div>
                 <textarea class="mh-textarea" rows="3" placeholder="Write a message…">Refactor the session store and keep the tests green.</textarea>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Composer</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>composer-bar · one dock card, no focus ring</span><span>resting</span></div>
+              <div class="mh-demo__stage" style="background: var(--mh-canvas)">
+                <div class="mh-chat-col">
+                  <div class="mh-composer-dock">
+                    <div class="mh-composer-dock__head">
+                      <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
+                        <span>masterhand</span>
+                        <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                        <span style="flex: 1"></span>
+                        <span class="mh-mono-sm" style="font-size: 11px; color: var(--mh-text-faint)">$0.0421 · 12.4k</span>
+                      </div>
+                    </div>
+                    <div class="mh-composer-dock__body">
+                      <textarea class="mh-composer-dock__field" rows="2" data-autoresize>Refactor the session store and keep the tests green.</textarea>
+                    </div>
+                    <div class="mh-composer-dock__toolbar">
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">claude-sonnet</button>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Default</button>
+                      <span style="flex: 1"></span>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button" aria-pressed="false">Auto-accept</button>
+                      <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Send</button>
+                    </div>
+                  </div>
+                  <p class="mh-caption mh-muted" style="margin-top: 8px">One border, one subtle shadow, borderless field. Agent / model / effort render as ghost pills; focus shows only the caret — never an accent ring.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>composer-bar · worktree strip</span><span>isolated</span></div>
+              <div class="mh-demo__stage" style="background: var(--mh-canvas)">
+                <div class="mh-composer-dock">
+                  <div class="mh-composer-dock__head">
+                    <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
+                      <span>masterhand</span>
+                      <span class="mh-chip mh-chip--accent mh-chip--mono">masterhand/ab12cd</span>
+                    </div>
+                  </div>
+                  <div class="mh-composer-dock__strip">
+                    <div class="mh-demo__row" style="gap: 8px; font-size: 12px">
+                      <span class="mh-chip mh-chip--outline">isolated worktree</span>
+                      <span style="flex: 1"></span>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">PR</button>
+                      <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Finish</button>
+                    </div>
+                  </div>
+                  <div class="mh-composer-dock__body">
+                    <textarea class="mh-composer-dock__field" rows="1" data-autoresize placeholder="Write a message…"></textarea>
+                  </div>
+                  <div class="mh-composer-dock__toolbar">
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                    <span style="flex: 1"></span>
+                    <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" disabled>Send</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>composer-bar · busy</span><span>Stop stays inside</span></div>
+              <div class="mh-demo__stage" style="background: var(--mh-canvas)">
+                <div class="mh-composer-dock">
+                  <div class="mh-composer-dock__body">
+                    <textarea class="mh-composer-dock__field" rows="2" data-autoresize>Migrate the queries now…</textarea>
+                  </div>
+                  <div class="mh-composer-dock__toolbar">
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">claude-sonnet</button>
+                    <span style="flex: 1"></span>
+                    <button class="mh-btn mh-btn--danger mh-btn--sm" type="button">Stop</button>
+                  </div>
+                  <p class="mh-composer-dock__error mh-caption" style="color: var(--mh-danger)">Describe the goal after /goal</p>
+                </div>
+                <p class="mh-caption mh-muted">Errors live inside the dock, below the toolbar. Suggestions anchor to the card, not between blocks.</p>
               </div>
             </div>
           </div>
@@ -613,7 +783,7 @@
               <div class="mh-demo__label"><span>top-bar · banners</span><span>app chrome</span></div>
               <div class="mh-demo__stage" style="gap: 0; padding: 0">
                 <div class="mh-app__topbar" style="height: 56px">
-                  <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                  <button class="mh-app__back" type="button" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                   <span class="mh-app__title">Migrate session store</span>
                   <span class="mh-dot mh-dot--connected"></span>
                   <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Sign out</button>
@@ -625,6 +795,42 @@
                 <div class="mh-banner mh-banner--warning">Could not reach the MasterHand server · tap to dismiss</div>
                 <div class="mh-banner mh-banner--danger">
                   opencode rejected MasterHand&rsquo;s credentials. Check OPENCODE_SERVER_PASSWORD.
+                </div>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>branch-picker</span><span>search · switch · create</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row" style="gap: 8px">
+                  <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite-store</span>
+                  <span class="mh-caption mh-muted">standard session</span>
+                </div>
+                <div class="mh-search">
+                  <span class="mh-search__glyph" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>
+                  <input class="mh-input mh-search__field" type="search" placeholder="Search branches" aria-label="Search branches" />
+                </div>
+                <div class="mh-demo__col" style="gap: 4px">
+                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start">main</button>
+                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start; background: var(--mh-surface-muted); color: var(--mh-text)">✓ feature/sqlite-store</button>
+                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start">fix/tunnel-flake</button>
+                </div>
+                <div class="mh-demo__row">
+                  <input class="mh-input" type="text" placeholder="new-branch-name" aria-label="New branch name" style="flex: 1" />
+                  <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Create</button>
+                </div>
+                <p class="mh-caption mh-muted">Timeouts read as “may have applied” plus refetch — never auto-retried. Isolated sessions show a read-only chip that opens no picker.</p>
+              </div>
+            </div>
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>sidebar · collapsed rail</span><span>desktop ≥768px</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__row" style="align-items: stretch">
+                  <div style="width: 60px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); background: var(--mh-canvas)">
+                    <button class="mh-btn mh-btn--quiet" type="button" aria-label="Expand sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg></button>
+                    <button class="mh-btn mh-btn--quiet" type="button" aria-label="New session"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg></button>
+                    <button class="mh-btn mh-btn--quiet" type="button" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></svg></button>
+                  </div>
+                  <p class="mh-caption mh-muted" style="flex: 1">60px icon rail (persisted choice). The full list and footer hide; the mobile drawer keeps everything.</p>
                 </div>
               </div>
             </div>
@@ -646,10 +852,10 @@
 
                     <details class="mh-tool" open>
                       <summary class="mh-tool__header">
-                        <span class="mh-tool__glyph">&gt;_</span>
+                        <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                         <span class="mh-tool__title"><strong>bash</strong> · npm run test:coverage</span>
                         <span class="mh-dot mh-dot--connected"></span>
-                        <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                        <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                       </summary>
                       <div class="mh-tool__body">
                         <div class="mh-code">
@@ -664,10 +870,10 @@
 
                     <details class="mh-tool" open>
                       <summary class="mh-tool__header">
-                        <span class="mh-tool__glyph">±</span>
+                        <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                         <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
                         <span class="mh-chip mh-chip--accent">+48 −12</span>
-                        <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                        <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                       </summary>
                       <div class="mh-tool__body">
                         <div class="mh-diff">
@@ -680,7 +886,7 @@
 
                     <details class="mh-tool">
                       <summary class="mh-tool__header">
-                        <span class="mh-tool__glyph">&gt;_</span>
+                        <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                         <span class="mh-tool__title"><strong>bash</strong> · npm run build</span>
                         <span class="mh-dot mh-dot--busy"></span>
                       </summary>
@@ -691,7 +897,7 @@
 
                     <details class="mh-tool is-error">
                       <summary class="mh-tool__header">
-                        <span class="mh-tool__glyph">⚙</span>
+                        <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8"/><path d="M16 6h4"/><circle cx="14" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h10"/><path d="M18 18h2"/><circle cx="16" cy="18" r="2"/></svg></span>
                         <span class="mh-tool__title"><strong>lint</strong> · eslint apps/web</span>
                         <span class="mh-dot mh-dot--danger"></span>
                       </summary>
@@ -794,6 +1000,118 @@
             </div>
           </div>
 
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>goal-strip · one quiet line above the composer</span><span>chat width</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-chat-col">
+                  <div class="mh-demo__row" style="font-size: 12px">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--mh-accent)"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>
+                    <span style="font-weight: 600">Reviewing</span>
+                    <span class="mh-chip mh-chip--outline mh-chip--mono">round 2/6</span>
+                    <span style="flex: 1"></span>
+                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Pause</button>
+                    <button class="mh-btn mh-btn--danger mh-btn--sm" type="button">Cancel</button>
+                  </div>
+                  <p class="mh-caption mh-muted" style="margin-top: 8px">Outside the dock and the transcript, no wider than the chat column. No dropdown, no result text — history lives in the thread below.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>goal-review · rounds live in the thread</span><span>latest open</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-goal">
+                  <div class="mh-goal__header">
+                    <span class="mh-goal__title">Goal review</span>
+                    <span class="mh-chip mh-chip--accent mh-chip--mono">round 2/6</span>
+                  </div>
+                  <div class="mh-goal__round">
+                    <button class="mh-goal__round-header" type="button" data-goal-round aria-expanded="true">
+                      <span class="mh-goal__round-label">Round 2</span>
+                      <span class="mh-goal__round-summary">2 issues open — migration path unproven</span>
+                      <span class="mh-chip mh-chip--warning">changes requested</span>
+                      <span class="mh-goal__chevron is-open" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
+                    </button>
+                    <div class="mh-goal__body">
+                      <div class="mh-goal__block">
+                        <p class="mh-goal__block-title">Critic's argument</p>
+                        <p class="mh-goal__argument">The store migrates, but nothing proves the old JSON path is gone.</p>
+                        <ul class="mh-goal__issues">
+                          <li class="mh-goal__issue"><span class="mh-chip mh-chip--danger">major</span><span>Remove the JsonStore fallback <span class="mh-goal__evidence">apps/server/src/store.ts:12</span></span></li>
+                          <li class="mh-goal__issue"><span class="mh-chip mh-chip--warning">minor</span><span>Cover the corrupt-file path <span class="mh-goal__evidence">store.test.ts</span></span></li>
+                        </ul>
+                      </div>
+                      <div class="mh-goal__block">
+                        <p class="mh-goal__block-title">Judge's decision</p>
+                        <p class="mh-goal__argument">Reject — one more pass with the fallback deleted.</p>
+                        <ul class="mh-goal__changes">
+                          <li>Delete the JSON fallback and its tests</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mh-goal__round">
+                    <button class="mh-goal__round-header" type="button" data-goal-round aria-expanded="false">
+                      <span class="mh-goal__round-label">Round 1</span>
+                      <span class="mh-goal__round-summary">Claimed completion, critic found 3 issues</span>
+                      <span class="mh-chip mh-chip--warning">changes requested</span>
+                      <span class="mh-goal__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
+                    </button>
+                    <div class="mh-goal__body" hidden>
+                      <div class="mh-goal__block">
+                        <p class="mh-goal__block-title">Critic's argument</p>
+                        <p class="mh-goal__argument">The migration runs, but the suite never touches the new store directly.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="mh-goal__report">
+                  <p class="mh-goal__report-head">
+                    <span class="mh-chip mh-chip--accent">completed</span>
+                    <span class="mh-goal__title">Goal completed</span>
+                    <span class="mh-goal__report-summary">SQLite store live, HTTP API unchanged</span>
+                  </p>
+                  <ul class="mh-goal__evidence-list">
+                    <li>store.test.ts (12)</li>
+                    <li>sessions.test.ts (18)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>pending-bubble</span><span>sending + failed</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-pending">
+                  <div class="mh-msg--user mh-msg--pending">Migrate the queries now…</div>
+                  <p class="mh-pending__caption"><span class="mh-dot mh-dot--busy"></span>Sending…</p>
+                </div>
+                <div class="mh-pending">
+                  <div class="mh-msg--user mh-msg--pending is-failed">Migrate the queries now…</div>
+                  <p class="mh-pending__caption">
+                    <span style="color: var(--mh-danger)">Failed to send</span>
+                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Retry</button>
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Dismiss</button>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>message-stats · session-stats</span><span>icons + numbers</span></div>
+              <div class="mh-demo__stage">
+                <p class="mh-msg__meta" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+                  <span>claude-sonnet</span>
+                  <span title="Cost">$0.0421</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px" title="Input tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></svg>12.4k</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px" title="Output tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="m19 12-7 7-7-7" /></svg>3.1k</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px" title="Reasoning tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>800</span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px" title="Generation speed"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></svg>38/s</span>
+                </p>
+                <p class="mh-caption mh-muted">Labels live in tooltips only. Cache read/write never shown. Nothing renders until the message completes.</p>
+              </div>
+            </div>
+
           <h3 class="mh-heading-4" style="margin: 40px 0 12px">Feedback &amp; empty states</h3>
           <div class="mh-demos">
             <div class="mh-demo">
@@ -816,6 +1134,150 @@
                   <h3 class="mh-heading-2">No sessions yet</h3>
                   <p class="mh-empty__body mh-body-sm">Add a workspace to start working on a project.</p>
                   <button class="mh-btn mh-btn--primary" type="button">Add workspace</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Settings</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>settings-panel · two-pane / master-detail</span><span>gear</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-settings" style="height: auto; min-height: 0; border: 1px solid var(--mh-hairline); border-radius: var(--r-xl); overflow: hidden" data-mobile-view="list" data-settings-demo>
+                  <div class="mh-settings__head">
+                    <button class="mh-settings__back-header mh-btn mh-btn--quiet" type="button" data-settings-back aria-label="Back to sections"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg> Back</button>
+                    <span class="mh-heading-4">Settings</span>
+                    <button class="mh-settings__close mh-btn mh-btn--quiet" type="button" aria-label="Close settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                  </div>
+                  <div class="mh-settings__body">
+                    <nav class="mh-settings__nav" aria-label="Settings sections">
+                      <button class="mh-settings__nav-item" type="button" aria-current="page" data-settings-nav>Appearance<span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Appearance</span><span class="mh-settings__nav-desc">Theme and color</span></span><span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></button>
+                      <button class="mh-settings__nav-item" type="button" data-settings-nav>Goal<span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Goal review</span><span class="mh-settings__nav-desc">Critic, judge and rounds</span></span><span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></button>
+                      <button class="mh-settings__nav-item" type="button" data-settings-nav>Search<span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Web search</span><span class="mh-settings__nav-desc">Default source and keys</span></span><span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></button>
+                      <button class="mh-settings__nav-item" type="button" data-settings-nav>Keys<span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Providers</span><span class="mh-settings__nav-desc">API keys and custom providers</span></span><span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span></button>
+                    </nav>
+                    <div class="mh-settings__content">
+                      <div class="mh-settings__module-head">
+                        <div>
+                          <h4 class="mh-settings__title">Appearance</h4>
+                          <p class="mh-settings__desc">Choose how MasterHand looks on this device.</p>
+                        </div>
+                      </div>
+                      <div class="mh-theme-swatches" role="radiogroup" aria-label="Theme">
+                        <button class="mh-theme-option" type="button" role="radio" aria-checked="false"><span class="mh-palette-dot" style="background: var(--mh-canvas)"></span><span class="mh-theme-name">System</span></button>
+                        <button class="mh-theme-option" type="button" role="radio" aria-checked="true"><span class="mh-palette-dot" style="background: #FAFAF7"></span><span class="mh-theme-name">Light</span></button>
+                        <button class="mh-theme-option" type="button" role="radio" aria-checked="false"><span class="mh-palette-dot" style="background: #0C0C0B"></span><span class="mh-theme-name">Dark</span></button>
+                      </div>
+                      <div class="mh-palette-grid" role="radiogroup" aria-label="Color theme">
+                        <button class="mh-palette-option" type="button" role="radio" aria-checked="true" data-palette-target="paper"><span class="mh-palette-name">Paper</span><span class="mh-palette-dot" style="background: #0B6B53; border-color: transparent"></span></button>
+                        <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="nord"><span class="mh-palette-name">Nord</span><span class="mh-palette-dot" style="background: #3A6592; border-color: transparent"></span></button>
+                        <button class="mh-palette-option" type="button" role="radio" aria-checked="false" data-palette-target="gruvbox"><span class="mh-palette-name">Gruvbox</span><span class="mh-palette-dot" style="background: #AF3A03; border-color: transparent"></span></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <p class="mh-caption mh-muted">Desktop: nav plus content. Small screens: a section list (≥56px rows) shows one section at a time with Back. Sign out lives in Settings &gt; Account.</p>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>provider-card</span><span>confirm before disconnect</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-settings__module-head" style="margin-bottom: 8px">
+                  <p class="mh-caption mh-muted">Custom providers</p>
+                  <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Add provider</button>
+                </div>
+                <div class="mh-demo__col" style="gap: 8px; border: 1px solid var(--mh-hairline-strong); border-radius: var(--r-md); padding: 10px 12px">
+                  <div class="mh-demo__row">
+                    <span class="mh-palette-dot" style="background: var(--mh-accent-soft); border-color: transparent" aria-hidden="true"></span>
+                    <span style="font-weight: 600; font-size: 14px">Acme AI</span>
+                    <span class="mh-chip mh-chip--accent">Connected</span>
+                  </div>
+                  <div class="mh-demo__row" style="font-size: 13px">
+                    <span class="mh-muted">API key · ••••8f2a</span>
+                    <span style="flex: 1"></span>
+                    <button class="mh-btn mh-btn--sm mh-btn--danger" type="button">Disconnect</button>
+                  </div>
+                  <div class="mh-demo__row" style="font-size: 13px; color: var(--mh-danger)">
+                    <span>Disconnect?</span>
+                    <span style="flex: 1"></span>
+                    <button class="mh-btn mh-btn--sm mh-btn--danger" type="button">Yes</button>
+                    <button class="mh-btn mh-btn--sm mh-btn--ghost" type="button">Keep</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>websearch-card · radio semantics</span><span>test probe</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__col">
+                  <button class="mh-option is-selected" type="button" role="radio" aria-checked="true">
+                    <span class="mh-option__mark"></span>
+                    <span style="flex: 1"><span style="display: block; font-weight: 600; font-size: 14px">Automatic</span><span class="mh-caption mh-muted">opencode picks the source</span></span>
+                    <span class="mh-chip mh-chip--accent">Default</span>
+                  </button>
+                  <button class="mh-option" type="button" role="radio" aria-checked="false">
+                    <span class="mh-option__mark"></span>
+                    <span style="flex: 1"><span style="display: block; font-weight: 600; font-size: 14px">TinyFish</span><span class="mh-caption mh-muted">API key</span></span>
+                    <span class="mh-chip">No API key required</span>
+                  </button>
+                  <div class="mh-demo__row">
+                    <input class="mh-input" type="text" value="sqlite vs json benchmark" aria-label="Test query" style="flex: 1" />
+                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Test</button>
+                  </div>
+                  <p class="mh-caption" style="color: var(--mh-accent)">Answered by TinyFish · 3 results</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>custom provider · /models discovery</span><span>advanced</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__col">
+                  <div class="mh-demo__row">
+                    <input class="mh-input" type="text" value="Acme AI" aria-label="Display name" style="flex: 1" />
+                    <input class="mh-input mh-mono-sm" type="text" value="acme-ai" aria-label="Provider id" style="flex: 1" />
+                  </div>
+                  <input class="mh-input" type="url" value="https://api.acme.example/v1" aria-label="Base URL" />
+                  <div class="mh-demo__row">
+                    <input class="mh-input" type="password" value="sk-acme-••••" aria-label="API key" style="flex: 1" />
+                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Load models</button>
+                  </div>
+                  <p class="mh-caption mh-muted">acme-large · acme-small (2 discovered)</p>
+                  <div class="mh-demo__col" style="gap: 8px">
+                    <p class="mh-caption mh-muted">Transport</p>
+                    <button class="mh-option is-selected" type="button" role="radio" aria-checked="true"><span class="mh-option__mark"></span>Chat completions</button>
+                    <button class="mh-option" type="button" role="radio" aria-checked="false"><span class="mh-option__mark"></span>Responses</button>
+                  </div>
+                  <div class="mh-demo__row">
+                    <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Create</button>
+                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mh-demo">
+              <div class="mh-demo__label"><span>goal review · autosave</span><span>no save button</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-demo__col">
+                  <p class="mh-caption mh-muted">Models</p>
+                  <div>
+                    <label class="mh-label" for="demo-critic">Critic model</label>
+                    <select class="mh-select" id="demo-critic"><option>Session model</option><option>claude-sonnet</option></select>
+                  </div>
+                  <div>
+                    <label class="mh-label" for="demo-judge">Judge model</label>
+                    <select class="mh-select" id="demo-judge"><option>Session model</option><option>gpt-5</option></select>
+                  </div>
+                  <p class="mh-caption mh-muted" style="margin-top: 8px">Budget</p>
+                  <div class="mh-demo__row">
+                    <label class="mh-label" for="demo-rounds" style="margin: 0">Max rounds</label>
+                    <input class="mh-input" id="demo-rounds" type="number" value="5" style="width: 96px" />
+                  </div>
+                  <p class="mh-caption mh-muted">Saving… — every change persists on its own; a failed write never retries until a newer edit arrives.</p>
                 </div>
               </div>
             </div>
@@ -846,21 +1308,34 @@
               </div>
             </div>
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>side-panel</span><span>run · preview · audit · side question</span></div>
+              <div class="mh-demo__label"><span>side-panel · run &amp; preview tabs</span><span>one trigger</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-panel">
-                  <div class="mh-panel__title">
-                    <span class="mh-heading-4">Run panel</span>
-                    <span class="mh-chip mh-chip--warning">busy</span>
+                  <div class="mh-demo__row" style="justify-content: space-between; margin-bottom: 4px">
+                    <span class="mh-heading-4">Run &amp; preview</span>
+                    <span class="mh-chip mh-chip--mono">port 4311</span>
                   </div>
-                  <div class="mh-code mh-code--tight" style="margin-bottom: 12px">
-                    <pre><span class="mh-c-muted">$</span> opencode run --agent build
-<span class="mh-c-accent">→</span> editing store.ts…</pre>
+                  <div class="mh-tabindex" role="tablist" aria-label="Run and preview" data-rp-tabs>
+                    <button class="mh-tabindex__tab is-active" type="button" role="tab" aria-selected="true" data-rp-tab="run" id="demo-rp-tab-run" aria-controls="demo-rp-panel-run">Run</button>
+                    <button class="mh-tabindex__tab" type="button" role="tab" aria-selected="false" data-rp-tab="preview" id="demo-rp-tab-preview" aria-controls="demo-rp-panel-preview" tabindex="-1">Preview</button>
                   </div>
-                  <div class="mh-demo__row">
-                    <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Stop</button>
-                    <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Open logs</button>
+                  <div data-rp-panel="run" role="tabpanel" id="demo-rp-panel-run" aria-labelledby="demo-rp-tab-run" style="margin-top: 12px">
+                    <div class="mh-code mh-code--tight" style="margin-bottom: 12px">
+                      <pre><span class="mh-c-muted">$</span> npm run dev -- --port 4311
+<span class="mh-c-accent">→</span> listening on 4311…</pre>
+                    </div>
+                    <div class="mh-demo__row">
+                      <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Stop</button>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Open logs</button>
+                    </div>
                   </div>
+                  <div data-rp-panel="preview" role="tabpanel" id="demo-rp-panel-preview" aria-labelledby="demo-rp-tab-preview" hidden style="margin-top: 12px">
+                    <div class="mh-demo__col" style="border: 1px solid var(--mh-hairline); border-radius: var(--r-md); min-height: 120px; align-items: center; justify-content: center; background: var(--mh-canvas)">
+                      <p class="mh-body-sm mh-muted">Sandboxed preview iframe</p>
+                      <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Open in new tab</button>
+                    </div>
+                  </div>
+                  <p class="mh-caption mh-muted" style="margin-top: 12px">Opens on Preview when the tunnel runs, otherwise on Run. Start/Stop never forces a tab switch.</p>
                 </div>
               </div>
             </div>
@@ -892,6 +1367,90 @@
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Icons</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>icon-set · single vector source, 24px stroke</span><span>no emoji</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-grid" style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr))">
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg><span class="mh-caption mh-muted">chevron-down</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span class="mh-caption mh-muted">chevron-left</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg><span class="mh-caption mh-muted">chevron-right</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" /></svg><span class="mh-caption mh-muted">arrow-left</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" /></svg><span class="mh-caption mh-muted">arrow-up</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" />
+      <path d="m19 12-7 7-7-7" /></svg><span class="mh-caption mh-muted">arrow-down</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" />
+      <path d="M5 12h14" /></svg><span class="mh-caption mh-muted">plus</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" />
+      <path d="m6 6 12 12" /></svg><span class="mh-caption mh-muted">x</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7" /></svg><span class="mh-caption mh-muted">check</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8" /></svg><span class="mh-caption mh-muted">circle</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h16" /></svg><span class="mh-caption mh-muted">menu</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></svg><span class="mh-caption mh-muted">ellipsis</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg><span class="mh-caption mh-muted">folder</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="m6 7 1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg><span class="mh-caption mh-muted">trash</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18V5" />
+      <path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+      <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+      <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+      <path d="M18 18a4 4 0 0 0 2-7.464" />
+      <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+      <path d="M6 18a4 4 0 0 1-2-7.464" />
+      <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" /></svg><span class="mh-caption mh-muted">brain</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8" />
+      <path d="M16 6h4" />
+      <circle cx="14" cy="6" r="2" />
+      <path d="M4 12h4" />
+      <path d="M12 12h8" />
+      <circle cx="10" cy="12" r="2" />
+      <path d="M4 18h10" />
+      <path d="M18 18h2" />
+      <circle cx="16" cy="18" r="2" /></svg><span class="mh-caption mh-muted">sliders</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg><span class="mh-caption mh-muted">sparkle</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></svg><span class="mh-caption mh-muted">bolt</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg><span class="mh-caption mh-muted">external-link</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+      <path d="m9 12 2 2 4-4" /></svg><span class="mh-caption mh-muted">shield-check</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg><span class="mh-caption mh-muted">sun</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></svg><span class="mh-caption mh-muted">moon</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v12" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" /></svg><span class="mh-caption mh-muted">branch</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" />
+      <path d="m10.1 13.9 9.4-9.4" />
+      <path d="m15.5 8.5 2 2" />
+      <path d="m18 6 2 2" /></svg><span class="mh-caption mh-muted">key</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" /></svg><span class="mh-caption mh-muted">gear</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" /></svg><span class="mh-caption mh-muted">log-out</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.8-3.8" /></svg><span class="mh-caption mh-muted">search</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 5v14l11-7z" /></svg><span class="mh-caption mh-muted">play</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5v14" />
+      <path d="M15 5v14" /></svg><span class="mh-caption mh-muted">pause</span></span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg><span class="mh-caption mh-muted">stop</span></span>
+                </div>
+                <p class="mh-caption mh-muted">Every glyph inherits <span class="mh-mono-sm">currentColor</span> and is <span class="mh-mono-sm">aria-hidden</span> — the accessible name belongs to the control. Never inline a new <span class="mh-mono-sm">&lt;svg&gt;</span> in a component: add it to the set.</p>
               </div>
             </div>
           </div>
@@ -1007,10 +1566,10 @@
                   <!-- Chat -->
                   <div class="mh-app-screen is-active" data-screen="chat">
                     <div class="mh-app__topbar">
-                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <button class="mh-app__back" type="button" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <span class="mh-app__title">Migrate session store</span>
                       <span class="mh-dot mh-dot--connected"></span>
-                      <button class="mh-app__icon" type="button" aria-label="More">⋯</button>
+                      <button class="mh-app__icon" type="button" aria-label="More"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
                     </div>
                     <div class="mh-app__main">
                       <div class="mh-app__chat">
@@ -1021,10 +1580,10 @@
                             <div class="mh-msg__body">On it. Store first, then the queries, then the suite.</div>
                             <details class="mh-tool" open>
                               <summary class="mh-tool__header">
-                                <span class="mh-tool__glyph">&gt;_</span>
+                                <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                                 <span class="mh-tool__title"><strong>bash</strong> · npm test</span>
                                 <span class="mh-dot mh-dot--connected"></span>
-                                <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                                <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                               </summary>
                               <div class="mh-tool__body">
                                 <div class="mh-code mh-code--tight">
@@ -1034,7 +1593,7 @@
                             </details>
                             <details class="mh-tool" open>
                               <summary class="mh-tool__header">
-                                <span class="mh-tool__glyph">±</span>
+                                <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                                 <span class="mh-tool__title"><strong>edit</strong> · store.ts</span>
                                 <span class="mh-chip mh-chip--accent">+48 −12</span>
                               </summary>
@@ -1047,7 +1606,7 @@
                             </details>
                             <details class="mh-tool">
                               <summary class="mh-tool__header">
-                                <span class="mh-tool__glyph">&gt;_</span>
+                                <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                                 <span class="mh-tool__title"><strong>bash</strong> · npm run build</span>
                                 <span class="mh-dot mh-dot--busy"></span>
                               </summary>
@@ -1057,23 +1616,31 @@
                             </details>
                           </div>
                         </div>
-                        <p class="mh-app__usage">$0.0421 · 12.4k tokens</p>
+                        <p class="mh-msg__meta" style="text-align: right">$0.0421 · 12.4k · 38 tok/s</p>
                       </div>
                       <div class="mh-app__composer">
-                        <div class="mh-app__composer-row">
-                          <select class="mh-select" aria-label="Agent" style="width: 96px">
-                            <option>build</option>
-                            <option>plan</option>
-                          </select>
-                          <select class="mh-select" aria-label="Model" style="width: 118px">
-                            <option>claude-sonnet</option>
-                            <option>gpt-5</option>
-                          </select>
-                          <span class="mh-chip mh-chip--outline">auto-accept</span>
+                        <div class="mh-demo__row" style="font-size: 11px; padding: 0 2px 4px">
+                          <span style="font-weight: 600">Reviewing</span>
+                          <span class="mh-chip mh-chip--outline mh-chip--mono">round 2/6</span>
+                          <span style="flex: 1"></span>
+                          <button class="mh-btn mh-btn--secondary mh-btn--sm" style="min-height: 32px; padding: 4px 10px" type="button">Pause</button>
                         </div>
-                        <div class="mh-app__composer-row">
-                          <div class="mh-app__composer-box">Write a message…</div>
-                          <button class="mh-btn mh-btn--primary" type="button" style="min-height: 44px">Send</button>
+                        <div class="mh-composer-dock">
+                          <div class="mh-composer-dock__head">
+                            <div class="mh-demo__row" style="gap: 6px; font-size: 11px; color: var(--mh-text-muted)">
+                              <span>masterhand</span>
+                              <span class="mh-chip mh-chip--accent mh-chip--mono">main</span>
+                            </div>
+                          </div>
+                          <div class="mh-composer-dock__body">
+                            <textarea class="mh-composer-dock__field" rows="1" data-autoresize placeholder="Write a message…"></textarea>
+                          </div>
+                          <div class="mh-composer-dock__toolbar">
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">model</button>
+                            <span style="flex: 1"></span>
+                            <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Send</button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1082,7 +1649,7 @@
                   <!-- Permission -->
                   <div class="mh-app-screen" data-screen="permission">
                     <div class="mh-app__topbar">
-                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <button class="mh-app__back" type="button" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <span class="mh-app__title">Migrate session store</span>
                       <span class="mh-dot mh-dot--busy"></span>
                     </div>
@@ -1119,7 +1686,7 @@
                   <!-- Question -->
                   <div class="mh-app-screen" data-screen="question">
                     <div class="mh-app__topbar">
-                      <button class="mh-app__back" type="button" aria-label="Back">‹</button>
+                      <button class="mh-app__back" type="button" aria-label="Back"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
                       <span class="mh-app__title">Composer design pass</span>
                       <span class="mh-dot mh-dot--busy"></span>
                     </div>
@@ -1209,11 +1776,12 @@
                         <aside class="mh-app__sidebar">
                           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px">
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
-                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session">+</button>
+                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
                           </div>
                           <div class="mh-pills">
                             <button class="mh-pill is-active" type="button">All</button>
                             <button class="mh-pill" type="button">Isolated</button>
+                            <button class="mh-pill" type="button">Standard</button>
                           </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">
@@ -1263,11 +1831,12 @@
                         <aside class="mh-app__sidebar">
                           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px">
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
-                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session">+</button>
+                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
                           </div>
                           <div class="mh-pills">
                             <button class="mh-pill is-active" type="button">All</button>
                             <button class="mh-pill" type="button">Isolated</button>
+                            <button class="mh-pill" type="button">Standard</button>
                           </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">
@@ -1297,9 +1866,8 @@
                           <div class="mh-app__topbar">
                             <span class="mh-app__title">Migrate session store to SQLite</span>
                             <span class="mh-dot mh-dot--connected"></span>
-                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Audit</button>
-                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Run</button>
-                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Preview</button>
+                            <button class="mh-app__icon" type="button" aria-label="Run and preview"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 5v14l11-7z"/></svg></button>
+                            <button class="mh-app__icon" type="button" aria-label="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/></svg></button>
                           </div>
                           <div class="mh-app__chat">
                             <div class="mh-app__content">
@@ -1313,10 +1881,10 @@
                                   </div>
                                   <details class="mh-tool" open>
                                     <summary class="mh-tool__header">
-                                      <span class="mh-tool__glyph">&gt;_</span>
+                                      <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 8 4 4-4 4"/><path d="M12 16h8"/></svg></span>
                                       <span class="mh-tool__title"><strong>bash</strong> · npm run test:coverage</span>
                                       <span class="mh-dot mh-dot--connected"></span>
-                                      <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                                      <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                                     </summary>
                                     <div class="mh-tool__body">
                                       <div class="mh-code">
@@ -1329,10 +1897,10 @@
                                   </details>
                                   <details class="mh-tool" open>
                                     <summary class="mh-tool__header">
-                                      <span class="mh-tool__glyph">±</span>
+                                      <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                                       <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
                                       <span class="mh-chip mh-chip--accent">+48 −12</span>
-                                      <span class="mh-tool__chevron" aria-hidden="true">›</span>
+                                      <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                                     </summary>
                                     <div class="mh-tool__body">
                                       <div class="mh-diff">
@@ -1344,33 +1912,37 @@
                                   </details>
                                 </div>
                               </div>
-                              <p class="mh-app__usage">$0.0421 · ↑12.4k · ↓3.1k · ⚡38/s</p>
+                              <p class="mh-msg__meta" style="text-align: right">claude-sonnet · $0.0421 · 12.4k · 38 tok/s</p>
                             </div>
                           </div>
                           <div class="mh-app__composer">
                             <div class="mh-app__content">
-                              <div class="mh-app__composer-row">
-                                <select class="mh-select" aria-label="Workspace" style="max-width: 170px">
-                                  <option>masterhand</option>
-                                </select>
-                              </div>
-                              <div class="mh-app__composer-row">
-                                <div class="mh-app__composer-box">Write a message…</div>
-                                <button class="mh-btn mh-btn--primary" type="button">Send</button>
-                              </div>
-                              <div class="mh-app__composer-row">
-                                <select class="mh-select" aria-label="Agent" style="width: 96px">
-                                  <option>build</option>
-                                  <option>plan</option>
-                                </select>
-                                <select class="mh-select" aria-label="Model" style="width: 128px">
-                                  <option>claude-sonnet</option>
-                                </select>
-                                <select class="mh-select" aria-label="Effort" style="width: 110px">
-                                  <option>Default</option>
-                                </select>
+                              <div class="mh-demo__row" style="font-size: 12px; padding: 0 2px 6px">
+                                <span style="font-weight: 600">Reviewing</span>
+                                <span class="mh-chip mh-chip--outline mh-chip--mono">round 2/6</span>
                                 <span style="flex: 1"></span>
-                                <span class="mh-chip mh-chip--accent">auto-accept</span>
+                                <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Pause</button>
+                                <button class="mh-btn mh-btn--danger mh-btn--sm" type="button">Cancel</button>
+                              </div>
+                              <div class="mh-composer-dock">
+                                <div class="mh-composer-dock__head">
+                                  <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
+                                    <span>masterhand</span>
+                                    <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                                    <span style="flex: 1"></span>
+                                    <span class="mh-mono-sm" style="font-size: 11px; color: var(--mh-text-faint)">$0.0421 · 12.4k</span>
+                                  </div>
+                                </div>
+                                <div class="mh-composer-dock__body">
+                                  <textarea class="mh-composer-dock__field" rows="1" data-autoresize placeholder="Write a message…">Refactor the session store next.</textarea>
+                                </div>
+                                <div class="mh-composer-dock__toolbar">
+                                  <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                                  <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">claude-sonnet</button>
+                                  <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Default</button>
+                                  <span style="flex: 1"></span>
+                                  <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Send</button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1384,7 +1956,7 @@
                         <aside class="mh-app__sidebar">
                           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px">
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
-                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session">+</button>
+                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
                           </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">
@@ -1436,7 +2008,7 @@
                         <aside class="mh-app__sidebar">
                           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px">
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
-                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session">+</button>
+                            <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
                           </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">

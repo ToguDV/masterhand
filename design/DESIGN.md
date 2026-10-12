@@ -264,6 +264,13 @@ components:
     padding: "{spacing.sm}"
     border: "1px solid {colors.hairline} (right)"
     width: 272px
+    geometry: "272px docked at >=768px with a collapsible 60px icon rail (persisted choice; drawer below 768px)"
+  goal-strip:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    padding: "4px 0"
+    geometry: "one quiet line just above the composer, constrained to the chat column width: live phase, round N/M chip and Pause/Resume/Cancel side by side, never a second copy of the history"
   session-item:
     backgroundColor: "transparent"
     textColor: "{colors.text}"
@@ -301,6 +308,14 @@ components:
     rounded: "{rounded.lg}"
     padding: "10px 14px"
     maxWidth: "85%"
+  pending-bubble:
+    backgroundColor: "{colors.bubble-user}"
+    textColor: "{colors.bubble-user-text}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.lg}"
+    padding: "10px 14px"
+    maxWidth: "85%"
+    geometry: "same geometry as user-bubble, dimmed while sending with a Sending… caption; on failure it stays visible next to Retry/Dismiss"
   assistant-block:
     backgroundColor: "transparent"
     textColor: "{colors.text}"
@@ -314,6 +329,16 @@ components:
     backgroundColor: "transparent"
     textColor: "{colors.text-muted}"
     typography: "{typography.code-sm}"
+  message-stats:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.code-sm}"
+    geometry: "icons + numbers only ($, up/in, down/out, sparkle/reasoning, bolt/speed); labels live in tooltips; cache read/write never shown"
+  session-stats:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    geometry: "same icon + number rhythm as message-stats; on mobile it aligns left when it wraps to its own line"
   tool-card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -388,6 +413,14 @@ components:
     typography: "{typography.code-sm}"
     rounded: "{rounded.full}"
     padding: "3px 10px"
+  branch-picker:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.sm} {spacing.md}"
+    border: "1px solid {colors.hairline}"
+    geometry: "search field + branch list (switch on select) + create-from-current row; timeouts framed as may-have-applied with refetch, never auto-retried; isolated sessions show a read-only chip that opens no picker"
   banner-warning:
     backgroundColor: "{colors.warning-soft}"
     textColor: "{colors.warning}"
@@ -494,6 +527,66 @@ components:
     width: "min(400px, calc(100vw - 32px))"
     border: "1px solid {colors.hairline}"
     decoration: "deco-blob behind the card, deco-dots at the base"
+  goal-review:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.md}"
+    border: "1px solid {colors.hairline}"
+    geometry: "one collapsible round row per review (Round N, verdict chip, one-line summary; latest open); bodies are critic-block (argument + issue rows with severity chip and evidence) and verdict-block (decision chip, reasoning, required changes)"
+  goal-report:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: "10px 12px"
+    border: "1px solid {colors.hairline} with a 3px left rule in {colors.accent} ({colors.warning} when blocked)"
+    geometry: "completion marker card: summary plus evidence list; critique/verdict markers reuse the same blocks"
+  run-preview-tabs:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    geometry: "one internal tablist (Run | Preview) with tab/tabpanel semantics and arrow-key navigation; opens on Preview when the tunnel runs, otherwise on Run; port chip in the shared header"
+  settings-panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-md}"
+    padding: "{spacing.lg}"
+    geometry: "two-pane on desktop (220px section nav + content); master-detail on small screens (section list with >=56px rows, label + description + chevron; back control in detail)"
+  settings-module-head:
+    backgroundColor: "transparent"
+    textColor: "{colors.text}"
+    typography: "{typography.heading-3}"
+    geometry: "primary action pinned above the section in normal flow (e.g. Add provider); wraps on narrow widths"
+  theme-swatches:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-soft}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.md}"
+    geometry: "grid of min(88px, 1fr) option boxes with centered ellipsis labels; selected option gets the accent ring (same box as palette-grid)"
+  palette-grid:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-soft}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.md}"
+    geometry: "grid of min(88px, 1fr) color-theme options (paper first); canvas/accent/accent dot under the name; selected option gets the accent ring"
+  provider-card:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: "10px 12px"
+    border: "1px solid {colors.hairline-strong}"
+    geometry: "Providers-style card: avatar, semibold name, Connected/Active chips, credential rows with confirm-before-Disconnect, secondary Connect button; Add provider pinned above the list; custom add dialog debounces /models discovery with a manual Load models fallback"
+  websearch-card:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: "10px 12px"
+    border: "1px solid {colors.hairline-strong}"
+    geometry: "same card rhythm as provider-card with radio semantics (Automatic + one default); Test probe shows the answering source or a mapped error"
+  icon-set:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    geometry: "single vector source (folder, chevrons, plus, x, check, trash, brain, sliders, arrows, sparkle, bolt, external link, shield-check, sun/moon, branch, key, gear, search, play/pause/stop); no inline one-off SVGs, no emoji glyphs"
   deco-blob:
     backgroundColor: "{colors.accent-soft}"
     opacity: 0.9
@@ -533,6 +626,9 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 - Mobile-first: 44px touch targets, bottom sheets for management dialogs, drawer navigation — then progressively enhanced for desktop
 - Blocking requests live in the flow: permission requests and agent questions render inline in the transcript (never as modals), and a multi-question form carries a tab index on top
 - The chat transcript is sacred: full width of a 768px column, zero decoration behind messages
+- Settings is a catalog, not a form: Appearance, Goal review, Web search and Providers share one panel rhythm (module head, cards, chips, ghost/danger actions)
+- Usage is icons + numbers only: session and per-message stats share one rhythm (`{components.session-stats}`, `{components.message-stats}`), labels live in tooltips
+- One vector icon set: every glyph comes from a single source (`{components.icon-set}`), never inline one-offs or emoji
 
 ## Colors
 
@@ -582,7 +678,7 @@ Settings > Appearance offers **13 color themes** (Paper default + Catppuccin, Dr
 | Monokai | `#F9F8F0` / `#A8124A` | `#272822` / `#FF6188` |  |
 | Ayu | `#FAFAFA` / `#C24A1F` | `#0F1419` / `#FFB454` | Light / Dark |
 
-A theme repaints the full surface/text/hairline/code/syntax set plus the accent family and a matching `surface-muted`/`blob`/`selection` tint. Only color tokens change — layout, spacing and radii stay identical across themes. The semantic warning/danger/success tokens stay shared. Light accents are dark shades (readable on paper), dark accents are light shades (readable on charcoal); unknown stored values (including the legacy accent-color ids) fall back to paper.
+A theme repaints the full surface/text/hairline/code/syntax set plus the accent family and a matching `surface-muted`/`blob`/`selection` tint. Only color tokens change — layout, spacing and radii stay identical across themes. The semantic warning/danger/success tokens stay shared. Light accents are dark shades (readable on paper), dark accents are light shades (readable on charcoal); unknown stored values (including the legacy accent-color ids) fall back to paper. Palette ids are URL-safe slugs (`paper`, `rose-pine`, `synthwave-84`, `tokyo-night`, `one-dark`); the Light/Dark picker and the color-theme picker share the same grid and selected ring (`{components.theme-swatches}`, `{components.palette-grid}`).
 
 ### Syntax tokens
 
@@ -597,7 +693,7 @@ Tool cards and fenced message code highlight by language with one shared token p
 | function | palette dark accent | call names (`fetch(`) |
 | type | `#7DD3FC` | `Capitalized` names |
 
-Function names follow the active palette (the dark accent reads on dark code in every theme); the rest is fixed. Diff add/remove rows keep their semantic row colors — only context lines highlight. Unknown languages render plain, never broken.
+Function names follow the active palette (the dark accent reads on dark code in every theme); the rest is fixed. Diff add/remove rows keep their semantic row colors — only context lines highlight. Unknown languages render plain, never broken. Each color theme ships its own syntax hues for the same six tokens; the preview gallery shows the Paper set.
 
 ### Brand & Accent
 - **Deep Emerald** (`{colors.accent}`): the single accent. Primary buttons, active filter pill text, focus rings, branch chips, connection state.
@@ -665,7 +761,7 @@ Fonts are intentionally easy to replace: the whole system references three CSS c
 
 ### Grid & Container
 - **Chat column**: 768px max, centered, 16px gutters on mobile — the product's most important measurement.
-- **Sidebar**: 272px, collapses to a drawer below 768px.
+- **Sidebar**: 272px, collapses to a 60px icon rail on desktop (persisted choice; full list and footer hide, drawer untouched on mobile).
 - **Docs / preview container**: 1200px max, 24px gutters.
 - **Management dialogs** (workspace add/remove, choice modal): 440px max, become bottom sheets below 640px.
 - **Blocking cards** (permission, questions): never dialogs; they live in the 768px chat column at every size.
@@ -742,7 +838,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`top-bar`** — 56px, canvas background, bottom hairline. Mobile: back chevron when a session is open, truncated title, status dot, overflow menu. Desktop: title, connection state, sessions count.
 
-**`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim.
+**`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim. On desktop it collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs; the drawer keeps everything.
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface and draws a 2px `{colors.accent}` indicator on the left.
 
@@ -750,11 +846,17 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`workspace-picker`** — compact menu in the composer bar: shows the current workspace and, on click, the workspace list plus the add/remove management actions.
 
+**`branch-picker`** — branch chip next to the workspace menu on standard sessions: search, switch and create-from-current with an ambiguity notice plus refetch on timeout (never auto-retried). Isolated sessions show their `masterhand/...` branch as a read-only chip that opens no picker.
+
 ### Conversation
 
 **`user-bubble`** — right-aligned, deep-emerald fill: `{colors.bubble-user}` background, `{colors.bubble-user-text}` text, `{rounded.lg}`, max 85% width. It is the only filled transcript surface, so it uses the accent ramp **darker** (emerald-800 light / emerald-900 dark) instead of the inverted ink pair, which made every user message the brightest element on a dark canvas.
 
 **`assistant-block`** — no bubble. Agent label in `{typography.micro}` uppercase + `{colors.text-muted}`, body in `{typography.body-md}`, max 68ch. Code, tool cards and blocking-request cards stack inside the block at full column width.
+
+**`pending-bubble`** — the ghost of a plain prompt awaiting delivery confirmation: same geometry as `{components.user-bubble}`, dimmed, with a `Sending…` caption (busy dot). On a hard failure it stays visible next to Retry (`button-secondary`) and Dismiss (`button-ghost`); the real bubble replaces it the moment the send marker lands in the history.
+
+**`message-stats`** — per-message usage under the assistant block: model id, cost and the icon + number rhythm (`$`, up/in, down/out, sparkle/reasoning, bolt/speed) with labels only in tooltips and `aria-label`s. Cache read/write are never shown. Nothing renders until the message completes.
 
 **`agent-label`** / **`session-meta`** — micro-label and mono metadata as described in Typography.
 
@@ -762,7 +864,9 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`question-card`** — an agent question renders **inline in the transcript**, same placement rules: `{colors.surface}`, `{colors.accent-line}` border, `{rounded.lg}`. A single question shows the prompt plus `option-row`s; a **multi-question form shows a top index** (`question-index` tabs — one per question plus a final Submit step) so the user can jump straight to any question, with the active tab underlined in `{colors.accent}` and an error dot on questions that fail validation. The footer is Next/Submit (`button-primary`) plus Dismiss (`button-ghost`).
 
-**`goal-review`** — Goal Mode's critic/judge work renders **inline in the transcript** (their internal sessions never list in the sidebar): a `{colors.surface}` section with `{rounded.lg}` holds one collapsible round row per review (`Round N`, verdict chip, one-line summary; the latest round open, older ones expand on demand). Bodies are a `critic-block` (argument plus issue rows with a severity chip and evidence) and a `verdict-block` (decision chip, reasoning and the required changes). A completion marker in an assistant message becomes a `goal-report` card with a 3px left rule (`{colors.accent}`, `{colors.warning}` when blocked), the summary and an evidence list; critique/verdict markers found in a message reuse the same blocks inside a `tool-card`-style shell. The control strip above the composer stays a single line — state, `round N/M`, activity, Pause/Resume/Cancel in `button-secondary`/`button-primary`/`button-danger` — never a second copy of the history.
+**`goal-strip`** — Goal Mode's control line renders just above the composer, outside the dock and the transcript and no wider than the chat column: live phase, `round N/M` chip and Pause/Resume/Cancel side by side, plus an inline error row when the run fails. No dropdown, no result text on the side — history lives in the thread (`{components.goal-review}`). Returns null when the session has no run.
+
+**`goal-review`** — Goal Mode's critic/judge work renders **inline in the transcript** (their internal sessions never list in the sidebar): a `{colors.surface}` section with `{rounded.lg}` holds one collapsible round row per review (`Round N`, verdict chip, one-line summary; the latest round open, older ones expand on demand). Bodies are a `critic-block` (argument plus issue rows with a severity chip and evidence) and a `verdict-block` (decision chip, reasoning and the required changes). A completion marker in an assistant message becomes a `goal-report` card with a 3px left rule (`{colors.accent}`, `{colors.warning}` when blocked), the summary and an evidence list; critique/verdict markers found in a message reuse the same blocks inside a `tool-card`-style shell. Open-critic/open-judge links ride the review cards so both sessions open like a subagent child.
 
 ### Tools
 
@@ -775,6 +879,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 **`status-dot-idle`** (`{colors.hairline-strong}`), **`status-dot-busy`** (warning, pulsing), **`status-dot-connected`** (success). Dots are 8px, always paired with a text label in tooltips or captions.
 
 **`chip-neutral`**, **`chip-accent`**, **`chip-warning`**, **`chip-danger`**, **`branch-chip`** — pill badges at 3px/10px padding in `{typography.caption}`; branch chips use `{typography.code-sm}`.
+
+**`session-stats`** — per-session usage in the composer head: cost plus the same icon + number rhythm as `{components.message-stats}` (labels in tooltips only, cache excluded). It aligns left when it wraps to its own line on narrow widths.
 
 ### Feedback
 
@@ -790,7 +896,13 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
-**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`Run | Preview`, active tab underlined in accent) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch.
+**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`{components.run-preview-tabs}`: `Run | Preview` with `tab`/`tabpanel` semantics, arrow-key navigation, active tab underlined in accent) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch. A port chip sits in the shared header.
+
+**`settings-panel`** — the gear opens one panel for Appearance, Goal review, Web search and Providers (`{components.settings-panel}`): two-pane on desktop (220px section nav + content), master-detail on small screens (section list with label + description + chevron at ≥56px rows; back control returns to the list). Every module shares the same rhythm: `{components.settings-module-head}` with the primary action pinned above the section, group labels, loading/error/notice states, and ghost text buttons for tertiaries. Appearance owns the mode picker (System/Light/Dark; System clears the stored choice and follows the OS live) plus the shared theme/palette grids (`{components.theme-swatches}`, `{components.palette-grid}`).
+
+**`provider-card`** / **`websearch-card`** — Settings > Providers and Settings > Web search mirror each other (`{components.provider-card}`, `{components.websearch-card}`): avatar, semibold name, `Connected`/`Default`/`No API key required` chips, credential rows with confirm-before-Disconnect and a secondary Connect button. Web search keeps radio semantics (Automatic plus one default source) with the selected card on the accent ring; its Test probe shows the answering source or a mapped error. Custom OpenAI-compatible providers add name + auto-slugged id + base URL + key + models with an Advanced section (transport, headers, per-model limits); the model list loads from the provider's `/models` with a debounced fetch plus a manual Load button, and Create stays disabled until it loads.
+
+**`icon-set`** — every UI glyph comes from one vector source (`{components.icon-set}`): folder, chevrons, plus, x, check, trash, brain (effort variants) / sliders, arrows, sparkle, bolt, external link, shield-check, sun/moon, branch, key, gear, search, play/pause/stop. No inline one-off SVGs, no emoji glyphs, no font-dependent symbols in tool headers.
 
 **`login-card`** — centered card, `{rounded.xxl}`, with a blob behind it and a dot field at its base; contains the wordmark, one field and one primary button. The single most decorated screen in the product.
 
@@ -807,6 +919,9 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Design at 360–430px first; every component must be usable with one thumb and 44px targets
 - Test both themes on every component; dark is not an afterthought
 - Keep the three font variables as the only place typefaces are named
+- Keep usage stats as icons + numbers with tooltip labels; never show cache read/write
+- Reuse the icon set before drawing a glyph; reuse `chip-*` before a new badge; reuse `button-secondary` before inventing a variant
+- On native, use the square app radii (pickers/chips 8, actions 12) instead of pills
 
 ### Don't
 - Don't introduce a second accent hue, gradients, or colored glows
@@ -818,6 +933,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Don't animate decoration; only functional pulses (busy dot) and 150–200ms state transitions
 - Don't invent a separate mobile look: same tokens, same components, adaptive layout
 - Don't turn a permission request or an agent question into a modal or bottom sheet — only a question raised in a *different* session uses `choice-modal`
+- Don't use emoji or font-dependent symbols as UI glyphs — every icon comes from the shared set
+- Don't show cache token counts in session or message stats
 
 ## Responsive Behavior
 
@@ -836,7 +953,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Bottom sheets keep their primary action within the lower third of the screen
 
 ### Collapsing Strategy
-- **Sidebar**: drawer below 768px, opened from the top-bar workspace button; scrim uses `{components.dialog-overlay}`
+- **Sidebar**: drawer below 768px, opened from the top-bar workspace button; scrim uses `{components.dialog-overlay}`. On desktop it collapses to a 60px icon rail (persisted); the rail keeps the toggle, new-session and navigation actions.
+- **Settings**: two-pane on desktop; on small screens a master-detail list (label + description + chevron, ≥56px rows) shows one section at a time with a back control.
 - **Chat**: same DOM — the transcript is single-column on all sizes; only gutters and the side-panel dock change
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code
 - **Question index**: tabs scroll horizontally when they overflow (never wrap to a second row); the active question stays visible
@@ -863,10 +981,10 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ## Known Gaps
 
-- Tool glyph set is a placeholder (single-character glyphs); a proper 20px stroke icon set is pending.
+- Tool glyphs come from the shared vector icon set (`{components.icon-set}`); a final 20px stroke pass is still pending.
 - Blob paths in `design.css` are placeholders chosen by eye; the final illustration set may replace them with named assets.
 - Motion timings beyond the busy-dot pulse (150–200ms ease suggested) are not yet specified per component.
-- Native (React Native) mapping is descriptive only: `design.css` tokens must be ported to `apps/mobile/src/theme.ts` when this design is implemented.
+- Native (React Native) mapping is implemented in `apps/mobile/src/theme.ts` (palette, fonts, persisted toggle, square radii, dock layout); verify on device after theme changes.
 - Contrast of `{colors.text-faint}` on paper is below 4.5:1 by design (disabled/placeholder only); do not use it for body text.
 - Empty/first-run illustration copy is illustrative; final product copy lives in the app.
 - No data-visualization palette is defined (out of scope); charts should use ink + emerald steps only.
