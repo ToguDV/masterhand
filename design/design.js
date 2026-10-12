@@ -88,7 +88,144 @@
   selectScene(initialTab ? initialTab.getAttribute("data-screen-target") : "chat");
 
   /* ---------------------------------------------------------------
-     3. Toast demo.
+     4. Palette preview: buttons with [data-palette-target] repaint the
+        whole page through data-palette (paper = the default, unset).
+     --------------------------------------------------------------- */
+  var paletteButtons = Array.prototype.slice.call(document.querySelectorAll("[data-palette-target]"));
+
+  function storedPalette() {
+    try {
+      return localStorage.getItem("mh-palette") || "paper";
+    } catch (error) {
+      return "paper";
+    }
+  }
+
+  function applyPalette(id) {
+    var next = id || "paper";
+    if (next === "paper") {
+      root.removeAttribute("data-palette");
+    } else {
+      root.setAttribute("data-palette", next);
+    }
+    paletteButtons.forEach(function (button) {
+      var active = (button.getAttribute("data-palette-target") || "paper") === next;
+      button.setAttribute("aria-checked", active ? "true" : "false");
+    });
+  }
+
+  paletteButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      var id = button.getAttribute("data-palette-target") || "paper";
+      applyPalette(id);
+      try {
+        localStorage.setItem("mh-palette", id);
+      } catch (error) {
+        /* storage unavailable: the choice just does not persist */
+      }
+    });
+  });
+
+  applyPalette(storedPalette());
+
+  /* ---------------------------------------------------------------
+     5. Run & preview tabs: click plus arrow-key roving tabindex,
+        mirroring the app panel.
+     --------------------------------------------------------------- */
+  Array.prototype.forEach.call(document.querySelectorAll("[data-rp-tabs]"), function (tablist) {
+    var tabs = Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]'));
+    var panels = Array.prototype.slice.call(
+      tablist.parentElement.querySelectorAll("[data-rp-panel]"),
+    );
+
+    function select(tab) {
+      tabs.forEach(function (other) {
+        var active = other === tab;
+        other.classList.toggle("is-active", active);
+        other.setAttribute("aria-selected", active ? "true" : "false");
+        other.tabIndex = active ? 0 : -1;
+      });
+      panels.forEach(function (panel) {
+        panel.hidden = panel.getAttribute("data-rp-panel") !== tab.getAttribute("data-rp-tab");
+      });
+    }
+
+    tabs.forEach(function (tab, index) {
+      tab.addEventListener("click", function () {
+        select(tab);
+      });
+      tab.addEventListener("keydown", function (event) {
+        var next = null;
+        if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+        if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+        if (next) {
+          event.preventDefault();
+          select(next);
+          next.focus();
+        }
+      });
+    });
+  });
+
+  /* ---------------------------------------------------------------
+     6. Settings demo: the section nav marks the current item; on small
+        screens it flips the master-detail view like the app does.
+     --------------------------------------------------------------- */
+  Array.prototype.forEach.call(document.querySelectorAll("[data-settings-demo]"), function (demo) {
+    var items = Array.prototype.slice.call(demo.querySelectorAll("[data-settings-nav]"));
+    var back = demo.querySelector("[data-settings-back]");
+    items.forEach(function (item) {
+      item.addEventListener("click", function () {
+        items.forEach(function (other) {
+          if (other === item) {
+            other.setAttribute("aria-current", "page");
+          } else {
+            other.removeAttribute("aria-current");
+          }
+        });
+        demo.setAttribute("data-mobile-view", "detail");
+      });
+    });
+    if (back) {
+      back.addEventListener("click", function () {
+        demo.setAttribute("data-mobile-view", "list");
+      });
+    }
+  });
+
+  /* ---------------------------------------------------------------
+     7. Goal rounds: collapsed rounds expand on demand.
+     --------------------------------------------------------------- */
+  Array.prototype.forEach.call(document.querySelectorAll("[data-goal-round]"), function (header) {
+    header.addEventListener("click", function () {
+      var body = header.nextElementSibling;
+      var chevron = header.querySelector(".mh-goal__chevron");
+      if (!body) return;
+      var open = body.hasAttribute("hidden");
+      if (open) {
+        body.removeAttribute("hidden");
+      } else {
+        body.setAttribute("hidden", "");
+      }
+      header.setAttribute("aria-expanded", open ? "true" : "false");
+      if (chevron) chevron.classList.toggle("is-open", open);
+    });
+  });
+
+  /* ---------------------------------------------------------------
+     8. Composer fields grow with their content (one to five lines).
+     --------------------------------------------------------------- */
+  Array.prototype.forEach.call(document.querySelectorAll("[data-autoresize]"), function (field) {
+    function fit() {
+      field.style.height = "auto";
+      field.style.height = Math.min(field.scrollHeight, 160) + "px";
+    }
+    field.addEventListener("input", fit);
+    fit();
+  });
+
+  /* ---------------------------------------------------------------
+     9. Toast demo.
      --------------------------------------------------------------- */
   var toastButton = document.getElementById("toast-demo");
   var toastHost = document.getElementById("toast-host");
