@@ -97,6 +97,7 @@ export interface FakeClient {
       saveSettings: jest.Mock
     }
     sessions: { list: jest.Mock; finish: jest.Mock }
+    branches: { list: jest.Mock; checkout: jest.Mock; create: jest.Mock }
   }
   workspaces: { list: jest.Mock; create: jest.Mock; remove: jest.Mock }
 }
@@ -178,6 +179,11 @@ export function fakeClient(): FakeClient & Client {
           path: "/worktree",
           error: null,
         })),
+      },
+      branches: {
+        list: jest.fn(async () => ({ current: "main", branches: ["main"] })),
+        checkout: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
+        create: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
       },
     },
     workspaces: { list: jest.fn(async () => []), create: jest.fn(), remove: jest.fn() },

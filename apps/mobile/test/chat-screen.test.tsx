@@ -1,7 +1,7 @@
 import { Linking } from "react-native"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import type { ChatMessage, SessionIsolation } from "@masterhand/client-core"
-import { queryKeys } from "@masterhand/client-core"
+import { queryKeys, RequestTimeoutError } from "@masterhand/client-core"
 import { ChatScreen } from "../src/screens/ChatScreen"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
@@ -163,7 +163,9 @@ describe("ChatScreen", () => {
       error: null,
     })
 
-    expect(screen.getByText("masterhand/abc")).toBeOnTheScreen()
+    // The branch shows twice by design (web parity): the dock header chip
+    // and the isolation strip.
+    expect(screen.getAllByText("masterhand/abc")).toHaveLength(2)
     await fireEvent.press(screen.getByText("Finish & PR"))
 
     expect(client.api.sessions.finish).toHaveBeenCalledWith("s1")
@@ -255,6 +257,82 @@ describe("ChatScreen", () => {
 
     expect(open).toHaveBeenCalledWith("https://github.com/ToguDV/masterhand/pull/7")
     open.mockRestore()
+  })
+
+  it("reconciles an ambiguous finish against the session record", async () => {
+    const { client } = await setup(
+      {
+        workspaceID: "ws1",
+        isolation: {
+          isolated: true,
+          worktreePath: "/workspaces/.worktrees/demo/abc",
+          branch: "masterhand/abc",
+          baseRef: "HEAD",
+        },
+      },
+      (client) => {
+        client.api.sessions.finish.mockRejectedValue(new RequestTimeoutError())
+        client.api.sessions.list.mockResolvedValue([
+          {
+            id: "s1",
+            isolation: {
+              isolated: true,
+              worktreePath: "/workspaces/.worktrees/demo/abc",
+              branch: "masterhand/abc",
+              baseRef: "HEAD",
+              pushed: true,
+              prUrl: null,
+            },
+          },
+        ])
+      },
+    )
+
+    await fireEvent.press(await screen.findByText("Finish & PR"))
+
+    // The lost response never surfaces as a failure: the record proves the push.
+    expect(await screen.findByText(/Branch pushed\./)).toBeOnTheScreen()
+    expect(screen.getByText(/this result comes from the session record/)).toBeOnTheScreen()
+  })
+
+  it("reports an ambiguous finish with no record evidence as still running", async () => {
+    const { client } = await setup(
+      {
+        workspaceID: "ws1",
+        isolation: {
+          isolated: true,
+          worktreePath: "/workspaces/.worktrees/demo/abc",
+          branch: "masterhand/abc",
+          baseRef: "HEAD",
+        },
+      },
+      (client) => {
+        client.api.sessions.finish.mockRejectedValue(new RequestTimeoutError())
+        client.api.sessions.list.mockResolvedValue([])
+      },
+    )
+
+    await fireEvent.press(await screen.findByText("Finish & PR"))
+
+    // Bounded reconciliation (0s + 1.5s + 3s polls) finds nothing: warn, don't fail.
+    expect(await screen.findByText(/may still be running/, {}, { timeout: 10000 })).toBeOnTheScreen()
+  })
+
+  it("switches workspaces from the dock header", async () => {
+    const onSelectWorkspace = jest.fn()
+    await setup({
+      workspaceID: "ws1",
+      workspaces: [
+        { id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 },
+        { id: "ws2", name: "other", path: "/workspaces/other", createdAt: 0 },
+      ],
+      onSelectWorkspace,
+    })
+
+    await fireEvent.press(await screen.findByLabelText("Workspace"))
+    await fireEvent.press(await screen.findByText("other"))
+
+    expect(onSelectWorkspace).toHaveBeenCalledWith("ws2")
   })
 
   it("closes the unified Run & preview modal", async () => {

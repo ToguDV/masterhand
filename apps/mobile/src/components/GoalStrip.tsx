@@ -20,7 +20,16 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
  * reconcile it by refetching and a timeout is reported as "may have changed".
  * The review history itself lives in the thread (GoalReview).
  */
-export function GoalStrip({ client, sessionID }: { client: Client; sessionID: string }) {
+export function GoalStrip({
+  client,
+  sessionID,
+  embedded = false,
+}: {
+  client: Client
+  sessionID: string
+  /** Docked inside the composer card: strip styling instead of a loose section. */
+  embedded?: boolean
+}) {
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
   const [busy, setBusy] = useState(false)
@@ -58,7 +67,7 @@ export function GoalStrip({ client, sessionID }: { client: Client; sessionID: st
     data.state === "error" ? styles.dangerText : data.state === "approved" ? styles.accentText : null
 
   return (
-    <View style={styles.container} accessibilityLabel="Goal run">
+    <View style={[styles.container, embedded && styles.embedded]} accessibilityLabel="Goal run">
       <View style={styles.infoRow}>
         <SparkleIcon size={13} color={active ? colors.accent : colors.textMuted} />
         <Text style={[styles.state, tone]}>{goalStateLabel(data.state)}</Text>
@@ -170,6 +179,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       backgroundColor: colors.surface,
       paddingHorizontal: 14,
       paddingVertical: 8,
+    },
+    embedded: {
+      borderTopWidth: 0,
+      backgroundColor: colors.accentSoft,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
     },
     infoRow: {
       flexDirection: "row",

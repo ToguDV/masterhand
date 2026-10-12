@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { Text } from "react-native"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import {
   ApiError,
@@ -602,14 +603,38 @@ describe("Composer", () => {
     expect(matched).toBe(true)
   })
 
-  it("manages workspaces from the composer top bar (#92)", async () => {
-    await setup({
-      workspaceID: "ws1",
-      workspaces: [{ id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 }],
-      onSelectWorkspace: jest.fn(),
-    })
+  it("shows Default in the effort selector when no variant is chosen", async () => {
+    await setup()
 
-    await fireEvent.press(await screen.findByLabelText("Workspace"))
-    expect(await screen.findByText("Remove workspace")).toBeOnTheScreen()
+    // The trigger keeps its accessible name, but the visible label must read
+    // Default (web parity) instead of rendering an empty chip.
+    expect(await screen.findByLabelText("Effort")).toBeOnTheScreen()
+    expect(screen.getByText("Default")).toBeOnTheScreen()
+  })
+
+  it("renders the dock header, isolation bar and goal strip inside one card", async () => {
+    const client = fakeClient()
+    const queryClient = makeQueryClient()
+    const pending: PendingSendController = { pending: null, begin: jest.fn(), fail: jest.fn(), dismiss: jest.fn() }
+    await render(
+      <Composer
+        client={client}
+        sessionID="s1"
+        busy={false}
+        workspaceID={null}
+        autoAccept={false}
+        onToggleAutoAccept={jest.fn()}
+        pending={pending}
+        header={<Text>dock-header</Text>}
+        isolationBar={<Text>dock-isolation</Text>}
+        goalStrip={<Text>dock-goal</Text>}
+      />,
+      { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
+    )
+
+    expect(await screen.findByText("dock-header")).toBeOnTheScreen()
+    expect(screen.getByText("dock-isolation")).toBeOnTheScreen()
+    expect(screen.getByText("dock-goal")).toBeOnTheScreen()
+    expect(screen.getByTestId("composer-dock")).toBeOnTheScreen()
   })
 })
