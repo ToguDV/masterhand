@@ -153,4 +153,4 @@ const compactTriggerClass =
   "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-sm border border-hairline-strong bg-surface px-2 py-1 text-xs outline-none transition-colors hover:bg-surface-muted focus-visible:border-accent"
 
 const ghostTriggerClass =
-  "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-full border border-transparent px-2.5 py-1 text-xs text-ink-soft outline-none transition-colors hover:bg-surface-muted hover:text-ink focus-visible:border-accent"
+  "flex max-w-[14rem] cursor-pointer items-center justify-between gap-1.5 rounded-full border border-transparent px-2.5 py-1 text-xs text-ink-soft outline-none transition-colors focus-visible:border-accent"
