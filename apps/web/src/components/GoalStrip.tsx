@@ -18,7 +18,7 @@ import { PauseIcon, PlayIcon, SparkleIcon, StopIcon } from "./icons"
  * frames); mutations reconcile it by refetching, and a timeout is reported as
  * "may have changed". The review history itself lives in the thread (GoalReview).
  */
-export function GoalStrip({ sessionID }: { sessionID: string }) {
+export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; embedded?: boolean }) {
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
   const [busy, setBusy] = useState(false)
@@ -52,8 +52,11 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
   const tone = data.state === "error" ? "text-danger" : data.state === "approved" ? "text-accent" : "text-ink"
 
   return (
-    <div className="border-t border-hairline px-3 py-1.5 md:px-6" data-testid="goal-strip">
-      <div className="mh-chat-col flex flex-wrap items-center gap-2 text-xs">
+    <div
+      className={embedded ? "mh-composer-dock__strip mh-composer-dock__strip--tint" : "border-t border-hairline px-3 py-1.5 md:px-6"}
+      data-testid="goal-strip"
+    >
+      <div className={embedded ? "flex flex-wrap items-center gap-2 text-xs" : "mh-chat-col flex flex-wrap items-center gap-2 text-xs"}>
         <SparkleIcon size={13} className={active ? "shrink-0 text-accent" : "shrink-0 text-ink-muted"} />
         {/* Only the state announces: the activity note changes per event and
             would otherwise re-read the whole strip (buttons included). */}
@@ -119,7 +122,7 @@ export function GoalStrip({ sessionID }: { sessionID: string }) {
         )}
       </div>
       {(error || data.error) && (
-        <p className="mh-chat-col mt-1 text-[11px] text-danger">{error ?? data.error}</p>
+        <p className={embedded ? "mt-1 text-[11px] text-danger" : "mh-chat-col mt-1 text-[11px] text-danger"}>{error ?? data.error}</p>
       )}
     </div>
   )

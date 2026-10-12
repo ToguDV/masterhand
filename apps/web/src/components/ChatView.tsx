@@ -254,57 +254,6 @@ export function ChatView({
           )}
         </div>
       </div>
-      {isolation && (
-        <div className="border-t border-hairline px-3 py-2 md:px-6">
-          <div className="mh-chat-col flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-ink-muted">Isolated worktree</span>
-            <code
-              className="mh-chip mh-chip--accent mh-chip--mono max-w-full truncate"
-              title={isolation.worktreePath}
-            >
-              {isolation.branch}
-            </code>
-            {isolation.prUrl && (
-              <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                Pull request
-                <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
-              </a>
-            )}
-            <span className="flex-1" />
-            <button
-              type="button"
-              onClick={() => void finish()}
-              disabled={finishing}
-              title="Commit the worktree and push the branch (PR when a provider CLI is available)"
-              className="mh-btn mh-btn--secondary mh-btn--sm"
-            >
-              {finishing ? "Finishing…" : "Finish & PR"}
-            </button>
-          </div>
-          {(finishResult || finishError || finishNotice) && (
-            <p className="mh-chat-col mt-1 text-[11px] text-ink-muted">
-              {finishResult
-                ? finishResult.committed
-                  ? "Changes committed."
-                  : "No changes to commit."
-                : null}
-              {finishResult?.pushed ? " Branch pushed." : null}
-              {finishResult?.prUrl && (
-                <>
-                  {" "}
-                  <a href={finishResult.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                    Open pull request
-                    <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
-                  </a>
-                </>
-              )}
-              {finishError ? <span className="text-danger">{finishError}</span> : null}
-              {finishNotice ? <span>{finishNotice}</span> : null}
-            </p>
-          )}
-        </div>
-      )}
-      <GoalStrip sessionID={sessionID} />
       <Composer
         ref={composerRef}
         sessionID={sessionID}
@@ -332,6 +281,64 @@ export function ChatView({
             trailing={<SessionStats usage={usage} />}
           />
         }
+        isolationBar={
+          isolation ? (
+            <div className="mh-composer-dock__strip">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-ink-muted">Isolated worktree</span>
+                <code
+                  className="mh-chip mh-chip--accent mh-chip--mono max-w-full truncate"
+                  title={isolation.worktreePath}
+                >
+                  {isolation.branch}
+                </code>
+                {isolation.prUrl && (
+                  <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    Pull request
+                    <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
+                  </a>
+                )}
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => void finish()}
+                  disabled={finishing}
+                  title="Commit the worktree and push the branch (PR when a provider CLI is available)"
+                  className="mh-btn mh-btn--secondary mh-btn--sm"
+                >
+                  {finishing ? "Finishing…" : "Finish & PR"}
+                </button>
+              </div>
+              {(finishResult || finishError || finishNotice) && (
+                <p className="mt-1 text-[11px] text-ink-muted">
+                  {finishResult
+                    ? finishResult.committed
+                      ? "Changes committed."
+                      : "No changes to commit."
+                    : null}
+                  {finishResult?.pushed ? " Branch pushed." : null}
+                  {finishResult?.prUrl && (
+                    <>
+                      {" "}
+                      <a
+                        href={finishResult.prUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        Open pull request
+                        <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
+                      </a>
+                    </>
+                  )}
+                  {finishError ? <span className="text-danger">{finishError}</span> : null}
+                  {finishNotice ? <span>{finishNotice}</span> : null}
+                </p>
+              )}
+            </div>
+          ) : undefined
+        }
+        goalStrip={<GoalStrip sessionID={sessionID} embedded />}
       />
     </div>
   )
