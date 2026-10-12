@@ -2309,17 +2309,13 @@ body {
 
 /* Composer dock: context bar, message field and toolbar share one surface,
    so the footer reads as a single control instead of three loose strips.
-   The textarea carries no box of its own; focus rings the whole dock. */
+   The textarea carries no box of its own and the dock stays visually quiet
+   on focus: no accent ring, just the caret in the field. */
 .mh-composer-dock {
   background: var(--mh-surface);
   border: 1px solid var(--mh-hairline);
   border-radius: var(--r-lg);
   box-shadow: var(--mh-shadow-1);
-}
-
-.mh-composer-dock:focus-within {
-  border-color: var(--mh-accent);
-  box-shadow: 0 0 0 3px var(--mh-accent-soft);
 }
 
 .mh-composer-dock__head {

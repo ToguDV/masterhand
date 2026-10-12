@@ -248,7 +248,7 @@ components:
     padding: "{spacing.sm} {spacing.md} {spacing.md}"
     border: "1px solid {colors.hairline}"
     rounded: "{rounded.lg}"
-    shadow: "level 1 resting, accent ring on focus-within"
+    shadow: "level 1 resting, no focus ring (the dock stays quiet on focus)"
     geometry: "one dock card: context bar (workspace menu, branch, stats) as the head with a bottom hairline, Goal/worktree strips as inner rows when active, borderless message field, and the agent/model/effort/auto-accept/send toolbar integrated below it"
   top-bar:
     backgroundColor: "{colors.canvas}"
@@ -736,7 +736,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Forms
 
-**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, accent ring on `focus-within`): a context bar above the input — the workspace menu, branch and stats behind a bottom hairline, with the Goal Mode and isolated-worktree strips as inner rows when active — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it.
+**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, deliberately no focus ring): a context bar above the input — the workspace menu, branch and stats behind a bottom hairline, with the Goal Mode and isolated-worktree strips as inner rows when active — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it.
 
 ### Navigation
 
