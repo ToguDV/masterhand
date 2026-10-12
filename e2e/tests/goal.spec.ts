@@ -91,7 +91,6 @@ test("cancels a running goal", async ({ page, request }) => {
   await expect(strip.getByText("round 1/5")).toBeVisible()
   await expect(strip.getByText("Working", { exact: true })).toBeVisible()
 
-  await strip.getByTestId("goal-fold-toggle").click()
   await strip.getByRole("button", { name: "Cancel" }).click()
   await expect(strip.getByText("Cancelled")).toBeVisible({ timeout: 15_000 })
   await expect(strip.getByRole("button", { name: "Cancel" })).toBeHidden()
@@ -111,7 +110,6 @@ test("pauses at the round cap and resumes to approval", async ({ page, request }
   await expect(strip.getByText("round 5/5")).toBeVisible({ timeout: 30_000 })
   await expect(strip.getByText("Paused")).toBeVisible({ timeout: 15_000 })
 
-  await strip.getByTestId("goal-fold-toggle").click()
   await strip.getByRole("button", { name: "Resume" }).click()
   await expect(strip.getByText("round 6/10")).toBeVisible({ timeout: 15_000 })
   await expect(strip.getByText("Goal approved")).toBeVisible({ timeout: 20_000 })

@@ -49,7 +49,7 @@ describe("GoalStrip (#130)", () => {
     expect(screen.toJSON()).toBeNull()
   })
 
-  it("shows the phase and round collapsed, the review result only expanded", async () => {
+  it("shows only the phase and round (results live in the thread)", async () => {
     await setup(
       makeRun({
         state: "critiquing",
@@ -60,31 +60,21 @@ describe("GoalStrip (#130)", () => {
 
     expect(await screen.findByText("Under review")).toBeOnTheScreen()
     expect(screen.getByText("2/5")).toBeOnTheScreen()
-    // The fold stays compact until opened.
-    expect(screen.queryByText("The tests do not cover the retry path")).toBeNull()
-
-    await fireEvent.press(screen.getByLabelText("Goal details"))
-    expect(screen.getByText("The tests do not cover the retry path")).toBeOnTheScreen()
-
-    await fireEvent.press(screen.getByLabelText("Goal details"))
+    // The strip stays a single control line: no result text on the side.
     expect(screen.queryByText("The tests do not cover the retry path")).toBeNull()
   })
 
-  it("shows a result line and the transient error while active", async () => {
+  it("hides the transient error text while active", async () => {
     const run = makeRun({ lastError: "retrying the provider" })
     await setup(run)
 
     expect(await screen.findByText("Working")).toBeOnTheScreen()
     expect(screen.queryByText("retrying the provider")).toBeNull()
-
-    await fireEvent.press(screen.getByLabelText("Goal details"))
-    expect(screen.getByText("retrying the provider")).toBeOnTheScreen()
   })
 
   it("pauses an active run and reconciles the state", async () => {
     const { client } = await setup(makeRun())
 
-    await fireEvent.press(await screen.findByLabelText("Goal details"))
     await fireEvent.press(await screen.findByText("Pause"))
 
     expect(client.api.goal.pause).toHaveBeenCalledWith("s1")
@@ -95,7 +85,6 @@ describe("GoalStrip (#130)", () => {
   it("cancels an active run", async () => {
     const { client } = await setup(makeRun())
 
-    await fireEvent.press(await screen.findByLabelText("Goal details"))
     await fireEvent.press(await screen.findByText("Cancel"))
 
     expect(client.api.goal.cancel).toHaveBeenCalledWith("s1")
@@ -104,7 +93,6 @@ describe("GoalStrip (#130)", () => {
   it("resumes a paused run", async () => {
     const { client } = await setup(makeRun({ state: "paused" }))
 
-    await fireEvent.press(await screen.findByLabelText("Goal details"))
     await fireEvent.press(await screen.findByText("Resume"))
 
     expect(client.api.goal.resume).toHaveBeenCalledWith("s1")
@@ -115,9 +103,6 @@ describe("GoalStrip (#130)", () => {
     const { client } = await setup(makeRun({ state: "error", error: "The judge crashed" }))
 
     expect(await screen.findByText("Failed")).toBeOnTheScreen()
-    expect(screen.queryByText("The judge crashed")).toBeNull()
-    await fireEvent.press(screen.getByLabelText("Goal details"))
-
     expect(screen.getByText("The judge crashed")).toBeOnTheScreen()
     expect(screen.queryByText("Resume")).toBeNull()
     await fireEvent.press(screen.getByText("Retry"))
@@ -129,7 +114,6 @@ describe("GoalStrip (#130)", () => {
     const { client } = await setup(makeRun({ state: "paused" }))
     client.api.goal.resume.mockRejectedValue(new Error("offline"))
 
-    await fireEvent.press(await screen.findByLabelText("Goal details"))
     await fireEvent.press(await screen.findByText("Resume"))
 
     expect(await screen.findByText("The goal action failed")).toBeOnTheScreen()
