@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>MasterHand — Propuestas de logo</title>
+    <meta
+      name="description"
+      content="Seis isotipos de guante blanco caricatura para MasterHand, con imagotipos, logotipos y pruebas de tamaño."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="design.css" />
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("mh-theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (error) {
+          /* file:// o modo privado: el media query de CSS sigue aplicando */
+        }
+      })();
+    </script>
+    <script src="design.js" defer></script>
+    <style>
+      /* Galería de logos: solo layout local, todo el color sale de design.css */
+      .lg-hero {
+        position: relative;
+        overflow: hidden;
+        padding-block: var(--sp-section) var(--sp-section-sm);
+      }
+      .lg-hero__inner {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        gap: var(--sp-xl);
+        align-items: center;
+      }
+      .lg-hero__mascot {
+        width: min(280px, 72vw);
+        margin-inline: auto;
+        filter: drop-shadow(0 10px 24px rgba(12, 12, 11, 0.14));
+        transform-origin: 50% 85%;
+        animation: lg-wave 3.2s ease-in-out infinite;
+      }
+      @keyframes lg-wave {
+        0%, 100% { transform: rotate(-4deg); }
+        50% { transform: rotate(5deg); }
+      }
+      .lg-grid {
+        display: grid;
+        gap: var(--sp-md);
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        align-items: stretch;
+      }
+      .lg-card {
+        background: var(--mh-surface);
+        border: 1px solid var(--mh-hairline);
+        border-radius: var(--r-xl);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .lg-card__stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+        padding: 28px 20px 20px;
+        background:
+          radial-gradient(var(--mh-dot) 1.5px, transparent 1.6px) 0 0 / 12px 12px,
+          var(--mh-surface);
+        background-position: 8px 8px, 0 0;
+        min-height: 220px;
+      }
+      .lg-card__stage--dark {
+        background: #0c0c0b;
+        background-image: radial-gradient(rgba(255, 255, 255, 0.16) 1.5px, transparent 1.6px);
+        background-size: 12px 12px;
+        background-position: 8px 8px;
+      }
+      .lg-card__stage--accent {
+        background: var(--mh-accent-soft);
+      }
+      .lg-mark { width: 132px; height: 132px; }
+      .lg-mark--sm { width: 96px; height: 96px; }
+      .lg-card__body { padding: var(--sp-md); display: flex; flex-direction: column; gap: 8px; flex: 1; }
+      .lg-card__name { font-size: 17px; font-weight: 600; }
+      .lg-card__desc { color: var(--mh-text-muted); font-size: 13px; line-height: 1.55; }
+      .lg-card__meta {
+        display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; padding-top: 8px;
+      }
+      .lg-sizes {
+        display: flex; align-items: flex-end; gap: 14px;
+        padding: 10px 12px; border: 1px dashed var(--mh-hairline-strong);
+        border-radius: var(--r-md); background: var(--mh-canvas);
+      }
+      .lg-sizes svg { display: block; }
+      .lg-lockup {
+        display: flex; align-items: center; gap: 14px; justify-content: center;
+        padding: 26px 16px; min-height: 170px;
+      }
+      .lg-lockup--stack { flex-direction: column; text-align: center; gap: 10px; }
+      .lg-word {
+        font-family: var(--font-display);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1;
+        color: var(--mh-text);
+      }
+      .lg-word--lg { font-size: 40px; }
+      .lg-word--md { font-size: 30px; }
+      .lg-badge {
+        width: 148px; height: 148px; border-radius: 50%;
+        background: var(--mh-text); color: var(--mh-canvas);
+        display: grid; place-items: center; position: relative; flex: none;
+      }
+      .lg-badge svg { width: 92px; height: 92px; }
+      .lg-badge span {
+        position: absolute; bottom: 22px;
+        font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em;
+      }
+      .lg-copy {
+        border: 1px solid var(--mh-hairline-strong);
+        background: transparent; color: var(--mh-text-muted);
+        border-radius: var(--r-sm); font-size: 12px; padding: 6px 10px; cursor: pointer;
+        font-family: var(--font-ui);
+      }
+      .lg-copy:hover { background: var(--mh-surface-muted); color: var(--mh-text); }
+      .lg-note {
+        border: 1px solid var(--mh-hairline); border-radius: var(--r-lg);
+        background: var(--mh-surface); padding: var(--sp-md);
+        color: var(--mh-text-muted); font-size: 13px; max-width: 68ch;
+      }
+      .lg-rule { display: flex; gap: 10px; align-items: flex-start; }
+      .lg-rule b { color: var(--mh-text); }
+      @media (min-width: 640px) {
+        .lg-hero__inner { grid-template-columns: 1.05fr 0.95fr; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .lg-hero__mascot { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Símbolos reutilizables: el guante siempre blanco + tinta + puño esmeralda -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <!-- A1 · Clásica: palma abierta frontal -->
+        <symbol id="mh-classic" viewBox="0 0 120 120">
+          <rect x="36" y="14" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="51" y="10" width="13" height="46" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="66" y="11" width="13" height="45" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="81" y="16" width="12" height="40" rx="6" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="27" cy="68" rx="11" ry="17" transform="rotate(-24 27 68)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="31" y="48" width="58" height="46" rx="21" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <path d="M48 66q6 5 13 2M48 76q7 5 15 2" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+          <rect x="38" y="88" width="44" height="22" rx="8" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="45" y="94" width="15" height="5" rx="2.5" fill="#fff" opacity=".9"/>
+        </symbol>
+        <!-- A2 · Point: señala a la derecha -->
+        <symbol id="mh-point" viewBox="0 0 120 120">
+          <rect x="10" y="46" width="22" height="32" rx="8" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="64" y="51" width="42" height="16" rx="8" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="30" y="38" width="42" height="50" rx="19" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="48" cy="36" rx="11" ry="9" transform="rotate(-18 48 36)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <path d="M50 58v18M60 58v18" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+          <path d="M96 46c3-4 8-4 10 0" fill="none" stroke="#0B6B53" stroke-width="3.5" stroke-linecap="round"/>
+        </symbol>
+        <!-- A3 · Chasquido con spark -->
+        <symbol id="mh-snap" viewBox="0 0 120 120">
+          <path d="M20 30l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="#0B6B53" stroke="#0C0C0B" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M96 20l2.2 5 5 2.2-5 2.2-2.2 5-2.2-5-5-2.2 5-2.2z" fill="#fff" stroke="#0C0C0B" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="14" y="66" width="22" height="30" rx="8" transform="rotate(-18 25 81)" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+          <circle cx="62" cy="62" r="13" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="52" y="18" width="13" height="34" rx="6.5" transform="rotate(12 58 35)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="72" y="60" width="26" height="13" rx="6.5" transform="rotate(-16 85 66)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <path d="M84 34c6-2 11 1 13 6M90 84c5 3 6 9 4 14" fill="none" stroke="#0C0C0B" stroke-width="3.5" stroke-linecap="round" opacity=".6"/>
+        </symbol>
+        <!-- A4 · Puño Rayman -->
+        <symbol id="mh-fist" viewBox="0 0 120 120">
+          <rect x="38" y="88" width="44" height="22" rx="8" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="28" y="40" width="64" height="54" rx="25" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <path d="M42 40c0-8 16-8 16 0M62 40c0-8 16-8 16 0" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="40" y="60" width="40" height="15" rx="7.5" transform="rotate(-16 60 67)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <path d="M46 84q14 6 28-1" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+        </symbol>
+        <!-- A5 · Wave mascota con carita -->
+        <symbol id="mh-wave" viewBox="0 0 120 120">
+          <rect x="24" y="20" width="13" height="36" rx="6.5" transform="rotate(-22 30 38)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="44" y="10" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="63" y="10" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="81" y="20" width="12" height="36" rx="6" transform="rotate(22 87 38)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="22" cy="66" rx="10" ry="15" transform="rotate(-30 22 66)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <rect x="30" y="46" width="60" height="48" rx="24" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="50" cy="66" rx="5.5" ry="7" fill="#0C0C0B"/>
+          <ellipse cx="70" cy="66" rx="5.5" ry="7" fill="#0C0C0B"/>
+          <circle cx="52" cy="64" r="1.8" fill="#fff"/>
+          <circle cx="72" cy="64" r="1.8" fill="#fff"/>
+          <path d="M52 78q8 7 16 0" fill="none" stroke="#0C0C0B" stroke-width="3.5" stroke-linecap="round"/>
+          <ellipse cx="42" cy="74" rx="5" ry="3.4" fill="#0B6B53" opacity=".28"/>
+          <ellipse cx="78" cy="74" rx="5" ry="3.4" fill="#0B6B53" opacity=".28"/>
+          <rect x="40" y="88" width="40" height="22" rx="8" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+        </symbol>
+        <!-- A6 · Orb: ofrece la chispa esmeralda -->
+        <symbol id="mh-orb" viewBox="0 0 120 120">
+          <path d="M28 78q-2 22 20 24h24q22-2 20-24" fill="#fff" stroke="#0C0C0B" stroke-width="5" stroke-linecap="round"/>
+          <ellipse cx="28" cy="66" rx="10" ry="14" transform="rotate(-28 28 66)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="92" cy="66" rx="10" ry="14" transform="rotate(28 92 66)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
+          <circle cx="60" cy="48" r="19" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+          <ellipse cx="53" cy="41" rx="6" ry="4" transform="rotate(-24 53 41)" fill="#fff" opacity=".9"/>
+          <path d="M82 30l2.4 5.6 5.6 2.4-5.6 2.4-2.4 5.6-2.4-5.6-5.6-2.4 5.6-2.4z" fill="#fff" stroke="#0C0C0B" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="40" y="94" width="40" height="18" rx="8" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="mh-page-header">
+      <div class="mh-container mh-page-header__inner">
+        <a class="mh-brand" href="#top">
+          <svg class="mh-brand__mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#mh-wave"/></svg>
+          <span class="mh-brand__name">MasterHand · logos</span>
+        </a>
+        <nav class="mh-page-nav" aria-label="Secciones">
+          <a href="#isotipos">Isotipos</a>
+          <a href="#imagotipos">Imagotipos</a>
+          <a href="#logotipos">Logotipos</a>
+          <a href="#pruebas">Pruebas</a>
+        </nav>
+        <button class="mh-theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="lg-hero">
+        <div class="mh-deco mh-deco--blob" style="top: -140px; right: -90px"></div>
+        <div class="mh-deco mh-deco--dots" style="bottom: 24px; left: -36px"></div>
+        <div class="mh-container lg-hero__inner">
+          <div>
+            <p class="mh-micro mh-eyebrow">Propuestas · guante blanco caricatura</p>
+            <h1 class="mh-display-hero">Una mano con carisma.</h1>
+            <p class="mh-hero__lede">
+              Seis isotipos de guante blanco — entre la Master Hand de Smash y las manos
+              flotantes de Rayman — más imagotipos y logotipos. Trazo tinta grueso,
+              relleno blanco, un solo acento esmeralda en el puño. Sin gradientes,
+              legible a 16&nbsp;px.
+            </p>
+            <div class="mh-hero__actions">
+              <a class="mh-btn mh-btn--primary" href="#isotipos">Ver isotipos</a>
+              <a class="mh-btn mh-btn--secondary" href="#pruebas">Pruebas de tamaño</a>
+            </div>
+            <p class="mh-hero__note mh-caption">Mi favorita: A5 Wave — la única con carita, la mascota.</p>
+          </div>
+          <div>
+            <svg class="lg-hero__mascot" viewBox="0 0 120 120" role="img" aria-label="Mascota MasterHand saludando"><use href="#mh-wave"/></svg>
+          </div>
+        </div>
+      </section>
+
+      <!-- ISOTIPOS -->
+      <section class="mh-section" id="isotipos">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">01 · Isotipos</p>
+            <h2 class="mh-display-lg mh-section__title">Seis manos</h2>
+            <p class="mh-lede">Todas comparten anatomía: dedos regordetes, pulgar lateral y puño esmeralda. Elige por gesto, no por detalle.</p>
+          </div>
+          <div class="lg-grid">
+            <article class="lg-card">
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-classic"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A1 · Clásica</h3>
+                <p class="lg-card__desc">Palma abierta frontal. La más icónica y simétrica: favicon, avatar, loading. Cero riesgo.</p>
+                <div class="lg-sizes" aria-label="Prueba de tamaños">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">recomendada app</span><button class="lg-copy" type="button" data-copy="mh-classic">Copiar SVG</button></div>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-point"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A2 · Point</h3>
+                <p class="lg-card__desc">Señala a la derecha: el agente actúa, elige, ejecuta. Ideal para CTA y empty states de acción.</p>
+                <div class="lg-sizes">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip">acción</span><button class="lg-copy" type="button" data-copy="mh-point">Copiar SVG</button></div>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-snap"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A3 · Chasquido</h3>
+                <p class="lg-card__desc">Magia instantánea: el agente lo resuelve en un chasquido. Sparks + líneas de movimiento.</p>
+                <div class="lg-sizes">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip">magia</span><button class="lg-copy" type="button" data-copy="mh-snap">Copiar SVG</button></div>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-fist"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A4 · Puño Rayman</h3>
+                <p class="lg-card__desc">Puño blando y redondo, homenaje directo a Rayman. Fuerza amable: stop, firme, seguro.</p>
+                <div class="lg-sizes">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip">contundente</span><button class="lg-copy" type="button" data-copy="mh-fist">Copiar SVG</button></div>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="lg-card__stage lg-card__stage--accent"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-wave"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A5 · Wave ★ mascota</h3>
+                <p class="lg-card__desc">La carismática: saluda con ojitos, sonrisa y mejillas esmeralda. Login, onboarding, error 404.</p>
+                <div class="lg-sizes">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">mi favorita</span><button class="lg-copy" type="button" data-copy="mh-wave">Copiar SVG</button></div>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-orb"/></svg></div>
+              <div class="lg-card__body">
+                <h3 class="lg-card__name">A6 · Orb</h3>
+                <p class="lg-card__desc">Ofrece la chispa: manos ahuecadas presentan el orbe esmeralda. El agente te entrega el resultado.</p>
+                <div class="lg-sizes">
+                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+                </div>
+                <div class="lg-card__meta"><span class="mh-chip">premium</span><button class="lg-copy" type="button" data-copy="mh-orb">Copiar SVG</button></div>
+              </div>
+            </article>
+          </div>
+          <div class="lg-note" style="margin-top: 16px">
+            <div class="lg-rule"><span>✋</span><p><b>Anatomía compartida.</b> Trazo 5px tinta, esquinas redondas, puño esmeralda <code class="mh-mono-sm">#0B6B53</code>. A 16px sobreviven A1, A4 y A5; A3 y A6 piden 24px mínimo por los sparks.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- IMAGOTIPOS -->
+      <section class="mh-section" id="imagotipos">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">02 · Imagotipos</p>
+            <h2 class="mh-display-lg mh-section__title">Mano + palabra</h2>
+            <p class="mh-lede">La palabra siempre en Fraunces 600. El isotipo nunca baja de 24px junto al texto.</p>
+          </div>
+          <div class="lg-grid">
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>imagotipo · horizontal</span><span>top-bar</span></div>
+              <div class="lg-lockup">
+                <svg width="52" height="52" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                <span class="lg-word lg-word--md">MasterHand</span>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>imagotipo · apilado</span><span>login</span></div>
+              <div class="lg-lockup lg-lockup--stack">
+                <svg width="84" height="84" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                <span class="lg-word lg-word--md">MasterHand</span>
+                <span class="mh-caption mh-muted">Your agents, in your hand.</span>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>imagotipo · badge</span><span>avatar / PWA</span></div>
+              <div class="lg-lockup">
+                <div class="lg-badge">
+                  <svg viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                  <span>MH</span>
+                </div>
+                <p class="mh-caption mh-muted" style="max-width: 22ch">Círculo tinta para avatar y icono de app. El guante blanco respira dentro.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOGOTIPOS -->
+      <section class="mh-section" id="logotipos">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">03 · Logotipos</p>
+            <h2 class="mh-display-lg mh-section__title">Solo palabra</h2>
+            <p class="mh-lede">Tres tratamientos del wordmark para cuando la mano no cabe.</p>
+          </div>
+          <div class="lg-grid">
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>logotipo · editorial</span><span>Fraunces</span></div>
+              <div class="lg-lockup lg-lockup--stack">
+                <span class="lg-word lg-word--lg">MasterHand</span>
+                <span class="mh-caption mh-muted">Titulares, hero, login. Serif habla, sans trabaja.</span>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>logotipo · juguetón</span><span>mano como punto</span></div>
+              <div class="lg-lockup lg-lockup--stack">
+                <span class="lg-word lg-word--lg">MasterH<svg width="30" height="30" viewBox="0 0 120 120" style="display:inline-block;vertical-align:-4px"><use href="#mh-fist"/></svg>nd</span>
+                <span class="mh-caption mh-muted">Solo para momentos de marca grandes. Nunca en UI densa.</span>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>logotipo · mono</span><span>terminal</span></div>
+              <div class="lg-lockup lg-lockup--stack" style="background: var(--mh-code-surface); border-radius: 0 0 12px 12px">
+                <span class="mh-mono" style="font-size: 22px; color: #EDEDE8">$ masterhand</span>
+                <span class="mh-caption" style="color: #8E8E88">CLI, README, footer técnico.</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRUEBAS -->
+      <section class="mh-section" id="pruebas">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">04 · Pruebas</p>
+            <h2 class="mh-display-lg mh-section__title">¿Sobrevive?</h2>
+            <p class="mh-lede">Fondo claro, fondo oscuro y monocromo. Si no se lee aquí, no sale.</p>
+          </div>
+          <div class="lg-grid">
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>sobre claro</span><span>paper</span></div>
+              <div class="lg-lockup">
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>sobre oscuro</span><span>ink-950</span></div>
+              <div class="lg-lockup lg-card__stage--dark" style="border-radius: 0">
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>no hacer</span><span>reglas</span></div>
+              <div class="lg-card__body">
+                <p class="lg-card__desc">⛔ Sin gradientes · ⛔ sin segundo color · ⛔ sin contorno fino (&lt;4px) · ⛔ sin carita fuera de A5 · ⛔ sin rotar el puño.</p>
+                <p class="lg-card__desc">Área de respeto = alto del puño. Mínimo digital 16px (A1/A4), impreso 8mm.</p>
+              </div>
+            </article>
+          </div>
+          <div class="lg-note" style="margin-top: 16px">
+            <p><b style="color: var(--mh-text)">Recomendación:</b> A1 Clásica como icono de app + top-bar, A5 Wave como mascota de empty states y login. El resto queda como set expresivo para ilustrar estados (point = actuar, snap = magia, orb = entrega).</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="mh-page-footer">
+      <div class="mh-container mh-page-footer__inner">
+        <span class="mh-caption">MasterHand · propuestas de logo — abre este archivo en el navegador, prueba el toggle de tema.</span>
+        <a class="mh-caption" href="DESIGN.html">Volver al sistema</a>
+      </div>
+    </footer>
+
+    <script>
+      // Copiar el <symbol> como SVG standalone
+      document.querySelectorAll("[data-copy]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var id = btn.getAttribute("data-copy");
+          var sym = document.getElementById(id);
+          if (!sym) return;
+          var svg =
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">' +
+            sym.innerHTML +
+            "</svg>";
+          function done() {
+            btn.textContent = "¡Copiado!";
+            setTimeout(function () { btn.textContent = "Copiar SVG"; }, 1600);
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(svg).then(done, done);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
