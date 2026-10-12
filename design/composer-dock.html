@@ -39,7 +39,6 @@
 
     /* ---- DESPUÉS: dock único ---- */
     .dock { background: var(--mh-surface); border: 1px solid var(--mh-hairline); border-radius: var(--r-lg); box-shadow: var(--mh-shadow-1); overflow: visible; position: relative; }
-    .dock:focus-within { border-color: var(--mh-accent); box-shadow: 0 0 0 3px var(--mh-accent-soft); }
     .dock__context { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--mh-hairline); font-size: 12px; color: var(--mh-text-muted); }
     .dock__context select { border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--mh-text-soft); cursor: pointer; padding: 4px 2px; max-width: 11rem; }
     .dock__stats { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--mh-text-faint); white-space: nowrap; }
@@ -51,6 +50,7 @@
     .dock__field textarea::placeholder { color: var(--mh-text-faint); }
     .dock__toolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 8px 8px 8px; }
     .dock__pick { display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: transparent; color: var(--mh-text-soft); font-size: 12px; border-radius: var(--r-full); padding: 6px 10px; cursor: pointer; min-height: 32px; }
+    .dock__pick:hover { background: var(--mh-surface-muted); color: var(--mh-text); }
     .dock__pick .chev { color: var(--mh-text-faint); font-size: 10px; }
     .dock__shield { margin-left: auto; }
     .dock__shield.is-on { background: var(--mh-accent-soft); color: var(--mh-accent); }
@@ -73,7 +73,7 @@
     <div class="top">
       <div>
         <h1>Composer dock — propuesta</h1>
-        <p>Mock estático en <code class="mh-mono-sm">design/composer-dock.html</code>. No toca <code class="mh-mono-sm">apps/</code>. Una sola tarjeta <code class="mh-mono-sm">surface</code>: contexto arriba, input sin caja, toolbar integrada abajo. Foco con anillo en la tarjeta (<code class="mh-mono-sm">:focus-within</code>).</p>
+        <p>Mock estático en <code class="mh-mono-sm">design/composer-dock.html</code>. No toca <code class="mh-mono-sm">apps/</code>. Una sola tarjeta <code class="mh-mono-sm">surface</code>: contexto arriba, input sin caja, toolbar integrada abajo. Sin anillo de foco: el dock queda quieto al clickear, solo el caret en el campo.</p>
       </div>
       <button id="theme" class="mh-btn mh-btn--secondary mh-btn--sm theme-btn" type="button">Dark</button>
     </div>
@@ -116,7 +116,7 @@
             <button class="dock__send" type="button" aria-label="Send">↑</button>
           </div>
         </div>
-        <div class="legend"><span class="mh-chip">1 borde</span><span class="mh-chip">1 sombra sutil</span><span class="mh-chip">textarea sin caja</span><span class="mh-chip mh-chip--accent">foco en tarjeta</span></div>
+        <div class="legend"><span class="mh-chip">1 borde</span><span class="mh-chip">1 sombra sutil</span><span class="mh-chip">textarea sin caja</span><span class="mh-chip">sin anillo de foco</span></div>
       </div></div>
     </section>
 
@@ -151,12 +151,12 @@
       </div></div>
     </section>
 
-    <!-- 4. FOCO + SUGERENCIAS -->
+    <!-- 4. SUGERENCIAS ANCLADAS -->
     <section class="scene">
-      <h2>4 · Foco + sugerencias ancladas</h2>
-      <p>El popover (<code class="mh-mono-sm">/btw</code>, <code class="mh-mono-sm">/goal</code>, <code class="mh-mono-sm">@agent</code>) se ancla a la tarjeta, no flota entre bloques. El error vive dentro, abajo.</p>
+      <h2>4 · Sugerencias ancladas</h2>
+      <p>El popover (<code class="mh-mono-sm">/btw</code>, <code class="mh-mono-sm">/goal</code>, <code class="mh-mono-sm">@agent</code>) se ancla a la tarjeta, no flota entre bloques. El dock no marca el foco con anillo: solo el caret en el campo. El error vive dentro, abajo.</p>
       <div class="stage"><div class="col">
-        <div class="dock" style="border-color: var(--mh-accent); box-shadow: 0 0 0 3px var(--mh-accent-soft)" aria-label="Composer en foco">
+        <div class="dock" aria-label="Composer con sugerencias">
           <div class="dock__suggest">
             <header>Commands</header>
             <button type="button" class="is-active"><code>/goal</code> Start the adversarial review loop</button>
@@ -203,7 +203,7 @@
 
     <section class="scene">
       <h2>Qué cambiaría en la app (cuando lo apruebes)</h2>
-      <p>Solo <code class="mh-mono-sm">Composer.tsx</code> (contenedor + slots), <code class="mh-mono-sm">ChatView.tsx</code> (GoalStrip/worktree como slots internos) y 2 clases en <code class="mh-mono-sm">styles.css</code> (<code class="mh-mono-sm">.mh-composer</code> + <code class="mh-mono-sm">:focus-within</code>). Sin cambios de lógica, atajos ni a11y.</p>
+      <p>Solo <code class="mh-mono-sm">Composer.tsx</code> (contenedor + slots), <code class="mh-mono-sm">ChatView.tsx</code> (GoalStrip/worktree como slots internos) y clases <code class="mh-mono-sm">.mh-composer-dock*</code> en <code class="mh-mono-sm">styles.css</code> (sin anillo de foco). Sin cambios de lógica ni atajos.</p>
     </section>
   </div>
   <script>
