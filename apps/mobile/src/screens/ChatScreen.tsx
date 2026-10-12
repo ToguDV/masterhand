@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  formatCount,
-  formatSpeed,
+  finishResultFromIsolation,
+  isAmbiguousError,
   sessionUsage,
-  tokenSpeed,
   useBffStatus,
   useGoalRun,
   useMessages,
@@ -22,6 +21,9 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer, type ComposerHandle } from "../components/Composer"
+import { BranchChip, BranchPicker } from "../components/BranchPicker"
+import { SessionToolbar } from "../components/SessionToolbar"
+import { SessionStats } from "../components/SessionStats"
 import { GoalReview } from "../components/GoalReview"
 import { GoalStrip } from "../components/GoalStrip"
 import { MessageBubble } from "../components/MessageBubble"
@@ -30,7 +32,7 @@ import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { Deco } from "../components/Deco"
-import { ArrowDownIcon, ArrowUpIcon, BoltIcon, PlayIcon, SparkleIcon } from "../components/icons"
+import { PlayIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
@@ -101,13 +103,11 @@ export function ChatScreen({
   const [finishing, setFinishing] = useState(false)
   const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
   const [finishError, setFinishError] = useState<string | null>(null)
+  const [finishNotice, setFinishNotice] = useState<string | null>(null)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  const speedValue = tokenSpeed(usage, usage.durationMs)
-  const hasStats =
-    usage.cost > 0 || usage.input > 0 || usage.output > 0 || usage.reasoning > 0 || speedValue !== null
   // The review footer grows with every goal transition: include it in the
   // follow-scroll. Expanding a round is local state and must NOT yank the
   // user to the bottom, so this replaces the old onContentSizeChange hook.
@@ -121,17 +121,112 @@ export function ChatScreen({
   async function finish() {
     setFinishing(true)
     setFinishError(null)
+    setFinishNotice(null)
     try {
       const result = await client.api.sessions.finish(sessionID)
       setFinishResult(result)
       if (result.error) setFinishError(result.error)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-    } catch {
-      setFinishError("Could not finish the session")
+    } catch (error) {
+      if (isAmbiguousError(error)) {
+        // Commit + push + PR may still be running (or already done). Never a
+        // hard failure: reconcile against the isolated-session record.
+        const isolation = await findIsolation()
+        const reconciled = finishResultFromIsolation(isolation)
+        if (reconciled) {
+          setFinishResult(reconciled)
+          setFinishNotice("The server did not answer in time — this result comes from the session record.")
+        } else {
+          setFinishError(
+            "The server did not answer in time — the operation may still be running. Check the branch before retrying.",
+          )
+        }
+        void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+      } else {
+        setFinishError("Could not finish the session")
+      }
     } finally {
       setFinishing(false)
     }
   }
+
+  /**
+   * Walks the workspace session list for the isolated-session record after an
+   * ambiguous finish. Bounded: the server may still be committing/pushing.
+   */
+  async function findIsolation(): Promise<SessionIsolation | null> {
+    if (!workspaceID) return null
+    for (const delay of [0, 1500, 3000]) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const sessions = await client.api.sessions.list(workspaceID)
+        const isolation = sessions.find((session) => session.id === sessionID)?.isolation
+        if (finishResultFromIsolation(isolation)) return isolation ?? null
+      } catch {
+        // keep polling: a transient failure must not hide the confirmation
+      }
+    }
+    return null
+  }
+
+  const header = (
+    <SessionToolbar
+      workspaces={workspaces}
+      workspaceID={workspaceID}
+      onSelectWorkspace={(id) => onSelectWorkspace?.(id)}
+      onAddWorkspace={async (input) => {
+        await onAddWorkspace?.(input)
+      }}
+      onRemoveWorkspace={(id, options) => onRemoveWorkspace?.(id, options)}
+      branch={
+        // The header chip is the only branch shown: read-only for isolated
+        // sessions (their branch cannot be switched), the picker for
+        // standard ones.
+        isolation ? (
+          <BranchChip branch={isolation.branch} />
+        ) : workspaceID ? (
+          <BranchPicker client={client} workspaceID={workspaceID} />
+        ) : undefined
+      }
+      trailing={<SessionStats usage={usage} />}
+    />
+  )
+
+  const isolationBar: ReactNode | undefined = isolation ? (
+    <View>
+      <View style={styles.isolationRow}>
+        <Text style={styles.isolationLabel}>Isolated</Text>
+        <View style={styles.isolationSpacer} />
+        {isolation.prUrl ? (
+          <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)} hitSlop={4}>
+            <Text style={styles.link}>PR ↗</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.finishButton, finishing && styles.disabled]}
+          onPress={() => void finish()}
+          disabled={finishing}
+        >
+          <Text style={styles.finishText}>{finishing ? "Finishing…" : "Finish & PR"}</Text>
+        </Pressable>
+      </View>
+      {finishResult || finishError || finishNotice ? (
+        <View style={styles.finishStatus}>
+          <Text style={styles.finishStatusText}>
+            {finishResult ? (finishResult.committed ? "Changes committed." : "No changes to commit.") : ""}
+            {finishResult?.pushed ? " Branch pushed." : ""}
+          </Text>
+          {finishResult?.prUrl ? (
+            <Pressable onPress={() => void Linking.openURL(finishResult.prUrl!)} hitSlop={4}>
+              <Text style={styles.link}>Open pull request ↗</Text>
+            </Pressable>
+          ) : null}
+          {finishError ? <Text style={styles.finishError}>{finishError}</Text> : null}
+          {finishNotice ? <Text style={styles.finishStatusText}>{finishNotice}</Text> : null}
+        </View>
+      ) : null}
+    </View>
+  ) : undefined
 
   return (
     <Screen>
@@ -223,74 +318,6 @@ export function ChatScreen({
         )}
       />
 
-      {hasStats ? (
-        <View style={styles.usageRow} accessibilityLabel="Session usage">
-          <View style={styles.usageItem} accessibilityLabel={`Cost: $${usage.cost.toFixed(4)}`}>
-            <Text style={styles.usageDollar}>$</Text>
-            <Text style={styles.usageText}>{usage.cost.toFixed(4)}</Text>
-          </View>
-          <View style={styles.usageItem} accessibilityLabel={`Input tokens: ${usage.input}`}>
-            <ArrowUpIcon size={12} color={colors.textMuted} />
-            <Text style={styles.usageText}>{formatCount(usage.input)}</Text>
-          </View>
-          <View style={styles.usageItem} accessibilityLabel={`Output tokens: ${usage.output}`}>
-            <ArrowDownIcon size={12} color={colors.textMuted} />
-            <Text style={styles.usageText}>{formatCount(usage.output)}</Text>
-          </View>
-          {usage.reasoning > 0 ? (
-            <View style={styles.usageItem} accessibilityLabel={`Reasoning tokens: ${usage.reasoning}`}>
-              <SparkleIcon size={12} color={colors.textMuted} />
-              <Text style={styles.usageText}>{formatCount(usage.reasoning)}</Text>
-            </View>
-          ) : null}
-          {speedValue !== null ? (
-            <View style={styles.usageItem} accessibilityLabel={`Speed: ${formatSpeed(speedValue)}`}>
-              <BoltIcon size={12} color={colors.textMuted} />
-              <Text style={styles.usageText}>{formatSpeed(speedValue)}</Text>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      {isolation ? (
-        <View style={styles.isolationBar}>
-          <View style={styles.isolationInfo}>
-            <Text style={styles.isolationLabel}>Isolated</Text>
-            <View style={styles.branchChip}>
-              <Text style={styles.branch} numberOfLines={1}>
-                {isolation.branch}
-              </Text>
-            </View>
-          </View>
-          {isolation.prUrl ? (
-            <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)} hitSlop={4}>
-              <Text style={styles.link}>PR ↗</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            style={[styles.finishButton, finishing && styles.disabled]}
-            onPress={() => void finish()}
-            disabled={finishing}
-          >
-            <Text style={styles.finishText}>{finishing ? "Finishing…" : "Finish & PR"}</Text>
-          </Pressable>
-        </View>
-      ) : null}
-      {finishResult || finishError ? (
-        <View style={styles.finishStatus}>
-          <Text style={styles.finishStatusText}>
-            {finishResult ? (finishResult.committed ? "Changes committed." : "No changes to commit.") : ""}
-            {finishResult?.pushed ? " Branch pushed." : ""}
-          </Text>
-          {finishResult?.prUrl ? (
-            <Pressable onPress={() => void Linking.openURL(finishResult.prUrl!)} hitSlop={4}>
-              <Text style={styles.link}>Open pull request ↗</Text>
-            </Pressable>
-          ) : null}
-          {finishError ? <Text style={styles.finishError}>{finishError}</Text> : null}
-        </View>
-      ) : null}
-
       <GoalStrip client={client} sessionID={sessionID} />
 
       <Composer
@@ -305,10 +332,8 @@ export function ChatScreen({
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
         pending={pendingSend}
-        workspaces={workspaces}
-        onSelectWorkspace={onSelectWorkspace}
-        onAddWorkspace={onAddWorkspace}
-        onRemoveWorkspace={onRemoveWorkspace}
+        header={header}
+        isolationBar={isolationBar}
       />
 
       {parentSessionID && onOpenSession ? (
@@ -440,44 +465,14 @@ function createStyles(colors: Palette, fonts: Fonts) {
       lineHeight: 31,
       textAlign: "center",
     },
-    usageRow: {
+    isolationRow: {
       flexDirection: "row",
       flexWrap: "wrap",
       alignItems: "center",
-      justifyContent: "flex-end",
-      gap: 12,
-      paddingHorizontal: 14,
-      paddingTop: 8,
+      gap: 8,
     },
-    usageItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 3,
-    },
-    usageDollar: {
-      color: colors.textMuted,
-      fontFamily: fonts.mono,
-      fontSize: 11,
-    },
-    usageText: {
-      color: colors.textMuted,
-      fontFamily: fonts.mono,
-      fontSize: 11,
-    },
-    isolationBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-    },
-    isolationInfo: {
+    isolationSpacer: {
       flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
     },
     isolationLabel: {
       color: colors.textMuted,
@@ -486,18 +481,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       letterSpacing: 0.8,
       textTransform: "uppercase",
       fontWeight: "600",
-    },
-    branchChip: {
-      flexShrink: 1,
-      backgroundColor: colors.accentSoft,
-      borderRadius: 999,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-    },
-    branch: {
-      color: colors.accent,
-      fontFamily: fonts.mono,
-      fontSize: 11,
     },
     finishButton: {
       backgroundColor: colors.accent,
@@ -516,8 +499,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       flexWrap: "wrap",
       gap: 8,
-      paddingHorizontal: 14,
-      paddingBottom: 6,
+      paddingTop: 6,
     },
     finishStatusText: {
       color: colors.textMuted,

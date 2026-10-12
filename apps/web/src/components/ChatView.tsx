@@ -254,6 +254,7 @@ export function ChatView({
           )}
         </div>
       </div>
+      <GoalStrip sessionID={sessionID} />
       <Composer
         ref={composerRef}
         sessionID={sessionID}
@@ -272,6 +273,9 @@ export function ChatView({
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
             branch={
+              // The header chip is the only branch shown: read-only for
+              // isolated sessions (their branch cannot be switched), the
+              // picker for standard ones.
               isolation ? (
                 <BranchChip branch={isolation.branch} />
               ) : workspaceID ? (
@@ -286,12 +290,6 @@ export function ChatView({
             <div className="mh-composer-dock__strip">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="text-ink-muted">Isolated worktree</span>
-                <code
-                  className="mh-chip mh-chip--accent mh-chip--mono max-w-full truncate"
-                  title={isolation.worktreePath}
-                >
-                  {isolation.branch}
-                </code>
                 {isolation.prUrl && (
                   <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
                     Pull request
@@ -338,7 +336,6 @@ export function ChatView({
             </div>
           ) : undefined
         }
-        goalStrip={<GoalStrip sessionID={sessionID} embedded />}
       />
     </div>
   )

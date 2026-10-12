@@ -2,7 +2,6 @@ import { useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   goalErrorMessage,
-  goalResultLine,
   goalStateLabel,
   isGoalActive,
   queryKeys,
@@ -12,13 +11,12 @@ import { client } from "../client"
 import { PauseIcon, PlayIcon, SparkleIcon, StopIcon } from "./icons"
 
 /**
- * Goal Mode control strip: one subtle line above the composer with the loop
- * phase, round and last review result, plus pause/resume/cancel actions styled
- * like the rest of the interface. The run state is SSE-driven (`goal.updated`
- * frames); mutations reconcile it by refetching, and a timeout is reported as
- * "may have changed". The review history itself lives in the thread (GoalReview).
+ * Goal Mode strip: a single quiet line above the composer, no wider than the
+ * chat column — the live phase, the round and the actions side by side.
+ * The review history lives in the thread (GoalReview); this is only the
+ * control line. Returns null when the session has no run.
  */
-export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; embedded?: boolean }) {
+export function GoalStrip({ sessionID }: { sessionID: string }) {
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
   const [busy, setBusy] = useState(false)
@@ -30,7 +28,6 @@ export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; 
 
   const active = isGoalActive(data.state)
   const resumable = data.state === "paused" || data.state === "error"
-  const result = goalResultLine(data)
 
   async function act(action: () => Promise<unknown>): Promise<void> {
     if (busyRef.current) return
@@ -52,11 +49,8 @@ export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; 
   const tone = data.state === "error" ? "text-danger" : data.state === "approved" ? "text-accent" : "text-ink"
 
   return (
-    <div
-      className={embedded ? "mh-composer-dock__strip mh-composer-dock__strip--tint" : "border-t border-hairline px-3 py-1.5 md:px-6"}
-      data-testid="goal-strip"
-    >
-      <div className={embedded ? "flex flex-wrap items-center gap-2 text-xs" : "mh-chat-col flex flex-wrap items-center gap-2 text-xs"}>
+    <div data-testid="goal-strip" className="px-3 md:px-6">
+      <div className="mh-chat-col flex flex-wrap items-center gap-2 py-1 text-xs">
         <SparkleIcon size={13} className={active ? "shrink-0 text-accent" : "shrink-0 text-ink-muted"} />
         {/* Only the state announces: the activity note changes per event and
             would otherwise re-read the whole strip (buttons included). */}
@@ -66,15 +60,6 @@ export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; 
         <span className="mh-chip mh-chip--outline mh-chip--mono">
           round {data.round}/{data.maxRounds}
         </span>
-        {data.lastError && active ? (
-          <span className="min-w-0 truncate text-warning" title={data.lastError}>
-            {data.lastError}
-          </span>
-        ) : result ? (
-          <span className="min-w-0 truncate text-ink-muted" title={result}>
-            {result}
-          </span>
-        ) : null}
         <span className="min-w-0 flex-1" />
         {active && (
           <>
@@ -122,7 +107,7 @@ export function GoalStrip({ sessionID, embedded = false }: { sessionID: string; 
         )}
       </div>
       {(error || data.error) && (
-        <p className={embedded ? "mt-1 text-[11px] text-danger" : "mh-chat-col mt-1 text-[11px] text-danger"}>{error ?? data.error}</p>
+        <p className="mh-chat-col pb-1 text-[11px] text-danger">{error ?? data.error}</p>
       )}
     </div>
   )

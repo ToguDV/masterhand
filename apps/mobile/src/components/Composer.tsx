@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react"
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react"
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
@@ -28,15 +28,12 @@ import {
   variantLabel,
   type Client,
   type ComposerPopover,
-  type CreateWorkspaceInput,
   type PendingSendController,
-  type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { WorkspaceModal } from "./WorkspaceModal"
-import { BrainIcon, ChevronDownIcon, FolderIcon, SlidersIcon } from "./icons"
+import { BrainIcon, ChevronDownIcon, SlidersIcon } from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -58,10 +55,8 @@ export function Composer({
   autoAccept,
   onToggleAutoAccept,
   pending,
-  workspaces = [],
-  onSelectWorkspace,
-  onAddWorkspace,
-  onRemoveWorkspace,
+  header,
+  isolationBar,
 }: {
   /** Retry handle used by the chat screen's ghost bubble. */
   ref?: Ref<ComposerHandle>
@@ -75,11 +70,10 @@ export function Composer({
   onToggleAutoAccept: (on: boolean) => void
   /** Pending-send state owned by the chat screen (#125). */
   pending: PendingSendController
-  /** Workspace management lives in the composer top bar (web parity, #92). */
-  workspaces?: WorkspaceRecord[]
-  onSelectWorkspace?: (id: string) => void
-  onAddWorkspace?: (input: CreateWorkspaceInput) => Promise<void>
-  onRemoveWorkspace?: (id: string, options: { deleteFiles: boolean }) => void
+  /** Composer context bar (workspace menu, branch, stats). Rendered as the dock head. */
+  header?: ReactNode
+  /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
+  isolationBar?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -113,7 +107,6 @@ export function Composer({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [picker, setPicker] = useState<OpenPicker>(null)
-  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [caret, setCaret] = useState(0)
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | undefined>(undefined)
   const [dismissed, setDismissed] = useState(false)
@@ -428,140 +421,129 @@ export function Composer({
   }
 
   async function stop() {
+    setError(null)
     try {
       await client.api.abortSession(sessionID)
-    } catch {
-      // the state reconciles through events
+    } catch (stopError) {
+      // Never fail silently: the turn may still be running.
+      setError(
+        isAmbiguousError(stopError)
+          ? "The server did not answer in time — the agent may still be stopping. Check the status."
+          : "Could not stop the agent. Try again.",
+      )
     }
   }
 
   const agentChoices: ChoiceOption[] = agents.map((item) => ({ value: item.id, label: item.name }))
   const modelChoices: ChoiceOption[] = modelOptions.map((option) => ({ value: option.value, label: option.label }))
   const effortChoices: ChoiceOption[] = variants.map((key) => ({ value: key, label: variantLabel(key) }))
-  const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Effort variants get the brain glyph; provider-specific ones the sliders.
   const effortIsBrain = variants.length > 0 && variants.every((key) => isEffortVariant(key))
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topBar}>
-        <Pressable
-          style={styles.workspaceTrigger}
-          onPress={() => setWorkspaceOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Workspace"
-        >
-          <FolderIcon size={14} color={colors.textMuted} />
-          <Text style={styles.workspaceName} numberOfLines={1}>
-            {workspace?.name ?? "No workspace"}
-          </Text>
-          <ChevronDownIcon size={14} color={colors.textMuted} />
-        </Pressable>
-      </View>
+    <View style={styles.dockWrap}>
+      <View style={styles.dock} testID="composer-dock">
+        {header ? <View style={styles.dockHead}>{header}</View> : null}
+        {isolationBar ? <View style={styles.dockStrip}>{isolationBar}</View> : null}
 
-      {popover && (
-        <ComposerSuggestions
-          title={popover.title}
-          hint={popover.hint}
-          items={popover.items}
-          emptyLabel={popover.emptyLabel}
-          onSelect={selectSuggestion}
-        />
-      )}
+        <View style={styles.dockBody}>
+          {popover && (
+            <ComposerSuggestions
+              title={popover.title}
+              hint={popover.hint}
+              items={popover.items}
+              emptyLabel={popover.emptyLabel}
+              onSelect={selectSuggestion}
+            />
+          )}
 
-      {sideQuestion && (
-        <SideQuestionPanel
-          client={client}
-          sessionID={sideQuestion.sessionID}
-          question={sideQuestion.question}
-          connected={connected}
-          onClose={closeSideQuestion}
-        />
-      )}
+          {sideQuestion && (
+            <SideQuestionPanel
+              client={client}
+              sessionID={sideQuestion.sessionID}
+              question={sideQuestion.question}
+              connected={connected}
+              onClose={closeSideQuestion}
+            />
+          )}
 
-      <View style={styles.inputRow}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={(value) => {
-            setText(value)
-            setDismissed(false)
-          }}
-          onFocus={() => setDismissed(false)}
-          onBlur={() => setDismissed(true)}
-          selection={forcedSelection}
-          onSelectionChange={(event) => {
-            setCaret(event.nativeEvent.selection.start)
-            if (forcedSelection) setForcedSelection(undefined)
-          }}
-          placeholder="Write a message…"
-          placeholderTextColor={colors.textFaint}
-          multiline
-          testID="composer-input"
-        />
-        {busy ? (
-          <Pressable style={[styles.action, styles.stop]} onPress={() => void stop()}>
-            <Text style={[styles.actionText, styles.stopText]}>Stop</Text>
-          </Pressable>
-        ) : (
+          <TextInput
+            style={styles.field}
+            value={text}
+            onChangeText={(value) => {
+              setText(value)
+              setDismissed(false)
+            }}
+            onFocus={() => setDismissed(false)}
+            onBlur={() => setDismissed(true)}
+            selection={forcedSelection}
+            onSelectionChange={(event) => {
+              setCaret(event.nativeEvent.selection.start)
+              if (forcedSelection) setForcedSelection(undefined)
+            }}
+            placeholder="Write a message…"
+            placeholderTextColor={colors.textFaint}
+            multiline
+            testID="composer-input"
+          />
+        </View>
+
+        <View style={styles.dockToolbar}>
+          <Selector
+            label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
+            onPress={() => setPicker("agent")}
+            disabled={agentChoices.length === 0}
+          />
+          <Selector
+            label={modelOptions.find((option) => option.value === model)?.label ?? "model…"}
+            onPress={() => setPicker("model")}
+            disabled={modelChoices.length === 0}
+          />
+          {variants.length > 0 && (
+            <Selector
+              icon={
+                effortIsBrain ? (
+                  <BrainIcon size={14} color={colors.textMuted} />
+                ) : (
+                  <SlidersIcon size={14} color={colors.textMuted} />
+                )
+              }
+              accessibilityLabel="Effort"
+              label={variant ? variantLabel(variant) : "Default"}
+              onPress={() => setPicker("effort")}
+              disabled={false}
+            />
+          )}
           <Pressable
-            style={[
-              styles.action,
-              styles.send,
-              (!text.trim() || sending || startingSideQuestion || startingGoal) && styles.actionDisabled,
-            ]}
-            disabled={!text.trim() || sending || startingSideQuestion || startingGoal}
-            onPress={() => void send()}
+            style={[styles.autoAccept, autoAccept && styles.autoAcceptOn]}
+            onPress={() => onToggleAutoAccept(!autoAccept)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: autoAccept }}
+            accessibilityLabel="Auto-accept permission requests for this session"
           >
-            <Text style={styles.actionText}>
-              {startingSideQuestion || startingGoal ? "Starting…" : "Send"}
+            <Text style={[styles.autoAcceptText, autoAccept && styles.autoAcceptTextOn]} numberOfLines={1}>
+              {autoAccept ? "auto-accept: on" : "auto-accept"}
             </Text>
           </Pressable>
-        )}
-      </View>
+          {busy ? (
+            <Pressable style={[styles.send, styles.stop]} onPress={() => void stop()}>
+              <Text style={[styles.sendText, styles.stopText]}>Stop</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[
+                styles.send,
+                (!text.trim() || sending || startingSideQuestion || startingGoal) && styles.actionDisabled,
+              ]}
+              disabled={!text.trim() || sending || startingSideQuestion || startingGoal}
+              onPress={() => void send()}
+            >
+              <Text style={styles.sendText}>{startingSideQuestion || startingGoal ? "Starting…" : "Send"}</Text>
+            </Pressable>
+          )}
+        </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <View style={styles.selectors}>
-        <Selector
-          label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
-          onPress={() => setPicker("agent")}
-          disabled={agentChoices.length === 0}
-        />
-        <Selector
-          label={modelOptions.find((option) => option.value === model)?.label ?? "model…"}
-          onPress={() => setPicker("model")}
-          disabled={modelChoices.length === 0}
-        />
-        {variants.length > 0 && (
-          <Selector
-            icon={
-              effortIsBrain ? (
-                <BrainIcon size={14} color={colors.textMuted} />
-              ) : (
-                <SlidersIcon size={14} color={colors.textMuted} />
-              )
-            }
-            accessibilityLabel="Effort"
-            label={variant ? variantLabel(variant) : ""}
-            onPress={() => setPicker("effort")}
-            disabled={false}
-          />
-        )}
-        <Pressable
-          style={[styles.selector, styles.autoAccept, autoAccept && styles.autoAcceptOn]}
-          onPress={() => onToggleAutoAccept(!autoAccept)}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: autoAccept }}
-          accessibilityLabel="Auto-accept permission requests for this session"
-        >
-          <Text
-            style={[styles.selectorText, autoAccept && styles.autoAcceptText]}
-            numberOfLines={1}
-          >
-            {autoAccept ? "auto-accept: on" : "auto-accept"}
-          </Text>
-        </Pressable>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
 
       <ChoiceModal
@@ -591,21 +573,6 @@ export function Composer({
         onSelect={setVariant}
         onClose={() => setPicker(null)}
       />
-
-      <WorkspaceModal
-        visible={workspaceOpen}
-        workspaces={workspaces}
-        selectedID={workspaceID}
-        onSelect={(id) => onSelectWorkspace?.(id)}
-        onAdd={async (input) => {
-          await onAddWorkspace?.(input)
-        }}
-        onRemove={(id, options) => {
-          setWorkspaceOpen(false)
-          onRemoveWorkspace?.(id, options)
-        }}
-        onClose={() => setWorkspaceOpen(false)}
-      />
     </View>
   )
 }
@@ -624,6 +591,7 @@ function Selector({
   accessibilityLabel?: string
 }) {
   const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   return (
     <Pressable
       style={[styles.selector, disabled && styles.actionDisabled]}
@@ -633,125 +601,118 @@ function Selector({
       accessibilityLabel={accessibilityLabel ?? label}
     >
       {icon}
-      {label ? (
-        <Text style={styles.selectorText} numberOfLines={1}>
-          {label}
-        </Text>
-      ) : null}
+      <Text style={styles.selectorText} numberOfLines={1}>
+        {label}
+      </Text>
+      <ChevronDownIcon size={12} color={colors.textFaint} />
     </Pressable>
   )
 }
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
-    container: {
-      gap: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-      backgroundColor: colors.surface,
+    dockWrap: {
       paddingHorizontal: 12,
       paddingTop: 8,
       paddingBottom: 16,
     },
-    topBar: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    workspaceTrigger: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      maxWidth: "100%",
+    dock: {
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
+      borderColor: colors.hairline,
+      borderRadius: 16,
       backgroundColor: colors.surface,
-      borderRadius: 8,
-      paddingHorizontal: 10,
+    },
+    dockHead: {
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    dockStrip: {
+      paddingHorizontal: 12,
       paddingVertical: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
     },
-    workspaceName: {
-      flexShrink: 1,
-      color: colors.textSoft,
+    dockBody: {
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingTop: 8,
+    },
+    field: {
+      minHeight: 44,
+      maxHeight: 140,
+      color: colors.text,
       fontFamily: fonts.ui,
-      fontSize: 12,
+      fontSize: 15,
+      lineHeight: 22,
+      paddingVertical: 4,
     },
-    selectors: {
+    dockToolbar: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: 8,
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingTop: 4,
+      paddingBottom: 8,
     },
     selector: {
-      flexGrow: 1,
-      flexBasis: "30%",
       flexDirection: "row",
       alignItems: "center",
-      gap: 6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
+      gap: 4,
+      maxWidth: "100%",
       borderRadius: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
     selectorText: {
-      color: colors.text,
+      flexShrink: 1,
+      color: colors.textSoft,
       fontFamily: fonts.ui,
       fontSize: 12,
     },
     autoAccept: {
-      flexGrow: 0,
-      flexBasis: "auto",
+      flexDirection: "row",
+      alignItems: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
     },
     autoAcceptOn: {
       borderColor: colors.accentLine,
       backgroundColor: colors.accentSoft,
     },
     autoAcceptText: {
+      color: colors.textSoft,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    autoAcceptTextOn: {
       color: colors.accent,
     },
-    inputRow: {
-      flexDirection: "row",
-      alignItems: "flex-end",
-      gap: 8,
-    },
-    input: {
-      flex: 1,
-      maxHeight: 140,
-      minHeight: 44,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 15,
-      paddingHorizontal: 12,
-      paddingTop: 12,
-      paddingBottom: 12,
-    },
-    action: {
-      height: 44,
-      justifyContent: "center",
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: "transparent",
-      paddingHorizontal: 18,
-    },
     send: {
+      marginLeft: "auto",
+      justifyContent: "center",
       backgroundColor: colors.accent,
-      borderColor: colors.accent,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
     },
     stop: {
       backgroundColor: colors.dangerSoft,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.dangerLine,
     },
     actionDisabled: {
       opacity: 0.5,
     },
-    actionText: {
+    sendText: {
       color: colors.onAccent,
       fontFamily: fonts.ui,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: "500",
     },
     stopText: {
@@ -761,6 +722,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 12,
+      paddingHorizontal: 12,
+      paddingBottom: 10,
     },
   })
 }

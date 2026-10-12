@@ -40,5 +40,8 @@ test("isolated sessions show a read-only branch chip and no picker", async ({ pa
   await newSession(page, { isolated: true })
 
   await expect(page.getByRole("button", { name: "Branch" })).toBeHidden()
-  await expect(page.locator(".mh-chip", { hasText: "masterhand/" }).first()).toBeVisible()
+  // Exactly one chip inside the chat dock: the worktree strip owns the branch,
+  // the dock header no longer repeats it. (The sessions sidebar keeps its own
+  // branch badge, out of scope here.)
+  await expect(page.locator(".mh-composer-dock .mh-chip", { hasText: "masterhand/" })).toHaveCount(1)
 })

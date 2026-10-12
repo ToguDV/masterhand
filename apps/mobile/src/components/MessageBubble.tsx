@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
-import Markdown, { darkStyles, type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
+import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
 import {
   isQuestionTool,
   isTaskTool,
@@ -16,74 +16,94 @@ import {
   type FormAnswer,
   type FormInfo,
 } from "@masterhand/client-core"
-import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeName } from "../theme"
 import { statusColor } from "./tools/theme"
 import { ToolCard } from "./tools/ToolCard"
 import { QuestionCard } from "./QuestionCard"
 import { MessageStats } from "./MessageStats"
 import { CritiqueCard, GoalReportCard, VerdictCard } from "./GoalReview"
 
-// Assistant output is markdown: render it as such. The library ships a complete
-// dark preset; only the palette is overridden to match the app theme.
-function createMarkdownStyles(colors: Palette, fonts: Fonts): MarkdownStyleMap {
+// The renderer merges these overrides over its own light/dark base (selected
+// by `markdownColorScheme`), so every themed run carries the app ink: nothing
+// falls back to a preset white-on-paper or pale-on-pale combination.
+export function markdownColorScheme(theme: ThemeName): "light" | "dark" {
+  return theme === "dark" ? "dark" : "light"
+}
+
+export function createMarkdownStyles(colors: Palette, fonts: Fonts): MarkdownStyleMap {
+  const text = { color: colors.text, fontFamily: fonts.ui, fontSize: 15, lineHeight: 22 }
+  const heading = { color: colors.text, fontFamily: fonts.ui, fontWeight: "700" as const }
+  const mutedHeading = { color: colors.textMuted, fontFamily: fonts.ui, fontWeight: "700" as const }
   return {
-    ...darkStyles,
-    body: { color: colors.text, fontFamily: fonts.ui, fontSize: 15, lineHeight: 22 },
-    paragraph: { ...darkStyles.paragraph, marginTop: 4, marginBottom: 4 },
-    heading1: { ...darkStyles.heading1, color: colors.text, fontWeight: "700", marginTop: 8, marginBottom: 4 },
-    heading2: { ...darkStyles.heading2, color: colors.text, fontWeight: "700", marginTop: 8, marginBottom: 4 },
-    heading3: { ...darkStyles.heading3, color: colors.text, fontWeight: "700", marginTop: 6, marginBottom: 2 },
-    heading4: { ...darkStyles.heading4, color: colors.text, fontWeight: "700", marginTop: 6, marginBottom: 2 },
-    heading5: { ...darkStyles.heading5, color: colors.textMuted, fontWeight: "700", marginTop: 6, marginBottom: 2 },
-    heading6: { ...darkStyles.heading6, color: colors.textMuted, fontWeight: "700", marginTop: 6, marginBottom: 2 },
+    body: text,
+    text,
+    textgroup: { color: colors.text },
+    span: { color: colors.text },
+    inline: { color: colors.text },
+    paragraph: { marginTop: 4, marginBottom: 4 },
+    strong: { color: colors.text, fontFamily: fonts.ui, fontWeight: "700" },
+    em: { color: colors.text, fontFamily: fonts.ui, fontStyle: "italic" },
+    s: { color: colors.textMuted, textDecorationLine: "line-through" },
+    ins: { color: colors.text, textDecorationLine: "underline" },
+    heading1: { ...heading, fontSize: 24, marginTop: 8, marginBottom: 4 },
+    heading2: { ...heading, fontSize: 20, marginTop: 8, marginBottom: 4 },
+    heading3: { ...heading, fontSize: 17, marginTop: 6, marginBottom: 2 },
+    heading4: { ...heading, fontSize: 15, marginTop: 6, marginBottom: 2 },
+    heading5: { ...mutedHeading, fontSize: 14, marginTop: 6, marginBottom: 2 },
+    heading6: { ...mutedHeading, fontSize: 13, marginTop: 6, marginBottom: 2 },
     hr: { backgroundColor: colors.hairline, height: StyleSheet.hairlineWidth },
     blockquote: {
-      ...darkStyles.blockquote,
       backgroundColor: "transparent",
       borderColor: colors.hairline,
       borderLeftWidth: 2,
       marginLeft: 0,
       paddingHorizontal: 8,
     },
-    link: { ...darkStyles.link, color: colors.accent },
-    blocklink: { ...darkStyles.blocklink, borderColor: colors.hairline },
+    link: { color: colors.accent },
+    blocklink: { borderColor: colors.hairline },
     code_inline: {
-      ...darkStyles.code_inline,
       borderWidth: 0,
       backgroundColor: colors.surfaceMuted,
-      color: colors.codeText,
+      color: colors.text,
       fontFamily: fonts.mono,
+      fontSize: 13,
       padding: 0,
       paddingHorizontal: 4,
       borderRadius: 4,
     },
     code_block: {
-      ...darkStyles.code_block,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       backgroundColor: colors.codeSurface,
       color: colors.codeText,
       fontFamily: fonts.mono,
+      fontSize: 13,
+      lineHeight: 19,
       padding: 10,
       borderRadius: 12,
     },
-    fence: { ...darkStyles.fence, borderColor: colors.hairline, borderRadius: 12 },
-    fence_header: { ...darkStyles.fence_header, backgroundColor: colors.codeSurface, borderBottomColor: colors.codeSurfaceSoft },
-    fence_language_label: { ...darkStyles.fence_language_label, color: colors.codeMuted },
-    fence_code: { ...darkStyles.fence_code, backgroundColor: colors.codeSurface },
-    table: { ...darkStyles.table, borderColor: colors.hairline, borderRadius: 6 },
-    tr: { ...darkStyles.tr, borderColor: colors.hairline },
-    th: { ...darkStyles.th, color: colors.text, fontWeight: "700", backgroundColor: colors.surface },
-    td: { ...darkStyles.td, color: colors.text },
+    fence: { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.hairline, borderRadius: 12 },
+    fence_header: {
+      backgroundColor: colors.codeSurface,
+      borderBottomColor: colors.codeSurfaceSoft,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    fence_language_label: { color: colors.codeMuted, fontFamily: fonts.mono, fontSize: 11 },
+    fence_code: { backgroundColor: colors.codeSurface, padding: 10 },
+    fence_token: { color: colors.codeText, fontFamily: fonts.mono, fontSize: 13, lineHeight: 19 },
+    table: { borderColor: colors.hairline, borderRadius: 6 },
+    tr: { borderColor: colors.hairline },
+    th: { color: colors.text, fontWeight: "700", backgroundColor: colors.surface },
+    td: { color: colors.text },
   }
 }
 
 function MarkdownText({ text }: { text: string }) {
-  const { colors, fonts } = useTheme()
+  const { colors, fonts, theme } = useTheme()
   const markdownStyles = useMemo(() => createMarkdownStyles(colors, fonts), [colors, fonts])
   if (!text.trim()) return null
   return (
-    <Markdown colorScheme="dark" style={markdownStyles}>
+    <Markdown colorScheme={markdownColorScheme(theme)} style={markdownStyles}>
       {text}
     </Markdown>
   )

@@ -80,7 +80,6 @@ export function BranchPicker({ workspaceID }: { workspaceID: string }) {
         <span className="truncate font-mono text-xs text-ink-soft">{current ?? "…"}</span>
         <ChevronDownIcon size={14} className="shrink-0 text-ink-muted" />
       </button>
-
       {open && info && (
         <div
           role="dialog"
@@ -157,7 +156,10 @@ export function BranchPicker({ workspaceID }: { workspaceID: string }) {
   )
 }
 
-/** Read-only branch chip for isolated sessions (their branch is worktree-owned). */
+/**
+ * Read-only branch chip for isolated sessions: plain text, never a button —
+ * the branch cannot be switched and opens no picker.
+ */
 export function BranchChip({ branch }: { branch: string }) {
   return (
     <span className="mh-chip mh-chip--mono max-w-[14rem] truncate" title={branch}>

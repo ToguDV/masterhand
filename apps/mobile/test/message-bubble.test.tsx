@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react-native"
 import type { ChatMessage, ChatMessageInfo, ChatPart } from "@masterhand/client-core"
-import { MessageBubble } from "../src/components/MessageBubble"
-import { palettes } from "../src/theme"
+import { createMarkdownStyles, markdownColorScheme, MessageBubble } from "../src/components/MessageBubble"
+import { palettes, systemFonts } from "../src/theme"
 
 function message(info: Partial<ChatMessageInfo>, parts: ChatPart[]): ChatMessage {
   return {
@@ -231,5 +231,45 @@ describe("MessageBubble", () => {
     )
 
     expect(screen.getByText("test-model")).toBeOnTheScreen()
+  })
+})
+
+describe("markdown theme", () => {
+  it("follows the active theme instead of forcing dark", () => {
+    expect(markdownColorScheme("light")).toBe("light")
+    expect(markdownColorScheme("dark")).toBe("dark")
+  })
+
+  it("keeps bold and italic readable in light mode (web parity)", () => {
+    const styles = createMarkdownStyles(palettes.light, systemFonts)
+
+    // No white-on-paper text: every inline run carries the theme ink.
+    expect(styles.body).toMatchObject({ color: palettes.light.text })
+    expect(styles.strong).toMatchObject({ color: palettes.light.text })
+    expect(styles.em).toMatchObject({ color: palettes.light.text })
+    expect(styles.text).toMatchObject({ color: palettes.light.text })
+  })
+
+  it("keeps inline code on a readable surface in both modes (web parity)", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const styles = createMarkdownStyles(palettes[theme], systemFonts)
+
+      // Inline code is dark-on-muted in light mode (like the web), never the
+      // pale code text on the pale muted surface.
+      expect(styles.code_inline).toMatchObject({
+        backgroundColor: palettes[theme].surfaceMuted,
+        color: palettes[theme].text,
+      })
+    }
+  })
+
+  it("themes fenced code blocks instead of leaving them unstyled", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const styles = createMarkdownStyles(palettes[theme], systemFonts)
+
+      expect(styles.fence).toMatchObject({ borderColor: palettes[theme].hairline })
+      expect(styles.fence_code).toMatchObject({ backgroundColor: palettes[theme].codeSurface })
+      expect(styles.fence_token).toMatchObject({ color: palettes[theme].codeText })
+    }
   })
 })
