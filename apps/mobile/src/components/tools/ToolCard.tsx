@@ -11,7 +11,8 @@ import {
   type ToolSummary,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../../theme"
-import { statusColor, toolAccent, toolGlyphs } from "./theme"
+import { statusColor, toolAccent } from "./theme"
+import { ToolIcon } from "../ToolIcon"
 import { CodeBlock, DiffView, KeyValueList, SearchBody, TerminalBody, TodoBody } from "./ToolBodies"
 
 /** Live duration for running tools; freezes with the final mark. */
@@ -159,7 +160,7 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
       <Pressable style={styles.header} onPress={() => setOpen((value) => !value)}>
         <View style={[styles.dot, { backgroundColor: statusColor(summary.status, colors) }]} />
         <View style={[styles.iconChip, { backgroundColor: accent.bg }]}>
-          <Text style={[styles.iconGlyph, { color: accent.text }]}>{toolGlyphs[summary.icon]}</Text>
+          <ToolIcon icon={summary.icon} size={13} color={accent.text} />
         </View>
         <View style={styles.titleWrap}>
           <Text style={[styles.title, pending && styles.pendingTitle]} numberOfLines={1}>
@@ -226,11 +227,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderRadius: 6,
       alignItems: "center",
       justifyContent: "center",
-    },
-    iconGlyph: {
-      fontFamily: fonts.mono,
-      fontSize: 10,
-      fontWeight: "700",
     },
     titleWrap: {
       flex: 1,

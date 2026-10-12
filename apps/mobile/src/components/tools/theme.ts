@@ -1,4 +1,4 @@
-import type { ChatToolStatus, ToolAccent, ToolIcon } from "@masterhand/client-core"
+import type { ChatToolStatus, ToolAccent } from "@masterhand/client-core"
 import type { Palette } from "../../theme"
 
 /**
@@ -25,17 +25,4 @@ export function statusColor(status: ChatToolStatus, colors: Palette): string {
       : status === "running"
         ? colors.warning
         : colors.textMuted
-}
-
-/** Monochrome glyphs, one per semantic icon (mirrors the web SVG set). */
-export const toolGlyphs: Record<ToolIcon, string> = {
-  terminal: ">_",
-  file: "▤",
-  pencil: "✎",
-  diff: "±",
-  search: "⌕",
-  globe: "⊕",
-  checklist: "☑",
-  question: "?",
-  tool: "⚙",
 }
