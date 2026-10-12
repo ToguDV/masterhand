@@ -179,11 +179,9 @@ export function ChatScreen({
       }}
       onRemoveWorkspace={(id, options) => onRemoveWorkspace?.(id, options)}
       branch={
-        isolation ? (
-          <BranchChip branch={isolation.branch} />
-        ) : workspaceID ? (
-          <BranchPicker client={client} workspaceID={workspaceID} />
-        ) : undefined
+        // Isolated sessions show their branch in the worktree strip below;
+        // repeating it here doubles the info.
+        !isolation && workspaceID ? <BranchPicker client={client} workspaceID={workspaceID} /> : undefined
       }
       trailing={<SessionStats usage={usage} />}
     />
@@ -275,6 +273,8 @@ export function ChatScreen({
         </Pressable>
       ) : null}
 
+      <GoalStrip client={client} sessionID={sessionID} />
+
       <FlatList
         ref={listRef}
         data={messages}
@@ -330,7 +330,6 @@ export function ChatScreen({
         pending={pendingSend}
         header={header}
         isolationBar={isolationBar}
-        goalStrip={<GoalStrip client={client} sessionID={sessionID} embedded />}
       />
 
       {parentSessionID && onOpenSession ? (

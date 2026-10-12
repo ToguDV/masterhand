@@ -612,7 +612,7 @@ describe("Composer", () => {
     expect(screen.getByText("Default")).toBeOnTheScreen()
   })
 
-  it("renders the dock header, isolation bar and goal strip inside one card", async () => {
+  it("renders the dock header and isolation bar inside one card", async () => {
     const client = fakeClient()
     const queryClient = makeQueryClient()
     const pending: PendingSendController = { pending: null, begin: jest.fn(), fail: jest.fn(), dismiss: jest.fn() }
@@ -627,14 +627,12 @@ describe("Composer", () => {
         pending={pending}
         header={<Text>dock-header</Text>}
         isolationBar={<Text>dock-isolation</Text>}
-        goalStrip={<Text>dock-goal</Text>}
       />,
       { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
     )
 
     expect(await screen.findByText("dock-header")).toBeOnTheScreen()
     expect(screen.getByText("dock-isolation")).toBeOnTheScreen()
-    expect(screen.getByText("dock-goal")).toBeOnTheScreen()
     expect(screen.getByTestId("composer-dock")).toBeOnTheScreen()
   })
 })

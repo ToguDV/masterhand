@@ -57,7 +57,6 @@ export function Composer({
   pending,
   header,
   isolationBar,
-  goalStrip,
 }: {
   /** Retry handle used by the chat screen's ghost bubble. */
   ref?: Ref<ComposerHandle>
@@ -75,8 +74,6 @@ export function Composer({
   header?: ReactNode
   /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
   isolationBar?: ReactNode
-  /** Goal Mode strip. Rendered inside the dock when a run exists. */
-  goalStrip?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -448,7 +445,6 @@ export function Composer({
       <View style={styles.dock} testID="composer-dock">
         {header ? <View style={styles.dockHead}>{header}</View> : null}
         {isolationBar ? <View style={styles.dockStrip}>{isolationBar}</View> : null}
-        {goalStrip}
 
         <View style={styles.dockBody}>
           {popover && (

@@ -86,7 +86,6 @@ export function Composer({
   onToggleAutoAccept,
   pending,
   header,
-  goalStrip,
   isolationBar,
 }: {
   /** Retry handle used by the chat container's ghost bubble. */
@@ -102,8 +101,6 @@ export function Composer({
   pending: PendingSendController
   /** Composer context bar (workspace menu, branch, stats). Rendered as the dock head. */
   header?: ReactNode
-  /** Goal Mode strip. Rendered inside the dock when a run exists. */
-  goalStrip?: ReactNode
   /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
   isolationBar?: ReactNode
 }) {
@@ -492,7 +489,6 @@ export function Composer({
         <div className="mh-composer-dock">
           {header && <div className="mh-composer-dock__head">{header}</div>}
           {isolationBar}
-          {goalStrip}
 
           <div className="mh-composer-dock__body relative">
             {popover && (

@@ -10,28 +10,19 @@ import {
   useGoalRun,
   type Client,
 } from "@masterhand/client-core"
-import { PauseIcon, PlayIcon, SparkleIcon, StopIcon } from "./icons"
+import { ChevronDownIcon, PauseIcon, PlayIcon, SparkleIcon, StopIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
- * Goal Mode control strip: one subtle block above the composer with the loop
- * phase, round and last review result, plus actions styled like the rest of
- * the interface. The run state is SSE-driven (`goal.updated` frames); mutations
- * reconcile it by refetching and a timeout is reported as "may have changed".
- * The review history itself lives in the thread (GoalReview).
+ * Goal Mode fold: a single compact bar pinned to the top of the chat, outside
+ * the transcript. Collapsed it shows only the live phase and the round;
+ * expanding reveals the last result, the actions and any error. Returns null
+ * when the session has no run.
  */
-export function GoalStrip({
-  client,
-  sessionID,
-  embedded = false,
-}: {
-  client: Client
-  sessionID: string
-  /** Docked inside the composer card: strip styling instead of a loose section. */
-  embedded?: boolean
-}) {
+export function GoalStrip({ client, sessionID }: { client: Client; sessionID: string }) {
   const queryClient = useQueryClient()
   const { data } = useGoalRun(client, sessionID)
+  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   // Synchronous in-flight guard: a state flag is not a lock (rule 7).
   const busyRef = useRef(false)
@@ -67,64 +58,78 @@ export function GoalStrip({
     data.state === "error" ? styles.dangerText : data.state === "approved" ? styles.accentText : null
 
   return (
-    <View style={[styles.container, embedded && styles.embedded]} accessibilityLabel="Goal run">
-      <View style={styles.infoRow}>
+    <View style={styles.fold} accessibilityLabel="Goal run">
+      <Pressable
+        style={styles.header}
+        onPress={() => setOpen((value) => !value)}
+        accessibilityRole="button"
+        accessibilityLabel="Goal details"
+        accessibilityState={{ expanded: open }}
+        testID="goal-fold-toggle"
+      >
         <SparkleIcon size={13} color={active ? colors.accent : colors.textMuted} />
         <Text style={[styles.state, tone]}>{goalStateLabel(data.state)}</Text>
         <View style={styles.roundChip}>
           <Text style={styles.round}>{`${data.round}/${data.maxRounds}`}</Text>
         </View>
-        {data.lastError && active ? (
-          <Text style={styles.warning} numberOfLines={1}>
-            {data.lastError}
-          </Text>
-        ) : result ? (
-          <Text style={styles.result} numberOfLines={1}>
-            {result}
-          </Text>
-        ) : null}
-      </View>
+        <View style={styles.spacer} />
+        <ChevronDownIcon size={14} color={colors.textMuted} />
+      </Pressable>
 
-      <View style={styles.actions}>
-        {active ? (
-          <>
-            <Action
-              label="Pause"
-              icon={<PauseIcon size={14} color={colors.text} />}
-              disabled={busy}
-              onPress={() => void act(() => client.api.goal.pause(sessionID))}
-            />
-            <Action
-              label="Cancel"
-              icon={<StopIcon size={14} color={colors.danger} />}
-              variant="danger"
-              disabled={busy}
-              onPress={() => void act(() => client.api.goal.cancel(sessionID))}
-            />
-          </>
-        ) : null}
-        {resumable ? (
-          <>
-            <Action
-              label={data.state === "paused" ? "Resume" : "Retry"}
-              icon={<PlayIcon size={14} color={colors.onAccent} />}
-              variant="primary"
-              disabled={busy}
-              onPress={() => void act(() => client.api.goal.resume(sessionID))}
-            />
-            <Action
-              label="Cancel"
-              icon={<StopIcon size={14} color={colors.danger} />}
-              variant="danger"
-              disabled={busy}
-              onPress={() => void act(() => client.api.goal.cancel(sessionID))}
-            />
-          </>
-        ) : null}
-      </View>
+      {open ? (
+        <View style={styles.details}>
+          {data.lastError && active ? (
+            <Text style={styles.warning} numberOfLines={1}>
+              {data.lastError}
+            </Text>
+          ) : result ? (
+            <Text style={styles.result} numberOfLines={1}>
+              {result}
+            </Text>
+          ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      {data.error ? <Text style={styles.error}>{data.error}</Text> : null}
+          <View style={styles.actions}>
+            {active ? (
+              <>
+                <Action
+                  label="Pause"
+                  icon={<PauseIcon size={14} color={colors.text} />}
+                  disabled={busy}
+                  onPress={() => void act(() => client.api.goal.pause(sessionID))}
+                />
+                <Action
+                  label="Cancel"
+                  icon={<StopIcon size={14} color={colors.danger} />}
+                  variant="danger"
+                  disabled={busy}
+                  onPress={() => void act(() => client.api.goal.cancel(sessionID))}
+                />
+              </>
+            ) : null}
+            {resumable ? (
+              <>
+                <Action
+                  label={data.state === "paused" ? "Resume" : "Retry"}
+                  icon={<PlayIcon size={14} color={colors.onAccent} />}
+                  variant="primary"
+                  disabled={busy}
+                  onPress={() => void act(() => client.api.goal.resume(sessionID))}
+                />
+                <Action
+                  label="Cancel"
+                  icon={<StopIcon size={14} color={colors.danger} />}
+                  variant="danger"
+                  disabled={busy}
+                  onPress={() => void act(() => client.api.goal.cancel(sessionID))}
+                />
+              </>
+            ) : null}
+          </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {data.error ? <Text style={styles.error}>{data.error}</Text> : null}
+        </View>
+      ) : null}
     </View>
   )
 }
@@ -172,21 +177,14 @@ function Action({
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
-    container: {
-      gap: 6,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
+    fold: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
       backgroundColor: colors.surface,
       paddingHorizontal: 14,
-      paddingVertical: 8,
-    },
-    embedded: {
-      borderTopWidth: 0,
-      backgroundColor: colors.accentSoft,
-      paddingHorizontal: 12,
       paddingVertical: 6,
     },
-    infoRow: {
+    header: {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
@@ -214,6 +212,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.textMuted,
       fontFamily: fonts.mono,
       fontSize: 10,
+    },
+    spacer: {
+      flex: 1,
+    },
+    details: {
+      gap: 6,
+      paddingTop: 6,
     },
     result: {
       flexShrink: 1,

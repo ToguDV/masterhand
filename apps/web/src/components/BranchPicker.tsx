@@ -156,13 +156,3 @@ export function BranchPicker({ workspaceID }: { workspaceID: string }) {
     </div>
   )
 }
-
-/** Read-only branch chip for isolated sessions (their branch is worktree-owned). */
-export function BranchChip({ branch }: { branch: string }) {
-  return (
-    <span className="mh-chip mh-chip--mono max-w-[14rem] truncate" title={branch}>
-      <BranchIcon size={12} className="mr-1 inline-block align-text-bottom" />
-      {branch}
-    </span>
-  )
-}

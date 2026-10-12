@@ -163,9 +163,9 @@ describe("ChatScreen", () => {
       error: null,
     })
 
-    // The branch shows twice by design (web parity): the dock header chip
-    // and the isolation strip.
-    expect(screen.getAllByText("masterhand/abc")).toHaveLength(2)
+    // The branch shows exactly once: the isolation strip owns it, the dock
+    // header no longer repeats it.
+    expect(screen.getAllByText("masterhand/abc")).toHaveLength(1)
     await fireEvent.press(screen.getByText("Finish & PR"))
 
     expect(client.api.sessions.finish).toHaveBeenCalledWith("s1")

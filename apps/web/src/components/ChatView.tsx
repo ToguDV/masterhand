@@ -17,7 +17,7 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
-import { BranchChip, BranchPicker } from "./BranchPicker"
+import { BranchPicker } from "./BranchPicker"
 import { Composer, type ComposerHandle } from "./Composer"
 import { GoalReview } from "./GoalCards"
 import { GoalStrip } from "./GoalStrip"
@@ -185,6 +185,7 @@ export function ChatView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <GoalStrip sessionID={sessionID} />
       <div ref={scrollRef} onScroll={handleScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
         <div className="mh-chat-col mh-thread">
           <p className="sr-only" role="status">
@@ -272,11 +273,9 @@ export function ChatView({
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
             branch={
-              isolation ? (
-                <BranchChip branch={isolation.branch} />
-              ) : workspaceID ? (
-                <BranchPicker workspaceID={workspaceID} />
-              ) : undefined
+              // Isolated sessions show their branch in the worktree strip
+              // below; repeating it here doubles the info.
+              !isolation && workspaceID ? <BranchPicker workspaceID={workspaceID} /> : undefined
             }
             trailing={<SessionStats usage={usage} />}
           />
@@ -338,7 +337,6 @@ export function ChatView({
             </div>
           ) : undefined
         }
-        goalStrip={<GoalStrip sessionID={sessionID} embedded />}
       />
     </div>
   )
