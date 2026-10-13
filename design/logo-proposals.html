@@ -7,7 +7,7 @@
     <title>MasterHand — Propuesta de logo</title>
     <meta
       name="description"
-      content="El guante clásico de MasterHand: un solo isotipo de cuatro dedos y pulgar, con imagotipo, logotipo y pruebas de tamaño."
+      content="El saludo clásico de MasterHand: un solo isotipo de guante cartoon saludando, con imagotipos, logotipo y pruebas de tamaño."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -83,9 +83,6 @@
         background-size: 12px 12px;
         background-position: 8px 8px;
       }
-      .lg-card__stage--accent {
-        background: var(--mh-accent-soft);
-      }
       .lg-mark { width: 132px; height: 132px; }
       .lg-card__body { padding: var(--sp-md); display: flex; flex-direction: column; gap: 8px; flex: 1; }
       .lg-card__name { font-size: 17px; font-weight: 600; }
@@ -118,7 +115,7 @@
         background: #0c0c0b;
         display: grid; place-items: center; position: relative; flex: none;
       }
-      .lg-badge svg { width: 92px; height: 92px; }
+      .lg-badge svg { width: 96px; height: 96px; }
       .lg-copy {
         border: 1px solid var(--mh-hairline-strong);
         background: transparent; color: var(--mh-text-muted);
@@ -133,18 +130,48 @@
       }
       .lg-rule { display: flex; gap: 10px; align-items: flex-start; }
       .lg-rule b { color: var(--mh-text); }
+      .lg-dont { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+      .lg-dont li { display: flex; gap: 10px; align-items: flex-start; }
+      .lg-dont .lg-x {
+        flex: none; width: 20px; height: 20px; border-radius: 50%;
+        border: 1.5px solid var(--mh-text-muted); color: var(--mh-text-muted);
+        display: inline-grid; place-items: center; font-size: 12px; line-height: 1;
+        margin-top: 1px;
+      }
       @media (min-width: 640px) {
         .lg-hero__inner { grid-template-columns: 1.05fr 0.95fr; }
       }
     </style>
   </head>
   <body>
-    <!-- Símbolo único: guante clásico — un solo contorno de tinta, relleno blanco, puño con costura -->
+    <!-- Símbolo único: guante cartoon saludando — contorno de tinta, relleno blanco, valles en V, puño con costura y 4 líneas de movimiento -->
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
       <defs>
-        <symbol id="mh-glove" viewBox="0 0 120 120">
-          <path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z" fill="#fff" stroke="#0c0c0b" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
-          <path d="M 41 84.5 Q 69.5 89 98 84.5" fill="none" stroke="#0c0c0b" stroke-width="3.5" stroke-linecap="round"/>
+        <g id="mh-glove-full">
+          <g transform="translate(74.08 81.29) scale(0.99)"><g transform="rotate(16)">
+            <path d="M -37.5 -3 L -34.99 -34.66 A 8.2 8.2 0 0 1 -19.01 -38.34 L -18 -16 L -17.59 -43.05 A 8.6 8.6 0 0 1 -0.41 -43.95 L 0 -14 L 0.68 -40.17 A 8.4 8.4 0 0 1 17.32 -37.83 L 17 -12 L 18.82 -32.05 A 7.8 7.8 0 0 1 33.18 -25.95 L 38 1 C 40 11, 38 21, 31 28 L 29 31 L 10 33 L 10 52 Q 10 57, 5 57 L -21 57 Q -26 57, -26 52 L -26 33 L -28 29 C -33 21, -34 11, -35 3 C -45 0, -52 -6, -54 -20 A 12 12 0 0 1 -36 -28 C -29 -24, -28 -18, -29 -11 C -29.5 -8, -33.5 -5, -37.5 -3 Z" fill="#fff" stroke="#0c0c0b" stroke-width="4.7" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M -24 -1 C -10 5, 6 9, 22 7" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M -31 0 C -24 4, -16 6, -8 5" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M 7 41 C -3 44, -12 44, -23 41" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M -70 -48 Q -62 -60 -48 -64" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M -76 -32 Q -68 -42 -58 -46" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M 50 -32 Q 56 -25 55 -16" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M 45 -10 Q 52 -6 52 2" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+          </g></g>
+        </g>
+        <g id="mh-glove-bare">
+          <g transform="translate(74.08 81.29) scale(0.99)"><g transform="rotate(16)">
+            <path d="M -37.5 -3 L -34.99 -34.66 A 8.2 8.2 0 0 1 -19.01 -38.34 L -18 -16 L -17.59 -43.05 A 8.6 8.6 0 0 1 -0.41 -43.95 L 0 -14 L 0.68 -40.17 A 8.4 8.4 0 0 1 17.32 -37.83 L 17 -12 L 18.82 -32.05 A 7.8 7.8 0 0 1 33.18 -25.95 L 38 1 C 40 11, 38 21, 31 28 L 29 31 L 10 33 L 10 52 Q 10 57, 5 57 L -21 57 Q -26 57, -26 52 L -26 33 L -28 29 C -33 21, -34 11, -35 3 C -45 0, -52 -6, -54 -20 A 12 12 0 0 1 -36 -28 C -29 -24, -28 -18, -29 -11 C -29.5 -8, -33.5 -5, -37.5 -3 Z" fill="#fff" stroke="#0c0c0b" stroke-width="4.7" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M -24 -1 C -10 5, 6 9, 22 7" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M -31 0 C -24 4, -16 6, -8 5" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+            <path d="M 7 41 C -3 44, -12 44, -23 41" fill="none" stroke="#0c0c0b" stroke-width="3.9" stroke-linecap="round"/>
+          </g></g>
+        </g>
+        <symbol id="mh-glove" viewBox="0 0 150 150">
+          <use href="#mh-glove-full"/>
+        </symbol>
+        <symbol id="mh-glove-compact" viewBox="0 0 150 150">
+          <use href="#mh-glove-bare"/>
         </symbol>
       </defs>
     </svg>
@@ -152,7 +179,7 @@
     <header class="mh-page-header">
       <div class="mh-container mh-page-header__inner">
         <a class="mh-brand" href="#top">
-          <svg class="mh-brand__mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#mh-glove"/></svg>
+          <svg class="mh-brand__mark" viewBox="0 0 150 150" aria-hidden="true"><use href="#mh-glove-compact"/></svg>
           <span class="mh-brand__name">MasterHand · logo</span>
         </a>
         <nav class="mh-page-nav" aria-label="Secciones">
@@ -172,22 +199,23 @@
         <div class="mh-deco mh-deco--dots" style="bottom: 24px; left: -36px"></div>
         <div class="mh-container lg-hero__inner">
           <div>
-            <p class="mh-micro mh-eyebrow">Propuesta · guante clásico</p>
-            <h1 class="mh-display-hero">Un solo guante, bien dibujado.</h1>
+            <p class="mh-micro mh-eyebrow">Propuesta · saludo clásico</p>
+            <h1 class="mh-display-hero">La mano que saluda.</h1>
             <p class="mh-hero__lede">
-              El isotipo de MasterHand, reconstruido desde cero con el referente
-              encima: cuatro dedos y pulgar, un único contorno de tinta de
-              4.5&nbsp;px, relleno blanco, valles redondos y puño con una sola
-              costura. Sin caras, sin sombras, sin piezas sueltas.
+              El isotipo de MasterHand, reconstruido desde la referencia:
+              guante cartoon en saludo, ladeado 16°, cuatro dedos con valles
+              en V, pulgar grueso, puño con costura y cuatro líneas de
+              movimiento. Un solo contorno de tinta, relleno blanco, sin
+              caras, sin sombras, sin piezas sueltas.
             </p>
             <div class="mh-hero__actions">
               <a class="mh-btn mh-btn--primary" href="#isotipo">Ver el isotipo</a>
               <a class="mh-btn mh-btn--secondary" href="#pruebas">Pruebas de tamaño</a>
             </div>
-            <p class="mh-hero__note mh-caption">Una sola propuesta por ahora: la clásica. Las demás variantes se retiran hasta que esta esté cerrada.</p>
+            <p class="mh-hero__note mh-caption">Una sola propuesta: la clásica. Sin variantes, sin mascota con ojos.</p>
           </div>
           <div>
-            <svg class="lg-hero__mark" viewBox="0 0 120 120" role="img" aria-label="Guante MasterHand"><use href="#mh-glove"/></svg>
+            <svg class="lg-hero__mark" viewBox="0 0 150 150" role="img" aria-label="Guante MasterHand saludando"><use href="#mh-glove"/></svg>
           </div>
         </div>
       </section>
@@ -197,34 +225,34 @@
         <div class="mh-container">
           <div class="mh-section__head">
             <p class="mh-micro mh-eyebrow">01 · Isotipo</p>
-            <h2 class="mh-display-lg mh-section__title">El guante</h2>
-            <p class="mh-lede">Un solo glifo, sin variantes: la palma frontal con el pulgar a 40° sobre el lateral. Todo lo demás (punto, pinza, orb, mascota) queda descartado de momento.</p>
+            <h2 class="mh-display-lg mh-section__title">El saludo</h2>
+            <p class="mh-lede">Un solo glifo: la palma en saludo con el pulgar a la izquierda y el puño abajo. Todo lo demás (pinza, punto, orb, mascota) queda descartado.</p>
           </div>
           <div class="lg-grid">
             <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-glove"/></svg></div>
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 150 150"><use href="#mh-glove"/></svg></div>
               <div class="lg-card__body">
                 <h3 class="lg-card__name">Anatomía</h3>
-                <p class="lg-card__desc">Un único path continuo: dedos, palma y puño salen del mismo contorno, así que nunca se separa ninguna pieza. Los valles entre dedos son semicírculos del mismo radio que las yemas. El pulgar mide lo mismo que un dedo y nace del borde de la palma, no del puño.</p>
-                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">la propuesta</span><button class="lg-copy" type="button" data-copy="mh-glove">Copiar SVG</button></div>
+                <p class="lg-card__desc">Un único contorno: cuatro dedos en abanico con valles en V afilada, yemas en arco de medio punto, pulgar grueso que nace del borde de la palma, puño trapezoidal con una costura y dos arrugas internas (pliegue largo de la palma + arruga corta del pulgar). Cuatro líneas de movimiento —dos arriba a la izquierda, dos a la derecha— cierran el gesto de saludo.</p>
+                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">la propuesta</span><button class="lg-copy" type="button" data-copy="mh-glove-full">Copiar SVG</button></div>
               </div>
             </article>
             <article class="lg-card">
               <div class="lg-card__stage"><div class="lg-sizes" aria-label="Prueba de tamaños">
-                <svg width="72" height="72" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
-                <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
-                <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
-                <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="72" height="72" viewBox="0 0 150 150"><use href="#mh-glove"/></svg>
+                <svg width="40" height="40" viewBox="0 0 150 150"><use href="#mh-glove"/></svg>
+                <svg width="24" height="24" viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
+                <svg width="16" height="16" viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
               </div></div>
               <div class="lg-card__body">
                 <h3 class="lg-card__name">Tamaños</h3>
-                <p class="lg-card__desc">A 72 y 40&nbsp;px se lee completo. A 24&nbsp;px sigue siendo un guante inequívoco. A 16&nbsp;px se convierte en silueta: sirve como favicon con el trazo intacto, pero el mínimo recomendado para UI es 24&nbsp;px.</p>
-                <div class="lg-card__meta"><span class="mh-chip">mín. 24px</span></div>
+                <p class="lg-card__desc">A 72 y 40&nbsp;px se lee completo, con movimiento y todo. A 24&nbsp;px se usa la versión compacta —sin líneas de movimiento— y sigue siendo un guante inequívoco. A 16&nbsp;px queda la silueta: sirve como favicon, pero el mínimo recomendado para UI es 24&nbsp;px.</p>
+                <div class="lg-card__meta"><span class="mh-chip">mín. 24px</span><span class="mh-chip">compacta bajo 40px</span></div>
               </div>
             </article>
           </div>
           <div class="lg-note" style="margin-top: 16px">
-            <div class="lg-rule"><span>✋</span><p><b>Construcción.</b> Rejilla de 120, trazo 4.5&nbsp;px tinta (#0c0c0b) y relleno blanco puro: el isotipo es siempre blanco con contorno, igual en claro y en oscuro. Radio de yema y de valle 4.5 y 2.25; puño de 15 de alto con una costura curva. Sin degradados, sin sombras, sin color de acento dentro de la marca.</p></div>
+            <div class="lg-rule"><span aria-hidden="true">→</span><p><b>Construcción.</b> Rejilla de 150, giro global de 16° a la derecha, trazo 4.7 de tinta (#0c0c0b) y relleno blanco puro: el isotipo es siempre blanco con contorno, igual en claro y en oscuro. Detalles y movimiento en 3.9. Paredes de dedo rectas, yemas en arco, valles en V con el fondo separado para que el blanco respire. Sin degradados, sin sombras, sin color de acento dentro de la marca.</p></div>
           </div>
         </div>
       </section>
@@ -241,14 +269,14 @@
             <article class="lg-card">
               <div class="mh-demo__label"><span>imagotipo · horizontal</span><span>top-bar</span></div>
               <div class="lg-lockup">
-                <svg width="52" height="52" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="52" height="52" viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
                 <span class="lg-word lg-word--md">MasterHand</span>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>imagotipo · apilado</span><span>login</span></div>
               <div class="lg-lockup lg-lockup--stack">
-                <svg width="84" height="84" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="84" height="84" viewBox="0 0 150 150"><use href="#mh-glove"/></svg>
                 <span class="lg-word lg-word--md">MasterHand</span>
                 <span class="mh-caption mh-muted">Your agents, in your hand.</span>
               </div>
@@ -257,9 +285,9 @@
               <div class="mh-demo__label"><span>imagotipo · badge</span><span>avatar / PWA</span></div>
               <div class="lg-lockup">
                 <div class="lg-badge">
-                  <svg viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                  <svg viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
                 </div>
-                <p class="mh-caption mh-muted" style="max-width: 22ch">Círculo tinta fijo para avatar y icono de app: el guante blanco respira dentro y no invierte con el tema.</p>
+                <p class="mh-caption mh-muted" style="max-width: 22ch">Círculo tinta fijo para avatar y icono de app, con la versión compacta: el guante blanco respira dentro y no invierte con el tema.</p>
               </div>
             </article>
             <article class="lg-card">
@@ -285,34 +313,41 @@
             <article class="lg-card">
               <div class="mh-demo__label"><span>sobre claro</span><span>paper</span></div>
               <div class="lg-lockup">
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
-                <svg width="32" height="32" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="64" height="64" viewBox="0 0 150 150"><use href="#mh-glove"/></svg>
+                <svg width="32" height="32" viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>sobre oscuro</span><span>ink-950</span></div>
               <div class="lg-lockup lg-card__stage--dark" style="border-radius: 0">
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
-                <svg width="32" height="32" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="64" height="64" viewBox="0 0 150 150"><use href="#mh-glove"/></svg>
+                <svg width="32" height="32" viewBox="0 0 150 150"><use href="#mh-glove-compact"/></svg>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>una tinta</span><span>line · currentColor</span></div>
               <div class="lg-lockup" style="color: var(--mh-text)">
-                <svg width="64" height="64" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"><path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z"/><path d="M 41 84.5 Q 69.5 89 98 84.5" stroke-width="3.5"/></svg>
-                <svg width="32" height="32" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"><path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z"/><path d="M 41 84.5 Q 69.5 89 98 84.5" stroke-width="3.5"/></svg>
+                <svg width="64" height="64" viewBox="0 0 150 150" fill="none" stroke="currentColor" stroke-width="4.7" stroke-linejoin="round" stroke-linecap="round"><g transform="translate(74.08 81.29) scale(0.99)"><g transform="rotate(16)"><path d="M -37.5 -3 L -34.99 -34.66 A 8.2 8.2 0 0 1 -19.01 -38.34 L -18 -16 L -17.59 -43.05 A 8.6 8.6 0 0 1 -0.41 -43.95 L 0 -14 L 0.68 -40.17 A 8.4 8.4 0 0 1 17.32 -37.83 L 17 -12 L 18.82 -32.05 A 7.8 7.8 0 0 1 33.18 -25.95 L 38 1 C 40 11, 38 21, 31 28 L 29 31 L 10 33 L 10 52 Q 10 57, 5 57 L -21 57 Q -26 57, -26 52 L -26 33 L -28 29 C -33 21, -34 11, -35 3 C -45 0, -52 -6, -54 -20 A 12 12 0 0 1 -36 -28 C -29 -24, -28 -18, -29 -11 C -29.5 -8, -33.5 -5, -37.5 -3 Z"/><path d="M -24 -1 C -10 5, 6 9, 22 7" stroke-width="3.9"/><path d="M -31 0 C -24 4, -16 6, -8 5" stroke-width="3.9"/><path d="M 7 41 C -3 44, -12 44, -23 41" stroke-width="3.9"/><path d="M -70 -48 Q -62 -60 -48 -64" stroke-width="3.9"/><path d="M -76 -32 Q -68 -42 -58 -46" stroke-width="3.9"/><path d="M 50 -32 Q 56 -25 55 -16" stroke-width="3.9"/><path d="M 45 -10 Q 52 -6 52 2" stroke-width="3.9"/></g></g></svg>
+                <svg width="32" height="32" viewBox="0 0 150 150" fill="none" stroke="currentColor" stroke-width="4.7" stroke-linejoin="round" stroke-linecap="round"><g transform="translate(74.08 81.29) scale(0.99)"><g transform="rotate(16)"><path d="M -37.5 -3 L -34.99 -34.66 A 8.2 8.2 0 0 1 -19.01 -38.34 L -18 -16 L -17.59 -43.05 A 8.6 8.6 0 0 1 -0.41 -43.95 L 0 -14 L 0.68 -40.17 A 8.4 8.4 0 0 1 17.32 -37.83 L 17 -12 L 18.82 -32.05 A 7.8 7.8 0 0 1 33.18 -25.95 L 38 1 C 40 11, 38 21, 31 28 L 29 31 L 10 33 L 10 52 Q 10 57, 5 57 L -21 57 Q -26 57, -26 52 L -26 33 L -28 29 C -33 21, -34 11, -35 3 C -45 0, -52 -6, -54 -20 A 12 12 0 0 1 -36 -28 C -29 -24, -28 -18, -29 -11 C -29.5 -8, -33.5 -5, -37.5 -3 Z"/></g></g></svg>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>no hacer</span><span>reglas</span></div>
               <div class="lg-card__body">
-                <p class="lg-card__desc">⛔ Sin dedos rectángulo ni puntas en U ancha · ⛔ sin contorno fino (&lt;4px) · ⛔ sin sombras, gradientes ni brillos · ⛔ sin segundo color dentro de la marca · ⛔ sin carita ni ojos · ⛔ sin piezas flotantes (el puño va siempre pegado a la muñeca).</p>
-                <p class="lg-card__desc">Área de respeto = alto del puño. Mínimo digital 24px, impreso 8mm.</p>
+                <ul class="lg-dont lg-card__desc">
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin dedos rectángulo ni puntas sin arco.</span></li>
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin contorno fino (&lt;4px en rejilla de 150).</span></li>
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin sombras, gradientes ni brillos.</span></li>
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin segundo color dentro de la marca.</span></li>
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin carita ni ojos, y sin enderezar el giro de 16°.</span></li>
+                  <li><span class="lg-x" aria-hidden="true">×</span><span>Sin piezas flotantes: el puño va siempre pegado a la muñeca y las líneas de movimiento solo en la versión completa.</span></li>
+                </ul>
+                <p class="lg-card__desc">Área de respeto = alto del puño. Mínimo digital 24px (16px solo la compacta), impreso 8mm.</p>
               </div>
             </article>
           </div>
           <div class="lg-note" style="margin-top: 16px">
-            <p><b style="color: var(--mh-text)">Recomendación:</b> este guante es el único logo por ahora — icono de app, top-bar e identidad. Si más adelante hacen falta gestos secundarios (actuar, magia, mascota), se dibujarán con esta misma anatomía y este mismo trazo, nunca como piezas aparte.</p>
+            <p><b style="color: var(--mh-text)">Recomendación:</b> este saludo es el único logo —icono de app, top-bar e identidad— con su versión compacta (sin movimiento) para tamaños pequeños y avatar. Si más adelante hacen falta gestos secundarios, se dibujarán con esta misma anatomía y este mismo trazo, nunca como piezas aparte.</p>
           </div>
         </div>
       </section>
@@ -326,15 +361,15 @@
     </footer>
 
     <script>
-      // Copiar el <symbol> como SVG standalone
+      // Copiar el grupo como SVG standalone (replica el <symbol> con su viewBox)
       document.querySelectorAll("[data-copy]").forEach(function (btn) {
         btn.addEventListener("click", function () {
           var id = btn.getAttribute("data-copy");
-          var sym = document.getElementById(id);
-          if (!sym) return;
+          var src = document.getElementById(id);
+          if (!src) return;
           var svg =
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">' +
-            sym.innerHTML +
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150">' +
+            src.innerHTML +
             "</svg>";
           function done() {
             btn.textContent = "¡Copiado!";
