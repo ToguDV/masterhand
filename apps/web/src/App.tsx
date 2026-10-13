@@ -837,10 +837,9 @@ export default function App() {
     return <Login onSuccess={() => setAuthed(true)} />
   }
 
-  // The sidebar is a section rail plus a panel. The rail (Sessions, Board,
-  // Settings, Sign out) is always visible on desktop and in the mobile
-  // drawer; the panel shows the sections home or the active section and hides
-  // only when collapsed on desktop. The edge-handle curve reuses the sidebar
+  // The sidebar holds one section list at a time: a 60px icon rail when
+  // collapsed, or the panel (sections home / active section + options box)
+  // when expanded and in the mobile drawer. The edge-handle curve reuses the
   // border paint (`currentColor` over `--mh-hairline`) so it tracks every
   // palette; the straight border stays a CSS border and the SVG only redraws
   // the bump. Depth comes from a faint blurred copy underneath — never a
@@ -859,8 +858,9 @@ export default function App() {
     sidebarCollapsed ? "mh-aside-collapsed" : "",
   ].join(" ")
   // The panel shows on desktop when expanded; the mobile drawer always shows
-  // rail and panel together, even when the desktop sidebar is collapsed.
-  const showPanel = !sidebarCollapsed || drawerOpen
+  // the panel, even when the desktop sidebar is collapsed. Rail and panel
+  // never render together: the section list lives in exactly one place.
+  const showRail = sidebarCollapsed && !drawerOpen
 
   return (
     <div className="flex h-dvh flex-col bg-canvas text-ink">
@@ -995,59 +995,61 @@ export default function App() {
           />
         )}
         <aside className={asideClass}>
-          {/* Section rail: section icons live here in both collapsed and
-              expanded states; app-level actions sit at the bottom. */}
-          <nav
-            aria-label="Sections"
-            className="flex w-[60px] shrink-0 flex-col items-center gap-1 border-r border-hairline py-3"
-          >
-            <button
-              type="button"
-              onClick={() => selectSection("sessions")}
-              className={`mh-btn mh-btn--quiet ${activeSection === "sessions" ? "bg-surface-muted text-ink" : ""}`}
-              aria-label="Sessions section"
-              title="Sessions"
-              aria-current={activeSection === "sessions" ? "page" : undefined}
+          {/* Section rail: only when collapsed (the drawer always shows the
+              panel). Section icons live here and nowhere else in this state. */}
+          {showRail && (
+            <nav
+              aria-label="Sections"
+              className="flex w-[60px] shrink-0 flex-col items-center gap-1 border-r border-hairline py-3"
             >
-              <ChatBubbleIcon size={18} />
-            </button>
-            <button
-              type="button"
-              onClick={() => selectSection("board")}
-              className={`mh-btn mh-btn--quiet ${activeSection === "board" ? "bg-surface-muted text-ink" : ""}`}
-              aria-label="Board section"
-              title="Board"
-              aria-current={activeSection === "board" ? "page" : undefined}
-            >
-              <KanbanIcon size={18} />
-            </button>
-            <div className="mt-auto flex flex-col items-center gap-1">
               <button
                 type="button"
-                onClick={() => {
-                  setDrawerOpen(false)
-                  setPanel("settings")
-                }}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Settings"
-                title="Settings"
+                onClick={() => selectSection("sessions")}
+                className={`mh-btn mh-btn--quiet ${activeSection === "sessions" ? "bg-surface-muted text-ink" : ""}`}
+                aria-label="Sessions section"
+                title="Sessions"
+                aria-current={activeSection === "sessions" ? "page" : undefined}
               >
-                <GearIcon size={18} />
+                <ChatBubbleIcon size={18} />
               </button>
               <button
                 type="button"
-                onClick={() => void handleLogout()}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Sign out"
-                title="Sign out"
+                onClick={() => selectSection("board")}
+                className={`mh-btn mh-btn--quiet ${activeSection === "board" ? "bg-surface-muted text-ink" : ""}`}
+                aria-label="Board section"
+                title="Board"
+                aria-current={activeSection === "board" ? "page" : undefined}
               >
-                <LogOutIcon size={16} />
+                <KanbanIcon size={18} />
               </button>
-            </div>
-          </nav>
+              <div className="mt-auto flex flex-col items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false)
+                    setPanel("settings")
+                  }}
+                  className="mh-btn mh-btn--quiet"
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  <GearIcon size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="mh-btn mh-btn--quiet"
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <LogOutIcon size={16} />
+                </button>
+              </div>
+            </nav>
+          )}
           {/* Section panel: the sections home or the active section. The `<`
               back button only exists here, in the expanded sidebar. */}
-          {showPanel && (
+          {!showRail && (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {sidebarShowsHome ? (
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -1116,6 +1118,31 @@ export default function App() {
                   </div>
                 </div>
               )}
+              {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
+              <div className="shrink-0 border-t border-hairline p-3">
+                <div className="flex w-fit items-center gap-2 rounded-md border border-hairline bg-surface p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDrawerOpen(false)
+                      setPanel("settings")
+                    }}
+                    className="mh-btn mh-btn--quiet"
+                    aria-label="Settings"
+                    title="Settings"
+                  >
+                    <GearIcon size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="mh-btn mh-btn--ghost"
+                  >
+                    <LogOutIcon size={16} />
+                    Sign out
+                  </button>
+                </div>
+              </div>
             </div>
           )}
           {/* Edge handle: the desktop-only collapse toggle. The sidebar border
