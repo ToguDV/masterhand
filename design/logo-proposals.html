@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>MasterHand — Propuestas de logo</title>
+    <title>MasterHand — Propuesta de logo</title>
     <meta
       name="description"
-      content="Seis isotipos de guante blanco caricatura para MasterHand, con imagotipos, logotipos y pruebas de tamaño."
+      content="El guante clásico de MasterHand: un solo isotipo de cuatro dedos y pulgar, con imagotipo, logotipo y pruebas de tamaño."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -34,7 +34,7 @@
     </script>
     <script src="design.js" defer></script>
     <style>
-      /* Galería de logos: solo layout local, todo el color sale de design.css */
+      /* Galería del logo: solo layout local, todo el color sale de design.css */
       .lg-hero {
         position: relative;
         overflow: hidden;
@@ -47,16 +47,10 @@
         gap: var(--sp-xl);
         align-items: center;
       }
-      .lg-hero__mascot {
-        width: min(280px, 72vw);
+      .lg-hero__mark {
+        width: min(300px, 72vw);
         margin-inline: auto;
         filter: drop-shadow(0 10px 24px rgba(12, 12, 11, 0.14));
-        transform-origin: 50% 85%;
-        animation: lg-wave 3.2s ease-in-out infinite;
-      }
-      @keyframes lg-wave {
-        0%, 100% { transform: rotate(-4deg); }
-        50% { transform: rotate(5deg); }
       }
       .lg-grid {
         display: grid;
@@ -93,7 +87,6 @@
         background: var(--mh-accent-soft);
       }
       .lg-mark { width: 132px; height: 132px; }
-      .lg-mark--sm { width: 96px; height: 96px; }
       .lg-card__body { padding: var(--sp-md); display: flex; flex-direction: column; gap: 8px; flex: 1; }
       .lg-card__name { font-size: 17px; font-weight: 600; }
       .lg-card__desc { color: var(--mh-text-muted); font-size: 13px; line-height: 1.55; }
@@ -122,14 +115,10 @@
       .lg-word--md { font-size: 30px; }
       .lg-badge {
         width: 148px; height: 148px; border-radius: 50%;
-        background: var(--mh-text); color: var(--mh-canvas);
+        background: #0c0c0b;
         display: grid; place-items: center; position: relative; flex: none;
       }
       .lg-badge svg { width: 92px; height: 92px; }
-      .lg-badge span {
-        position: absolute; bottom: 22px;
-        font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em;
-      }
       .lg-copy {
         border: 1px solid var(--mh-hairline-strong);
         background: transparent; color: var(--mh-text-muted);
@@ -147,79 +136,15 @@
       @media (min-width: 640px) {
         .lg-hero__inner { grid-template-columns: 1.05fr 0.95fr; }
       }
-      @media (prefers-reduced-motion: reduce) {
-        .lg-hero__mascot { animation: none; }
-      }
     </style>
   </head>
   <body>
-    <!-- Símbolos reutilizables: el guante siempre blanco + tinta + puño esmeralda -->
+    <!-- Símbolo único: guante clásico — un solo contorno de tinta, relleno blanco, puño con costura -->
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
       <defs>
-        <!-- A1 · Clásica: palma abierta frontal -->
-        <symbol id="mh-classic" viewBox="0 0 120 120">
-          <rect x="36" y="14" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="51" y="10" width="13" height="46" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="66" y="11" width="13" height="45" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="81" y="16" width="12" height="40" rx="6" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <ellipse cx="27" cy="68" rx="11" ry="17" transform="rotate(-24 27 68)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="31" y="48" width="58" height="46" rx="21" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <path d="M48 66q6 5 13 2M48 76q7 5 15 2" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
-          <rect x="38" y="88" width="44" height="22" rx="9" fill="#0C0C0B"/>
-          <rect x="45" y="94" width="15" height="5" rx="2.5" fill="#fff" opacity=".85"/>
-        </symbol>
-        <!-- A2 · Point: perfil toon señalando a la derecha, un solo contorno -->
-        <symbol id="mh-point" viewBox="0 0 120 120">
-          <rect x="10" y="52" width="24" height="34" rx="9" fill="#0C0C0B"/>
-          <path d="M34 54C38 44 46 40 52 34C56 28 64 28 65 35C66 41 62 47 60 51C68 53 72 55 78 56L95 58C103 59 103 71 95 72L76 74C76 84 68 88 58 88L46 88C36 88 32 82 32 72L32 62C32 57 32 55 34 54Z" fill="#fff" stroke="#0C0C0B" stroke-width="5" stroke-linejoin="round"/>
-          <path d="M52 62C58 64 60 70 58 78M64 60C69 63 70 70 68 77" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
-        </symbol>
-        <!-- A3 · Pinza: la mano sostiene la chispa esmeralda -->
-        <symbol id="mh-snap" viewBox="0 0 120 120">
-          <path d="M22 20l2.4 5.6 5.6 2.4-5.6 2.4-2.4 5.6-2.4-5.6-5.6-2.4 5.6-2.4z" fill="#fff" stroke="#0C0C0B" stroke-width="3" stroke-linejoin="round"/>
-          <rect x="45" y="20" width="13" height="38" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="62" y="20" width="13" height="38" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <ellipse cx="35" cy="68" rx="9" ry="13" transform="rotate(-15 35 68)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="36" y="52" width="48" height="40" rx="18" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <circle cx="62" cy="66" r="11" fill="#fff" stroke="#0C0C0B" stroke-width="4.5"/>
-          <path d="M62 59.5l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2z" fill="#0B6B53" stroke="#0C0C0B" stroke-width="2.5" stroke-linejoin="round"/>
-          <rect x="38" y="86" width="44" height="22" rx="9" fill="#0C0C0B"/>
-          <rect x="45" y="92" width="15" height="5" rx="2.5" fill="#fff" opacity=".85"/>
-        </symbol>
-        <!-- A4 · Puño Rayman -->
-        <symbol id="mh-fist" viewBox="0 0 120 120">
-          <rect x="38" y="88" width="44" height="22" rx="9" fill="#0C0C0B"/>
-          <rect x="28" y="40" width="64" height="54" rx="25" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <path d="M42 40c0-8 16-8 16 0M62 40c0-8 16-8 16 0" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="40" y="60" width="40" height="15" rx="7.5" transform="rotate(-16 60 67)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <path d="M46 84q14 6 28-1" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
-        </symbol>
-        <!-- A5 · Wave mascota con carita -->
-        <symbol id="mh-wave" viewBox="0 0 120 120">
-          <rect x="24" y="20" width="13" height="36" rx="6.5" transform="rotate(-22 30 38)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="44" y="10" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="63" y="10" width="13" height="42" rx="6.5" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="81" y="20" width="12" height="36" rx="6" transform="rotate(22 87 38)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <ellipse cx="22" cy="66" rx="10" ry="15" transform="rotate(-30 22 66)" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <rect x="30" y="46" width="60" height="48" rx="24" fill="#fff" stroke="#0C0C0B" stroke-width="5"/>
-          <ellipse cx="50" cy="66" rx="5.5" ry="7" fill="#0C0C0B"/>
-          <ellipse cx="70" cy="66" rx="5.5" ry="7" fill="#0C0C0B"/>
-          <circle cx="52" cy="64" r="1.8" fill="#fff"/>
-          <circle cx="72" cy="64" r="1.8" fill="#fff"/>
-          <path d="M52 78q8 7 16 0" fill="none" stroke="#0C0C0B" stroke-width="3.5" stroke-linecap="round"/>
-          <ellipse cx="42" cy="74" rx="5" ry="3.4" fill="#0B6B53" opacity=".28"/>
-          <ellipse cx="78" cy="74" rx="5" ry="3.4" fill="#0B6B53" opacity=".28"/>
-          <rect x="40" y="88" width="40" height="22" rx="9" fill="#0C0C0B"/>
-        </symbol>
-        <!-- A6 · Orb: palma toon que presenta el orbe -->
-        <symbol id="mh-orb" viewBox="0 0 120 120">
-          <circle cx="64" cy="37" r="15" fill="#0B6B53" stroke="#0C0C0B" stroke-width="5"/>
-          <ellipse cx="58" cy="31" rx="5" ry="3.2" transform="rotate(-24 58 31)" fill="#fff" opacity=".9"/>
-          <path d="M92 21l2 4.6 4.6 2-4.6 2-2 4.6-2-4.6-4.6-2 4.6-2z" fill="#fff" stroke="#0C0C0B" stroke-width="3" stroke-linejoin="round"/>
-          <rect x="8" y="56" width="22" height="30" rx="9" fill="#0C0C0B"/>
-          <path d="M40 61C37 51 42 41 49 42C55 43 56 52 53 61Z" fill="#fff" stroke="#0C0C0B" stroke-width="5" stroke-linejoin="round"/>
-          <path d="M30 60C40 58 52 58 64 60C78 62 90 66 96 72C99 76 96 81 90 81C76 82 60 84 48 86C38 87 30 84 30 76Z" fill="#fff" stroke="#0C0C0B" stroke-width="5" stroke-linejoin="round"/>
-          <path d="M76 64C80 68 80 74 76 78" fill="none" stroke="#0C0C0B" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+        <symbol id="mh-glove" viewBox="0 0 120 120">
+          <path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z" fill="#fff" stroke="#0c0c0b" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <path d="M 41 84.5 Q 69.5 89 98 84.5" fill="none" stroke="#0c0c0b" stroke-width="3.5" stroke-linecap="round"/>
         </symbol>
       </defs>
     </svg>
@@ -227,13 +152,12 @@
     <header class="mh-page-header">
       <div class="mh-container mh-page-header__inner">
         <a class="mh-brand" href="#top">
-          <svg class="mh-brand__mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#mh-wave"/></svg>
-          <span class="mh-brand__name">MasterHand · logos</span>
+          <svg class="mh-brand__mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#mh-glove"/></svg>
+          <span class="mh-brand__name">MasterHand · logo</span>
         </a>
         <nav class="mh-page-nav" aria-label="Secciones">
-          <a href="#isotipos">Isotipos</a>
+          <a href="#isotipo">Isotipo</a>
           <a href="#imagotipos">Imagotipos</a>
-          <a href="#logotipos">Logotipos</a>
           <a href="#pruebas">Pruebas</a>
         </nav>
         <button class="mh-theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
@@ -248,116 +172,59 @@
         <div class="mh-deco mh-deco--dots" style="bottom: 24px; left: -36px"></div>
         <div class="mh-container lg-hero__inner">
           <div>
-            <p class="mh-micro mh-eyebrow">Propuestas · guante blanco caricatura</p>
-            <h1 class="mh-display-hero">Una mano con carisma.</h1>
+            <p class="mh-micro mh-eyebrow">Propuesta · guante clásico</p>
+            <h1 class="mh-display-hero">Un solo guante, bien dibujado.</h1>
             <p class="mh-hero__lede">
-              Seis isotipos de guante toon clásico — contorno negro grueso,
-              relleno blanco y puño negro, con un toque esmeralda solo en
-              las chispas — más imagotipos y logotipos. Sin gradientes,
-              legible a 16&nbsp;px.
+              El isotipo de MasterHand, reconstruido desde cero con el referente
+              encima: cuatro dedos y pulgar, un único contorno de tinta de
+              4.5&nbsp;px, relleno blanco, valles redondos y puño con una sola
+              costura. Sin caras, sin sombras, sin piezas sueltas.
             </p>
             <div class="mh-hero__actions">
-              <a class="mh-btn mh-btn--primary" href="#isotipos">Ver isotipos</a>
+              <a class="mh-btn mh-btn--primary" href="#isotipo">Ver el isotipo</a>
               <a class="mh-btn mh-btn--secondary" href="#pruebas">Pruebas de tamaño</a>
             </div>
-            <p class="mh-hero__note mh-caption">Mi favorita: A5 Wave — la única con carita, la mascota.</p>
+            <p class="mh-hero__note mh-caption">Una sola propuesta por ahora: la clásica. Las demás variantes se retiran hasta que esta esté cerrada.</p>
           </div>
           <div>
-            <svg class="lg-hero__mascot" viewBox="0 0 120 120" role="img" aria-label="Mascota MasterHand saludando"><use href="#mh-wave"/></svg>
+            <svg class="lg-hero__mark" viewBox="0 0 120 120" role="img" aria-label="Guante MasterHand"><use href="#mh-glove"/></svg>
           </div>
         </div>
       </section>
 
-      <!-- ISOTIPOS -->
-      <section class="mh-section" id="isotipos">
+      <!-- ISOTIPO -->
+      <section class="mh-section" id="isotipo">
         <div class="mh-container">
           <div class="mh-section__head">
-            <p class="mh-micro mh-eyebrow">01 · Isotipos</p>
-            <h2 class="mh-display-lg mh-section__title">Seis manos</h2>
-            <p class="mh-lede">Todas comparten anatomía: contorno tinta continuo, relleno blanco y puño negro. Elige por gesto, no por detalle.</p>
+            <p class="mh-micro mh-eyebrow">01 · Isotipo</p>
+            <h2 class="mh-display-lg mh-section__title">El guante</h2>
+            <p class="mh-lede">Un solo glifo, sin variantes: la palma frontal con el pulgar a 40° sobre el lateral. Todo lo demás (punto, pinza, orb, mascota) queda descartado de momento.</p>
           </div>
           <div class="lg-grid">
             <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-classic"/></svg></div>
+              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-glove"/></svg></div>
               <div class="lg-card__body">
-                <h3 class="lg-card__name">A1 · Clásica</h3>
-                <p class="lg-card__desc">Palma abierta frontal. La más icónica y simétrica: favicon, avatar, loading. Cero riesgo.</p>
-                <div class="lg-sizes" aria-label="Prueba de tamaños">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">recomendada app</span><button class="lg-copy" type="button" data-copy="mh-classic">Copiar SVG</button></div>
+                <h3 class="lg-card__name">Anatomía</h3>
+                <p class="lg-card__desc">Un único path continuo: dedos, palma y puño salen del mismo contorno, así que nunca se separa ninguna pieza. Los valles entre dedos son semicírculos del mismo radio que las yemas. El pulgar mide lo mismo que un dedo y nace del borde de la palma, no del puño.</p>
+                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">la propuesta</span><button class="lg-copy" type="button" data-copy="mh-glove">Copiar SVG</button></div>
               </div>
             </article>
             <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-point"/></svg></div>
+              <div class="lg-card__stage"><div class="lg-sizes" aria-label="Prueba de tamaños">
+                <svg width="72" height="72" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+              </div></div>
               <div class="lg-card__body">
-                <h3 class="lg-card__name">A2 · Point</h3>
-                <p class="lg-card__desc">Perfil toon de un solo contorno, pulgar arriba: el agente actúa, elige, ejecuta. CTA y empty states.</p>
-                <div class="lg-sizes">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-point"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip">acción</span><button class="lg-copy" type="button" data-copy="mh-point">Copiar SVG</button></div>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-snap"/></svg></div>
-              <div class="lg-card__body">
-                <h3 class="lg-card__name">A3 · Pinza</h3>
-                <p class="lg-card__desc">La mano sostiene la chispa esmeralda entre los dedos. Magia instantánea, trazos mínimos.</p>
-                <div class="lg-sizes">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-snap"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip">magia</span><button class="lg-copy" type="button" data-copy="mh-snap">Copiar SVG</button></div>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-fist"/></svg></div>
-              <div class="lg-card__body">
-                <h3 class="lg-card__name">A4 · Puño Rayman</h3>
-                <p class="lg-card__desc">Puño blando y redondo, homenaje directo a Rayman. Fuerza amable: stop, firme, seguro.</p>
-                <div class="lg-sizes">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-fist"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip">contundente</span><button class="lg-copy" type="button" data-copy="mh-fist">Copiar SVG</button></div>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="lg-card__stage lg-card__stage--accent"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-wave"/></svg></div>
-              <div class="lg-card__body">
-                <h3 class="lg-card__name">A5 · Wave ★ mascota</h3>
-                <p class="lg-card__desc">La carismática: saluda con ojitos, sonrisa y mejillas esmeralda. Login, onboarding, error 404.</p>
-                <div class="lg-sizes">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip mh-chip--accent">mi favorita</span><button class="lg-copy" type="button" data-copy="mh-wave">Copiar SVG</button></div>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="lg-card__stage"><svg class="lg-mark" viewBox="0 0 120 120"><use href="#mh-orb"/></svg></div>
-              <div class="lg-card__body">
-                <h3 class="lg-card__name">A6 · Orb</h3>
-                <p class="lg-card__desc">Palma toon abierta que presenta el orbe esmeralda. El agente te entrega el resultado.</p>
-                <div class="lg-sizes">
-                  <svg width="40" height="40" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
-                  <svg width="24" height="24" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
-                  <svg width="16" height="16" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
-                </div>
-                <div class="lg-card__meta"><span class="mh-chip">premium</span><button class="lg-copy" type="button" data-copy="mh-orb">Copiar SVG</button></div>
+                <h3 class="lg-card__name">Tamaños</h3>
+                <p class="lg-card__desc">A 72 y 40&nbsp;px se lee completo. A 24&nbsp;px sigue siendo un guante inequívoco. A 16&nbsp;px se convierte en silueta: sirve como favicon con el trazo intacto, pero el mínimo recomendado para UI es 24&nbsp;px.</p>
+                <div class="lg-card__meta"><span class="mh-chip">mín. 24px</span></div>
               </div>
             </article>
           </div>
           <div class="lg-note" style="margin-top: 16px">
-            <div class="lg-rule"><span>✋</span><p><b>Anatomía compartida.</b> Trazo 5px tinta, relleno blanco, puño negro de guante toon; esmeralda solo en chispas. A 16px sobreviven A1, A2 y A4; A3 y A6 piden 24px por la chispa.</p></div>
+            <div class="lg-rule"><span>✋</span><p><b>Construcción.</b> Rejilla de 120, trazo 4.5&nbsp;px tinta (#0c0c0b) y relleno blanco puro: el isotipo es siempre blanco con contorno, igual en claro y en oscuro. Radio de yema y de valle 4.5 y 2.25; puño de 15 de alto con una costura curva. Sin degradados, sin sombras, sin color de acento dentro de la marca.</p></div>
           </div>
         </div>
       </section>
@@ -374,14 +241,14 @@
             <article class="lg-card">
               <div class="mh-demo__label"><span>imagotipo · horizontal</span><span>top-bar</span></div>
               <div class="lg-lockup">
-                <svg width="52" height="52" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
+                <svg width="52" height="52" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
                 <span class="lg-word lg-word--md">MasterHand</span>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>imagotipo · apilado</span><span>login</span></div>
               <div class="lg-lockup lg-lockup--stack">
-                <svg width="84" height="84" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
+                <svg width="84" height="84" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
                 <span class="lg-word lg-word--md">MasterHand</span>
                 <span class="mh-caption mh-muted">Your agents, in your hand.</span>
               </div>
@@ -390,44 +257,16 @@
               <div class="mh-demo__label"><span>imagotipo · badge</span><span>avatar / PWA</span></div>
               <div class="lg-lockup">
                 <div class="lg-badge">
-                  <svg viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                  <span>MH</span>
+                  <svg viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
                 </div>
-                <p class="mh-caption mh-muted" style="max-width: 22ch">Círculo tinta para avatar y icono de app. El guante blanco respira dentro.</p>
+                <p class="mh-caption mh-muted" style="max-width: 22ch">Círculo tinta fijo para avatar y icono de app: el guante blanco respira dentro y no invierte con el tema.</p>
               </div>
             </article>
-          </div>
-        </div>
-      </section>
-
-      <!-- LOGOTIPOS -->
-      <section class="mh-section" id="logotipos">
-        <div class="mh-container">
-          <div class="mh-section__head">
-            <p class="mh-micro mh-eyebrow">03 · Logotipos</p>
-            <h2 class="mh-display-lg mh-section__title">Solo palabra</h2>
-            <p class="mh-lede">Tres tratamientos del wordmark para cuando la mano no cabe.</p>
-          </div>
-          <div class="lg-grid">
             <article class="lg-card">
-              <div class="mh-demo__label"><span>logotipo · editorial</span><span>Fraunces</span></div>
+              <div class="mh-demo__label"><span>logotipo · solo palabra</span><span>Fraunces</span></div>
               <div class="lg-lockup lg-lockup--stack">
                 <span class="lg-word lg-word--lg">MasterHand</span>
-                <span class="mh-caption mh-muted">Titulares, hero, login. Serif habla, sans trabaja.</span>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="mh-demo__label"><span>logotipo · juguetón</span><span>mano como punto</span></div>
-              <div class="lg-lockup lg-lockup--stack">
-                <span class="lg-word lg-word--lg">MasterH<svg width="30" height="30" viewBox="0 0 120 120" style="display:inline-block;vertical-align:-4px"><use href="#mh-fist"/></svg>nd</span>
-                <span class="mh-caption mh-muted">Solo para momentos de marca grandes. Nunca en UI densa.</span>
-              </div>
-            </article>
-            <article class="lg-card">
-              <div class="mh-demo__label"><span>logotipo · mono</span><span>terminal</span></div>
-              <div class="lg-lockup lg-lockup--stack" style="background: var(--mh-code-surface); border-radius: 0 0 12px 12px">
-                <span class="mh-mono" style="font-size: 22px; color: #EDEDE8">$ masterhand</span>
-                <span class="mh-caption" style="color: #8E8E88">CLI, README, footer técnico.</span>
+                <span class="mh-caption mh-muted">Para cuando la mano no cabe: titulares, hero, footer técnico en mono.</span>
               </div>
             </article>
           </div>
@@ -438,37 +277,42 @@
       <section class="mh-section" id="pruebas">
         <div class="mh-container">
           <div class="mh-section__head">
-            <p class="mh-micro mh-eyebrow">04 · Pruebas</p>
+            <p class="mh-micro mh-eyebrow">03 · Pruebas</p>
             <h2 class="mh-display-lg mh-section__title">¿Sobrevive?</h2>
-            <p class="mh-lede">Fondo claro, fondo oscuro y monocromo. Si no se lee aquí, no sale.</p>
+            <p class="mh-lede">Fondo claro, fondo oscuro y una sola tinta. Si no se lee aquí, no sale.</p>
           </div>
           <div class="lg-grid">
             <article class="lg-card">
               <div class="mh-demo__label"><span>sobre claro</span><span>paper</span></div>
               <div class="lg-lockup">
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="32" height="32" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>sobre oscuro</span><span>ink-950</span></div>
               <div class="lg-lockup lg-card__stage--dark" style="border-radius: 0">
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-classic"/></svg>
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-wave"/></svg>
-                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-orb"/></svg>
+                <svg width="64" height="64" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+                <svg width="32" height="32" viewBox="0 0 120 120"><use href="#mh-glove"/></svg>
+              </div>
+            </article>
+            <article class="lg-card">
+              <div class="mh-demo__label"><span>una tinta</span><span>line · currentColor</span></div>
+              <div class="lg-lockup" style="color: var(--mh-text)">
+                <svg width="64" height="64" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"><path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z"/><path d="M 41 84.5 Q 69.5 89 98 84.5" stroke-width="3.5"/></svg>
+                <svg width="32" height="32" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"><path d="M 45 32.5 A 4.5 4.5 0 0 1 54 32.5 L 54 49 A 2.25 2.25 0 0 0 58.5 49 L 58.5 26.5 A 4.5 4.5 0 0 1 67.5 26.5 L 67.5 49 A 2.25 2.25 0 0 0 72 49 L 72 29 A 4.5 4.5 0 0 1 81 29 L 81 49 A 2.25 2.25 0 0 0 85.5 49 L 85.5 34.5 A 4.5 4.5 0 0 1 94.5 34.5 L 94.5 80 L 98 80 A 2 2 0 0 1 100 82 L 100 88 A 7 7 0 0 1 93 95 L 46 95 A 7 7 0 0 1 39 88 L 39 82 A 2 2 0 0 1 41 80 L 45 80 L 45 75.6 L 27.82 61.18 A 6.5 6.5 0 0 1 36.18 51.22 L 45 58.6 L 45 32.5 Z"/><path d="M 41 84.5 Q 69.5 89 98 84.5" stroke-width="3.5"/></svg>
               </div>
             </article>
             <article class="lg-card">
               <div class="mh-demo__label"><span>no hacer</span><span>reglas</span></div>
               <div class="lg-card__body">
-                <p class="lg-card__desc">⛔ Sin gradientes · ⛔ sin segundo color · ⛔ sin contorno fino (&lt;4px) · ⛔ sin carita fuera de A5 · ⛔ sin rotar el puño.</p>
-                <p class="lg-card__desc">Área de respeto = alto del puño. Mínimo digital 16px (A1/A4), impreso 8mm.</p>
+                <p class="lg-card__desc">⛔ Sin dedos rectángulo ni puntas en U ancha · ⛔ sin contorno fino (&lt;4px) · ⛔ sin sombras, gradientes ni brillos · ⛔ sin segundo color dentro de la marca · ⛔ sin carita ni ojos · ⛔ sin piezas flotantes (el puño va siempre pegado a la muñeca).</p>
+                <p class="lg-card__desc">Área de respeto = alto del puño. Mínimo digital 24px, impreso 8mm.</p>
               </div>
             </article>
           </div>
           <div class="lg-note" style="margin-top: 16px">
-            <p><b style="color: var(--mh-text)">Recomendación:</b> A1 Clásica como icono de app + top-bar, A5 Wave como mascota de empty states y login. El resto queda como set expresivo para ilustrar estados (point = actuar, pinza = magia, orb = entrega).</p>
+            <p><b style="color: var(--mh-text)">Recomendación:</b> este guante es el único logo por ahora — icono de app, top-bar e identidad. Si más adelante hacen falta gestos secundarios (actuar, magia, mascota), se dibujarán con esta misma anatomía y este mismo trazo, nunca como piezas aparte.</p>
           </div>
         </div>
       </section>
@@ -476,7 +320,7 @@
 
     <footer class="mh-page-footer">
       <div class="mh-container mh-page-footer__inner">
-        <span class="mh-caption">MasterHand · propuestas de logo — abre este archivo en el navegador, prueba el toggle de tema.</span>
+        <span class="mh-caption">MasterHand · propuesta de logo — abre este archivo en el navegador, prueba el toggle de tema.</span>
         <a class="mh-caption" href="DESIGN.html">Volver al sistema</a>
       </div>
     </footer>
