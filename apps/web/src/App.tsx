@@ -883,6 +883,19 @@ export default function App() {
         >
           <MenuIcon size={18} />
         </button>
+        {/* Back to the sections home: left of the title, only while a section
+            panel is showing (never next to the collapsed rail). */}
+        {!sidebarShowsHome && !showRail && (
+          <button
+            type="button"
+            onClick={() => setSidebarShowsHome(true)}
+            className="mh-btn mh-btn--quiet"
+            aria-label="Back to sections"
+            title="Back to sections"
+          >
+            <ChevronLeftIcon size={18} />
+          </button>
+        )}
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
           {activeSection === "board" ? "Board" : selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
@@ -1053,9 +1066,6 @@ export default function App() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {sidebarShowsHome ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="flex items-center gap-2 border-b border-hairline px-3 py-2">
-                    <h2 className="mh-heading-4">Sections</h2>
-                  </div>
                   <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">
                     <div className="mh-session">
                       <button
@@ -1097,22 +1107,9 @@ export default function App() {
                     void createSession(isolated)
                   }}
                   creating={creating}
-                  onBack={() => setSidebarShowsHome(true)}
                 />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="flex items-center gap-1 border-b border-hairline px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setSidebarShowsHome(true)}
-                      className="mh-btn mh-btn--quiet"
-                      aria-label="Back to sections"
-                      title="Back to sections"
-                    >
-                      <ChevronLeftIcon size={18} />
-                    </button>
-                    <h2 className="mh-heading-4">Board</h2>
-                  </div>
                   <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-3">
                     <p className="mh-body-sm text-ink-muted">Kanban board coming soon.</p>
                   </div>

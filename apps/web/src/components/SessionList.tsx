@@ -9,7 +9,7 @@ import {
   type SessionStatus,
 } from "@masterhand/client-core"
 import { Deco } from "./Deco"
-import { ChevronLeftIcon, XIcon } from "./icons"
+import { XIcon } from "./icons"
 import { NewSessionMenu } from "./NewSessionMenu"
 
 const FILTERS: Array<{ value: SessionFilter; label: string }> = [
@@ -30,7 +30,6 @@ export function SessionList({
   hasWorkspace,
   onCreateSession,
   creating,
-  onBack,
 }: {
   sessions: Session[]
   statuses: Record<string, SessionStatus>
@@ -41,8 +40,6 @@ export function SessionList({
   hasWorkspace: boolean
   onCreateSession: (isolated: boolean) => void
   creating: boolean
-  /** Back to the sections home. Rendered only inside the sidebar panel. */
-  onBack?: () => void
 }) {
   const [filter, setFilter] = useState<SessionFilter>("all")
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
@@ -59,24 +56,6 @@ export function SessionList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-2">
-        <div className="flex min-w-0 items-center gap-1">
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="mh-btn mh-btn--quiet"
-              aria-label="Back to sections"
-              title="Back to sections"
-            >
-              <ChevronLeftIcon size={18} />
-            </button>
-          )}
-          <h2 className="mh-heading-4">Sessions</h2>
-        </div>
-        <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
-      </div>
-
       <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-3">
         {FILTERS.map((option) => (
           <button
@@ -88,6 +67,9 @@ export function SessionList({
             {option.label}
           </button>
         ))}
+        <div className="ml-auto">
+          <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
+        </div>
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">
