@@ -42,7 +42,7 @@ import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChatBubbleIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, KanbanIcon, LogOutIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChatBubbleIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, KanbanIcon, LogOutIcon, MenuIcon, WavesIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 
@@ -307,14 +307,19 @@ export default function App() {
     [queryClient],
   )
 
-  const openSession = useCallback((id: string | null) => {
-    setSessionID(id)
-    if (!id) setDrawerOpen(false)
-    const url = new URL(window.location.href)
-    if (id) url.searchParams.set("session", id)
-    else url.searchParams.delete("session")
-    window.history.replaceState(null, "", url)
-  }, [])
+  const openSession = useCallback(
+    (id: string | null) => {
+      setSessionID(id)
+      if (!id) setDrawerOpen(false)
+      const url = new URL(window.location.href)
+      if (id) url.searchParams.set("session", id)
+      else url.searchParams.delete("session")
+      window.history.replaceState(null, "", url)
+      // Fresh sidebar state on switch (badges, relative times, new sessions).
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+    [queryClient],
+  )
 
   const selectWorkspace = useCallback((id: string | null) => {
     setWorkspaceID(id)
@@ -918,10 +923,16 @@ export default function App() {
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
           {activeSection === "board" ? "Board" : selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
-        <span
-          className={`mh-dot ${connected ? "mh-dot--connected" : "mh-dot--busy"}`}
-          title={connected ? "Connected to opencode" : "Reconnecting…"}
-        />
+        {connected ? (
+          <span
+            className="mh-dot mh-dot--connected"
+            title="Connected to opencode"
+          />
+        ) : (
+          <span title="Reconnecting…">
+            <WavesIcon size={14} className="shrink-0 text-ink-muted" />
+          </span>
+        )}
         {sessionID && activeSection === "sessions" && (
           <div className="hidden items-center gap-1 md:flex">
             <AuditTrigger onOpen={() => setPanel("audit")} />
@@ -1001,7 +1012,7 @@ export default function App() {
           onClick={() => openSession(waitingForm.sessionID)}
           className="mh-banner mh-banner--info"
         >
-          <span className="mh-dot mh-dot--busy" />
+          <span className="mh-spin" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">The agent is waiting for your answer · Open session</span>
         </button>
       ) : null}
@@ -1013,7 +1024,7 @@ export default function App() {
           onClick={() => openSession(permissionSessionID)}
           className="mh-banner mh-banner--info"
         >
-          <span className="mh-dot mh-dot--busy" />
+          <span className="mh-spin" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">Permission requested in another session · Open session</span>
         </button>
       ))}

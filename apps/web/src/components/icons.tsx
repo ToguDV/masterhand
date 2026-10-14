@@ -219,6 +219,28 @@ export function ExternalLinkIcon(props: IconProps) {
   )
 }
 
+/** Reasoning phase: the model is thinking (pairs with the mh-breathe motion). */
+export function BulbIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="10" r="5" />
+      <path d="M9.5 15.5h5" />
+      <path d="M10.5 18.5h3" />
+    </IconBase>
+  )
+}
+
+/** Reconnecting: connection or tunnel re-establishing (pairs with mh-waves). */
+export function WavesIcon({ className, ...props }: IconProps) {
+  return (
+    <IconBase className={`mh-waves ${className ?? ""}`} {...props}>
+      <circle cx="12" cy="14" r="1.4" fill="currentColor" stroke="none" />
+      <path className="mh-waves__inner" d="M7.5 10.5a6.5 6.5 0 0 1 9 0" />
+      <path className="mh-waves__outer" d="M5 8a10.5 10.5 0 0 1 14 0" />
+    </IconBase>
+  )
+}
+
 /** Auto-accept (permission requests answered automatically). */
 export function ShieldCheckIcon(props: IconProps) {
   return (

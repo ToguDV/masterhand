@@ -167,6 +167,11 @@ test("renders permission requests inline in the transcript, not as a modal", asy
   await expect(card).toBeVisible()
   await expect(card.getByText("Permission requested")).toBeVisible()
   await expect(page.getByRole("dialog")).toHaveCount(0)
+  // Sober chrome: neutral hairline border, urgency carried by the spinner.
+  await expect
+    .poll(() => card.evaluate((element) => getComputedStyle(element).borderTopColor))
+    .toBe("rgb(232, 232, 226)")
+  await expect(card.locator(".mh-spin")).toBeVisible()
 
   await card.getByRole("button", { name: "Allow once" }).click()
   await expect(page.locator("main").getByTestId("permission-resolved")).toContainText("Allowed once")
