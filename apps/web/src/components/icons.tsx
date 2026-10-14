@@ -328,3 +328,27 @@ export function StopIcon(props: IconProps) {
     </IconBase>
   )
 }
+
+/** Sessions section (chat bubble) in the sidebar rail and sections home. */
+export function ChatBubbleIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.5 0-3-.4-4.2-1L3 20l1.1-4.2A8.5 8.5 0 1 1 21 11.5z" />
+    </IconBase>
+  )
+}
+
+/** Board section (kanban columns with cards) in the sidebar rail and sections home. */
+export function KanbanIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+      <path d="M15 4v16" />
+      <path d="M5 9h2" />
+      <path d="M11 7.5h2" />
+      <path d="M11 12h2" />
+      <path d="M17 9h2" />
+    </IconBase>
+  )
+}

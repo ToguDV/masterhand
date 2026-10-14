@@ -56,11 +56,6 @@ export function SessionList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-hairline px-3 py-2">
-        <h2 className="mh-heading-4">Sessions</h2>
-        <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
-      </div>
-
       <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-3">
         {FILTERS.map((option) => (
           <button
@@ -72,6 +67,9 @@ export function SessionList({
             {option.label}
           </button>
         ))}
+        <div className="ml-auto">
+          <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
+        </div>
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">

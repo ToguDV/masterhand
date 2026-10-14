@@ -81,8 +81,8 @@ test("collapses the sessions sidebar into an icon rail on desktop", async ({ pag
   const aside = page.locator("aside")
   await aside.getByRole("button", { name: "Collapse sidebar" }).click()
   // The full panel hides, leaving the rail with its icon actions.
-  const sessionsHeading = aside.getByRole("heading", { name: "Sessions", exact: true })
-  await expect(sessionsHeading).toBeHidden()
+  const newSessionAction = aside.getByRole("button", { name: "New session" })
+  await expect(newSessionAction).toBeHidden()
   await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
   await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
 
@@ -90,7 +90,7 @@ test("collapses the sessions sidebar into an icon rail on desktop", async ({ pag
   await page.reload()
   await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
   await aside.getByRole("button", { name: "Expand sidebar" }).click()
-  await expect(sessionsHeading).toBeVisible()
+  await expect(newSessionAction).toBeVisible()
   await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
 })
 
@@ -239,7 +239,7 @@ test("opens the session list as a drawer on mobile", async ({ page }) => {
   await expect(drawer).toBeHidden()
   await page.getByRole("button", { name: "Sessions" }).click()
   await expect(drawer).toBeVisible()
-  await expect(drawer.getByText("Sessions")).toBeVisible()
+  await expect(drawer.getByRole("button", { name: "New session" })).toBeVisible()
   // The desktop edge handle has no use here and stays hidden.
   await expect(drawer.getByRole("button", { name: /sidebar/i })).toBeHidden()
 

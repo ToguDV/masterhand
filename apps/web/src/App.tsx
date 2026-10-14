@@ -28,12 +28,12 @@ import {
 import { client } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
 import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
+import { BoardView } from "./components/BoardView"
 import { BrandMark } from "./components/BrandMark"
 import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
 import { Login } from "./components/Login"
-import { NewSessionMenu } from "./components/NewSessionMenu"
 import { BranchPicker } from "./components/BranchPicker"
 import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
@@ -42,13 +42,17 @@ import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, LogOutIcon, MenuIcon } from "./components/icons"
+import { ArrowLeftIcon, ChatBubbleIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, KanbanIcon, LogOutIcon, MenuIcon } from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 
 const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
 const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
+const SIDEBAR_SECTION_KEY = "mh-sidebar-section"
+
+/** Sections of the sidebar. Sessions is first; board is an empty placeholder. */
+type SidebarSection = "sessions" | "board"
 
 /** Auto-accept retry policy: bounded attempts with a short backoff. */
 const AUTO_ACCEPT_MAX_ATTEMPTS = 3
@@ -120,7 +124,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   // Desktop-only sidebar collapse, persisted like the theme choice. Mobile is
-  // unaffected: the drawer always shows the full panel (see mh-rail CSS).
+  // unaffected: the drawer always shows rail and panel (see mh-rail CSS).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1"
@@ -128,6 +132,21 @@ export default function App() {
       return false
     }
   })
+  // Active sidebar section, persisted like the collapse choice. It drives the
+  // rail highlight and the main view; the collapse toggle only changes width.
+  const [activeSection, setActiveSection] = useState<SidebarSection>(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_SECTION_KEY) === "board" ? "board" : "sessions"
+    } catch {
+      return "sessions"
+    }
+  })
+  // False shows the active section's panel; the `<` back button shows the
+  // sections home instead. It never changes the main view.
+  const [sidebarShowsHome, setSidebarShowsHome] = useState(false)
+  // Set when the user picks Sessions with no session open and the list has not
+  // loaded yet: open the most recent session once it arrives.
+  const pendingSectionAutoOpenRef = useRef(false)
   function toggleSidebarCollapsed() {
     setSidebarCollapsed((value) => {
       const next = !value
@@ -490,6 +509,38 @@ export default function App() {
     if (next !== sessionID) openSession(next)
   }, [sessionsQuery.isSuccess, listableSessions, sessionID, openSession])
 
+  /**
+   * Switches the sidebar section. It only marks the section and swaps the main
+   * view to its default (the most recent session for Sessions, the single
+   * placeholder for Board): it never collapses or expands the sidebar.
+   */
+  const selectSection = useCallback(
+    (section: SidebarSection) => {
+      setActiveSection(section)
+      setSidebarShowsHome(false)
+      try {
+        window.localStorage.setItem(SIDEBAR_SECTION_KEY, section)
+      } catch {
+        // storage may be unavailable (private mode)
+      }
+      if (section !== "sessions" || sessionIDRef.current) return
+      const first = rootSessions(sessionsRef.current)[0]
+      if (first) openSession(first.id)
+      else pendingSectionAutoOpenRef.current = true
+    },
+    [openSession],
+  )
+
+  // Opens the default Sessions view once the list arrives when the user picked
+  // the section while it was still loading.
+  useEffect(() => {
+    if (!pendingSectionAutoOpenRef.current) return
+    if (activeSection !== "sessions") return
+    if (!sessionsQuery.isSuccess) return
+    pendingSectionAutoOpenRef.current = false
+    if (!sessionIDRef.current && listableSessions[0]) openSession(listableSessions[0].id)
+  }, [sessionsQuery.isSuccess, listableSessions, activeSection, openSession])
+
   // Questions raised in another session still block their agents: surface them
   // as the choice-modal (the first not dismissed, so dismissing one reveals the
   // next). Once every one is dismissed, the info banner stays as a fallback.
@@ -786,36 +837,59 @@ export default function App() {
     return <Login onSuccess={() => setAuthed(true)} />
   }
 
-  // The session list is always the mobile drawer; the main column (empty state
-  // or chat) stays visible so the composer's workspace/new-session bar is
-  // reachable without a session. On desktop the aside docks beside it.
-  // The edge-handle curve reuses the sidebar border paint (`currentColor` over
-  // `--mh-hairline`) so it tracks every palette; the straight border stays a CSS
-  // border and the SVG only redraws the bump. Depth comes from a faint blurred
-  // copy underneath — never a filter on the curve itself, which would tint it.
-  // The curve is 1.25px (not 1px): on the sloped shoulders a 1px stroke never
-  // reaches full coverage, so it reads fainter than the straight border.
+  // The sidebar holds one section list at a time: a 60px icon rail when
+  // collapsed, or the panel (sections home / active section + options box)
+  // when expanded and in the mobile drawer. The edge-handle curve reuses the
+  // border paint (`currentColor` over `--mh-hairline`) so it tracks every
+  // palette; the straight border stays a CSS border and the SVG only redraws
+  // the bump. Depth comes from a faint blurred copy underneath — never a
+  // filter on the curve itself, which would tint it. The curve is 1.25px
+  // (not 1px): on the sloped shoulders a 1px stroke never reaches full
+  // coverage, so it reads fainter than the straight border.
   const collapseCurveD = sidebarCollapsed
     ? "M18.85 23.4 C18.85 35.1 33.15 36.4 33.15 46.8 C33.15 57.2 18.85 58.5 18.85 70.2"
     : "M18.85 23.4 C18.85 35.1 4.55 36.4 4.55 46.8 C4.55 57.2 18.85 58.5 18.85 70.2"
   const asideClass = [
-    "min-h-0 flex-col border-r border-hairline bg-canvas md:relative md:flex md:w-[272px] md:shrink-0",
+    "min-h-0 flex-row border-r border-hairline bg-canvas md:relative md:flex md:w-[272px] md:shrink-0",
     "hidden",
     drawerOpen
       ? "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:flex max-md:w-[85vw] max-md:max-w-[272px] max-md:shadow-elev3"
       : "",
     sidebarCollapsed ? "mh-aside-collapsed" : "",
   ].join(" ")
+  // Opens the sections home, expanding the sidebar when collapsed (going
+  // home needs the panel). The collapse choice stays persisted.
+  function backToSections() {
+    setSidebarShowsHome(true)
+    if (!sidebarCollapsed) return
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0")
+    } catch {
+      // Storage may be unavailable (private mode); the toggle still works.
+    }
+    setSidebarCollapsed(false)
+  }
+
+  // The panel shows on desktop when expanded; the mobile drawer always shows
+  // the panel, even when the desktop sidebar is collapsed. Rail and panel
+  // never render together: the section list lives in exactly one place.
+  const showRail = sidebarCollapsed && !drawerOpen
 
   return (
     <div className="flex h-dvh flex-col bg-canvas text-ink">
       <header className="flex h-14 shrink-0 items-center gap-1 border-b border-hairline px-2 md:px-4">
-        {sessionID && (
+        {/* Mobile unified back (single arrow): closes the open session first,
+            then goes to the sections home. */}
+        {(sessionID || !sidebarShowsHome) && (
           <button
             type="button"
-            onClick={() => openSession(null)}
+            onClick={() => {
+              if (sessionID) openSession(null)
+              else setSidebarShowsHome(true)
+            }}
             className="mh-btn mh-btn--quiet md:hidden"
-            aria-label="Back"
+            aria-label={sessionID ? "Back" : "Back to sections"}
+            title={sessionID ? "Back" : "Back to sections"}
           >
             <ChevronLeftIcon size={18} />
           </button>
@@ -828,14 +902,27 @@ export default function App() {
         >
           <MenuIcon size={18} />
         </button>
+        {/* Desktop back to the sections home, left of the title. Visible even
+            when collapsed: going home needs the panel, so it expands it. */}
+        {!sidebarShowsHome && (
+          <button
+            type="button"
+            onClick={backToSections}
+            className="mh-btn mh-btn--quiet max-md:hidden"
+            aria-label="Back to sections"
+            title="Back to sections"
+          >
+            <ChevronLeftIcon size={18} />
+          </button>
+        )}
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
-          {selected ? selected.title || "Untitled" : "MasterHand"}
+          {activeSection === "board" ? "Board" : selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
         <span
           className={`mh-dot ${connected ? "mh-dot--connected" : "mh-dot--busy"}`}
           title={connected ? "Connected to opencode" : "Reconnecting…"}
         />
-        {sessionID && (
+        {sessionID && activeSection === "sessions" && (
           <div className="hidden items-center gap-1 md:flex">
             <AuditTrigger onOpen={() => setPanel("audit")} />
             <RunPreviewTrigger sessionID={sessionID} workspaceID={workspaceID} onOpen={() => setPanel("run")} />
@@ -858,7 +945,7 @@ export default function App() {
                 className="absolute right-0 top-full z-30 mt-1 w-60 rounded-md border border-hairline bg-surface p-1.5 shadow-elev3"
                 onClick={() => setMenuOpen(false)}
               >
-                {sessionID && (
+                {sessionID && activeSection === "sessions" && (
                   <div className="flex flex-col gap-0.5">
                     <AuditTrigger onOpen={() => setPanel("audit")} className="w-full justify-start" />
                     <RunPreviewTrigger
@@ -940,61 +1027,33 @@ export default function App() {
           />
         )}
         <aside className={asideClass}>
-          <div className="mh-collapse-hide contents">
-            <SessionList
-              sessions={sessions}
-              statuses={statuses}
-              selectedID={sessionID}
-              onSelect={(id) => {
-                openSession(id)
-                setDrawerOpen(false)
-              }}
-              onDelete={setRemoveSessionID}
-              hasWorkspace={Boolean(workspaceID)}
-              onCreateSession={(isolated) => {
-                setDrawerOpen(false)
-                void createSession(isolated)
-              }}
-              creating={creating}
-            />
-          </div>
-          {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
-          <div className="mh-collapse-hide shrink-0 border-t border-hairline p-3">
-            <div className="flex w-fit items-center gap-2 rounded-md border border-hairline bg-surface p-1">
+          {/* Section rail: only when collapsed (the drawer always shows the
+              panel). Section icons live here and nowhere else in this state. */}
+          {showRail && (
+            <nav
+              aria-label="Sections"
+              className="flex w-[60px] shrink-0 flex-col items-center gap-1 border-r border-hairline py-3"
+            >
               <button
                 type="button"
-                onClick={() => {
-                  setDrawerOpen(false)
-                  setPanel("settings")
-                }}
-                className="mh-btn mh-btn--quiet"
-                aria-label="Settings"
-                title="Settings"
+                onClick={() => selectSection("sessions")}
+                className={`mh-btn mh-btn--quiet ${activeSection === "sessions" ? "bg-surface-muted text-ink" : ""}`}
+                aria-label="Sessions section"
+                title="Sessions"
+                aria-current={activeSection === "sessions" ? "page" : undefined}
               >
-                <GearIcon size={18} />
+                <ChatBubbleIcon size={18} />
               </button>
               <button
                 type="button"
-                onClick={() => void handleLogout()}
-                className="mh-btn mh-btn--ghost"
+                onClick={() => selectSection("board")}
+                className={`mh-btn mh-btn--quiet ${activeSection === "board" ? "bg-surface-muted text-ink" : ""}`}
+                aria-label="Board section"
+                title="Board"
+                aria-current={activeSection === "board" ? "page" : undefined}
               >
-                <LogOutIcon size={16} />
-                Sign out
+                <KanbanIcon size={18} />
               </button>
-            </div>
-          </div>
-          {/* Collapsed desktop rail: desktop-only via CSS, the drawer keeps the full panel on mobile. */}
-          {sidebarCollapsed && (
-            <div className="mh-rail min-h-0 flex-1 flex-col items-center gap-1 py-3">
-              <NewSessionMenu
-                onCreate={(isolated) => {
-                  setDrawerOpen(false)
-                  void createSession(isolated)
-                }}
-                creating={creating}
-                disabled={!workspaceID}
-                popoverClassName="left-full right-auto top-0 ml-2 mt-0"
-              />
               <div className="mt-auto flex flex-col items-center gap-1">
                 <button
                   type="button"
@@ -1017,6 +1076,88 @@ export default function App() {
                 >
                   <LogOutIcon size={16} />
                 </button>
+              </div>
+            </nav>
+          )}
+          {/* Section panel: the sections home or the active section. The `<`
+              back button only exists here, in the expanded sidebar. */}
+          {!showRail && (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {sidebarShowsHome ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">
+                    <div className="mh-session">
+                      <button
+                        type="button"
+                        onClick={() => selectSection("sessions")}
+                        className={`mh-session-item ${activeSection === "sessions" ? "is-active" : ""}`}
+                      >
+                        <span className="mh-session-item__top">
+                          <ChatBubbleIcon size={18} />
+                          <span className="mh-session-item__title">Sessions</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectSection("board")}
+                        className={`mh-session-item ${activeSection === "board" ? "is-active" : ""}`}
+                      >
+                        <span className="mh-session-item__top">
+                          <KanbanIcon size={18} />
+                          <span className="mh-session-item__title">Board</span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : activeSection === "sessions" ? (
+                <SessionList
+                  sessions={sessions}
+                  statuses={statuses}
+                  selectedID={sessionID}
+                  onSelect={(id) => {
+                    openSession(id)
+                    setDrawerOpen(false)
+                  }}
+                  onDelete={setRemoveSessionID}
+                  hasWorkspace={Boolean(workspaceID)}
+                  onCreateSession={(isolated) => {
+                    setDrawerOpen(false)
+                    void createSession(isolated)
+                  }}
+                  creating={creating}
+                />
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                    <p className="mh-body-sm text-ink-muted">Kanban board coming soon.</p>
+                  </div>
+                </div>
+              )}
+              {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
+              <div className="shrink-0 border-t border-hairline p-3">
+                <div className="flex w-fit items-center gap-2 rounded-md border border-hairline bg-surface p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDrawerOpen(false)
+                      setPanel("settings")
+                    }}
+                    className="mh-btn mh-btn--quiet"
+                    aria-label="Settings"
+                    title="Settings"
+                  >
+                    <GearIcon size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleLogout()}
+                    className="mh-btn mh-btn--ghost"
+                  >
+                    <LogOutIcon size={16} />
+                    Sign out
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1069,7 +1210,9 @@ export default function App() {
         </aside>
 
         <main className="relative flex min-w-0 flex-1 flex-col">
-          {sessionID ? (
+          {activeSection === "board" ? (
+            <BoardView />
+          ) : sessionID ? (
             <ChatView
               key={sessionID}
               sessionID={sessionID}
@@ -1114,7 +1257,7 @@ export default function App() {
             </div>
           )}
 
-          {sessionID && parentSessionID && (
+          {sessionID && parentSessionID && activeSection === "sessions" && (
             <button
               type="button"
               onClick={() => openSession(parentSessionID)}
