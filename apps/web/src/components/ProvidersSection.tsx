@@ -437,7 +437,7 @@ function ProviderAvatar({ integration }: { integration: Integration }) {
     <span
       aria-hidden="true"
       data-testid="provider-avatar"
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-accent-line bg-accent-soft text-xs font-semibold text-accent"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-surface-muted text-xs font-semibold text-ink-soft"
     >
       {providerMonogram(integration.name)}
     </span>

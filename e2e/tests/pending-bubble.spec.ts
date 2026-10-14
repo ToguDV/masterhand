@@ -29,6 +29,8 @@ test("shows a Sending… ghost until the message is confirmed delivered (#125)",
   await expect(ghost).toBeVisible()
   await expect(ghost).toContainText("Sending…")
   await expect(ghost).toContainText("markdown ghost")
+  // Sending state animates an ellipsis, not a blinking dot.
+  await expect(ghost.locator(".mh-ellipsis")).toBeVisible()
   // The real bubble is not there yet: no duplicate frame while waiting.
   const realBubbles = page.locator(".mh-msg--user:not(.mh-msg--pending)")
   await expect(realBubbles).toHaveCount(0)

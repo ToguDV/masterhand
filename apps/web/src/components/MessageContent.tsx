@@ -22,6 +22,7 @@ import {
 } from "@masterhand/client-core"
 import { ToolCard } from "./tools/ToolCard"
 import { StatusDot } from "./tools/StatusDot"
+import { BulbIcon } from "./icons"
 import { QuestionCard } from "./QuestionCard"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { MessageStats } from "./MessageStats"
@@ -376,7 +377,7 @@ export function AssistantBlock({
 
       {streaming && visible.length === 0 && (
         <p className="flex items-center gap-2 text-sm text-ink-muted">
-          <span className="mh-dot mh-dot--busy" /> Thinking…
+          <BulbIcon size={14} className="mh-breathe shrink-0" /> Thinking…
         </p>
       )}
 
