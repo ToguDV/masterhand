@@ -268,7 +268,7 @@
               </div>
               <figcaption class="mh-swatch__meta">
                 <div class="mh-swatch__name">Accent soft</div>
-                <div class="mh-swatch__token">{colors.accent-soft} · chips · blobs · focus ring</div>
+                <div class="mh-swatch__token">{colors.accent-soft} · blobs · focus ring</div>
               </figcaption>
             </figure>
 
@@ -279,7 +279,7 @@
               </div>
               <figcaption class="mh-swatch__meta">
                 <div class="mh-swatch__name">Warning</div>
-                <div class="mh-swatch__token">{colors.warning} · busy · banners</div>
+                <div class="mh-swatch__token">{colors.warning} · busy dot</div>
               </figcaption>
             </figure>
 
@@ -637,7 +637,7 @@
                     <div class="mh-composer-dock__head">
                       <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
                         <span>masterhand</span>
-                        <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                        <span class="mh-chip mh-chip--mono">feature/sqlite</span>
                         <span style="flex: 1"></span>
                         <span class="mh-mono-sm" style="font-size: 11px; color: var(--mh-text-faint)">$0.0421 · 12.4k</span>
                       </div>
@@ -666,7 +666,7 @@
                   <div class="mh-composer-dock__head">
                     <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
                       <span>masterhand</span>
-                      <span class="mh-chip mh-chip--accent mh-chip--mono">masterhand/ab12cd</span>
+                      <span class="mh-chip mh-chip--mono">masterhand/ab12cd</span>
                     </div>
                   </div>
                   <div class="mh-composer-dock__strip">
@@ -723,14 +723,14 @@
               </div>
             </div>
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>chip-neutral · accent · warning · danger · branch</span><span>pills</span></div>
+              <div class="mh-demo__label"><span>chip-neutral · danger · neutral status</span><span>pills</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-demo__row">
                   <span class="mh-chip">3 sessions</span>
-                  <span class="mh-chip mh-chip--accent">completed</span>
-                  <span class="mh-chip mh-chip--warning">busy</span>
+                  <span class="mh-chip">completed</span>
+                  <span class="mh-chip">busy</span>
                   <span class="mh-chip mh-chip--danger">error</span>
-                  <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite-store</span>
+                  <span class="mh-chip mh-chip--mono">feature/sqlite-store</span>
                   <span class="mh-chip mh-chip--outline">isolated</span>
                 </div>
               </div>
@@ -757,7 +757,7 @@
                       <span class="mh-session-item__top">
                         <span class="mh-dot mh-dot--connected"></span>
                         <span class="mh-session-item__title">Migrate session store to SQLite</span>
-                        <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                        <span class="mh-chip mh-chip--mono">feature/sqlite</span>
                       </span>
                       <span class="mh-session-item__meta">MasterHand · 2m ago</span>
                     </button>
@@ -792,8 +792,9 @@
                   <span class="mh-dot mh-dot--connected"></span>
                   The agent is waiting for your answer · Open session
                 </div>
-                <div class="mh-banner mh-banner--warning">Could not reach the MasterHand server · tap to dismiss</div>
+                <div class="mh-banner mh-banner--warning"><span class="mh-dot mh-dot--busy"></span>Could not reach the MasterHand server · tap to dismiss</div>
                 <div class="mh-banner mh-banner--danger">
+                  <span class="mh-dot mh-dot--danger"></span>
                   opencode rejected MasterHand&rsquo;s credentials. Check OPENCODE_SERVER_PASSWORD.
                 </div>
               </div>
@@ -802,7 +803,7 @@
               <div class="mh-demo__label"><span>branch-picker</span><span>search · switch · create</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-demo__row" style="gap: 8px">
-                  <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite-store</span>
+                  <span class="mh-chip mh-chip--mono">feature/sqlite-store</span>
                   <span class="mh-caption mh-muted">standard session</span>
                 </div>
                 <div class="mh-search">
@@ -872,7 +873,7 @@
                       <summary class="mh-tool__header">
                         <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                         <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
-                        <span class="mh-chip mh-chip--accent">+48 −12</span>
+                        <span class="mh-chip">+48 −12</span>
                         <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                       </summary>
                       <div class="mh-tool__body">
@@ -1023,13 +1024,13 @@
                 <div class="mh-goal">
                   <div class="mh-goal__header">
                     <span class="mh-goal__title">Goal review</span>
-                    <span class="mh-chip mh-chip--accent mh-chip--mono">round 2/6</span>
+                    <span class="mh-chip mh-chip--mono">round 2/6</span>
                   </div>
                   <div class="mh-goal__round">
                     <button class="mh-goal__round-header" type="button" data-goal-round aria-expanded="true">
                       <span class="mh-goal__round-label">Round 2</span>
                       <span class="mh-goal__round-summary">2 issues open — migration path unproven</span>
-                      <span class="mh-chip mh-chip--warning">changes requested</span>
+                      <span class="mh-chip">changes requested</span>
                       <span class="mh-goal__chevron is-open" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                     </button>
                     <div class="mh-goal__body">
@@ -1038,7 +1039,7 @@
                         <p class="mh-goal__argument">The store migrates, but nothing proves the old JSON path is gone.</p>
                         <ul class="mh-goal__issues">
                           <li class="mh-goal__issue"><span class="mh-chip mh-chip--danger">major</span><span>Remove the JsonStore fallback <span class="mh-goal__evidence">apps/server/src/store.ts:12</span></span></li>
-                          <li class="mh-goal__issue"><span class="mh-chip mh-chip--warning">minor</span><span>Cover the corrupt-file path <span class="mh-goal__evidence">store.test.ts</span></span></li>
+                          <li class="mh-goal__issue"><span class="mh-chip">minor</span><span>Cover the corrupt-file path <span class="mh-goal__evidence">store.test.ts</span></span></li>
                         </ul>
                       </div>
                       <div class="mh-goal__block">
@@ -1054,7 +1055,7 @@
                     <button class="mh-goal__round-header" type="button" data-goal-round aria-expanded="false">
                       <span class="mh-goal__round-label">Round 1</span>
                       <span class="mh-goal__round-summary">Claimed completion, critic found 3 issues</span>
-                      <span class="mh-chip mh-chip--warning">changes requested</span>
+                      <span class="mh-chip">changes requested</span>
                       <span class="mh-goal__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                     </button>
                     <div class="mh-goal__body" hidden>
@@ -1067,7 +1068,7 @@
                 </div>
                 <div class="mh-goal__report">
                   <p class="mh-goal__report-head">
-                    <span class="mh-chip mh-chip--accent">completed</span>
+                    <span class="mh-chip">completed</span>
                     <span class="mh-goal__title">Goal completed</span>
                     <span class="mh-goal__report-summary">SQLite store live, HTTP API unchanged</span>
                   </p>
@@ -1192,7 +1193,7 @@
                   <div class="mh-demo__row">
                     <span class="mh-palette-dot" style="background: var(--mh-accent-soft); border-color: transparent" aria-hidden="true"></span>
                     <span style="font-weight: 600; font-size: 14px">Acme AI</span>
-                    <span class="mh-chip mh-chip--accent">Connected</span>
+                    <span class="mh-chip">Connected</span>
                   </div>
                   <div class="mh-demo__row" style="font-size: 13px">
                     <span class="mh-muted">API key · ••••8f2a</span>
@@ -1216,7 +1217,7 @@
                   <button class="mh-option is-selected" type="button" role="radio" aria-checked="true">
                     <span class="mh-option__mark"></span>
                     <span style="flex: 1"><span style="display: block; font-weight: 600; font-size: 14px">Automatic</span><span class="mh-caption mh-muted">opencode picks the source</span></span>
-                    <span class="mh-chip mh-chip--accent">Default</span>
+                    <span class="mh-chip">Default</span>
                   </button>
                   <button class="mh-option" type="button" role="radio" aria-checked="false">
                     <span class="mh-option__mark"></span>
@@ -1541,7 +1542,7 @@
                           <span class="mh-session-item__top">
                             <span class="mh-dot mh-dot--busy"></span>
                             <span class="mh-session-item__title">Add device-token rotation</span>
-                            <span class="mh-chip mh-chip--accent mh-chip--mono">feature/tokens</span>
+                            <span class="mh-chip mh-chip--mono">feature/tokens</span>
                           </span>
                           <span class="mh-session-item__meta">MasterHand · 18m ago</span>
                         </button>
@@ -1595,7 +1596,7 @@
                               <summary class="mh-tool__header">
                                 <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                                 <span class="mh-tool__title"><strong>edit</strong> · store.ts</span>
-                                <span class="mh-chip mh-chip--accent">+48 −12</span>
+                                <span class="mh-chip">+48 −12</span>
                               </summary>
                               <div class="mh-tool__body">
                                 <div class="mh-diff">
@@ -1629,7 +1630,7 @@
                           <div class="mh-composer-dock__head">
                             <div class="mh-demo__row" style="gap: 6px; font-size: 11px; color: var(--mh-text-muted)">
                               <span>masterhand</span>
-                              <span class="mh-chip mh-chip--accent mh-chip--mono">main</span>
+                              <span class="mh-chip mh-chip--mono">main</span>
                             </div>
                           </div>
                           <div class="mh-composer-dock__body">
@@ -1899,7 +1900,7 @@
                                     <summary class="mh-tool__header">
                                       <span class="mh-tool__glyph"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
                                       <span class="mh-tool__title"><strong>edit</strong> · apps/server/src/store.ts</span>
-                                      <span class="mh-chip mh-chip--accent">+48 −12</span>
+                                      <span class="mh-chip">+48 −12</span>
                                       <span class="mh-tool__chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></span>
                                     </summary>
                                     <div class="mh-tool__body">
@@ -1928,7 +1929,7 @@
                                 <div class="mh-composer-dock__head">
                                   <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
                                     <span>masterhand</span>
-                                    <span class="mh-chip mh-chip--accent mh-chip--mono">feature/sqlite</span>
+                                    <span class="mh-chip mh-chip--mono">feature/sqlite</span>
                                     <span style="flex: 1"></span>
                                     <span class="mh-mono-sm" style="font-size: 11px; color: var(--mh-text-faint)">$0.0421 · 12.4k</span>
                                   </div>
