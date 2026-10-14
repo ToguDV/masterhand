@@ -39,7 +39,11 @@ export function PendingBubble({
           </>
         ) : (
           <>
-            <span className="mh-dot mh-dot--busy" aria-hidden="true" />
+            <span className="mh-ellipsis" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
             Sending…
           </>
         )}

@@ -32,7 +32,7 @@ export function PermissionCard({
   return (
     <div className="mh-permission" data-testid="permission-card">
       <div className="mh-permission__head">
-        <span className="mh-dot mh-dot--busy" />
+        <span className="mh-spin" aria-hidden="true" />
         <h3 className="mh-heading-4">Permission requested</h3>
       </div>
       <p className="mh-body-sm mh-permission__context">

@@ -606,7 +606,7 @@ export function Composer({
               aria-pressed={autoAccept}
               onClick={() => onToggleAutoAccept(!autoAccept)}
               title="Auto-accept permission requests for this session (answers “once”)"
-              className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--accent" : "mh-chip--outline"}`}
+              className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--outline text-accent" : "mh-chip--outline"}`}
             >
               <ShieldCheckIcon size={13} />
               {autoAccept ? "Auto-accept: on" : "Auto-accept"}

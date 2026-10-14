@@ -164,7 +164,7 @@ function ToolBody({ summary }: { summary: ToolSummary }) {
               href={summary.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
+              className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-hairline-strong"
             >
               {summary.url}
               <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
@@ -251,7 +251,7 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
         <div className="mh-reveal mh-tool__body">
           {pending ? <PendingBody /> : <ToolBody summary={summary} />}
           {summary.error && (
-            <p className="rounded-md border border-danger-line bg-danger-soft px-2.5 py-1.5 text-xs text-danger">
+            <p className="rounded-md border border-hairline bg-surface-muted px-2.5 py-1.5 text-xs text-danger">
               {summary.error}
             </p>
           )}

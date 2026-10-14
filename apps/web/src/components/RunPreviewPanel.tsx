@@ -461,11 +461,11 @@ export function RunPreviewSheet({
           )}
 
           {detected && (
-            <div className="flex flex-col gap-2 rounded-md border border-accent-line bg-accent-soft px-3 py-2">
-              <p className="text-xs text-accent">
+            <div className="flex flex-col gap-2 rounded-md border border-hairline bg-surface-muted px-3 py-2">
+              <p className="text-xs text-ink-muted">
                 Detected in <code className="mh-mono-sm">.masterhand/run.json</code>:
               </p>
-              <p className="break-all font-mono text-xs text-accent">
+              <p className="break-all font-mono text-xs text-ink">
                 {detected.command} {detected.args.join(" ")}
               </p>
               <button
