@@ -157,7 +157,7 @@ export function WebSearchSection() {
 
   /** Same card as the Providers catalog, plus the radio mark and the selected ring. */
   function cardClass(checked: boolean): string {
-    return `rounded-md border p-3${checked ? " border-accent bg-accent-soft" : " border-hairline bg-surface"}`
+    return `rounded-md border p-3${checked ? " border-hairline-strong bg-surface-muted" : " border-hairline bg-surface"}`
   }
 
   return (
@@ -371,7 +371,7 @@ function SourceAvatar({ integration, name }: { integration?: Integration; name: 
     <span
       aria-hidden="true"
       data-testid="source-avatar"
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-accent-line bg-accent-soft text-xs font-semibold text-accent"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-hairline bg-surface-muted text-xs font-semibold text-ink-soft"
     >
       {providerMonogram(name)}
     </span>

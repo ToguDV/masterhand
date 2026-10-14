@@ -14,7 +14,7 @@ import {
   type GoalVerdict,
 } from "@masterhand/client-core"
 import { client } from "../client"
-import { CheckIcon, ChevronDownIcon, SparkleIcon, StopIcon } from "./icons"
+import { CheckIcon, ChevronDownIcon, GearIcon, SparkleIcon, StopIcon } from "./icons"
 
 /**
  * The agents' custom marker protocol (`<masterhand:goal|critique|verdict>`)
@@ -194,7 +194,7 @@ function RoundCard({
       >
         <span className="mh-goal__round-label">Round {round.round}</span>
         <span className={`mh-chip ${tone}`}>{state}</span>
-        {round.current && !round.verdict && <span className="mh-dot mh-dot--busy shrink-0" />}
+        {round.current && !round.verdict && <GearIcon size={14} className="mh-rot shrink-0 text-ink-soft" />}
         <span className="mh-goal__round-summary">{summary}</span>
         <Chevron open={open} />
       </button>
@@ -204,7 +204,11 @@ function RoundCard({
           {round.verdict && <VerdictBody verdict={round.verdict} />}
           {round.current && !round.verdict && (
             <p className="mh-goal__live">
-              <span className={`mh-dot shrink-0 ${active ? "mh-dot--busy" : ""}`} />
+              {active ? (
+                <GearIcon size={14} className="mh-rot shrink-0 text-ink-soft" />
+              ) : (
+                <span className="mh-dot shrink-0" />
+              )}
               {activity}
             </p>
           )}
@@ -250,7 +254,7 @@ export function GoalReview({
         <span className="min-w-0 flex-1" />
         {active && (
           <span className="mh-goal__live min-w-0">
-            <span className="mh-dot mh-dot--busy shrink-0" />
+            <GearIcon size={14} className="mh-rot shrink-0 text-ink-soft" />
             <span className="truncate">{activity}</span>
           </span>
         )}

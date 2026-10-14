@@ -657,7 +657,13 @@ body {
     animation: none;
   }
 
-  .mh-dot--busy {
+  .mh-dot--busy,
+  .mh-spin,
+  .mh-rot,
+  .mh-ellipsis i,
+  .mh-breathe,
+  .mh-waves .mh-waves__outer,
+  .mh-waves .mh-waves__inner {
     animation: none;
   }
 
@@ -998,13 +1004,13 @@ body {
 }
 
 .mh-chip--accent {
-  background: var(--mh-accent-soft);
-  color: var(--mh-accent);
+  background: var(--mh-surface-muted);
+  color: var(--mh-text-muted);
 }
 
 .mh-chip--warning {
-  background: var(--mh-warning-soft);
-  color: var(--mh-warning);
+  background: var(--mh-surface-muted);
+  color: var(--mh-text-muted);
 }
 
 .mh-chip--mono {
@@ -1040,6 +1046,137 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   7b. Animated status indicators (sober, monochrome, 12–20px).
+   Active states animate; idle/connected/danger stay static. Severity lives
+   in the icon tint, never in a container border. All motion is disabled
+   under prefers-reduced-motion (see the utilities block above).
+   -------------------------------------------------------------------------- */
+
+/* Generic busy: hairline ring with one rotating segment. */
+.mh-spin {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--mh-hairline-strong);
+  border-top-color: var(--mh-text-soft);
+  animation: mh-rotate 1s linear infinite;
+}
+
+.mh-spin.is-warn {
+  border-color: var(--mh-warning);
+  border-top-color: var(--mh-warning);
+}
+
+.mh-spin.is-danger {
+  border-color: var(--mh-danger);
+  border-top-color: var(--mh-danger);
+}
+
+/* Working: the shared gear glyph, rotating slowly. */
+.mh-rot {
+  flex: none;
+  animation: mh-rotate 1.4s linear infinite;
+}
+
+@keyframes mh-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Sending / waiting for a turn: three dots lighting up in sequence. */
+.mh-ellipsis {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.mh-ellipsis i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--mh-hairline-strong);
+  animation: mh-ellipsis-wave 1.2s ease-in-out infinite;
+}
+
+.mh-ellipsis i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.mh-ellipsis i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes mh-ellipsis-wave {
+  0%,
+  100% {
+    background: var(--mh-hairline-strong);
+  }
+
+  40% {
+    background: var(--mh-text-soft);
+  }
+}
+
+/* Reasoning: the bulb glyph breathing softly (no yellow glow). */
+.mh-breathe {
+  flex: none;
+  animation: mh-breathe 2s ease-in-out infinite;
+}
+
+@keyframes mh-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reconnecting: two arcs pinging in sequence. */
+.mh-waves {
+  flex: none;
+}
+
+.mh-waves .mh-waves__outer {
+  animation: mh-waves-ping 1.8s ease-out infinite;
+}
+
+.mh-waves .mh-waves__inner {
+  animation: mh-waves-ping 1.8s ease-out 0.45s infinite;
+}
+
+@keyframes mh-waves-ping {
+  0% {
+    opacity: 0.15;
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.15;
+  }
+}
+
+/* Idle: hollow static ring. Connected: static check (see StatusDot). */
+.mh-idle-ring {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  border: 2px solid var(--mh-hairline-strong);
+  background: transparent;
+}
+
+/* --------------------------------------------------------------------------
    8. Cards, panels, lists
    -------------------------------------------------------------------------- */
 
@@ -1052,14 +1189,13 @@ body {
 }
 
 .mh-session-item {
-  position: relative;
   display: block;
   width: 100%;
   text-align: left;
   background: transparent;
   border: 0;
   border-radius: var(--r-md);
-  padding: 10px 12px 10px 14px;
+  padding: 10px 12px;
   color: var(--mh-text);
   font: inherit;
   cursor: pointer;
@@ -1072,17 +1208,6 @@ body {
 
 .mh-session-item.is-active {
   background: var(--mh-surface-muted);
-}
-
-.mh-session-item.is-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 2px;
-  border-radius: var(--r-full);
-  background: var(--mh-accent);
 }
 
 .mh-session-item__top {
@@ -1233,7 +1358,7 @@ body {
 }
 
 .mh-tool.is-error {
-  border-color: var(--mh-danger-line);
+  border-color: var(--mh-hairline-strong);
 }
 
 .mh-tool__header {
@@ -1454,12 +1579,7 @@ body {
   padding: 10px 12px;
   background: var(--mh-surface);
   border: 1px solid var(--mh-hairline);
-  border-left: 3px solid var(--mh-accent);
   border-radius: var(--r-md);
-}
-
-.mh-goal__report.is-blocked {
-  border-left-color: var(--mh-warning);
 }
 
 .mh-goal__report-head {
@@ -1591,21 +1711,21 @@ body {
 }
 
 .mh-banner--warning {
-  background: var(--mh-warning-soft);
-  border-bottom-color: var(--mh-warning-line);
-  color: var(--mh-warning);
+  background: var(--mh-surface-muted);
+  border-bottom-color: var(--mh-hairline);
+  color: var(--mh-text-soft);
 }
 
 .mh-banner--danger {
-  background: var(--mh-danger-soft);
-  border-bottom-color: var(--mh-danger-line);
-  color: var(--mh-danger);
+  background: var(--mh-surface-muted);
+  border-bottom-color: var(--mh-hairline);
+  color: var(--mh-text-soft);
 }
 
 .mh-banner--info {
-  background: var(--mh-accent-soft);
-  border-bottom-color: var(--mh-accent-line);
-  color: var(--mh-accent);
+  background: var(--mh-surface-muted);
+  border-bottom-color: var(--mh-hairline);
+  color: var(--mh-text-soft);
 }
 
 .mh-toast {
@@ -1895,8 +2015,8 @@ body {
 }
 
 .mh-theme-option[aria-checked="true"] {
-  border-color: var(--mh-accent);
-  background: var(--mh-accent-soft);
+  border-color: var(--mh-hairline-strong);
+  background: var(--mh-surface-muted);
   color: var(--mh-text);
 }
 
@@ -1908,11 +2028,11 @@ body {
 }
 
 .mh-theme-option:hover .mh-theme-drop {
-  filter: drop-shadow(0 0 4px var(--mh-accent-soft));
+  filter: none;
 }
 
 .mh-theme-drop.is-selected {
-  filter: drop-shadow(0 0 5px var(--mh-accent-soft));
+  filter: none;
 }
 
 /* Color theme picker: name above the canvas/accent/accent dot, like the
@@ -1956,8 +2076,8 @@ body {
 }
 
 .mh-palette-option[aria-checked="true"] {
-  border-color: var(--mh-accent);
-  background: var(--mh-accent-soft);
+  border-color: var(--mh-hairline-strong);
+  background: var(--mh-surface-muted);
   color: var(--mh-text);
 }
 
@@ -2026,7 +2146,7 @@ body {
 
 .mh-question {
   background: var(--mh-surface);
-  border: 1px solid var(--mh-accent-line);
+  border: 1px solid var(--mh-hairline);
   border-radius: var(--r-lg);
   padding: 16px;
   display: flex;
@@ -2078,7 +2198,7 @@ body {
 
 .mh-tabindex__tab.is-active {
   color: var(--mh-text);
-  border-bottom-color: var(--mh-accent);
+  border-bottom-color: var(--mh-text);
   font-weight: 600;
 }
 
@@ -2106,7 +2226,7 @@ body {
 /* Permission requests render inline in the transcript, never as an overlay. */
 .mh-permission {
   background: var(--mh-surface);
-  border: 1px solid var(--mh-warning-line);
+  border: 1px solid var(--mh-hairline);
   border-radius: var(--r-lg);
   padding: 16px;
   display: flex;
@@ -2178,8 +2298,8 @@ body {
 }
 
 .mh-option.is-selected {
-  border-color: var(--mh-accent);
-  background: var(--mh-accent-soft);
+  border-color: var(--mh-hairline-strong);
+  background: var(--mh-surface-muted);
 }
 
 .mh-option__mark {
@@ -2195,7 +2315,7 @@ body {
 
 .mh-option.is-selected .mh-option__mark,
 [role="radio"][aria-checked="true"] .mh-option__mark {
-  border-color: var(--mh-accent);
+  border-color: var(--mh-text);
 }
 
 .mh-option.is-selected .mh-option__mark::after,
@@ -2204,7 +2324,7 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--mh-accent);
+  background: var(--mh-text);
 }
 
 /* --------------------------------------------------------------------------
@@ -2329,7 +2449,7 @@ body {
 }
 
 .mh-composer-dock__strip--tint {
-  background: color-mix(in srgb, var(--mh-accent-soft) 30%, transparent);
+  background: var(--mh-surface-muted);
 }
 
 .mh-composer-dock__body {

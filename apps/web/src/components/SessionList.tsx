@@ -96,7 +96,11 @@ export function SessionList({
                   className={`mh-session-item pr-9 ${active ? "is-active" : ""}`}
                 >
                   <span className="mh-session-item__top">
-                    <span className={`mh-dot ${status?.type === "busy" ? "mh-dot--busy" : ""}`} />
+                    {status?.type === "busy" ? (
+                      <span className="mh-spin shrink-0" aria-hidden="true" />
+                    ) : (
+                      <span className="mh-dot" />
+                    )}
                     <span className="mh-session-item__title">{session.title || "Untitled"}</span>
                     {session.isolation && (
                       <span

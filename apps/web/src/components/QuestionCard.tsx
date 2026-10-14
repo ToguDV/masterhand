@@ -328,7 +328,7 @@ function Field({
           href={field.url}
           target="_blank"
           rel="noreferrer noopener"
-          className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-accent-line"
+          className="block truncate rounded-md border border-hairline bg-code px-2.5 py-1.5 font-mono text-xs text-code-text hover:border-hairline-strong"
         >
           {field.url}
           <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />

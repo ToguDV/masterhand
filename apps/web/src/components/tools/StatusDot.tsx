@@ -1,16 +1,20 @@
 import type { ChatToolStatus } from "@masterhand/client-core"
+import { CheckIcon, GearIcon } from "../icons"
 
-export function statusDotClass(status: ChatToolStatus): string {
-  return status === "completed"
-    ? "mh-dot--connected"
-    : status === "error"
-      ? "mh-dot--danger"
-      : status === "running"
-        ? "mh-dot--busy"
-        : ""
-}
-
-/** Small status dot shared by every tool card header. */
+/**
+ * Phase-mapped status indicator shared by tool headers, subagents and forms.
+ * A running tool spins the shared gear glyph; completed is a static check;
+ * errors keep the danger dot; anything else is a hollow idle ring.
+ */
 export function StatusDot({ status, className = "" }: { status: ChatToolStatus; className?: string }) {
-  return <span className={`mh-dot ${statusDotClass(status)} ${className}`} />
+  if (status === "running") {
+    return <GearIcon size={14} className={`mh-rot shrink-0 text-ink-soft ${className}`} />
+  }
+  if (status === "completed") {
+    return <CheckIcon size={14} className={`shrink-0 text-success ${className}`} />
+  }
+  if (status === "error") {
+    return <span className={`mh-dot mh-dot--danger ${className}`} />
+  }
+  return <span className={`mh-idle-ring ${className}`} />
 }
