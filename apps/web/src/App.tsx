@@ -857,6 +857,19 @@ export default function App() {
       : "",
     sidebarCollapsed ? "mh-aside-collapsed" : "",
   ].join(" ")
+  // Opens the sections home, expanding the sidebar when collapsed (going
+  // home needs the panel). The collapse choice stays persisted.
+  function backToSections() {
+    setSidebarShowsHome(true)
+    if (!sidebarCollapsed) return
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0")
+    } catch {
+      // Storage may be unavailable (private mode); the toggle still works.
+    }
+    setSidebarCollapsed(false)
+  }
+
   // The panel shows on desktop when expanded; the mobile drawer always shows
   // the panel, even when the desktop sidebar is collapsed. Rail and panel
   // never render together: the section list lives in exactly one place.
@@ -865,12 +878,18 @@ export default function App() {
   return (
     <div className="flex h-dvh flex-col bg-canvas text-ink">
       <header className="flex h-14 shrink-0 items-center gap-1 border-b border-hairline px-2 md:px-4">
-        {sessionID && (
+        {/* Mobile unified back (single arrow): closes the open session first,
+            then goes to the sections home. */}
+        {(sessionID || !sidebarShowsHome) && (
           <button
             type="button"
-            onClick={() => openSession(null)}
+            onClick={() => {
+              if (sessionID) openSession(null)
+              else setSidebarShowsHome(true)
+            }}
             className="mh-btn mh-btn--quiet md:hidden"
-            aria-label="Back"
+            aria-label={sessionID ? "Back" : "Back to sections"}
+            title={sessionID ? "Back" : "Back to sections"}
           >
             <ChevronLeftIcon size={18} />
           </button>
@@ -883,13 +902,13 @@ export default function App() {
         >
           <MenuIcon size={18} />
         </button>
-        {/* Back to the sections home: left of the title, only while a section
-            panel is showing (never next to the collapsed rail). */}
-        {!sidebarShowsHome && !showRail && (
+        {/* Desktop back to the sections home, left of the title. Visible even
+            when collapsed: going home needs the panel, so it expands it. */}
+        {!sidebarShowsHome && (
           <button
             type="button"
-            onClick={() => setSidebarShowsHome(true)}
-            className="mh-btn mh-btn--quiet"
+            onClick={backToSections}
+            className="mh-btn mh-btn--quiet max-md:hidden"
             aria-label="Back to sections"
             title="Back to sections"
           >

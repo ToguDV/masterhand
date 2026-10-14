@@ -23,10 +23,12 @@ test("the sidebar rail switches the main view between sessions and board", async
   await rail.getByRole("button", { name: "Sessions section" }).click()
   await expect(page.getByRole("heading", { name: "No session open" })).toBeVisible()
 
-  // Expanding brings the sessions panel back and unmounts the rail.
-  await aside.getByRole("button", { name: "Expand sidebar" }).click()
-  await expect(aside.getByRole("button", { name: "New session" })).toBeVisible()
+  // Collapsed but in a detail, the header < is still there: it expands home.
+  const header = page.locator("header")
+  await header.getByRole("button", { name: "Back to sections" }).click()
+  await expect(aside.getByRole("button", { name: "Sessions", exact: true })).toBeVisible()
   await expect(rail).toBeHidden()
+  await expect(aside.getByRole("button", { name: "Collapse sidebar" })).toBeVisible()
 })
 
 test("selecting sessions opens the most recent session", async ({ page }) => {
@@ -36,12 +38,14 @@ test("selecting sessions opens the most recent session", async ({ page }) => {
   await page.locator("header").getByRole("button", { name: "Sessions" }).click()
   await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+  // A single back arrow: session open means it closes the session.
+  const header = page.locator("header")
+  await expect(header.getByRole("button", { name: /Back/ })).toHaveCount(1)
   // Back leaves the session list intact with nothing open.
   await page.getByRole("button", { name: "Back", exact: true }).click()
   await expect(page.getByRole("heading", { name: "No session open" })).toBeVisible()
 
   const drawer = page.locator("aside")
-  const header = page.locator("header")
   // Home lives behind the header <: go back, then open the drawer on it.
   await header.getByRole("button", { name: "Back to sections" }).click()
   await header.getByRole("button", { name: "Sessions" }).click()
