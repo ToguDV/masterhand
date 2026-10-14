@@ -280,7 +280,7 @@ components:
   session-item-active:
     backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
-    indicator: "2px left bar in {colors.accent}"
+    indicator: "none (active is surface-muted only, no accent bar)"
   filter-pill:
     backgroundColor: "transparent"
     textColor: "{colors.text-muted}"
@@ -352,7 +352,7 @@ components:
     typography: "{typography.body-sm}"
     padding: "10px 12px"
   tool-card-error:
-    border: "1px solid {colors.danger-line}"
+    border: "1px solid {colors.hairline-strong} (same neutral chrome; error reads in the status dot and title, never in a colored border)"
   code-block:
     backgroundColor: "{colors.code-surface}"
     textColor: "{colors.code-text}"
@@ -390,14 +390,14 @@ components:
     rounded: "{rounded.full}"
     padding: "3px 10px"
   chip-accent:
-    backgroundColor: "{colors.accent-soft}"
-    textColor: "{colors.accent}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-muted}"
     typography: "{typography.caption}"
     rounded: "{rounded.full}"
     padding: "3px 10px"
   chip-warning:
-    backgroundColor: "{colors.warning-soft}"
-    textColor: "{colors.warning}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-muted}"
     typography: "{typography.caption}"
     rounded: "{rounded.full}"
     padding: "3px 10px"
@@ -408,8 +408,8 @@ components:
     rounded: "{rounded.full}"
     padding: "3px 10px"
   branch-chip:
-    backgroundColor: "{colors.accent-soft}"
-    textColor: "{colors.accent}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-muted}"
     typography: "{typography.code-sm}"
     rounded: "{rounded.full}"
     padding: "3px 10px"
@@ -422,23 +422,23 @@ components:
     border: "1px solid {colors.hairline}"
     geometry: "search field + branch list (switch on select) + create-from-current row; timeouts framed as may-have-applied with refetch, never auto-retried; isolated sessions show a read-only chip that opens no picker"
   banner-warning:
-    backgroundColor: "{colors.warning-soft}"
-    textColor: "{colors.warning}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-soft}"
     typography: "{typography.body-sm}"
     padding: "8px {spacing.md}"
-    border: "1px solid {colors.warning-line} (bottom)"
+    border: "1px solid {colors.hairline} (bottom, neutral; severity lives in the dot/icon only)"
   banner-danger:
-    backgroundColor: "{colors.danger-soft}"
-    textColor: "{colors.danger}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-soft}"
     typography: "{typography.body-sm}"
     padding: "8px {spacing.md}"
-    border: "1px solid {colors.danger-line} (bottom)"
+    border: "1px solid {colors.hairline} (bottom, neutral; severity lives in the dot/icon only)"
   banner-info:
-    backgroundColor: "{colors.accent-soft}"
-    textColor: "{colors.accent}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text-soft}"
     typography: "{typography.body-sm}"
     padding: "8px {spacing.md}"
-    border: "1px solid {colors.accent-line} (bottom)"
+    border: "1px solid {colors.hairline} (bottom, neutral)"
   toast:
     backgroundColor: "{colors.text}"
     textColor: "{colors.canvas}"
@@ -468,7 +468,7 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.lg}"
     padding: "{spacing.md}"
-    border: "1px solid {colors.warning-line}"
+    border: "1px solid {colors.hairline} (neutral chrome; urgency reads in the busy dot and title)"
     placement: "inline in the transcript, in the agent block that raised it"
   permission-card-resolved:
     backgroundColor: "transparent"
@@ -481,7 +481,7 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.lg}"
     padding: "{spacing.md}"
-    border: "1px solid {colors.accent-line}"
+    border: "1px solid {colors.hairline} (neutral chrome)"
     placement: "inline in the transcript, in the agent block that raised it"
   question-index:
     backgroundColor: "transparent"
@@ -493,7 +493,7 @@ components:
     backgroundColor: "transparent"
     textColor: "{colors.text}"
     typography: "{typography.caption}"
-    border: "2px solid {colors.accent} (bottom)"
+    border: "2px solid {colors.text} (bottom, neutral underline)"
   option-row:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -502,9 +502,9 @@ components:
     padding: "10px 12px"
     border: "1px solid {colors.hairline-strong}"
   option-row-selected:
-    backgroundColor: "{colors.accent-soft}"
+    backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
-    border: "1px solid {colors.accent}"
+    border: "1px solid {colors.hairline-strong} (neutral; selected mark uses {colors.text})"
   choice-modal:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -539,7 +539,7 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.md}"
     padding: "10px 12px"
-    border: "1px solid {colors.hairline} with a 3px left rule in {colors.accent} ({colors.warning} when blocked)"
+    border: "1px solid {colors.hairline} (neutral card, no side rule; blocked state reads in the chip and dot)"
     geometry: "completion marker card: summary plus evidence list; critique/verdict markers reuse the same blocks"
   run-preview-tabs:
     backgroundColor: "transparent"
@@ -562,13 +562,13 @@ components:
     textColor: "{colors.text-soft}"
     typography: "{typography.body-sm}"
     rounded: "{rounded.md}"
-    geometry: "grid of min(88px, 1fr) option boxes with centered ellipsis labels; selected option gets the accent ring (same box as palette-grid)"
+    geometry: "grid of min(88px, 1fr) option boxes with centered ellipsis labels; selected option uses a neutral {colors.hairline-strong} ring on {colors.surface-muted} (same box as palette-grid)"
   palette-grid:
     backgroundColor: "transparent"
     textColor: "{colors.text-soft}"
     typography: "{typography.body-sm}"
     rounded: "{rounded.md}"
-    geometry: "grid of min(88px, 1fr) color-theme options (paper first); canvas/accent/accent dot under the name; selected option gets the accent ring"
+    geometry: "grid of min(88px, 1fr) color-theme options (paper first); canvas/accent/accent dot under the name; selected option uses a neutral {colors.hairline-strong} ring on {colors.surface-muted}"
   provider-card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -619,7 +619,8 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 
 **Key Characteristics:**
 - Near-monochrome base: warm paper / charcoal canvas, ink / chalk text, hairline borders — no gradients anywhere
-- Exactly ONE accent hue: deep emerald (`{colors.accent}`), budgeted to <10% of any screen (primary CTA, active state, focus ring, small tint)
+- Exactly ONE accent hue: deep emerald (`{colors.accent}`), budgeted to <10% of any screen (primary CTA, focus ring, status dots, links)
+- Sober chrome: neutral hairline containers everywhere; no colored card borders, no tinted banner strips, no accent selection rings
 - Editorial type pairing: **Fraunces** for display and the wordmark, **Instrument Sans** for all UI and body, **JetBrains Mono** for code — all swappable through three CSS variables
 - Organic decoration in empty rooms only: `{components.deco-blob}`, `{components.deco-dots}`, `{components.deco-hatch}`, `{components.deco-curve}`
 - Flat depth: hairlines and surface steps do the work; shadows reserved for overlays
@@ -696,9 +697,9 @@ Tool cards and fenced message code highlight by language with one shared token p
 Function names follow the active palette (the dark accent reads on dark code in every theme); the rest is fixed. Diff add/remove rows keep their semantic row colors — only context lines highlight. Unknown languages render plain, never broken. Each color theme ships its own syntax hues for the same six tokens; the preview gallery shows the Paper set.
 
 ### Brand & Accent
-- **Deep Emerald** (`{colors.accent}`): the single accent. Primary buttons, active filter pill text, focus rings, branch chips, connection state.
+- **Deep Emerald** (`{colors.accent}`): the single accent. Primary buttons, focus rings, links, status dots.
 - **Emerald Strong** (`{colors.accent-strong}`): pressed states and hover on dark.
-- **Emerald Soft** (`{colors.accent-soft}`): 10–15% tint surfaces — blobs, chip fills, focus glow. Never used as a large page background.
+- **Emerald Soft** (`{colors.accent-soft}`): 10–15% tint surfaces — blobs and focus glow. Never used as a large page background, card border or banner fill.
 
 ### Neutral warm (light) / charred (dark)
 - **Paper** (`{colors.paper}`): warm off-white canvas; pure white is reserved for elevated surfaces so they read as "sheets on a desk".
@@ -706,11 +707,13 @@ Function names follow the active palette (the dark accent reads on dark code in 
 - **Grey 500…50** (`{colors.grey-500}` … `{colors.grey-50}`): secondary text and dividers.
 
 ### Semantic
-- **Warning**, **Danger**, **Success** are desaturated to sit inside the editorial palette; they never compete with the accent for attention. Busy dots and warning banners use warning; destructive buttons and error tool cards use danger.
+- **Warning**, **Danger**, **Success** are desaturated to sit inside the editorial palette; they never compete with the accent for attention. Busy dots use warning; `button-danger`, `chip-danger` and error dots use danger. Banners and cards stay neutral — severity reads in the dot/icon, not the chrome.
 
 ### Color rules
 - Accent budget: if removing every emerald pixel would break comprehension, there is too much of it.
-- No gradients, no second hue. The only permitted color besides the ramps is a translucent tint of emerald or of a semantic color.
+- Sober chrome: card and strip containers never use colored borders. All cards use `{colors.hairline}` (or `{colors.hairline-strong}` for selected); severity and state read in dots, icons and text only.
+- Banners are a single neutral strip; `chip-accent`, `chip-warning` and `branch-chip` are neutral pills. Only `button-danger` and `chip-danger` keep semantic red, plus status dots.
+- No gradients, no second hue. The only permitted color besides the ramps is a translucent tint of emerald or of a semantic color (focus ring, diff rows, code syntax, decoration blobs).
 - Code surfaces stay dark in both themes (`{colors.code-surface}`): a held-over blackboard that matches the blob decoration language.
 
 ## Typography
@@ -840,7 +843,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim. On desktop it collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs; the drawer keeps everything.
 
-**`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface and draws a 2px `{colors.accent}` indicator on the left.
+**`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface to `{colors.surface-muted}` with no accent bar — the row weight does the work.
 
 **`filter-pill`** / **`filter-pill-active`** — All / Isolated / Standard. The active pill is filled with `{colors.text}` on `{colors.canvas}` (ink-on-paper inversion), not with emerald; emerald stays budgeted for actions.
 
@@ -860,17 +863,17 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`agent-label`** / **`session-meta`** — micro-label and mono metadata as described in Typography.
 
-**`permission-card`** — a permission request renders **inline in the transcript**, inside the agent block that raised it: `{colors.surface}`, `{colors.warning-line}` border, `{rounded.lg}`. Header = busy dot + "Permission requested"; body = one-line context + the command in a `code-block`; actions = Allow once (`button-primary`), Always allow (`button-secondary`), Reject (`button-danger`). Once answered it collapses to `permission-card-resolved`: a quiet caption row (state dot + "Allowed once · 2m ago") that stays in the flow as history. It is never a modal — the request belongs to the agent turn that asked for it.
+**`permission-card`** — a permission request renders **inline in the transcript**, inside the agent block that raised it: `{colors.surface}`, `{colors.hairline}` border, `{rounded.lg}`. Header = busy dot + "Permission requested"; body = one-line context + the command in a `code-block`; actions = Allow once (`button-primary`), Always allow (`button-secondary`), Reject (`button-danger`). Once answered it collapses to `permission-card-resolved`: a quiet caption row (state dot + "Allowed once · 2m ago") that stays in the flow as history. It is never a modal — the request belongs to the agent turn that asked for it.
 
-**`question-card`** — an agent question renders **inline in the transcript**, same placement rules: `{colors.surface}`, `{colors.accent-line}` border, `{rounded.lg}`. A single question shows the prompt plus `option-row`s; a **multi-question form shows a top index** (`question-index` tabs — one per question plus a final Submit step) so the user can jump straight to any question, with the active tab underlined in `{colors.accent}` and an error dot on questions that fail validation. The footer is Next/Submit (`button-primary`) plus Dismiss (`button-ghost`).
+**`question-card`** — an agent question renders **inline in the transcript**, same placement rules: `{colors.surface}`, `{colors.hairline}` border, `{rounded.lg}`. A single question shows the prompt plus `option-row`s; a **multi-question form shows a top index** (`question-index` tabs — one per question plus a final Submit step) so the user can jump straight to any question, with the active tab underlined in `{colors.text}` and an error dot on questions that fail validation. The footer is Next/Submit (`button-primary`) plus Dismiss (`button-ghost`).
 
 **`goal-strip`** — Goal Mode's control line renders just above the composer, outside the dock and the transcript and no wider than the chat column: live phase, `round N/M` chip and Pause/Resume/Cancel side by side, plus an inline error row when the run fails. No dropdown, no result text on the side — history lives in the thread (`{components.goal-review}`). Returns null when the session has no run.
 
-**`goal-review`** — Goal Mode's critic/judge work renders **inline in the transcript** (their internal sessions never list in the sidebar): a `{colors.surface}` section with `{rounded.lg}` holds one collapsible round row per review (`Round N`, verdict chip, one-line summary; the latest round open, older ones expand on demand). Bodies are a `critic-block` (argument plus issue rows with a severity chip and evidence) and a `verdict-block` (decision chip, reasoning and the required changes). A completion marker in an assistant message becomes a `goal-report` card with a 3px left rule (`{colors.accent}`, `{colors.warning}` when blocked), the summary and an evidence list; critique/verdict markers found in a message reuse the same blocks inside a `tool-card`-style shell. Open-critic/open-judge links ride the review cards so both sessions open like a subagent child.
+**`goal-review`** — Goal Mode's critic/judge work renders **inline in the transcript** (their internal sessions never list in the sidebar): a `{colors.surface}` section with `{rounded.lg}` holds one collapsible round row per review (`Round N`, verdict chip, one-line summary; the latest round open, older ones expand on demand). Bodies are a `critic-block` (argument plus issue rows with a severity chip and evidence) and a `verdict-block` (decision chip, reasoning and the required changes). A completion marker in an assistant message becomes a `goal-report` card (neutral `{colors.hairline}` card, no side rule), the summary and an evidence list; critique/verdict markers found in a message reuse the same blocks inside a `tool-card`-style shell. Open-critic/open-judge links ride the review cards so both sessions open like a subagent child.
 
 ### Tools
 
-**`tool-card`** — the agent's work unit: `{colors.surface}`, `{colors.hairline}` border, `{rounded.lg}`, collapsed to a 40px `tool-card-header` (glyph, title, status, chevron) and expanded to raw output. Status is a dot (`{components.status-dot-*}`), never a colored card. **`tool-card-error`** swaps its border to `{colors.danger-line}` and the status dot to danger.
+**`tool-card`** — the agent's work unit: `{colors.surface}`, `{colors.hairline}` border, `{rounded.lg}`, collapsed to a 40px `tool-card-header` (glyph, title, status, chevron) and expanded to raw output. Status is a dot (`{components.status-dot-*}`), never a colored card. **`tool-card-error`** keeps the same neutral chrome with a slightly stronger `{colors.hairline-strong}` border; the error reads in the danger status dot and title.
 
 **`code-block`** — dark `{colors.code-surface}` in both themes, `{rounded.md}`, `{typography.code-md}`, optional `code-block-header` with the language or command path. **`diff-add`** / **`diff-remove`** render as emerald/danger tinted rows with mono gutters.
 
@@ -878,13 +881,13 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`status-dot-idle`** (`{colors.hairline-strong}`), **`status-dot-busy`** (warning, pulsing), **`status-dot-connected`** (success). Dots are 8px, always paired with a text label in tooltips or captions.
 
-**`chip-neutral`**, **`chip-accent`**, **`chip-warning`**, **`chip-danger`**, **`branch-chip`** — pill badges at 3px/10px padding in `{typography.caption}`; branch chips use `{typography.code-sm}`.
+**`chip-neutral`**, **`chip-accent`**, **`chip-warning`**, **`chip-danger`**, **`branch-chip`** — pill badges at 3px/10px padding in `{typography.caption}`; branch chips use `{typography.code-sm}`. Sober chrome: `chip-accent`, `chip-warning` and `branch-chip` are neutral (`{colors.surface-muted}` + `{colors.text-muted}`); only `chip-danger` keeps its semantic tint for real errors.
 
 **`session-stats`** — per-session usage in the composer head: cost plus the same icon + number rhythm as `{components.message-stats}` (labels in tooltips only, cache excluded). It aligns left when it wraps to its own line on narrow widths.
 
 ### Feedback
 
-**`banner-warning`** / **`banner-danger`** / **`banner-info`** — full-width strips under the top bar, tinted background + bottom border in the semantic color. They are dismissible by tap and never modal.
+**`banner-warning`** / **`banner-danger`** / **`banner-info`** — one neutral full-width strip under the top bar: `{colors.surface-muted}` background, `{colors.hairline}` bottom border, `{colors.text-soft}` text. Severity lives in the leading dot/icon only, never in the strip chrome. They are dismissible by tap and never modal.
 
 **`toast`** — inverted ink pill for confirmations ("Copied", "Session deleted"), `{rounded.md}`, overlay shadow, auto-dismiss.
 
@@ -896,11 +899,11 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
-**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`{components.run-preview-tabs}`: `Run | Preview` with `tab`/`tabpanel` semantics, arrow-key navigation, active tab underlined in accent) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch. A port chip sits in the shared header.
+**`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`{components.run-preview-tabs}`: `Run | Preview` with `tab`/`tabpanel` semantics, arrow-key navigation, active tab underlined in `{colors.text}`) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch. A port chip sits in the shared header.
 
 **`settings-panel`** — the gear opens one panel for Appearance, Goal review, Web search and Providers (`{components.settings-panel}`): two-pane on desktop (220px section nav + content), master-detail on small screens (section list with label + description + chevron at ≥56px rows; back control returns to the list). Every module shares the same rhythm: `{components.settings-module-head}` with the primary action pinned above the section, group labels, loading/error/notice states, and ghost text buttons for tertiaries. Appearance owns the mode picker (System/Light/Dark; System clears the stored choice and follows the OS live) plus the shared theme/palette grids (`{components.theme-swatches}`, `{components.palette-grid}`).
 
-**`provider-card`** / **`websearch-card`** — Settings > Providers and Settings > Web search mirror each other (`{components.provider-card}`, `{components.websearch-card}`): avatar, semibold name, `Connected`/`Default`/`No API key required` chips, credential rows with confirm-before-Disconnect and a secondary Connect button. Web search keeps radio semantics (Automatic plus one default source) with the selected card on the accent ring; its Test probe shows the answering source or a mapped error. Custom OpenAI-compatible providers add name + auto-slugged id + base URL + key + models with an Advanced section (transport, headers, per-model limits); the model list loads from the provider's `/models` with a debounced fetch plus a manual Load button, and Create stays disabled until it loads.
+**`provider-card`** / **`websearch-card`** — Settings > Providers and Settings > Web search mirror each other (`{components.provider-card}`, `{components.websearch-card}`): avatar, semibold name, `Connected`/`Default`/`No API key required` chips, credential rows with confirm-before-Disconnect and a secondary Connect button. Web search keeps radio semantics (Automatic plus one default source) with the selected card on a neutral `{colors.hairline-strong}` ring; its Test probe shows the answering source or a mapped error. Custom OpenAI-compatible providers add name + auto-slugged id + base URL + key + models with an Advanced section (transport, headers, per-model limits); the model list loads from the provider's `/models` with a debounced fetch plus a manual Load button, and Create stays disabled until it loads.
 
 **`icon-set`** — every UI glyph comes from one vector source (`{components.icon-set}`): folder, chevrons, plus, x, check, trash, brain (effort variants) / sliders, arrows, sparkle, bolt, external link, shield-check, sun/moon, branch, key, gear, search, play/pause/stop. No inline one-off SVGs, no emoji glyphs, no font-dependent symbols in tool headers.
 
@@ -925,6 +928,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Don't
 - Don't introduce a second accent hue, gradients, or colored glows
+- Don't use colored borders on cards, banners, options or selection grids — hairlines do that job; color lives in dots, icons and text
 - Don't use emerald as a large background fill or flood a screen with it
 - Don't place blobs, dots or hatching behind text, diffs, code or tool output
 - Don't use serif for body copy, buttons, labels or anything below 26px
