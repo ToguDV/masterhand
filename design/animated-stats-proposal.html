@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<title>MasterHand — Propuesta: indicadores de estado animados</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --canvas: light-dark(#fafaf7, #0c0c0b);
+    --surface: light-dark(#ffffff, #141413);
+    --surface-muted: light-dark(#f2f2ee, #1c1c1a);
+    --text: light-dark(#0c0c0b, #f2f2ed);
+    --soft: light-dark(#4a4a46, #c9c9c2);
+    --muted: light-dark(#6e6e6a, #8e8e88);
+    --faint: light-dark(#8e8e88, #6a6a65);
+    --hairline: light-dark(#e8e8e2, #262624);
+    --hairline-strong: light-dark(#d6d6d0, #3a3a37);
+    --ok: light-dark(#0b6b53, #3ed8a8);
+    --warn: light-dark(#8a5a00, #e3b341);
+    --danger: light-dark(#b3261e, #f08a82);
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--canvas); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 15px; line-height: 1.6;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px; }
+  header.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header.top h1 { font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+  header.top p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+  .theme-toggle {
+    margin-left: auto; display: inline-flex; border: 1px solid var(--hairline-strong);
+    border-radius: 999px; overflow: hidden; background: var(--surface);
+  }
+  .theme-toggle button {
+    border: 0; background: transparent; color: var(--muted); font: inherit;
+    font-size: 13px; padding: 8px 14px; cursor: pointer; min-height: 36px;
+  }
+  .theme-toggle button[aria-pressed="true"] { background: var(--text); color: var(--canvas); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 16px; padding: 20px; margin-top: 20px;
+  }
+  .card h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    background: var(--surface-muted); color: var(--muted);
+    border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+  }
+  .tag.rec { background: var(--text); color: var(--canvas); }
+  .card > p.desc { color: var(--muted); font-size: 13px; margin: 8px 0 0; max-width: 68ch; }
+
+  .stage {
+    display: flex; align-items: center; gap: 28px; flex-wrap: wrap;
+    background: var(--canvas); border: 1px solid var(--hairline);
+    border-radius: 12px; padding: 22px; margin-top: 14px;
+  }
+  .sizes { display: flex; align-items: flex-end; gap: 20px; }
+  .size-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .size-cell small { color: var(--faint); font-size: 11px; font-family: monospace; }
+  .sz-12 { font-size: 12px; } .sz-16 { font-size: 16px; } .sz-20 { font-size: 20px; }
+
+  .spec {
+    display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px;
+    font-size: 13px; margin-top: 14px;
+  }
+  .spec dt { color: var(--muted); }
+  .spec dd { margin: 0; }
+  .spec code {
+    font-family: monospace; font-size: 12px;
+    background: var(--surface-muted); border-radius: 6px; padding: 1px 6px;
+  }
+
+  .context {
+    margin-top: 14px; border: 1px solid var(--hairline); border-radius: 12px;
+    overflow: hidden; background: var(--surface);
+  }
+  .ctx-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-top: 1px solid var(--hairline); font-size: 14px;
+  }
+  .ctx-row:first-child { border-top: 0; }
+  .ctx-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ctx-row .m { color: var(--muted); font-size: 12px; font-family: monospace; }
+  .strip {
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+    background: var(--surface-muted); border-bottom: 1px solid var(--hairline);
+    font-size: 13px; color: var(--soft);
+  }
+
+  /* ============ 0. Hoy: dot pulsante (referencia) ============ */
+  .dot {
+    width: .5em; height: .5em; border-radius: 50%; flex: none;
+    background: var(--hairline-strong); display: inline-block; font-size: 16px;
+  }
+  .dot--busy { background: var(--warn); animation: pulse 1.6s ease-in-out infinite; }
+  .dot--ok { background: var(--ok); }
+  .dot--danger { background: var(--danger); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* ============ 1. Arco giratorio ============ */
+  .spin-arc {
+    width: 1em; height: 1em; border-radius: 50%; flex: none;
+    border: .14em solid var(--hairline-strong);
+    border-top-color: var(--soft);
+    animation: rot 1s linear infinite;
+  }
+  .spin-arc.c-warn { border-color: var(--warn); border-top-color: var(--warn); }
+  .spin-arc.c-danger { border-color: var(--danger); border-top-color: var(--danger); }
+  .spin-arc.c-ok { border-color: var(--ok); border-top-color: var(--ok); }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  /* ============ 2. Ruedita dentada ============ */
+  .gear { width: 1em; height: 1em; flex: none; animation: rot 1.4s linear infinite; color: var(--soft); }
+
+  /* ============ 3. Elipsis secuencial ============ */
+  .ellipsis { display: inline-flex; gap: .28em; align-items: center; flex: none; }
+  .ellipsis i {
+    width: .32em; height: .32em; border-radius: 50%;
+    background: var(--hairline-strong); animation: wave 1.2s ease-in-out infinite;
+  }
+  .ellipsis i:nth-child(2) { animation-delay: .15s; }
+  .ellipsis i:nth-child(3) { animation-delay: .3s; }
+  @keyframes wave { 0%,100% { background: var(--hairline-strong); } 40% { background: var(--soft); } }
+
+  /* ============ 4. Bombilla con respiro ============ */
+  .bulb { width: 1em; height: 1em; flex: none; color: var(--soft); animation: breathe 2s ease-in-out infinite; }
+  @keyframes breathe {
+    0%,100% { opacity: .45; }
+    50% { opacity: 1; filter: drop-shadow(0 0 .25em var(--soft)); }
+  }
+
+  /* ============ 5. Ecualizador ============ */
+  .eq { display: inline-flex; gap: .18em; align-items: flex-end; height: 1em; flex: none; }
+  .eq i { width: .2em; border-radius: .1em; background: var(--soft); animation: eqb 1s ease-in-out infinite; }
+  .eq i:nth-child(1) { height: 100%; }
+  .eq i:nth-child(2) { height: 100%; animation-delay: .2s; }
+  .eq i:nth-child(3) { height: 100%; animation-delay: .4s; }
+  @keyframes eqb { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+  .eq i { transform-origin: bottom; }
+
+  /* ============ 6. Ondas (reconectando) ============ */
+  .waves { width: 1em; height: 1em; flex: none; color: var(--soft); }
+  .waves .w1 { animation: wpulse 1.8s ease-out infinite; }
+  .waves .w2 { animation: wpulse 1.8s ease-out .45s infinite; }
+  @keyframes wpulse { 0% { opacity: .15; } 40% { opacity: 1; } 100% { opacity: .15; } }
+
+  .idle-ring {
+    width: .6em; height: .6em; border-radius: 50%; flex: none; font-size: 16px;
+    border: 2px solid var(--hairline-strong); background: transparent; display: inline-block;
+  }
+  .check { width: 1em; height: 1em; flex: none; color: var(--ok); }
+
+  table.phases { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 14px; }
+  table.phases th, table.phases td {
+    text-align: left; padding: 10px 12px; border-top: 1px solid var(--hairline);
+    vertical-align: middle;
+  }
+  table.phases th { color: var(--muted); font-size: 12px; font-weight: 600; }
+  table.phases td.icon { width: 56px; font-size: 18px; }
+  table.phases code { font-family: monospace; font-size: 12px; background: var(--surface-muted); border-radius: 6px; padding: 1px 6px; }
+
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+  footer strong { color: var(--text); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot--busy, .spin-arc, .gear, .ellipsis i, .bulb, .eq i, .waves .w1, .waves .w2 { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Indicadores de estado animados</h1>
+      <p>Propuesta para sustituir el circulito plano parpadeante. Todo monocromo, 12–20px, solo animan los estados activos. Con <code>prefers-reduced-motion</code> todo queda estático.</p>
+    </div>
+    <div class="theme-toggle" role="group" aria-label="Tema">
+      <button type="button" data-t="">Sistema</button>
+      <button type="button" data-t="light">Claro</button>
+      <button type="button" data-t="dark">Oscuro</button>
+    </div>
+  </header>
+
+  <!-- 0 -->
+  <section class="card">
+    <h2>0 · Hoy: dot pulsante <span class="tag">referencia</span></h2>
+    <p class="desc">El estado actual. Plano, un solo color semántico, pulso de opacidad 1.6s. Se incluye para comparar.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="dot dot--busy"></span><small>busy</small></div>
+        <div class="size-cell"><span class="dot dot--ok"></span><small>ok</small></div>
+        <div class="size-cell"><span class="dot dot--danger"></span><small>error</small></div>
+        <div class="size-cell"><span class="idle-ring"></span><small>idle</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1 -->
+  <section class="card">
+    <h2>1 · Arco giratorio <span class="tag rec">recomendado · busy genérico</span></h2>
+    <p class="desc">Anillo hairline con un segmento que rota. Sustituye 1:1 al dot en cualquier fila. El color semántico (si hace falta) va en el propio anillo, nunca en el contenedor.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-12"><span class="spin-arc" style="display:inline-block"></span></span><small>12px</small></div>
+        <div class="size-cell"><span class="sz-16"><span class="spin-arc" style="display:inline-block"></span></span><small>16px</small></div>
+        <div class="size-cell"><span class="sz-20"><span class="spin-arc" style="display:inline-block"></span></span><small>20px</small></div>
+      </div>
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-16"><span class="spin-arc c-warn" style="display:inline-block"></span></span><small>warn</small></div>
+        <div class="size-cell"><span class="sz-16"><span class="spin-arc c-danger" style="display:inline-block"></span></span><small>danger</small></div>
+        <div class="size-cell"><span class="sz-16"><span class="spin-arc c-ok" style="display:inline-block"></span></span><small>ok</small></div>
+      </div>
+    </div>
+    <dl class="spec">
+      <dt>Movimiento</dt><dd>rotación 360° · <code>1s linear infinite</code></dd>
+      <dt>Color</dt><dd>monocromo (<code>text-muted/soft</code>); variantes semánticas solo si la fila no lleva texto de estado</dd>
+      <dt>Uso</dt><dd>busy genérico: sesiones, tool-cards, banners, permission-cards</dd>
+    </dl>
+    <div class="context">
+      <div class="ctx-row">
+        <span class="sz-16"><span class="spin-arc" style="display:inline-block"></span></span>
+        <span class="t">Migrate session store to SQLite</span>
+        <span class="m">MasterHand · 2m</span>
+      </div>
+      <div class="strip"><span class="sz-16"><span class="spin-arc" style="display:inline-block"></span></span>Reconectando con el servidor…</div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="card">
+    <h2>2 · Ruedita dentada <span class="tag">trabajando</span></h2>
+    <p class="desc">Gear del icon-set rotando lento. Más explícito que el arco ("hay trabajo mecánico en curso"), un poco más ruidoso a 16px.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-12"><svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="6.5" stroke-width="3.5" stroke-dasharray="2.6 2.44"/><circle cx="12" cy="12" r="2.2" stroke-width="1.8"/></svg></span><small>12px</small></div>
+        <div class="size-cell"><span class="sz-16"><svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="6.5" stroke-width="3.5" stroke-dasharray="2.6 2.44"/><circle cx="12" cy="12" r="2.2" stroke-width="1.8"/></svg></span><small>16px</small></div>
+        <div class="size-cell"><span class="sz-20"><svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="6.5" stroke-width="3.5" stroke-dasharray="2.6 2.44"/><circle cx="12" cy="12" r="2.2" stroke-width="1.8"/></svg></span><small>20px</small></div>
+      </div>
+    </div>
+    <dl class="spec">
+      <dt>Movimiento</dt><dd>rotación 360° · <code>1.4s linear infinite</code></dd>
+      <dt>Color</dt><dd><code>text-soft</code> siempre; la severidad la da el texto</dd>
+      <dt>Uso</dt><dd>tool-cards en ejecución, run/preview panel, goal-strip en fase de trabajo</dd>
+    </dl>
+    <div class="context">
+      <div class="ctx-row">
+        <span class="sz-16"><svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="6.5" stroke-width="3.5" stroke-dasharray="2.6 2.44"/><circle cx="12" cy="12" r="2.2" stroke-width="1.8"/></svg></span>
+        <span class="t"><strong>read</strong> apps/server/src/store.ts</span>
+        <span class="m">running</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="card">
+    <h2>3 · Elipsis secuencial <span class="tag">escribiendo</span></h2>
+    <p class="desc">Tres puntos que se encienden en ola. Lenguaje de chat ("alguien está escribiendo"). Ideal en el composer y bajo el pending-bubble.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-12"><span class="ellipsis"><i></i><i></i><i></i></span></span><small>12px</small></div>
+        <div class="size-cell"><span class="sz-16"><span class="ellipsis"><i></i><i></i><i></i></span></span><small>16px</small></div>
+        <div class="size-cell"><span class="sz-20"><span class="ellipsis"><i></i><i></i><i></i></span></span><small>20px</small></div>
+      </div>
+    </div>
+    <dl class="spec">
+      <dt>Movimiento</dt><dd>ola de encendido · <code>1.2s ease-in-out infinite</code>, desfase 150ms</dd>
+      <dt>Color</dt><dd><code>hairline-strong → text-soft</code>, monocromo</dd>
+      <dt>Uso</dt><dd>pending-bubble ("Sending…"), composer generando, goal-strip esperando turno</dd>
+    </dl>
+    <div class="context">
+      <div class="ctx-row">
+        <span class="t" style="text-align:right; font-style: italic; color: var(--muted)">Move session storage to SQLite…</span>
+        <span class="sz-16"><span class="ellipsis"><i></i><i></i><i></i></span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="card">
+    <h2>4 · Bombilla con respiro <span class="tag">razonando</span></h2>
+    <p class="desc">Bulb que alterna encendido/apagado con glow muy tenue. Solo para la fase de razonamiento (effort/reasoning), no como busy genérico.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-12"><svg class="bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="10" r="5"/><path d="M9.5 15.5h5M10.5 18.5h3M12 3v1"/></svg></span><small>12px</small></div>
+        <div class="size-cell"><span class="sz-16"><svg class="bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="10" r="5"/><path d="M9.5 15.5h5M10.5 18.5h3M12 3v1"/></svg></span><small>16px</small></div>
+        <div class="size-cell"><span class="sz-20"><svg class="bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="10" r="5"/><path d="M9.5 15.5h5M10.5 18.5h3M12 3v1"/></svg></span><small>20px</small></div>
+      </div>
+    </div>
+    <dl class="spec">
+      <dt>Movimiento</dt><dd>respiro de opacidad + glow tenue · <code>2s ease-in-out infinite</code></dd>
+      <dt>Color</dt><dd><code>text-soft</code>; glow de la misma tinta, nunca amarillo</dd>
+      <dt>Uso</dt><dd>message-stats con reasoning, agent-label en fase "thinking", effort alto</dd>
+    </dl>
+  </section>
+
+  <!-- 5 -->
+  <section class="card">
+    <h2>5 · Ecualizador <span class="tag">streaming en vivo</span></h2>
+    <p class="desc">Tres barritas que suben y bajan. Indica llegada real de tokens, no espera genérica. Demasiado movimiento para busy general: reservarlo al stream.</p>
+    <div class="stage">
+      <div class="sizes">
+        <div class="size-cell"><span class="sz-12"><span class="eq"><i></i><i></i><i></i></span></span><small>12px</small></div>
+        <div class="size-cell"><span class="sz-16"><span class="eq"><i></i><i></i><i></i></span></span><small>16px</small></div>
+        <div class="size-cell"><span class="sz-20"><span class="eq"><i></i><i></i><i></i></span></span><small>20px</small></div>
+      </div>
+    </div>
+    <dl class="spec">
+      <dt>Movimiento</dt><dd>scaleY .3→1 · <code>1s ease-in-out infinite</code>, desfase 200ms</dd>
+      <dt>Color</dt><dd><code>text-soft</code> monocromo</dd>
+      <dt>Uso</dt><dd>assistant-block recibiendo stream, run/preview con logs vivos</dd>
+    </dl>
+  </section>
+
+  <!-- 6 -->
+  <section class="card">
+    <h2>6 · Set por fase <span class="tag rec">recomendado · complemento</span></h2>
+    <p class="desc">En vez de un único indicador, cada fase tiene su icono. Se combina con la opción 1: arco genérico donde no se conoce la fase, icono específico donde sí.</p>
+    <table class="phases">
+      <tr><th>Icono</th><th>Fase</th><th>Etiqueta / uso</th></tr>
+      <tr>
+        <td class="icon"><svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="6.5" stroke-width="3.5" stroke-dasharray="2.6 2.44"/><circle cx="12" cy="12" r="2.2" stroke-width="1.8"/></svg></td>
+        <td><code>working</code></td><td>tool ejecutándose · rotación 1.4s</td>
+      </tr>
+      <tr>
+        <td class="icon"><svg class="bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="10" r="5"/><path d="M9.5 15.5h5M10.5 18.5h3M12 3v1"/></svg></td>
+        <td><code>reasoning</code></td><td>modelo razonando · respiro 2s</td>
+      </tr>
+      <tr>
+        <td class="icon"><svg class="waves" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="14" r="1.4" fill="currentColor" stroke="none"/><path class="w1" d="M7.5 10.5a6.5 6.5 0 0 1 9 0"/><path class="w2" d="M5 8a10.5 10.5 0 0 1 14 0"/></svg></td>
+        <td><code>reconnecting</code></td><td>SSE / túnel reconectando · ping 1.8s</td>
+      </tr>
+      <tr>
+        <td class="icon"><span class="sz-16"><span class="eq"><i></i><i></i><i></i></span></span></td>
+        <td><code>streaming</code></td><td>llegan tokens · ecualizador 1s</td>
+      </tr>
+      <tr>
+        <td class="icon"><svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></td>
+        <td><code>connected</code></td><td>estático, sin animación</td>
+      </tr>
+      <tr>
+        <td class="icon"><span class="idle-ring"></span></td>
+        <td><code>idle</code></td><td>anillo vacío estático, sin animación</td>
+      </tr>
+    </table>
+  </section>
+
+  <footer>
+    <strong>Recomendación:</strong> 1 (arco) como busy por defecto + 6 (set por fase) donde la fase se conoce.
+    Severidad siempre en el icono o su tinta, nunca en bordes del contenedor. Dime qué opciones sobreviven y las paso a <code>design.css</code> + <code>DESIGN.md</code>.
+  </footer>
+
+</div>
+<script>
+  (function () {
+    var btns = document.querySelectorAll(".theme-toggle button");
+    function paint() {
+      var cur = document.documentElement.getAttribute("data-theme") || "";
+      btns.forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.t === cur ? "true" : "false"); });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (b.dataset.t) document.documentElement.setAttribute("data-theme", b.dataset.t);
+        else document.documentElement.removeAttribute("data-theme");
+        paint();
+      });
+    });
+    paint();
+  })();
+</script>
+</body>
+</html>
