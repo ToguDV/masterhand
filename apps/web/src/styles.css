@@ -1045,6 +1045,11 @@ body {
   background: var(--mh-danger);
 }
 
+/* Unseen activity: a session that changed since it was last opened. */
+.mh-dot--unseen {
+  background: var(--mh-accent);
+}
+
 /* --------------------------------------------------------------------------
    7b. Animated status indicators (sober, monochrome, 12–20px).
    Active states animate; idle/connected/danger stay static. Severity lives

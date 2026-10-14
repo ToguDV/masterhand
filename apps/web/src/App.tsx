@@ -307,14 +307,19 @@ export default function App() {
     [queryClient],
   )
 
-  const openSession = useCallback((id: string | null) => {
-    setSessionID(id)
-    if (!id) setDrawerOpen(false)
-    const url = new URL(window.location.href)
-    if (id) url.searchParams.set("session", id)
-    else url.searchParams.delete("session")
-    window.history.replaceState(null, "", url)
-  }, [])
+  const openSession = useCallback(
+    (id: string | null) => {
+      setSessionID(id)
+      if (!id) setDrawerOpen(false)
+      const url = new URL(window.location.href)
+      if (id) url.searchParams.set("session", id)
+      else url.searchParams.delete("session")
+      window.history.replaceState(null, "", url)
+      // Fresh sidebar state on switch (badges, relative times, new sessions).
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+    [queryClient],
+  )
 
   const selectWorkspace = useCallback((id: string | null) => {
     setWorkspaceID(id)

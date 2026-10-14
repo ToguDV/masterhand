@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   directoryName,
   filterSessions,
@@ -20,6 +20,31 @@ const FILTERS: Array<{ value: SessionFilter; label: string }> = [
 
 /** Sessions rendered at once; more load on demand (no virtualization). */
 const SESSION_PAGE_SIZE = 100
+
+/** Last-opened timestamps per session, persisted across reloads. */
+const LAST_SEEN_KEY = "masterhand.lastSeenSessions"
+
+function loadLastSeen(): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(LAST_SEEN_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, number>
+    }
+  } catch {
+    // Corrupt or unavailable storage reads as nothing seen.
+  }
+  return {}
+}
+
+function storeLastSeen(record: Record<string, number>): void {
+  try {
+    window.localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(record))
+  } catch {
+    // Private mode or quota: tracking degrades to in-memory only.
+  }
+}
 
 export function SessionList({
   sessions,
@@ -43,6 +68,17 @@ export function SessionList({
 }) {
   const [filter, setFilter] = useState<SessionFilter>("all")
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
+  const [lastSeen, setLastSeen] = useState<Record<string, number>>(loadLastSeen)
+  // Any selection marks the session seen, whatever path opened it (list,
+  // creation auto-open, banners, restored URL).
+  useEffect(() => {
+    if (!selectedID) return
+    setLastSeen((previous) => {
+      const next = { ...previous, [selectedID]: Date.now() }
+      storeLastSeen(next)
+      return next
+    })
+  }, [selectedID])
   // Subagent children are reachable from their parent's card, not the list.
   const visible = filterSessions(rootSessions(sessions), filter)
   const shown = visible.slice(0, visibleCount)
@@ -88,6 +124,11 @@ export function SessionList({
           {shown.map((session) => {
             const status = statuses[session.id]
             const active = session.id === selectedID
+            const busy = status?.type === "busy"
+            const seenAt = lastSeen[session.id]
+            // Unknown means seen (no badge spam on first run); a busy session
+            // shows the spinner instead of the unseen marker.
+            const unseen = !active && !busy && seenAt !== undefined && session.time.updated > seenAt
             return (
               <div key={session.id} className="relative">
                 <button
@@ -96,11 +137,17 @@ export function SessionList({
                   className={`mh-session-item pr-9 ${active ? "is-active" : ""}`}
                 >
                   <span className="mh-session-item__top">
-                    {status?.type === "busy" ? (
+                    {busy ? (
                       <span className="mh-spin shrink-0" aria-hidden="true" />
-                    ) : (
-                      <span className="mh-dot" />
-                    )}
+                    ) : unseen ? (
+                      <span
+                        className="mh-dot mh-dot--unseen shrink-0"
+                        role="img"
+                        aria-label="New activity since you last opened this session"
+                        title="New activity"
+                        data-testid="session-unseen"
+                      />
+                    ) : null}
                     <span className="mh-session-item__title">{session.title || "Untitled"}</span>
                     {session.isolation && (
                       <span
