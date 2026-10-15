@@ -71,7 +71,9 @@ test("the header back button returns to the sections home", async ({ page }) => 
   await aside.getByRole("button", { name: "Board", exact: true }).click()
   // The board follows the selected workspace: empty workspaces show the
   // "Board" empty state, workspaces with columns show the column scroll.
-  await expect(header.getByText("Board")).toBeVisible()
-  await expect(page.locator("main").getByRole("button", { name: "Workspace" })).toBeVisible()
+  const main = page.locator("main")
+  await expect(main.getByRole("heading", { name: "Board" })).toBeVisible()
+  await expect(main.getByText("Add a workspace first")).toBeVisible()
+  await expect(main.getByRole("button", { name: "Workspace" })).toBeVisible()
   await expect(header.getByRole("button", { name: "Back to sections" })).toBeVisible()
 })

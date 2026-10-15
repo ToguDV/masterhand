@@ -94,7 +94,8 @@ export function normalizeBoardCard(value: unknown): BoardCard | null {
 }
 
 /** Tolerant board snapshot: an unexpected payload degrades to null, never throws. */
-export function normalizeBoardSnapshot(value: unknown): BoardSnapshot | null {  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+export function normalizeBoardSnapshot(value: unknown): BoardSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const raw = value as Record<string, unknown>
   const workspaceID = asString(raw.workspaceID)
   if (!workspaceID) return null

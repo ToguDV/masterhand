@@ -162,4 +162,34 @@ describe("board routes", () => {
     expect((await fetch(`${app.url}/api/board/columns/col_a`, { method: "DELETE", headers: { cookie } })).status).toBe(200)
     expect(app.store.getBoard("ws_1").columns).toHaveLength(0)
   })
+
+  it("rejects moves into another workspace's column with 409", async () => {
+    app = await startTestApp()
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws_1", name: "App", path: "/w/app", createdAt: 1 })
+    app.store.createWorkspace({ id: "ws_2", name: "Lib", path: "/w/lib", createdAt: 2 })
+    app.store.createBoardColumn({ id: "col_a", workspaceID: "ws_1", title: "A" })
+    app.store.createBoardColumn({ id: "col_b", workspaceID: "ws_2", title: "B" })
+    app.store.createBoardCard({ id: "card_1", columnID: "col_a", title: "T" })
+
+    const moved = await fetch(`${app.url}/api/board/cards/card_1`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ columnID: "col_b", position: 0 }),
+    })
+    expect(moved.status).toBe(409)
+    expect(await moved.json()).toEqual({ error: "column_workspace_mismatch" })
+    // The source board keeps the card: no silent loss.
+    expect(app.store.getBoard("ws_1").columns[0]?.cards.map((card) => card.id)).toEqual(["card_1"])
+    expect(app.store.getBoard("ws_2").columns[0]?.cards).toHaveLength(0)
+
+    // An id that already lives in another workspace is a conflict, not a move.
+    const collision = await fetch(`${app.url}/api/board/columns`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ id: "col_a", workspaceID: "ws_2", title: "A" }),
+    })
+    expect(collision.status).toBe(409)
+    expect(await collision.json()).toEqual({ error: "column_workspace_mismatch" })
+  })
 })

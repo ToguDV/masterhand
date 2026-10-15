@@ -250,6 +250,10 @@ export interface Store {
   saveGoalSettings(settings: GoalSettingsRecord): void
   /** Board snapshot for a workspace (columns with nested cards, sorted by position). */
   getBoard(workspaceID: string): BoardSnapshot
+  /** O(1) column lookup for routes (workspace resolution without scanning). */
+  getBoardColumn(id: string): BoardColumnRecord | null
+  /** O(1) card lookup for routes (workspace resolution without scanning). */
+  getBoardCard(id: string): BoardCardRecord | null
   /** Upsert by id: replaying a lost create returns the existing row, never duplicates. */
   createBoardColumn(record: { id: string; workspaceID: string; title: string; position?: number }): BoardColumnRecord
   updateBoardColumn(
@@ -585,6 +589,14 @@ export function createSqliteStore(file: string): Store {
         position = @position, updated_at = @updatedAt
     WHERE id = @id
   `)
+  const updateBoardCardPositionStatement = db.prepare(
+    "UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id",
+  )
+  const updateBoardCardContentStatement = db.prepare(`
+    UPDATE board_cards
+    SET title = @title, description = @description, position = @position, updated_at = @updatedAt
+    WHERE id = @id
+  `)
   const deleteBoardCardStatement = db.prepare("DELETE FROM board_cards WHERE id = ?")
   const deleteBoardCardsOfWorkspaceStatement = db.prepare(`
     DELETE FROM board_cards WHERE column_id IN (SELECT id FROM board_columns WHERE workspace_id = ?)
@@ -606,7 +618,7 @@ export function createSqliteStore(file: string): Store {
     const rows = listBoardCardsStatement.all(columnID) as BoardCardRecord[]
     rows.forEach((row, index) => {
       if (row.position !== index) {
-        db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+        updateBoardCardPositionStatement.run({
           id: row.id,
           position: index,
           updatedAt: now,
@@ -795,6 +807,12 @@ export function createSqliteStore(file: string): Store {
     getBoard(workspaceID) {
       return readBoardSnapshot(workspaceID)
     },
+    getBoardColumn(id) {
+      return (getBoardColumnStatement.get(id) as BoardColumnRecord | undefined) ?? null
+    },
+    getBoardCard(id) {
+      return (getBoardCardStatement.get(id) as BoardCardRecord | undefined) ?? null
+    },
     createBoardColumn(record) {
       const now = Date.now()
       const create = db.transaction(() => {
@@ -864,7 +882,7 @@ export function createSqliteStore(file: string): Store {
         const position = clampBoardPosition(record.position, siblings.length)
         for (const sibling of siblings) {
           if (sibling.position >= position) {
-            db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+            updateBoardCardPositionStatement.run({
               id: sibling.id,
               position: sibling.position + 1,
               updatedAt: now,
@@ -893,6 +911,12 @@ export function createSqliteStore(file: string): Store {
         const targetColumnID = patch.columnID ?? current.columnID
         const targetColumn = getBoardColumnStatement.get(targetColumnID) as BoardColumnRecord | undefined
         if (!targetColumn) return null
+        // One board per workspace: a card never leaves its workspace through a
+        // cross-column move (the route answers 409 before this fallback).
+        if (targetColumnID !== current.columnID) {
+          const sourceColumn = getBoardColumnStatement.get(current.columnID) as BoardColumnRecord | undefined
+          if (!sourceColumn || sourceColumn.workspaceID !== targetColumn.workspaceID) return null
+        }
         const title = patch.title ?? current.title
         const description = patch.description ?? current.description
         if (targetColumnID === current.columnID) {
@@ -906,11 +930,9 @@ export function createSqliteStore(file: string): Store {
           const ordered = [...siblings.slice(0, at), current, ...siblings.slice(at)]
           ordered.forEach((row, index) => {
             if (row.id === id) {
-              db.prepare(
-                "UPDATE board_cards SET title = @title, description = @description, position = @position, updated_at = @updatedAt WHERE id = @id",
-              ).run({ id, title, description, position: index, updatedAt: now })
+              updateBoardCardContentStatement.run({ id, title, description, position: index, updatedAt: now })
             } else {
-              db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+              updateBoardCardPositionStatement.run({
                 id: row.id,
                 position: index,
                 updatedAt: now,
@@ -923,7 +945,7 @@ export function createSqliteStore(file: string): Store {
             (row) => row.id !== id,
           )
           sourceSiblings.forEach((row, index) => {
-            db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+            updateBoardCardPositionStatement.run({
               id: row.id,
               position: index,
               updatedAt: now,
@@ -936,7 +958,7 @@ export function createSqliteStore(file: string): Store {
               : targetSiblings.length
           for (const sibling of targetSiblings) {
             if (sibling.position >= at) {
-              db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+              updateBoardCardPositionStatement.run({
                 id: sibling.id,
                 position: sibling.position + 1,
                 updatedAt: now,
@@ -1134,6 +1156,12 @@ export function createMemoryStore(): Store {
     getBoard(workspaceID) {
       return { workspaceID, columns: columnsOf(workspaceID).map((column) => ({ ...column, cards: cardsOf(column.id) })) }
     },
+    getBoardColumn(id) {
+      return boardColumns.get(id) ?? null
+    },
+    getBoardCard(id) {
+      return boardCards.get(id) ?? null
+    },
     createBoardColumn(record) {
       const existing = boardColumns.get(record.id)
       if (existing) return existing
@@ -1213,7 +1241,13 @@ export function createMemoryStore(): Store {
       const current = boardCards.get(id)
       if (!current) return null
       const targetColumnID = patch.columnID ?? current.columnID
-      if (!boardColumns.get(targetColumnID)) return null
+      const targetColumn = boardColumns.get(targetColumnID)
+      if (!targetColumn) return null
+      // One board per workspace: a card never leaves its workspace.
+      if (targetColumnID !== current.columnID) {
+        const sourceColumn = boardColumns.get(current.columnID)
+        if (!sourceColumn || sourceColumn.workspaceID !== targetColumn.workspaceID) return null
+      }
       const now = Date.now()
       const title = patch.title ?? current.title
       const description = patch.description ?? current.description

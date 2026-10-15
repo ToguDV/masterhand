@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  dropIndexFor,
   queryKeys,
+  reorderIDs,
   useBoard,
   type BoardCard,
   type BoardSnapshot,
@@ -17,7 +19,6 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-  type DragOverEvent,
 } from "@dnd-kit/core"
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -26,6 +27,7 @@ import { Deco } from "./Deco"
 import { WorkspacePicker } from "./WorkspacePicker"
 import { useToast } from "./Toast"
 import { useDismissable } from "./useDismissable"
+import { useModalFocus } from "./useModalFocus"
 import { CheckIcon, EllipsisIcon, PlusIcon, TrashIcon, XIcon } from "./icons"
 
 function newID(prefix: string): string {
@@ -284,6 +286,125 @@ function BoardColumnView({
   )
 }
 /**
+ * Delete-column confirmation: focus-trapped like every other app dialog
+ * (Escape closes, focus restores on unmount).
+ */
+function DeleteColumnDialog({
+  title,
+  cardCount,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  cardCount: number
+  busy: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const dialogRef = useModalFocus<HTMLDivElement>(onCancel)
+  return (
+    <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="delete-column-title"
+        aria-describedby="delete-column-description"
+        className="mh-dialog outline-none"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3 id="delete-column-title" className="mh-dialog__title mh-heading-2">
+          Delete column?
+        </h3>
+        <p id="delete-column-description" className="mh-body-sm text-ink-muted">
+          “{title}” and its {cardCount} {cardCount === 1 ? "card" : "cards"} will be deleted. This cannot be undone.
+        </p>
+        <div className="mh-dialog__actions mt-4">
+          <button type="button" onClick={onCancel} className="mh-btn mh-btn--ghost" disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={busy} className="mh-btn mh-btn--danger">
+            {busy ? "Deleting…" : `Delete column and ${cardCount} ${cardCount === 1 ? "card" : "cards"}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Edit-card dialog with the same focus contract as the other app dialogs. */
+function EditCardDialog({
+  draft,
+  onDraft,
+  busy,
+  onCancel,
+  onSave,
+  onDelete,
+}: {
+  draft: { title: string; description: string }
+  onDraft: (draft: { title: string; description: string }) => void
+  busy: boolean
+  onCancel: () => void
+  onSave: () => void
+  onDelete: () => void
+}) {
+  const dialogRef = useModalFocus<HTMLDivElement>(onCancel)
+  return (
+    <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-card-title"
+        className="mh-dialog outline-none"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3 id="edit-card-title" className="mh-dialog__title mh-heading-2">
+          Edit card
+        </h3>
+        <label className="mt-2 block text-xs font-medium text-ink-muted" htmlFor="board-card-title">
+          Title
+        </label>
+        <input
+          id="board-card-title"
+          value={draft.title}
+          onChange={(event) => onDraft({ ...draft, title: event.target.value })}
+          className="mh-input mt-1 w-full"
+          maxLength={200}
+        />
+        <label className="mt-3 block text-xs font-medium text-ink-muted" htmlFor="board-card-description">
+          Description
+        </label>
+        <textarea
+          id="board-card-description"
+          value={draft.description}
+          onChange={(event) => onDraft({ ...draft, description: event.target.value })}
+          className="mh-input mt-1 min-h-24 w-full"
+          maxLength={10000}
+          rows={4}
+        />
+        <div className="mh-dialog__actions mt-4">
+          <button type="button" onClick={onDelete} disabled={busy} className="mh-btn mh-btn--danger">
+            <TrashIcon size={14} />
+            Delete
+          </button>
+          <span className="flex-1" />
+          <button type="button" onClick={onCancel} className="mh-btn mh-btn--ghost" disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" onClick={onSave} disabled={busy} className="mh-btn mh-btn--primary">
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
  * Workspace board: one kanban per workspace (issue #164). Cards drag within a
  * column and across columns (@dnd-kit); a drop commits an absolute
  * `(columnID, position)` and a failure refetches with an error toast — never a
@@ -325,11 +446,6 @@ export function BoardView({
   )
 
   const columns = useMemo(() => board?.columns ?? [], [board])
-
-  function refreshBoard(message?: string) {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
-    if (message) toast(message)
-  }
 
   function failBoard(error: unknown) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
@@ -470,8 +586,8 @@ export function BoardView({
 
   function columnOfCard(cardID: string): { columnID: string; index: number } | null {
     for (const column of columns) {
-      const index = column.cards.findIndex((card) => card.id === cardID)
-      if (index >= 0) return { columnID: column.id, index }
+      if (!column.cards.some((card) => card.id === cardID)) continue
+      return { columnID: column.id, index: dropIndexFor(column.cards, cardID) }
     }
     return null
   }
@@ -481,7 +597,7 @@ export function BoardView({
     const cardLocation = columnOfCard(overID)
     if (cardLocation) return cardLocation
     const column = columns.find((item) => item.id === overID)
-    if (column) return { columnID: column.id, index: column.cards.length }
+    if (column) return { columnID: column.id, index: dropIndexFor(column.cards, null) }
     return null
   }
 
@@ -490,39 +606,71 @@ export function BoardView({
     const target = targetOfOver(overID)
     if (!from || !target) return
     if (from.columnID === target.columnID && from.index === target.index) return
-    // Optimistic reorder, then commit the absolute position.
+    // One absolute position drives both the optimistic cache and the PATCH,
+    // so the card never jumps on refetch. Same-column card-over-card uses the
+    // shared arrayMove helper (matching the server); every other drop inserts
+    // at the over index (end when dropped on the empty column area).
+    const sameColumn = from.columnID === target.columnID
+    const overIsSameColumnCard =
+      sameColumn && overID !== null && columns.find((column) => column.id === from.columnID)?.cards.some((card) => card.id === overID)
+    let position: number
+    let reorderedIDs: string[] | null = null
+    if (overIsSameColumnCard) {
+      const ids = columns.find((column) => column.id === from.columnID)?.cards.map((card) => card.id) ?? []
+      reorderedIDs = reorderIDs(ids, activeID, overID!)
+      if (!reorderedIDs) return
+      position = reorderedIDs.indexOf(activeID)
+    } else if (sameColumn) {
+      const length = columns.find((column) => column.id === from.columnID)?.cards.length ?? target.index
+      position = Math.min(target.index, Math.max(length - 1, 0))
+    } else {
+      position = target.index
+    }
+    // Optimistic reorder, then commit the absolute position. Snapshots are
+    // rebuilt (never mutated) so concurrent readers keep a stable reference.
     const previous = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID))
     if (previous) {
-      const next: BoardSnapshot = { ...previous, columns: previous.columns.map((column) => ({ ...column, cards: [...column.cards] })) }
-      const source = next.columns.find((column) => column.id === from.columnID)!
-      const destination = next.columns.find((column) => column.id === target.columnID)!
-      const [moved] = source.cards.splice(from.index, 1)
-      if (!moved) return
-      const at = from.columnID === target.columnID && target.index > from.index ? target.index - 1 : target.index
-      destination.cards.splice(Math.min(at, destination.cards.length), 0, { ...moved, columnID: destination.id })
-      destination.cards.forEach((card, index) => {
-        card.position = index
-      })
-      source.cards.forEach((card, index) => {
-        card.position = index
-      })
-      queryClient.setQueryData<BoardSnapshot>(queryKeys.board(workspaceID), next)
+      if (reorderedIDs) {
+        const byID = new Map<string, BoardCard>()
+        for (const column of previous.columns) {
+          if (column.id !== from.columnID) continue
+          for (const card of column.cards) byID.set(card.id, card)
+        }
+        const reordered = reorderedIDs.map((id, index) => ({ ...byID.get(id)!, position: index }))
+        queryClient.setQueryData<BoardSnapshot>(queryKeys.board(workspaceID), {
+          ...previous,
+          columns: previous.columns.map((column) =>
+            column.id === from.columnID
+              ? { ...column, cards: reordered }
+              : column,
+          ),
+        })
+      } else {
+        const next: BoardSnapshot = {
+          ...previous,
+          columns: previous.columns.map((column) => ({ ...column, cards: [...column.cards] })),
+        }
+        const source = next.columns.find((column) => column.id === from.columnID)!
+        const destination = next.columns.find((column) => column.id === target.columnID)!
+        const fromIndex = source.cards.findIndex((card) => card.id === activeID)
+        if (fromIndex < 0) return
+        const [moved] = source.cards.splice(fromIndex, 1)
+        if (!moved) return
+        destination.cards.splice(Math.min(position, destination.cards.length), 0, { ...moved, columnID: destination.id })
+        const reindexed = next.columns.map((column) =>
+          column.id === source.id || column.id === destination.id
+            ? { ...column, cards: column.cards.map((card, index) => ({ ...card, position: index })) }
+            : column,
+        )
+        queryClient.setQueryData<BoardSnapshot>(queryKeys.board(workspaceID), { ...next, columns: reindexed })
+      }
     }
     try {
-      const destination = columns.find((column) => column.id === target.columnID)
-      const at = destination ? Math.min(target.index, destination.cards.length) : target.index
-      await client.api.board.updateCard(activeID, { columnID: target.columnID, position: at })
+      await client.api.board.updateCard(activeID, { columnID: target.columnID, position })
       await queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
     } catch (error) {
       failBoard(error)
     }
-  }
-
-  function onDragOver(event: DragOverEvent) {
-    // Live cross-column feedback is skipped: the optimistic commit on drop is
-    // enough and avoids cache churn mid-drag. This handler exists so a drop
-    // outside any card still resolves through `onDragEnd`.
-    void event
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -610,7 +758,7 @@ export function BoardView({
           </div>
         </div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <div className="scroll-thin flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2" aria-label="Board columns">
             {columns.map((column, columnIndex) => (
               <BoardColumnView
@@ -661,81 +809,24 @@ export function BoardView({
       )}
 
       {confirmColumn && (
-        <div className="mh-overlay fixed inset-0 z-40 flex items-center justify-center p-4" role="presentation" onClick={() => setConfirmDeleteColumnID(null)}>
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-column-title"
-            aria-describedby="delete-column-description"
-            className="mh-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="delete-column-title" className="mh-dialog__title mh-heading-2">
-              Delete column?
-            </h3>
-            <p id="delete-column-description" className="mh-body-sm text-ink-muted">
-              “{confirmColumn.title}” and its {confirmColumn.cards.length} {confirmColumn.cards.length === 1 ? "card" : "cards"} will be deleted. This cannot be undone.
-            </p>
-            <div className="mh-dialog__actions mt-4">
-              <button type="button" onClick={() => setConfirmDeleteColumnID(null)} className="mh-btn mh-btn--ghost" disabled={deleting}>
-                Cancel
-              </button>
-              <button type="button" onClick={() => void confirmDeleteColumn()} disabled={deleting} className="mh-btn mh-btn--danger">
-                {deleting ? "Deleting…" : `Delete column and ${confirmColumn.cards.length} ${confirmColumn.cards.length === 1 ? "card" : "cards"}`}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteColumnDialog
+          title={confirmColumn.title}
+          cardCount={confirmColumn.cards.length}
+          busy={deleting}
+          onCancel={() => setConfirmDeleteColumnID(null)}
+          onConfirm={() => void confirmDeleteColumn()}
+        />
       )}
 
       {editingCard && (
-        <div className="mh-overlay fixed inset-0 z-40 flex items-center justify-center p-4" role="presentation" onClick={() => setEditingCard(null)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="edit-card-title"
-            className="mh-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="edit-card-title" className="mh-dialog__title mh-heading-2">
-              Edit card
-            </h3>
-            <label className="mt-2 block text-xs font-medium text-ink-muted" htmlFor="board-card-title">
-              Title
-            </label>
-            <input
-              id="board-card-title"
-              value={cardDraft.title}
-              onChange={(event) => setCardDraft((prev) => ({ ...prev, title: event.target.value }))}
-              className="mh-input mt-1 w-full"
-              maxLength={200}
-            />
-            <label className="mt-3 block text-xs font-medium text-ink-muted" htmlFor="board-card-description">
-              Description
-            </label>
-            <textarea
-              id="board-card-description"
-              value={cardDraft.description}
-              onChange={(event) => setCardDraft((prev) => ({ ...prev, description: event.target.value }))}
-              className="mh-input mt-1 min-h-24 w-full"
-              maxLength={10000}
-              rows={4}
-            />
-            <div className="mh-dialog__actions mt-4">
-              <button type="button" onClick={() => void deleteCard()} disabled={savingCard} className="mh-btn mh-btn--danger">
-                <TrashIcon size={14} />
-                Delete
-              </button>
-              <span className="flex-1" />
-              <button type="button" onClick={() => setEditingCard(null)} className="mh-btn mh-btn--ghost" disabled={savingCard}>
-                Cancel
-              </button>
-              <button type="button" onClick={() => void saveCard()} disabled={savingCard} className="mh-btn mh-btn--primary">
-                {savingCard ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <EditCardDialog
+          draft={cardDraft}
+          onDraft={setCardDraft}
+          busy={savingCard}
+          onCancel={() => setEditingCard(null)}
+          onSave={() => void saveCard()}
+          onDelete={() => void deleteCard()}
+        />
       )}
     </div>
   )

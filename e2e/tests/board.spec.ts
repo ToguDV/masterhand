@@ -59,7 +59,10 @@ test("board creates, edits and persists columns and cards per workspace", async 
   // Per-workspace isolation: a second workspace starts empty.
   await addWorkspace(page)
   await openBoard(page)
-  await expect(page.locator("main").getByRole("heading", { name: "Board" })).toBeVisible()
+  const main = page.locator("main")
+  await expect(main.getByRole("heading", { name: "Board" })).toBeVisible()
+  await expect(main.getByText("no columns yet")).toBeVisible()
+  await expect(page.locator('section[aria-label="Column To do now"]')).toBeHidden()
 })
 
 test("board drags cards within a column and across columns", async ({ page }) => {
@@ -94,11 +97,27 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   const backlogCards = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]')
   await expect(backlogCards.first()).toContainText("Beta")
 
-  // Across columns: drag Alpha into the Doing column.
+  // Within-column downward: drag Beta (now first) onto Alpha (second) so the
+  // order flips back to [Alpha, Beta]. This is the off-by-one regression: the
+  // optimistic cache and the PATCH must agree on the absolute position.
+  const betaFirst = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').first()
+  const alphaSecond = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').nth(1)
+  const betaFirstBox = await betaFirst.boundingBox()
+  const alphaSecondBox = await alphaSecond.boundingBox()
+  expect(betaFirstBox).not.toBeNull()
+  expect(alphaSecondBox).not.toBeNull()
+  await page.mouse.move(betaFirstBox!.x + betaFirstBox!.width / 2, betaFirstBox!.y + betaFirstBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(alphaSecondBox!.x + alphaSecondBox!.width / 2, alphaSecondBox!.y + alphaSecondBox!.height / 2, { steps: 12 })
+  await page.mouse.up()
+  await expect(backlogCards.first()).toContainText("Alpha")
+  await expect(backlogCards.nth(1)).toContainText("Beta")
+
+  // Across columns onto the empty area: drag Alpha into Doing (empty).
   const alphaAfter = page.getByRole("button", { name: "Edit card Alpha" })
-  const doingSection = page.locator('section[aria-label="Column Doing"]')
+  const doingEmpty = page.locator('section[aria-label="Column Doing"]')
   const alphaBox2 = await alphaAfter.boundingBox()
-  const doingBox = await doingSection.boundingBox()
+  const doingBox = await doingEmpty.boundingBox()
   expect(alphaBox2).not.toBeNull()
   expect(doingBox).not.toBeNull()
   await page.mouse.move(alphaBox2!.x + alphaBox2!.width / 2, alphaBox2!.y + alphaBox2!.height / 2)
@@ -106,6 +125,22 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   await page.mouse.move(doingBox!.x + doingBox!.width / 2, doingBox!.y + doingBox!.height / 2, { steps: 12 })
   await page.mouse.up()
   await expect(page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]').first()).toContainText("Alpha")
+
+  // Across columns onto the header: drag Beta onto Doing's header so it lands
+  // at the end, behind Alpha.
+  const betaAfter = page.getByRole("button", { name: "Edit card Beta" })
+  const doingHeader = page.locator('section[aria-label="Column Doing"] header').first()
+  const betaAfterBox = await betaAfter.boundingBox()
+  const doingHeaderBox = await doingHeader.boundingBox()
+  expect(betaAfterBox).not.toBeNull()
+  expect(doingHeaderBox).not.toBeNull()
+  await page.mouse.move(betaAfterBox!.x + betaAfterBox!.width / 2, betaAfterBox!.y + betaAfterBox!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(doingHeaderBox!.x + doingHeaderBox!.width / 2, doingHeaderBox!.y + doingHeaderBox!.height / 2, { steps: 12 })
+  await page.mouse.up()
+  const doingCards = page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]')
+  await expect(doingCards).toHaveCount(2)
+  await expect(doingCards.nth(1)).toContainText("Beta")
 })
 
 test("board deletes a column with its cards after confirmation", async ({ page }) => {

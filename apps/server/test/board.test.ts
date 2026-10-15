@@ -136,4 +136,27 @@ describe.each(stores())("board store ($name)", ({ make, close }) => {
       close(store)
     }
   })
+
+  it("resolves columns and cards without scanning and rejects cross-workspace moves", () => {
+    const store = make()
+    try {
+      store.createWorkspace({ id: "ws_1", name: "App", path: "/w/app", createdAt: 1 })
+      store.createWorkspace({ id: "ws_2", name: "Lib", path: "/w/lib", createdAt: 2 })
+      store.createBoardColumn({ id: "col_a", workspaceID: "ws_1", title: "A" })
+      store.createBoardColumn({ id: "col_b", workspaceID: "ws_2", title: "B" })
+      store.createBoardCard({ id: "card_1", columnID: "col_a", title: "T" })
+
+      expect(store.getBoardColumn("col_a")?.workspaceID).toBe("ws_1")
+      expect(store.getBoardColumn("missing")).toBeNull()
+      expect(store.getBoardCard("card_1")?.columnID).toBe("col_a")
+      expect(store.getBoardCard("missing")).toBeNull()
+
+      // A card never leaves its workspace, even when the target column exists.
+      expect(store.updateBoardCard("card_1", { columnID: "col_b", position: 0 })).toBeNull()
+      expect(store.getBoard("ws_1").columns[0]?.cards.map((card) => card.id)).toEqual(["card_1"])
+      expect(store.getBoard("ws_2").columns[0]?.cards).toHaveLength(0)
+    } finally {
+      close(store)
+    }
+  })
 })

@@ -120,11 +120,11 @@ Each workspace has one board: columns with ordered cards (`title` + `description
 | Method | Route | Notes |
 |---|---|---|
 | `GET` | `/api/board?workspace=<id>` | `{ board: { workspaceID, columns: [{ id, title, position, cards: [...] }] } }` — cards nested and sorted by position. `400 workspace_required`, `404 workspace_not_found` |
-| `POST` | `/api/board/columns` | Body `{ id, workspaceID, title, position? }` → `201 { column }`; idempotent by id (a replay returns the existing row, never overwrites an edit); position defaults to the end |
+| `POST` | `/api/board/columns` | Body `{ id, workspaceID, title, position? }` → `201 { column }`; idempotent by id (a replay returns the existing row, never overwrites an edit); position defaults to the end. `409 column_workspace_mismatch` when the id already lives in another workspace |
 | `PATCH` | `/api/board/columns/:id` | Body `{ title?, position? }` → `{ column }`; a position change reindexes. `404 column_not_found` |
 | `DELETE` | `/api/board/columns/:id` | `{ ok: true }`; deletes its cards in the same transaction; idempotent |
 | `POST` | `/api/board/cards` | Body `{ id, columnID, title, description?, position? }` → `201 { card }`; idempotent by id. `404 column_not_found` |
-| `PATCH` | `/api/board/cards/:id` | Body `{ title?, description?, columnID?, position? }` → `{ card }`; a move reindexes source + target in one transaction. `404 card_not_found` / `column_not_found` |
+| `PATCH` | `/api/board/cards/:id` | Body `{ title?, description?, columnID?, position? }` → `{ card }`; a move reindexes source + target in one transaction. `404 card_not_found` / `column_not_found`, `409 column_workspace_mismatch` when the target column belongs to another workspace (the card stays on its board) |
 | `DELETE` | `/api/board/cards/:id` | `{ ok: true }`; idempotent |
 
 Validation: bounded `id` (1–128 chars of `[A-Za-z0-9._-]`), non-empty bounded `title` (≤ 200), bounded `description` (≤ 10000), `position` integer ≥ 0. Errors: `400 invalid_*`, storage failures through the existing `503 storage_unavailable` ladder.

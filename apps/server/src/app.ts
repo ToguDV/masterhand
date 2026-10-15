@@ -1872,6 +1872,16 @@ export function createApp(deps: AppDeps): Hono {
     }
   }
 
+  function boardWorkspaceOfColumn(columnID: string): string | null {
+    return deps.store.getBoardColumn(columnID)?.workspaceID ?? null
+  }
+
+  function boardWorkspaceOfCard(cardID: string): string | null {
+    const card = deps.store.getBoardCard(cardID)
+    if (!card) return null
+    return boardWorkspaceOfColumn(card.columnID)
+  }
+
   api.get("/board", (c) => {
     const workspaceID = c.req.query("workspace") ?? ""
     if (!workspaceID) return c.json({ error: "workspace_required" }, 400)
@@ -1896,6 +1906,10 @@ export function createApp(deps: AppDeps): Hono {
     const position = normalizeBoardPosition(body.position)
     if (position === null) return c.json({ error: "invalid_position" }, 400)
     const column = deps.store.createBoardColumn({ id, workspaceID, title, position })
+    // Upsert is by id: a replay returns the existing row. An id that already
+    // lives in another workspace is a conflict, not a move (unreachable with
+    // client UUIDs, but the invariant is enforced at the trust boundary).
+    if (column.workspaceID !== workspaceID) return c.json({ error: "column_workspace_mismatch" }, 409)
     emitBoardUpdated(workspaceID)
     return c.json({ column }, 201)
   })
@@ -1929,14 +1943,7 @@ export function createApp(deps: AppDeps): Hono {
   api.delete("/board/columns/:id", (c) => {
     const id = c.req.param("id")
     // Workspace for the frame: resolved before deletion (idempotent when unknown).
-    let workspaceID: string | null = null
-    for (const workspace of deps.store.listWorkspaces()) {
-      const snapshot = deps.store.getBoard(workspace.id)
-      if (snapshot.columns.some((column) => column.id === id)) {
-        workspaceID = workspace.id
-        break
-      }
-    }
+    const workspaceID = boardWorkspaceOfColumn(id)
     deps.store.deleteBoardColumn(id)
     if (workspaceID) emitBoardUpdated(workspaceID)
     return c.json({ ok: true })
@@ -1962,13 +1969,7 @@ export function createApp(deps: AppDeps): Hono {
     const card = deps.store.createBoardCard({ id, columnID, title, description: description ?? "", position })
     if (!card) return c.json({ error: "column_not_found" }, 404)
     // Owning workspace for the frame.
-    let workspaceID = ""
-    for (const workspace of deps.store.listWorkspaces()) {
-      if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === card.columnID)) {
-        workspaceID = workspace.id
-        break
-      }
-    }
+    const workspaceID = boardWorkspaceOfColumn(card.columnID)
     if (workspaceID) emitBoardUpdated(workspaceID)
     return c.json({ card }, 201)
   })
@@ -2005,43 +2006,45 @@ export function createApp(deps: AppDeps): Hono {
       if (position === null || position === undefined) return c.json({ error: "invalid_position" }, 400)
       patch.position = position
     }
+    // One board per workspace: a card cannot move into another workspace's
+    // column. Rejected here (409) so the source board never loses the card
+    // silently; the store re-checks the same invariant as a fallback.
+    if (patch.columnID) {
+      const target = deps.store.getBoardColumn(patch.columnID)
+      if (!target) return c.json({ error: "column_not_found" }, 404)
+      const current = deps.store.getBoardCard(id)
+      if (current) {
+        const source = deps.store.getBoardColumn(current.columnID)
+        if (source && source.workspaceID !== target.workspaceID) {
+          return c.json({ error: "column_workspace_mismatch" }, 409)
+        }
+      }
+    }
     const card = deps.store.updateBoardCard(id, patch)
     if (!card) {
       // Distinguish an unknown card from an unknown target column.
       if (patch.columnID) {
-        let columnExists = false
-        for (const workspace of deps.store.listWorkspaces()) {
-          if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === patch.columnID)) {
-            columnExists = true
-            break
+        const target = deps.store.getBoardColumn(patch.columnID)
+        if (!target) return c.json({ error: "column_not_found" }, 404)
+        const current = deps.store.getBoardCard(id)
+        if (current) {
+          const source = deps.store.getBoardColumn(current.columnID)
+          if (source && source.workspaceID !== target.workspaceID) {
+            return c.json({ error: "column_workspace_mismatch" }, 409)
           }
         }
-        if (columnExists) return c.json({ error: "card_not_found" }, 404)
-        return c.json({ error: "column_not_found" }, 404)
+        return c.json({ error: "card_not_found" }, 404)
       }
       return c.json({ error: "card_not_found" }, 404)
     }
-    let workspaceID = ""
-    for (const workspace of deps.store.listWorkspaces()) {
-      if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === card.columnID)) {
-        workspaceID = workspace.id
-        break
-      }
-    }
+    const workspaceID = boardWorkspaceOfColumn(card.columnID)
     if (workspaceID) emitBoardUpdated(workspaceID)
     return c.json({ card })
   })
 
   api.delete("/board/cards/:id", (c) => {
     const id = c.req.param("id")
-    let workspaceID: string | null = null
-    for (const workspace of deps.store.listWorkspaces()) {
-      const snapshot = deps.store.getBoard(workspace.id)
-      if (snapshot.columns.some((column) => column.cards.some((card) => card.id === id))) {
-        workspaceID = workspace.id
-        break
-      }
-    }
+    const workspaceID = boardWorkspaceOfCard(id)
     deps.store.deleteBoardCard(id)
     if (workspaceID) emitBoardUpdated(workspaceID)
     return c.json({ ok: true })
