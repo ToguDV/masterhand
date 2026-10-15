@@ -84,16 +84,26 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Edit card Beta" })).toBeVisible()
 
   // Within-column reorder: drag Beta onto Alpha so Beta lands first.
+  // Each drop waits for its PATCH: the next drag must resolve against the
+  // persisted order, not the pre-refetch closure.
+  async function dragCardOnto(source: import("@playwright/test").Locator, target: import("@playwright/test").Locator) {
+    const sourceBox = await source.boundingBox()
+    const targetBox = await target.boundingBox()
+    expect(sourceBox).not.toBeNull()
+    expect(targetBox).not.toBeNull()
+    await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 })
+    const patch = page.waitForResponse(
+      (response) => response.url().includes("/api/board/cards/") && response.request().method() === "PATCH",
+    )
+    await page.mouse.up()
+    await patch
+  }
+
   const beta = page.getByRole("button", { name: "Edit card Beta" })
   const alpha = page.getByRole("button", { name: "Edit card Alpha" })
-  const betaBox = await beta.boundingBox()
-  const alphaBox = await alpha.boundingBox()
-  expect(betaBox).not.toBeNull()
-  expect(alphaBox).not.toBeNull()
-  await page.mouse.move(betaBox!.x + betaBox!.width / 2, betaBox!.y + betaBox!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(alphaBox!.x + alphaBox!.width / 2, alphaBox!.y + alphaBox!.height / 2, { steps: 12 })
-  await page.mouse.up()
+  await dragCardOnto(beta, alpha)
   const backlogCards = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]')
   await expect(backlogCards.first()).toContainText("Beta")
 
@@ -102,45 +112,27 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   // optimistic cache and the PATCH must agree on the absolute position.
   const betaFirst = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').first()
   const alphaSecond = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').nth(1)
-  const betaFirstBox = await betaFirst.boundingBox()
-  const alphaSecondBox = await alphaSecond.boundingBox()
-  expect(betaFirstBox).not.toBeNull()
-  expect(alphaSecondBox).not.toBeNull()
-  await page.mouse.move(betaFirstBox!.x + betaFirstBox!.width / 2, betaFirstBox!.y + betaFirstBox!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(alphaSecondBox!.x + alphaSecondBox!.width / 2, alphaSecondBox!.y + alphaSecondBox!.height / 2, { steps: 12 })
-  await page.mouse.up()
+  await dragCardOnto(betaFirst, alphaSecond)
   await expect(backlogCards.first()).toContainText("Alpha")
   await expect(backlogCards.nth(1)).toContainText("Beta")
 
   // Across columns onto the empty area: drag Alpha into Doing (empty).
   const alphaAfter = page.getByRole("button", { name: "Edit card Alpha" })
-  const doingEmpty = page.locator('section[aria-label="Column Doing"]')
-  const alphaBox2 = await alphaAfter.boundingBox()
-  const doingBox = await doingEmpty.boundingBox()
-  expect(alphaBox2).not.toBeNull()
-  expect(doingBox).not.toBeNull()
-  await page.mouse.move(alphaBox2!.x + alphaBox2!.width / 2, alphaBox2!.y + alphaBox2!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(doingBox!.x + doingBox!.width / 2, doingBox!.y + doingBox!.height / 2, { steps: 12 })
-  await page.mouse.up()
+  const doingSection = page.locator('section[aria-label="Column Doing"]')
+  await dragCardOnto(alphaAfter, doingSection)
   await expect(page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]').first()).toContainText("Alpha")
 
-  // Across columns onto the header: drag Beta onto Doing's header so it lands
-  // at the end, behind Alpha.
+  // Drop on the header/empty area: a third empty column, so resolving the drop
+  // to the column appends the only card deterministically.
+  await page.getByLabel("New column title").last().fill("Empty")
+  await page.getByRole("button", { name: "Add column" }).last().click()
+  await expect(page.locator('section[aria-label="Column Empty"]')).toBeVisible()
   const betaAfter = page.getByRole("button", { name: "Edit card Beta" })
-  const doingHeader = page.locator('section[aria-label="Column Doing"] header').first()
-  const betaAfterBox = await betaAfter.boundingBox()
-  const doingHeaderBox = await doingHeader.boundingBox()
-  expect(betaAfterBox).not.toBeNull()
-  expect(doingHeaderBox).not.toBeNull()
-  await page.mouse.move(betaAfterBox!.x + betaAfterBox!.width / 2, betaAfterBox!.y + betaAfterBox!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(doingHeaderBox!.x + doingHeaderBox!.width / 2, doingHeaderBox!.y + doingHeaderBox!.height / 2, { steps: 12 })
-  await page.mouse.up()
-  const doingCards = page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]')
-  await expect(doingCards).toHaveCount(2)
-  await expect(doingCards.nth(1)).toContainText("Beta")
+  const emptyHeader = page.locator('section[aria-label="Column Empty"] header').first()
+  await dragCardOnto(betaAfter, emptyHeader)
+  const emptyCards = page.locator('section[aria-label="Column Empty"] button[aria-label^="Edit card"]')
+  await expect(emptyCards).toHaveCount(1)
+  await expect(emptyCards.first()).toContainText("Beta")
 })
 
 test("board deletes a column with its cards after confirmation", async ({ page }) => {

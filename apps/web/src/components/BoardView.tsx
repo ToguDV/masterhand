@@ -584,26 +584,37 @@ export function BoardView({
     }
   }
 
-  function columnOfCard(cardID: string): { columnID: string; index: number } | null {
-    for (const column of columns) {
+  function columnOfCard(
+    cols: BoardSnapshot["columns"],
+    cardID: string,
+  ): { columnID: string; index: number } | null {
+    for (const column of cols) {
       if (!column.cards.some((card) => card.id === cardID)) continue
       return { columnID: column.id, index: dropIndexFor(column.cards, cardID) }
     }
     return null
   }
 
-  function targetOfOver(overID: string | null): { columnID: string; index: number } | null {
+  function targetOfOver(
+    cols: BoardSnapshot["columns"],
+    overID: string | null,
+  ): { columnID: string; index: number } | null {
     if (!overID) return null
-    const cardLocation = columnOfCard(overID)
+    const cardLocation = columnOfCard(cols, overID)
     if (cardLocation) return cardLocation
-    const column = columns.find((item) => item.id === overID)
+    const column = cols.find((item) => item.id === overID)
     if (column) return { columnID: column.id, index: dropIndexFor(column.cards, null) }
     return null
   }
 
   async function commitCardMove(activeID: string, overID: string | null) {
-    const from = columnOfCard(activeID)
-    const target = targetOfOver(overID)
+    // Resolve against the live cache snapshot, not the render closure: a
+    // second drop can land while the refetch of the first is still in flight,
+    // and the position must match the base the optimistic update applies to.
+    const base = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID)) ?? board ?? null
+    const cols = base?.columns ?? columns
+    const from = columnOfCard(cols, activeID)
+    const target = targetOfOver(cols, overID)
     if (!from || !target) return
     if (from.columnID === target.columnID && from.index === target.index) return
     // One absolute position drives both the optimistic cache and the PATCH,
@@ -612,16 +623,16 @@ export function BoardView({
     // at the over index (end when dropped on the empty column area).
     const sameColumn = from.columnID === target.columnID
     const overIsSameColumnCard =
-      sameColumn && overID !== null && columns.find((column) => column.id === from.columnID)?.cards.some((card) => card.id === overID)
+      sameColumn && overID !== null && cols.find((column) => column.id === from.columnID)?.cards.some((card) => card.id === overID)
     let position: number
     let reorderedIDs: string[] | null = null
     if (overIsSameColumnCard) {
-      const ids = columns.find((column) => column.id === from.columnID)?.cards.map((card) => card.id) ?? []
+      const ids = cols.find((column) => column.id === from.columnID)?.cards.map((card) => card.id) ?? []
       reorderedIDs = reorderIDs(ids, activeID, overID!)
       if (!reorderedIDs) return
       position = reorderedIDs.indexOf(activeID)
     } else if (sameColumn) {
-      const length = columns.find((column) => column.id === from.columnID)?.cards.length ?? target.index
+      const length = cols.find((column) => column.id === from.columnID)?.cards.length ?? target.index
       position = Math.min(target.index, Math.max(length - 1, 0))
     } else {
       position = target.index
