@@ -28,7 +28,7 @@ import {
 import { client } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
 import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
-import { BoardView } from "./components/BoardView"
+import { BoardPanel, BoardView } from "./components/BoardView"
 import { BrandMark } from "./components/BrandMark"
 import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
@@ -51,7 +51,7 @@ const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
 const SIDEBAR_SECTION_KEY = "mh-sidebar-section"
 
-/** Sections of the sidebar. Sessions is first; board is an empty placeholder. */
+/** Sections of the sidebar. Sessions is first; board follows the workspace. */
 type SidebarSection = "sessions" | "board"
 
 /** Auto-accept retry policy: bounded attempts with a short backoff. */
@@ -1140,9 +1140,7 @@ export default function App() {
                 />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-3">
-                    <p className="mh-body-sm text-ink-muted">Kanban board coming soon.</p>
-                  </div>
+                  <BoardPanel workspaceID={workspaceID} />
                 </div>
               )}
               {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
@@ -1222,7 +1220,13 @@ export default function App() {
 
         <main className="relative flex min-w-0 flex-1 flex-col">
           {activeSection === "board" ? (
-            <BoardView />
+            <BoardView
+              workspaceID={workspaceID}
+              workspaces={workspaces}
+              onSelectWorkspace={switchWorkspace}
+              onAddWorkspace={() => setAddingWorkspace(true)}
+              onRemoveWorkspace={setRemoveWorkspaceID}
+            />
           ) : sessionID ? (
             <ChatView
               key={sessionID}

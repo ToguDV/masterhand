@@ -12,6 +12,7 @@ import {
 } from "./chat"
 import { opencodeErrorMessage } from "./errors"
 import { goalPayloadOf, type GoalRun } from "./goal"
+import { boardPayloadOf, type BoardSnapshot } from "./board"
 import type {
   ChatMessage,
   FormInfo,
@@ -54,6 +55,8 @@ export const queryKeys = {
   goal: (sessionID: string) => ["goal", sessionID] as const,
   /** Goal review settings (Settings > Goal review). */
   goalSettings: ["goalSettings"] as const,
+  /** Kanban board snapshot of a workspace (SSE-driven, see `useBoard`). */
+  board: (workspaceID?: string | null) => ["board", workspaceID ?? null] as const,
   /** Web search sources served by opencode (Settings > Web search). */
   websearchSources: ["websearchSources"] as const,
   /** Default web search source stored in MasterHand's config file. */
@@ -367,6 +370,45 @@ export function useGoalSettings(client: Client, enabled = true) {
   })
 }
 
+/**
+ * Timestamp of the last event-driven board write per workspace: the board query
+ * uses it to tell whether its snapshot may be older than a `board.updated`
+ * frame that arrived while the request was in flight.
+ */
+const boardWriteTimes = new WeakMap<QueryClient, Map<string, number>>()
+
+function boardWritesOf(queryClient: QueryClient): Map<string, number> {
+  let times = boardWriteTimes.get(queryClient)
+  if (!times) {
+    times = new Map()
+    boardWriteTimes.set(queryClient, times)
+  }
+  return times
+}
+
+/**
+ * Kanban board snapshot. SSE-driven (`board.updated` frames update the cache);
+ * the query only reconciles on reconnect and after mutations, so it never
+ * polls on its own.
+ */
+export function useBoard(client: Client, workspaceID?: string | null, enabled = true) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: queryKeys.board(workspaceID),
+    queryFn: async () => {
+      const requestedAt = Date.now()
+      const snapshot = await client.api.board.get(workspaceID!)
+      // A frame that arrived while the fetch was in flight beats the snapshot.
+      if ((boardWritesOf(queryClient).get(workspaceID!) ?? 0) >= requestedAt) {
+        const cached = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID))
+        return cached !== undefined ? cached : snapshot
+      }
+      return snapshot
+    },
+    enabled: enabled && Boolean(workspaceID),
+  })
+}
+
 export interface EventHandlerCallbacks {
   onPermission?: (permission: Permission) => void
   onPermissionReplied?: (permissionID: string) => void
@@ -463,6 +505,13 @@ export function createEventHandler(
     if (goalPayload) {
       goalWritesOf(queryClient).set(goalPayload.sessionID, Date.now())
       queryClient.setQueryData<GoalRun | null>(queryKeys.goal(goalPayload.sessionID), goalPayload.goal)
+      return
+    }
+    // Board frames carry the full snapshot for a workspace: same treatment.
+    const boardPayload = boardPayloadOf(raw)
+    if (boardPayload) {
+      boardWritesOf(queryClient).set(boardPayload.workspaceID, Date.now())
+      queryClient.setQueryData<BoardSnapshot>(queryKeys.board(boardPayload.workspaceID), boardPayload.board)
       return
     }
     const event = raw as V2Event
@@ -786,6 +835,8 @@ export function invalidateOnReconnect(queryClient: QueryClient): void {
   // Goal runs: `goal.updated` frames are never replayed, so a missed one is
   // reconciled by refetching the run state.
   void queryClient.invalidateQueries({ queryKey: ["goal"] })
+  // Boards: `board.updated` frames are never replayed either.
+  void queryClient.invalidateQueries({ queryKey: ["board"] })
   // Catalogs recover on their own too: a page loaded while opencode rejected
   // the BFF credentials would otherwise keep empty composer selectors until a
   // manual reload.

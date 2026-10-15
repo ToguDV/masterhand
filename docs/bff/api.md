@@ -113,6 +113,24 @@ Reliability (see `ARCHITECTURE.md` §4.11 and `docs/past-mistakes.md`):
 - A watchdog reconciles lost `session.idle` events (the awaited session is no longer active), `server.connected` refetches the run, and after a BFF restart in-flight runs become `paused` — never auto-resumed. Deleting the main session drops the run; deleting an awaited internal session fails it.
 - Every transition is broadcast as a synthetic `goal.updated` frame on `/api/events` (same payload as `GET …/goal`), so clients never poll.
 
+## Board (kanban, one per workspace)
+
+Each workspace has one board: columns with ordered cards (`title` + `description`). The web Board section renders the selected workspace's board; switching workspaces switches boards with no extra selector beyond the existing workspace bar.
+
+| Method | Route | Notes |
+|---|---|---|
+| `GET` | `/api/board?workspace=<id>` | `{ board: { workspaceID, columns: [{ id, title, position, cards: [...] }] } }` — cards nested and sorted by position. `400 workspace_required`, `404 workspace_not_found` |
+| `POST` | `/api/board/columns` | Body `{ id, workspaceID, title, position? }` → `201 { column }`; idempotent by id (a replay returns the existing row, never overwrites an edit); position defaults to the end. `409 column_workspace_mismatch` when the id already lives in another workspace |
+| `PATCH` | `/api/board/columns/:id` | Body `{ title?, position? }` → `{ column }`; a position change reindexes. `404 column_not_found` |
+| `DELETE` | `/api/board/columns/:id` | `{ ok: true }`; deletes its cards in the same transaction; idempotent |
+| `POST` | `/api/board/cards` | Body `{ id, columnID, title, description?, position? }` → `201 { card }`; idempotent by id. `404 column_not_found` |
+| `PATCH` | `/api/board/cards/:id` | Body `{ title?, description?, columnID?, position? }` → `{ card }`; a move reindexes source + target in one transaction. `404 card_not_found` / `column_not_found`, `409 column_workspace_mismatch` when the target column belongs to another workspace (the card stays on its board) |
+| `DELETE` | `/api/board/cards/:id` | `{ ok: true }`; idempotent |
+
+Validation: bounded `id` (1–128 chars of `[A-Za-z0-9._-]`), non-empty bounded `title` (≤ 200), bounded `description` (≤ 10000), `position` integer ≥ 0. Errors: `400 invalid_*`, storage failures through the existing `503 storage_unavailable` ladder.
+
+Reliability (see `ARCHITECTURE.md` §4.12 and `docs/past-mistakes.md`): every mutation is idempotent by design (absolute positions, client-generated ids with upsert creates, idempotent deletes), so a lost response is reconciled by a plain refetch/retry with no duplication. Every successful mutation publishes a synthetic **`board.updated`** frame through the existing hub (`{ workspaceID, board }`, the same full-snapshot shape as `GET`), exactly like `goal.updated`: no client polls, other devices stay in sync, reconnect reconciliation refetches (`invalidateOnReconnect` covers `["board"]`). Deleting a workspace drops its board rows; deleting a column drops its cards in one transaction.
+
 ## Workspace isolation & guardrails
 
 opencode resolves project-scoped features (`/init`, `/review`, `AGENTS.md` discovery, the reported "workspace root") from its **`project.directory`**, computed by walking up to the nearest `.git`/`.hg` — it does not use the session's `location.directory` for them. A workspace nested inside the MasterHand repo would therefore make opencode target the **server** repo. MasterHand prevents that on two layers:
