@@ -47,6 +47,14 @@ import {
 } from "./custom-providers"
 import { normalizeGoalRun, normalizeGoalSettings, type GoalModelRef, type GoalRun, type GoalSettings } from "./goal"
 import {
+  normalizeBoardCard,
+  normalizeBoardColumn,
+  normalizeBoardSnapshot,
+  type BoardCard,
+  type BoardColumn,
+  type BoardSnapshot,
+} from "./board"
+import {
   normalizeWebsearchSelection,
   normalizeWebsearchSources,
   normalizeWebsearchTestResult,
@@ -259,6 +267,29 @@ export interface Client {
       cancel(sessionID: string): Promise<GoalRun>
       settings(): Promise<GoalSettings>
       saveSettings(patch: Partial<GoalSettings>): Promise<GoalSettings>
+    }
+    /**
+     * Kanban board (one per workspace, issue #164). Positions are absolute and
+     * idempotent: a drag commits `(columnID, position)` and a lost response is
+     * reconciled by refetching, never by blind retry.
+     */
+    board: {
+      get(workspaceID: string): Promise<BoardSnapshot>
+      createColumn(workspaceID: string, input: { id: string; title: string; position?: number }): Promise<BoardColumn>
+      updateColumn(columnID: string, patch: { title?: string; position?: number }): Promise<BoardColumn>
+      deleteColumn(columnID: string): Promise<void>
+      createCard(input: {
+        id: string
+        columnID: string
+        title: string
+        description?: string
+        position?: number
+      }): Promise<BoardCard>
+      updateCard(
+        cardID: string,
+        patch: { title?: string; description?: string; columnID?: string; position?: number },
+      ): Promise<BoardCard>
+      deleteCard(cardID: string): Promise<void>
     }
   }
   workspaces: {
@@ -722,6 +753,53 @@ export function createClient(options: ClientOptions = {}): Client {
           }).then((response) => {
             return normalizeGoalSettings(response.settings) ?? { maxRounds: 5, criticModel: null, judgeModel: null }
           }),
+      },
+      board: {
+        get: (workspaceID) =>
+          request<{ board: unknown }>(`/api/board?workspace=${encodeURIComponent(workspaceID)}`).then((response) => {
+            const board = normalizeBoardSnapshot(response.board)
+            if (!board) throw new ApiError(502, JSON.stringify({ error: "board_failed" }))
+            return board
+          }),
+        createColumn: (workspaceID, input) =>
+          request<{ column: unknown }>("/api/board/columns", {
+            method: "POST",
+            body: JSON.stringify({ workspaceID, ...input }),
+          }).then((response) => {
+            const column = normalizeBoardColumn(response.column)
+            if (!column) throw new ApiError(502, JSON.stringify({ error: "board_failed" }))
+            return column
+          }),
+        updateColumn: (columnID, patch) =>
+          request<{ column: unknown }>(`/api/board/columns/${encodeURIComponent(columnID)}`, {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          }).then((response) => {
+            const column = normalizeBoardColumn(response.column)
+            if (!column) throw new ApiError(502, JSON.stringify({ error: "board_failed" }))
+            return column
+          }),
+        deleteColumn: (columnID) =>
+          request<void>(`/api/board/columns/${encodeURIComponent(columnID)}`, { method: "DELETE" }),
+        createCard: (input) =>
+          request<{ card: unknown }>("/api/board/cards", {
+            method: "POST",
+            body: JSON.stringify(input),
+          }).then((response) => {
+            const card = normalizeBoardCard(response.card)
+            if (!card) throw new ApiError(502, JSON.stringify({ error: "board_failed" }))
+            return card
+          }),
+        updateCard: (cardID, patch) =>
+          request<{ card: unknown }>(`/api/board/cards/${encodeURIComponent(cardID)}`, {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          }).then((response) => {
+            const card = normalizeBoardCard(response.card)
+            if (!card) throw new ApiError(502, JSON.stringify({ error: "board_failed" }))
+            return card
+          }),
+        deleteCard: (cardID) => request<void>(`/api/board/cards/${encodeURIComponent(cardID)}`, { method: "DELETE" }),
       },
     },
     workspaces: {

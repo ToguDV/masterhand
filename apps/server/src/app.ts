@@ -1834,6 +1834,219 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
+  /**
+   * Kanban board (one per workspace, issue #164). Positions are absolute and
+   * idempotent: a lost response is reconciled by a plain refetch/retry with no
+   * duplication (creates upsert by client-generated id, deletes are idempotent).
+   * Every mutation broadcasts a synthetic `board.updated` frame with the full
+   * snapshot, exactly like `goal.updated`.
+   */
+  function normalizeBoardID(value: unknown): string | null {
+    return typeof value === "string" && value.length >= 1 && value.length <= 128 && /^[A-Za-z0-9._-]+$/.test(value)
+      ? value
+      : null
+  }
+
+  function normalizeBoardTitle(value: unknown): string | null {
+    if (typeof value !== "string") return null
+    const title = value.trim()
+    return title.length > 0 && title.length <= 200 ? title : null
+  }
+
+  function normalizeBoardDescription(value: unknown): string | null {
+    if (value === undefined) return ""
+    if (typeof value !== "string" || value.length > 10000) return null
+    return value
+  }
+
+  function normalizeBoardPosition(value: unknown): number | undefined | null {
+    if (value === undefined) return undefined
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null
+  }
+
+  function emitBoardUpdated(workspaceID: string): void {
+    try {
+      deps.hub.emit({ type: "board.updated", data: { workspaceID, board: deps.store.getBoard(workspaceID) } })
+    } catch {
+      // best effort: the mutation already applied
+    }
+  }
+
+  api.get("/board", (c) => {
+    const workspaceID = c.req.query("workspace") ?? ""
+    if (!workspaceID) return c.json({ error: "workspace_required" }, 400)
+    if (!deps.store.getWorkspace(workspaceID)) return c.json({ error: "workspace_not_found" }, 404)
+    return c.json({ board: deps.store.getBoard(workspaceID) })
+  })
+
+  api.post("/board/columns", async (c) => {
+    let body: { id?: unknown; workspaceID?: unknown; title?: unknown; position?: unknown }
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const id = normalizeBoardID(body.id)
+    if (!id) return c.json({ error: "invalid_id" }, 400)
+    const workspaceID = typeof body.workspaceID === "string" ? body.workspaceID : ""
+    if (!workspaceID) return c.json({ error: "workspace_required" }, 400)
+    if (!deps.store.getWorkspace(workspaceID)) return c.json({ error: "workspace_not_found" }, 404)
+    const title = normalizeBoardTitle(body.title)
+    if (!title) return c.json({ error: "invalid_title" }, 400)
+    const position = normalizeBoardPosition(body.position)
+    if (position === null) return c.json({ error: "invalid_position" }, 400)
+    const column = deps.store.createBoardColumn({ id, workspaceID, title, position })
+    emitBoardUpdated(workspaceID)
+    return c.json({ column }, 201)
+  })
+
+  api.patch("/board/columns/:id", async (c) => {
+    const id = c.req.param("id")
+    let body: { title?: unknown; position?: unknown }
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    if (body.title === undefined && body.position === undefined) return c.json({ error: "invalid_body" }, 400)
+    const patch: { title?: string; position?: number } = {}
+    if (body.title !== undefined) {
+      const title = normalizeBoardTitle(body.title)
+      if (!title) return c.json({ error: "invalid_title" }, 400)
+      patch.title = title
+    }
+    if (body.position !== undefined) {
+      const position = normalizeBoardPosition(body.position)
+      if (position === null || position === undefined) return c.json({ error: "invalid_position" }, 400)
+      patch.position = position
+    }
+    const column = deps.store.updateBoardColumn(id, patch)
+    if (!column) return c.json({ error: "column_not_found" }, 404)
+    emitBoardUpdated(column.workspaceID)
+    return c.json({ column })
+  })
+
+  api.delete("/board/columns/:id", (c) => {
+    const id = c.req.param("id")
+    // Workspace for the frame: resolved before deletion (idempotent when unknown).
+    let workspaceID: string | null = null
+    for (const workspace of deps.store.listWorkspaces()) {
+      const snapshot = deps.store.getBoard(workspace.id)
+      if (snapshot.columns.some((column) => column.id === id)) {
+        workspaceID = workspace.id
+        break
+      }
+    }
+    deps.store.deleteBoardColumn(id)
+    if (workspaceID) emitBoardUpdated(workspaceID)
+    return c.json({ ok: true })
+  })
+
+  api.post("/board/cards", async (c) => {
+    let body: { id?: unknown; columnID?: unknown; title?: unknown; description?: unknown; position?: unknown }
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const id = normalizeBoardID(body.id)
+    if (!id) return c.json({ error: "invalid_id" }, 400)
+    const columnID = normalizeBoardID(body.columnID)
+    if (!columnID) return c.json({ error: "invalid_column" }, 400)
+    const title = normalizeBoardTitle(body.title)
+    if (!title) return c.json({ error: "invalid_title" }, 400)
+    const description = normalizeBoardDescription(body.description)
+    if (description === null) return c.json({ error: "invalid_description" }, 400)
+    const position = normalizeBoardPosition(body.position)
+    if (position === null) return c.json({ error: "invalid_position" }, 400)
+    const card = deps.store.createBoardCard({ id, columnID, title, description: description ?? "", position })
+    if (!card) return c.json({ error: "column_not_found" }, 404)
+    // Owning workspace for the frame.
+    let workspaceID = ""
+    for (const workspace of deps.store.listWorkspaces()) {
+      if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === card.columnID)) {
+        workspaceID = workspace.id
+        break
+      }
+    }
+    if (workspaceID) emitBoardUpdated(workspaceID)
+    return c.json({ card }, 201)
+  })
+
+  api.patch("/board/cards/:id", async (c) => {
+    const id = c.req.param("id")
+    let body: { title?: unknown; description?: unknown; columnID?: unknown; position?: unknown }
+    try {
+      body = (await c.req.json()) as typeof body
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    if (body.title === undefined && body.description === undefined && body.columnID === undefined && body.position === undefined) {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    const patch: { title?: string; description?: string; columnID?: string; position?: number } = {}
+    if (body.title !== undefined) {
+      const title = normalizeBoardTitle(body.title)
+      if (!title) return c.json({ error: "invalid_title" }, 400)
+      patch.title = title
+    }
+    if (body.description !== undefined) {
+      const description = normalizeBoardDescription(body.description)
+      if (description === null) return c.json({ error: "invalid_description" }, 400)
+      patch.description = description
+    }
+    if (body.columnID !== undefined) {
+      const columnID = normalizeBoardID(body.columnID)
+      if (!columnID) return c.json({ error: "invalid_column" }, 400)
+      patch.columnID = columnID
+    }
+    if (body.position !== undefined) {
+      const position = normalizeBoardPosition(body.position)
+      if (position === null || position === undefined) return c.json({ error: "invalid_position" }, 400)
+      patch.position = position
+    }
+    const card = deps.store.updateBoardCard(id, patch)
+    if (!card) {
+      // Distinguish an unknown card from an unknown target column.
+      if (patch.columnID) {
+        let columnExists = false
+        for (const workspace of deps.store.listWorkspaces()) {
+          if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === patch.columnID)) {
+            columnExists = true
+            break
+          }
+        }
+        if (columnExists) return c.json({ error: "card_not_found" }, 404)
+        return c.json({ error: "column_not_found" }, 404)
+      }
+      return c.json({ error: "card_not_found" }, 404)
+    }
+    let workspaceID = ""
+    for (const workspace of deps.store.listWorkspaces()) {
+      if (deps.store.getBoard(workspace.id).columns.some((column) => column.id === card.columnID)) {
+        workspaceID = workspace.id
+        break
+      }
+    }
+    if (workspaceID) emitBoardUpdated(workspaceID)
+    return c.json({ card })
+  })
+
+  api.delete("/board/cards/:id", (c) => {
+    const id = c.req.param("id")
+    let workspaceID: string | null = null
+    for (const workspace of deps.store.listWorkspaces()) {
+      const snapshot = deps.store.getBoard(workspace.id)
+      if (snapshot.columns.some((column) => column.cards.some((card) => card.id === id))) {
+        workspaceID = workspace.id
+        break
+      }
+    }
+    deps.store.deleteBoardCard(id)
+    if (workspaceID) emitBoardUpdated(workspaceID)
+    return c.json({ ok: true })
+  })
+
   app.route("/api", api)
 
   return app

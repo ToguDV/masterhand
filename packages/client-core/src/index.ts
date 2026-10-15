@@ -105,6 +105,7 @@ export {
   useCustomProviders,
   useGoalRun,
   useGoalSettings,
+  useBoard,
   useMessages,
   useModels,
   usePreview,
@@ -202,6 +203,18 @@ export {
   type GoalState,
   type GoalVerdict,
 } from "./goal"
+export {
+  BOARD_EVENT_TYPE,
+  boardPayloadOf,
+  dropIndexFor,
+  normalizeBoardCard,
+  normalizeBoardColumn,
+  normalizeBoardSnapshot,
+  reorderIDs,
+  type BoardCard,
+  type BoardColumn,
+  type BoardSnapshot,
+} from "./board"
 export {
   CREATE_MARKER_KEY,
   createSessionMarker,

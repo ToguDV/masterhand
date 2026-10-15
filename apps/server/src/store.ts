@@ -157,6 +157,33 @@ export interface GoalSettingsRecord {
 /** Default round budget for a goal run before it pauses for a user decision. */
 export const DEFAULT_GOAL_MAX_ROUNDS = 5
 
+/** One kanban column on a workspace's board (one board per workspace). */
+export interface BoardColumnRecord {
+  id: string
+  workspaceID: string
+  title: string
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One kanban card inside a column. */
+export interface BoardCardRecord {
+  id: string
+  columnID: string
+  title: string
+  description: string
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** Full board snapshot as `GET /api/board` returns it (columns with nested cards). */
+export interface BoardSnapshot {
+  workspaceID: string
+  columns: Array<BoardColumnRecord & { cards: BoardCardRecord[] }>
+}
+
 /**
  * A blocked action, kept for diagnosis. `permission_denied` comes from
  * opencode (a tool call rejected by the session permission guard);
@@ -221,6 +248,29 @@ export interface Store {
   listGoalRuns(): GoalRunRecord[]
   getGoalSettings(): GoalSettingsRecord
   saveGoalSettings(settings: GoalSettingsRecord): void
+  /** Board snapshot for a workspace (columns with nested cards, sorted by position). */
+  getBoard(workspaceID: string): BoardSnapshot
+  /** Upsert by id: replaying a lost create returns the existing row, never duplicates. */
+  createBoardColumn(record: { id: string; workspaceID: string; title: string; position?: number }): BoardColumnRecord
+  updateBoardColumn(
+    id: string,
+    patch: { title?: string; position?: number },
+  ): BoardColumnRecord | null
+  /** Idempotent: deleting a column removes its cards in the same transaction. */
+  deleteBoardColumn(id: string): void
+  createBoardCard(record: {
+    id: string
+    columnID: string
+    title: string
+    description?: string
+    position?: number
+  }): BoardCardRecord | null
+  updateBoardCard(
+    id: string,
+    patch: { title?: string; description?: string; columnID?: string; position?: number },
+  ): BoardCardRecord | null
+  /** Idempotent. */
+  deleteBoardCard(id: string): void
   /** True when the database answers a trivial read (readiness/health). */
   ping(): boolean
   close(): void
@@ -346,6 +396,33 @@ export function createSqliteStore(file: string): Store {
     )
   `)
 
+  // Kanban board (one board per workspace, issue #164). No FK pragmas: column
+  // deletion removes its cards in the same transaction, and workspace deletion
+  // drops its board rows there too.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS board_columns (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_board_columns_workspace ON board_columns (workspace_id, position)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS board_cards (
+      id TEXT PRIMARY KEY,
+      column_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      position INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_board_cards_column ON board_cards (column_id, position)`)
+
   const createStatement = db.prepare(`
     INSERT INTO devices (id, name, created_at, last_used_at)
     VALUES (@id, @name, @createdAt, @lastUsedAt)
@@ -470,6 +547,90 @@ export function createSqliteStore(file: string): Store {
     VALUES (1, @maxRounds, @criticModel, @judgeModel)
   `)
 
+  const boardColumnColumns = `
+    SELECT id, workspace_id AS workspaceID, title, position,
+           created_at AS createdAt, updated_at AS updatedAt
+    FROM board_columns
+  `
+  const boardCardColumns = `
+    SELECT id, column_id AS columnID, title, description, position,
+           created_at AS createdAt, updated_at AS updatedAt
+    FROM board_cards
+  `
+  const listBoardColumnsStatement = db.prepare(`${boardColumnColumns} WHERE workspace_id = ? ORDER BY position ASC`)
+  const getBoardColumnStatement = db.prepare(`${boardColumnColumns} WHERE id = ?`)
+  const listBoardCardsStatement = db.prepare(`${boardCardColumns} WHERE column_id = ? ORDER BY position ASC`)
+  const getBoardCardStatement = db.prepare(`${boardCardColumns} WHERE id = ?`)
+  const insertBoardColumnStatement = db.prepare(`
+    INSERT INTO board_columns (id, workspace_id, title, position, created_at, updated_at)
+    VALUES (@id, @workspaceID, @title, @position, @createdAt, @updatedAt)
+    ON CONFLICT(id) DO NOTHING
+  `)
+  const updateBoardColumnTitleStatement = db.prepare(`
+    UPDATE board_columns SET title = @title, updated_at = @updatedAt WHERE id = @id
+  `)
+  const updateBoardColumnPositionStatement = db.prepare(`
+    UPDATE board_columns SET position = @position, updated_at = @updatedAt WHERE id = @id
+  `)
+  const deleteBoardColumnStatement = db.prepare("DELETE FROM board_columns WHERE id = ?")
+  const deleteBoardCardsInColumnStatement = db.prepare("DELETE FROM board_cards WHERE column_id = ?")
+  const insertBoardCardStatement = db.prepare(`
+    INSERT INTO board_cards (id, column_id, title, description, position, created_at, updated_at)
+    VALUES (@id, @columnID, @title, @description, @position, @createdAt, @updatedAt)
+    ON CONFLICT(id) DO NOTHING
+  `)
+  const updateBoardCardFieldsStatement = db.prepare(`
+    UPDATE board_cards
+    SET title = @title, description = @description, column_id = @columnID,
+        position = @position, updated_at = @updatedAt
+    WHERE id = @id
+  `)
+  const deleteBoardCardStatement = db.prepare("DELETE FROM board_cards WHERE id = ?")
+  const deleteBoardCardsOfWorkspaceStatement = db.prepare(`
+    DELETE FROM board_cards WHERE column_id IN (SELECT id FROM board_columns WHERE workspace_id = ?)
+  `)
+  const deleteBoardColumnsOfWorkspaceStatement = db.prepare("DELETE FROM board_columns WHERE workspace_id = ?")
+
+  /** Reindexes a workspace's columns to 0..n-1 in position order. */
+  function reindexBoardColumns(workspaceID: string, now: number): void {
+    const rows = listBoardColumnsStatement.all(workspaceID) as BoardColumnRecord[]
+    rows.forEach((row, index) => {
+      if (row.position !== index) {
+        updateBoardColumnPositionStatement.run({ id: row.id, position: index, updatedAt: now })
+      }
+    })
+  }
+
+  /** Reindexes one column's cards to 0..n-1 in position order. */
+  function reindexBoardCards(columnID: string, now: number): void {
+    const rows = listBoardCardsStatement.all(columnID) as BoardCardRecord[]
+    rows.forEach((row, index) => {
+      if (row.position !== index) {
+        db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+          id: row.id,
+          position: index,
+          updatedAt: now,
+        })
+      }
+    })
+  }
+
+  function readBoardSnapshot(workspaceID: string): BoardSnapshot {
+    const columns = listBoardColumnsStatement.all(workspaceID) as BoardColumnRecord[]
+    return {
+      workspaceID,
+      columns: columns.map((column) => ({
+        ...column,
+        cards: listBoardCardsStatement.all(column.id) as BoardCardRecord[],
+      })),
+    }
+  }
+
+  function clampBoardPosition(value: number | undefined, size: number): number {
+    if (value === undefined || !Number.isInteger(value) || value < 0) return size
+    return Math.min(value, size)
+  }
+
   /**
    * SQLite has no boolean type; rows come back with `pushed` as 0/1. The
    * queries above alias the columns, so normalize here.
@@ -540,7 +701,12 @@ export function createSqliteStore(file: string): Store {
       createWorkspaceStatement.run(record)
     },
     removeWorkspace(id) {
-      removeWorkspaceStatement.run(id)
+      const removeBoardRows = db.transaction(() => {
+        deleteBoardCardsOfWorkspaceStatement.run(id)
+        deleteBoardColumnsOfWorkspaceStatement.run(id)
+        removeWorkspaceStatement.run(id)
+      })
+      removeBoardRows()
     },
     listIsolatedSessions(workspaceID) {
       const rows = workspaceID
@@ -626,6 +792,180 @@ export function createSqliteStore(file: string): Store {
     saveGoalSettings(settings) {
       saveGoalSettingsStatement.run(settings)
     },
+    getBoard(workspaceID) {
+      return readBoardSnapshot(workspaceID)
+    },
+    createBoardColumn(record) {
+      const now = Date.now()
+      const create = db.transaction(() => {
+        const existing = getBoardColumnStatement.get(record.id) as BoardColumnRecord | undefined
+        if (existing) return existing
+        const siblings = listBoardColumnsStatement.all(record.workspaceID) as BoardColumnRecord[]
+        const position = clampBoardPosition(record.position, siblings.length)
+        // Shift siblings at/after the insertion point, then reindex.
+        for (const sibling of siblings) {
+          if (sibling.position >= position) {
+            updateBoardColumnPositionStatement.run({ id: sibling.id, position: sibling.position + 1, updatedAt: now })
+          }
+        }
+        insertBoardColumnStatement.run({
+          id: record.id,
+          workspaceID: record.workspaceID,
+          title: record.title,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })
+        reindexBoardColumns(record.workspaceID, now)
+        return getBoardColumnStatement.get(record.id) as BoardColumnRecord
+      })
+      return create()
+    },
+    updateBoardColumn(id, patch) {
+      const now = Date.now()
+      const update = db.transaction(() => {
+        const current = getBoardColumnStatement.get(id) as BoardColumnRecord | undefined
+        if (!current) return null
+        if (patch.title !== undefined) {
+          updateBoardColumnTitleStatement.run({ id, title: patch.title, updatedAt: now })
+        }
+        if (patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0) {
+          const siblings = (listBoardColumnsStatement.all(current.workspaceID) as BoardColumnRecord[]).filter(
+            (row) => row.id !== id,
+          )
+          const position = Math.min(patch.position, siblings.length)
+          const ordered = [...siblings.slice(0, position), current, ...siblings.slice(position)]
+          ordered.forEach((row, index) => {
+            updateBoardColumnPositionStatement.run({ id: row.id, position: index, updatedAt: now })
+          })
+        }
+        return getBoardColumnStatement.get(id) as BoardColumnRecord
+      })
+      return update()
+    },
+    deleteBoardColumn(id) {
+      const remove = db.transaction(() => {
+        const current = getBoardColumnStatement.get(id) as BoardColumnRecord | undefined
+        if (!current) return
+        deleteBoardCardsInColumnStatement.run(id)
+        deleteBoardColumnStatement.run(id)
+        reindexBoardColumns(current.workspaceID, Date.now())
+      })
+      remove()
+    },
+    createBoardCard(record) {
+      const now = Date.now()
+      const create = db.transaction(() => {
+        const existing = getBoardCardStatement.get(record.id) as BoardCardRecord | undefined
+        if (existing) return existing
+        const column = getBoardColumnStatement.get(record.columnID) as BoardColumnRecord | undefined
+        if (!column) return null
+        const siblings = listBoardCardsStatement.all(record.columnID) as BoardCardRecord[]
+        const position = clampBoardPosition(record.position, siblings.length)
+        for (const sibling of siblings) {
+          if (sibling.position >= position) {
+            db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+              id: sibling.id,
+              position: sibling.position + 1,
+              updatedAt: now,
+            })
+          }
+        }
+        insertBoardCardStatement.run({
+          id: record.id,
+          columnID: record.columnID,
+          title: record.title,
+          description: record.description ?? "",
+          position,
+          createdAt: now,
+          updatedAt: now,
+        })
+        reindexBoardCards(record.columnID, now)
+        return getBoardCardStatement.get(record.id) as BoardCardRecord
+      })
+      return create()
+    },
+    updateBoardCard(id, patch) {
+      const now = Date.now()
+      const update = db.transaction(() => {
+        const current = getBoardCardStatement.get(id) as BoardCardRecord | undefined
+        if (!current) return null
+        const targetColumnID = patch.columnID ?? current.columnID
+        const targetColumn = getBoardColumnStatement.get(targetColumnID) as BoardColumnRecord | undefined
+        if (!targetColumn) return null
+        const title = patch.title ?? current.title
+        const description = patch.description ?? current.description
+        if (targetColumnID === current.columnID) {
+          const siblings = (listBoardCardsStatement.all(current.columnID) as BoardCardRecord[]).filter(
+            (row) => row.id !== id,
+          )
+          const at =
+            patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0
+              ? Math.min(patch.position, siblings.length)
+              : Math.min(current.position, siblings.length)
+          const ordered = [...siblings.slice(0, at), current, ...siblings.slice(at)]
+          ordered.forEach((row, index) => {
+            if (row.id === id) {
+              db.prepare(
+                "UPDATE board_cards SET title = @title, description = @description, position = @position, updated_at = @updatedAt WHERE id = @id",
+              ).run({ id, title, description, position: index, updatedAt: now })
+            } else {
+              db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+                id: row.id,
+                position: index,
+                updatedAt: now,
+              })
+            }
+          })
+        } else {
+          // Cross-column move: reindex source, insert into target, reindex target.
+          const sourceSiblings = (listBoardCardsStatement.all(current.columnID) as BoardCardRecord[]).filter(
+            (row) => row.id !== id,
+          )
+          sourceSiblings.forEach((row, index) => {
+            db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+              id: row.id,
+              position: index,
+              updatedAt: now,
+            })
+          })
+          const targetSiblings = listBoardCardsStatement.all(targetColumnID) as BoardCardRecord[]
+          const at =
+            patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0
+              ? Math.min(patch.position, targetSiblings.length)
+              : targetSiblings.length
+          for (const sibling of targetSiblings) {
+            if (sibling.position >= at) {
+              db.prepare("UPDATE board_cards SET position = @position, updated_at = @updatedAt WHERE id = @id").run({
+                id: sibling.id,
+                position: sibling.position + 1,
+                updatedAt: now,
+              })
+            }
+          }
+          updateBoardCardFieldsStatement.run({
+            id,
+            title,
+            description,
+            columnID: targetColumnID,
+            position: at,
+            updatedAt: now,
+          })
+          reindexBoardCards(targetColumnID, now)
+        }
+        return getBoardCardStatement.get(id) as BoardCardRecord
+      })
+      return update()
+    },
+    deleteBoardCard(id) {
+      const card = getBoardCardStatement.get(id) as BoardCardRecord | undefined
+      if (!card) return
+      const remove = db.transaction(() => {
+        deleteBoardCardStatement.run(id)
+        reindexBoardCards(card.columnID, Date.now())
+      })
+      remove()
+    },
     ping() {
       try {
         db.prepare("SELECT 1").get()
@@ -650,6 +990,37 @@ export function createMemoryStore(): Store {
   const workspaceRuns = new Map<string, WorkspaceRunRecord>()
   const goalRuns = new Map<string, GoalRunRecord>()
   let goalSettings: GoalSettingsRecord = { maxRounds: DEFAULT_GOAL_MAX_ROUNDS, criticModel: null, judgeModel: null }
+  const boardColumns = new Map<string, BoardColumnRecord>()
+  const boardCards = new Map<string, BoardCardRecord>()
+
+  function columnsOf(workspaceID: string): BoardColumnRecord[] {
+    return [...boardColumns.values()]
+      .filter((column) => column.workspaceID === workspaceID)
+      .sort((a, b) => a.position - b.position)
+  }
+
+  function cardsOf(columnID: string): BoardCardRecord[] {
+    return [...boardCards.values()]
+      .filter((card) => card.columnID === columnID)
+      .sort((a, b) => a.position - b.position)
+  }
+
+  function reindexMemoryColumns(workspaceID: string, now: number): void {
+    columnsOf(workspaceID).forEach((column, index) => {
+      if (column.position !== index) boardColumns.set(column.id, { ...column, position: index, updatedAt: now })
+    })
+  }
+
+  function reindexMemoryCards(columnID: string, now: number): void {
+    cardsOf(columnID).forEach((card, index) => {
+      if (card.position !== index) boardCards.set(card.id, { ...card, position: index, updatedAt: now })
+    })
+  }
+
+  function clampMemoryPosition(value: number | undefined, size: number): number {
+    if (value === undefined || !Number.isInteger(value) || value < 0) return size
+    return Math.min(value, size)
+  }
   return {
     create(record) {
       records.set(record.id, record)
@@ -681,6 +1052,13 @@ export function createMemoryStore(): Store {
     },
     removeWorkspace(id) {
       workspaces.delete(id)
+      for (const column of [...boardColumns.values()]) {
+        if (column.workspaceID !== id) continue
+        for (const card of [...boardCards.values()]) {
+          if (card.columnID === column.id) boardCards.delete(card.id)
+        }
+        boardColumns.delete(column.id)
+      }
     },
     listIsolatedSessions(workspaceID) {
       const values = [...isolatedSessions.values()].sort((a, b) => a.createdAt - b.createdAt)
@@ -752,6 +1130,132 @@ export function createMemoryStore(): Store {
     },
     saveGoalSettings(settings) {
       goalSettings = settings
+    },
+    getBoard(workspaceID) {
+      return { workspaceID, columns: columnsOf(workspaceID).map((column) => ({ ...column, cards: cardsOf(column.id) })) }
+    },
+    createBoardColumn(record) {
+      const existing = boardColumns.get(record.id)
+      if (existing) return existing
+      const now = Date.now()
+      const siblings = columnsOf(record.workspaceID)
+      const position = clampMemoryPosition(record.position, siblings.length)
+      for (const sibling of siblings) {
+        if (sibling.position >= position) {
+          boardColumns.set(sibling.id, { ...sibling, position: sibling.position + 1, updatedAt: now })
+        }
+      }
+      const column: BoardColumnRecord = {
+        id: record.id,
+        workspaceID: record.workspaceID,
+        title: record.title,
+        position,
+        createdAt: now,
+        updatedAt: now,
+      }
+      boardColumns.set(column.id, column)
+      reindexMemoryColumns(record.workspaceID, now)
+      return boardColumns.get(column.id)!
+    },
+    updateBoardColumn(id, patch) {
+      const current = boardColumns.get(id)
+      if (!current) return null
+      const now = Date.now()
+      let title = current.title
+      if (patch.title !== undefined) title = patch.title
+      boardColumns.set(id, { ...current, title, updatedAt: now })
+      if (patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0) {
+        const siblings = columnsOf(current.workspaceID).filter((row) => row.id !== id)
+        const at = Math.min(patch.position, siblings.length)
+        const ordered = [...siblings.slice(0, at), { ...current, title }, ...siblings.slice(at)]
+        ordered.forEach((row, index) => {
+          const stored = boardColumns.get(row.id)!
+          boardColumns.set(row.id, { ...stored, title: row.id === id ? title : stored.title, position: index, updatedAt: now })
+        })
+      }
+      return boardColumns.get(id)!
+    },
+    deleteBoardColumn(id) {
+      const current = boardColumns.get(id)
+      if (!current) return
+      for (const card of [...boardCards.values()]) {
+        if (card.columnID === id) boardCards.delete(card.id)
+      }
+      boardColumns.delete(id)
+      reindexMemoryColumns(current.workspaceID, Date.now())
+    },
+    createBoardCard(record) {
+      const existing = boardCards.get(record.id)
+      if (existing) return existing
+      if (!boardColumns.get(record.columnID)) return null
+      const now = Date.now()
+      const siblings = cardsOf(record.columnID)
+      const position = clampMemoryPosition(record.position, siblings.length)
+      for (const sibling of siblings) {
+        if (sibling.position >= position) {
+          boardCards.set(sibling.id, { ...sibling, position: sibling.position + 1, updatedAt: now })
+        }
+      }
+      const card: BoardCardRecord = {
+        id: record.id,
+        columnID: record.columnID,
+        title: record.title,
+        description: record.description ?? "",
+        position,
+        createdAt: now,
+        updatedAt: now,
+      }
+      boardCards.set(card.id, card)
+      reindexMemoryCards(record.columnID, now)
+      return boardCards.get(card.id)!
+    },
+    updateBoardCard(id, patch) {
+      const current = boardCards.get(id)
+      if (!current) return null
+      const targetColumnID = patch.columnID ?? current.columnID
+      if (!boardColumns.get(targetColumnID)) return null
+      const now = Date.now()
+      const title = patch.title ?? current.title
+      const description = patch.description ?? current.description
+      if (targetColumnID === current.columnID) {
+        const siblings = cardsOf(current.columnID).filter((row) => row.id !== id)
+        const at =
+          patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0
+            ? Math.min(patch.position, siblings.length)
+            : Math.min(current.position, siblings.length)
+        const ordered = [...siblings.slice(0, at), current, ...siblings.slice(at)]
+        ordered.forEach((row, index) => {
+          if (row.id === id) {
+            boardCards.set(id, { ...current, title, description, position: index, updatedAt: now })
+          } else {
+            boardCards.set(row.id, { ...row, position: index, updatedAt: now })
+          }
+        })
+      } else {
+        const sourceSiblings = cardsOf(current.columnID).filter((row) => row.id !== id)
+        sourceSiblings.forEach((row, index) => {
+          boardCards.set(row.id, { ...row, position: index, updatedAt: now })
+        })
+        const targetSiblings = cardsOf(targetColumnID)
+        const at =
+          patch.position !== undefined && Number.isInteger(patch.position) && patch.position >= 0
+            ? Math.min(patch.position, targetSiblings.length)
+            : targetSiblings.length
+        for (const sibling of targetSiblings) {
+          if (sibling.position >= at) {
+            boardCards.set(sibling.id, { ...sibling, position: sibling.position + 1, updatedAt: now })
+          }
+        }
+        boardCards.set(id, { ...current, columnID: targetColumnID, title, description, position: at, updatedAt: now })
+        reindexMemoryCards(targetColumnID, now)
+      }
+      return boardCards.get(id)!
+    },
+    deleteBoardCard(id) {
+      const current = boardCards.get(id)
+      if (!current) return
+      boardCards.delete(id)
+      reindexMemoryCards(current.columnID, Date.now())
     },
     ping() {
       return true
