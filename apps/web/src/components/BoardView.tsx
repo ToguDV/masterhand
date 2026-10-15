@@ -616,6 +616,7 @@ export function BoardView({
     const from = columnOfCard(cols, activeID)
     const target = targetOfOver(cols, overID)
     if (!from || !target) return
+    if (!from || !target) return
     if (from.columnID === target.columnID && from.index === target.index) return
     // One absolute position drives both the optimistic cache and the PATCH,
     // so the card never jumps on refetch. Same-column card-over-card uses the

@@ -66,9 +66,31 @@ test("board creates, edits and persists columns and cards per workspace", async 
 })
 
 test("board drags cards within a column and across columns", async ({ page }) => {
+  // Four sequential drops: each drop waits for the server to persist the new
+  // order (polled straight from the API) before the next drag starts, so a
+  // drop always resolves against the persisted order. Raise the budget so a
+  // loaded runner still fits setup + drops + refetches.
+  test.setTimeout(120_000)
   await login(page)
-  await addWorkspace(page)
+  const wsName = await addWorkspace(page)
   await openBoard(page)
+
+  /** Card titles of a column as the server has them (bypasses the UI cache). */
+  async function serverOrder(columnTitle: string): Promise<string[]> {
+    const wsList = await page.request.get("/api/workspaces")
+    const { workspaces } = (await wsList.json()) as { workspaces: Array<{ id: string; name: string }> }
+    const workspace = workspaces.find((entry) => entry.name === wsName)
+    expect(workspace).toBeDefined()
+    const boardResponse = await page.request.get(`/api/board?workspace=${workspace!.id}`)
+    const { board } = (await boardResponse.json()) as {
+      board: { columns: Array<{ title: string; cards: Array<{ title: string }> }> }
+    }
+    return board.columns.find((column) => column.title === columnTitle)?.cards.map((card) => card.title) ?? []
+  }
+
+  async function expectServerOrder(columnTitle: string, titles: string[]) {
+    await expect.poll(async () => serverOrder(columnTitle), { timeout: 20_000 }).toEqual(titles)
+  }
 
   for (const title of ["Backlog", "Doing"]) {
     await page.getByLabel("New column title").last().fill(title)
@@ -86,19 +108,17 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   // Within-column reorder: drag Beta onto Alpha so Beta lands first.
   // Each drop waits for its PATCH: the next drag must resolve against the
   // persisted order, not the pre-refetch closure.
+  // dnd-kit needs real pointer travel (stepped moves) to arm its sensor and
+  // resolve `over`; raw coordinates miss when the board sits scrolled between
+  // drops. So the press goes through hover actionability (scroll into view,
+  // hit-target check) and the drag itself travels in steps.
   async function dragCardOnto(source: import("@playwright/test").Locator, target: import("@playwright/test").Locator) {
-    const sourceBox = await source.boundingBox()
-    const targetBox = await target.boundingBox()
-    expect(sourceBox).not.toBeNull()
-    expect(targetBox).not.toBeNull()
-    await page.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2)
+    await source.hover()
     await page.mouse.down()
+    const targetBox = await target.boundingBox()
+    expect(targetBox).not.toBeNull()
     await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 })
-    const patch = page.waitForResponse(
-      (response) => response.url().includes("/api/board/cards/") && response.request().method() === "PATCH",
-    )
     await page.mouse.up()
-    await patch
   }
 
   const beta = page.getByRole("button", { name: "Edit card Beta" })
@@ -106,21 +126,32 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   await dragCardOnto(beta, alpha)
   const backlogCards = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]')
   await expect(backlogCards.first()).toContainText("Beta")
+  await expectServerOrder("Backlog", ["Beta", "Alpha"])
 
-  // Within-column downward: drag Beta (now first) onto Alpha (second) so the
-  // order flips back to [Alpha, Beta]. This is the off-by-one regression: the
-  // optimistic cache and the PATCH must agree on the absolute position.
+  // Within-column downward: drag Beta (now first) below Alpha (second) so
+  // the order flips back to [Alpha, Beta]. The drop lands past Alpha's bottom
+  // edge, so whether dnd-kit resolves it to the card or to the column area,
+  // the absolute position is the end in both cases. This is the off-by-one
+  // regression: the optimistic cache and the PATCH must agree on it.
   const betaFirst = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').first()
   const alphaSecond = page.locator('section[aria-label="Column Backlog"] button[aria-label^="Edit card"]').nth(1)
-  await dragCardOnto(betaFirst, alphaSecond)
+  await betaFirst.hover()
+  await page.mouse.down()
+  const alphaBox = await alphaSecond.boundingBox()
+  expect(alphaBox).not.toBeNull()
+  await page.mouse.move(alphaBox!.x + alphaBox!.width / 2, alphaBox!.y + alphaBox!.height + 14, { steps: 12 })
+  await page.mouse.up()
   await expect(backlogCards.first()).toContainText("Alpha")
   await expect(backlogCards.nth(1)).toContainText("Beta")
+  await expectServerOrder("Backlog", ["Alpha", "Beta"])
 
   // Across columns onto the empty area: drag Alpha into Doing (empty).
   const alphaAfter = page.getByRole("button", { name: "Edit card Alpha" })
   const doingSection = page.locator('section[aria-label="Column Doing"]')
   await dragCardOnto(alphaAfter, doingSection)
   await expect(page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]').first()).toContainText("Alpha")
+  await expectServerOrder("Doing", ["Alpha"])
+  await expectServerOrder("Backlog", ["Beta"])
 
   // Drop on the header/empty area: a third empty column, so resolving the drop
   // to the column appends the only card deterministically.
@@ -133,6 +164,8 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   const emptyCards = page.locator('section[aria-label="Column Empty"] button[aria-label^="Edit card"]')
   await expect(emptyCards).toHaveCount(1)
   await expect(emptyCards.first()).toContainText("Beta")
+  await expectServerOrder("Empty", ["Beta"])
+  await expectServerOrder("Backlog", [])
 })
 
 test("board deletes a column with its cards after confirmation", async ({ page }) => {

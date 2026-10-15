@@ -69,15 +69,15 @@ test("the header back button returns to the sections home", async ({ page }) => 
   await expect(aside.getByRole("button", { name: "Board", exact: true })).toBeVisible()
   // The home hides itself once a section is picked.
   await aside.getByRole("button", { name: "Board", exact: true }).click()
-  // The board follows the selected workspace: empty workspaces show the
-  // "Board" empty state, workspaces with columns show the column scroll.
-  // Which empty state depends on earlier tests in this file sharing the
-  // backend (no workspace yet vs workspace without columns), so accept
-  // either — both prove the board content mounted, unlike the header title
-  // which is visible before the click.
+  // The board follows the selected workspace, and earlier specs in the same
+  // run leave workspaces behind on the shared backend: a fresh context may
+  // land on an empty board (Board heading + empty state) or on a board with
+  // columns (column scroll, no heading). Either proves the board content
+  // mounted — unlike the header title, which is visible before the click.
   const main = page.locator("main")
-  await expect(main.getByRole("heading", { name: "Board" })).toBeVisible()
-  await expect(main.getByText(/Add a workspace first|no columns yet/)).toBeVisible()
+  const boardHeading = main.getByRole("heading", { name: "Board" })
+  const boardColumns = main.locator('div[aria-label="Board columns"]')
+  await expect(boardHeading.or(boardColumns)).toBeVisible()
   await expect(main.getByRole("button", { name: "Workspace" })).toBeVisible()
   await expect(header.getByRole("button", { name: "Back to sections" })).toBeVisible()
 })
