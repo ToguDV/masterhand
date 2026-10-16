@@ -11,12 +11,13 @@ import {
 } from "@masterhand/client-core"
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   MeasuringStrategy,
   PointerSensor,
   TouchSensor,
-  closestCorners,
   pointerWithin,
+  rectIntersection,
   useDroppable,
   useSensor,
   useSensors,
@@ -64,6 +65,10 @@ function SortableCard({
     id: card.id,
     data: { columnID: card.columnID, type: "card" },
   })
+  // With DragOverlay the dragged copy lives in a portal above everything, so
+  // the source stays put as a placeholder: no transform while active (applying
+  // it would double-move the card and fight the overlay, which read as
+  // flicker/snap-back), just dimmed to hold its space.
   return (
     <button
       ref={setNodeRef}
@@ -72,11 +77,12 @@ function SortableCard({
       {...attributes}
       {...listeners}
       style={{
-        transform: CSS.Translate.toString(transform),
+        transform: isDragging ? undefined : CSS.Translate.toString(transform),
         transition: isDragging ? undefined : transition,
+        opacity: isDragging ? 0.35 : undefined,
       }}
       className={`relative w-full rounded-md border border-hairline bg-surface px-3 py-2 text-left shadow-sm hover:bg-surface-muted ${
-        isDragging ? "z-10 shadow-elev3" : ""
+        isDragging ? "ring-2 ring-accent" : ""
       }`}
       aria-label={`Edit card ${card.title}`}
       data-dragging={isDragging ? "true" : undefined}
@@ -90,14 +96,39 @@ function SortableCard({
 }
 
 /**
+ * Floating copy of the dragged card. Rendered in a portal by DragOverlay, so
+ * it escapes the column/board scroll containers (no more clipping or painting
+ * underneath sibling columns) and sits above everything. A plain div with
+ * aria-hidden: it must not duplicate the source button's accessible name or
+ * E2E locators match twice mid-drag.
+ */
+function CardOverlay({ card }: { card: BoardCard }) {
+  return (
+    <div
+      aria-hidden="true"
+      data-board-drag-overlay="true"
+      className="w-[264px] max-w-[85vw] rotate-[2deg] cursor-grabbing rounded-md border border-hairline bg-surface px-3 py-2 shadow-elev3"
+    >
+      <span className="block truncate text-sm font-medium text-ink">{card.title}</span>
+      {card.description && (
+        <span className="mt-0.5 block line-clamp-2 whitespace-pre-wrap text-xs text-ink-muted">{card.description}</span>
+      )}
+    </div>
+  )
+}
+
+/**
  * Pointer-first collision: `pointerWithin` follows the cursor (stable with
- * nested column/card droppables), falling back to `closestCorners` when the
- * pointer sits in a gap. `closestCenter` flipped `over` between the source
- * card and the column on every frame, which read as flicker.
+ * nested column/card droppables), falling back to `rectIntersection` when the
+ * pointer sits in a gap. `closestCorners`/`closestCenter` flipped `over`
+ * between the source card and the column on every frame, which read as
+ * flicker. With DragOverlay the source no longer sits under the cursor, so
+ * pointer hits stay stable.
  */
 const boardCollision: CollisionDetection = (args) => {
   const pointerHits = pointerWithin(args)
-  return pointerHits.length > 0 ? pointerHits : closestCorners(args)
+  if (pointerHits.length > 0) return pointerHits
+  return rectIntersection(args)
 }
 
 function ColumnMenu({
@@ -180,7 +211,6 @@ function BoardColumnView({
   column,
   columnIndex,
   total,
-  isActive,
   editingColumnID,
   editingColumnTitle,
   onEditTitle,
@@ -198,7 +228,6 @@ function BoardColumnView({
   column: import("@masterhand/client-core").BoardColumn
   columnIndex: number
   total: number
-  isActive: boolean
   editingColumnID: string | null
   editingColumnTitle: string
   onEditTitle: (value: string) => void
@@ -214,16 +243,13 @@ function BoardColumnView({
   onDelete: (columnID: string) => void
 }) {
   const { setNodeRef } = useDroppable({ id: column.id, data: { type: "column", columnID: column.id } })
-  // The source column (not just the card) rises above its siblings while its
-  // card drags: a z-index on the card alone only orders within its own column,
-  // so an earlier column's card would still paint underneath later columns.
+  // The overlay floats in a portal above all columns, so no z-index lifting
+  // or target highlight is needed.
   return (
     <section
       ref={setNodeRef}
       aria-label={`Column ${column.title}`}
-      className={`relative flex w-72 max-w-[85vw] shrink-0 flex-col rounded-lg border border-hairline bg-canvas p-2 ${
-        isActive ? "z-10" : ""
-      }`}
+      className="relative flex w-72 max-w-[85vw] shrink-0 flex-col rounded-lg border border-hairline bg-canvas p-2"
     >
       <header className="flex items-center gap-1 px-1 py-1">
         {editingColumnID === column.id ? (
@@ -471,7 +497,7 @@ export function BoardView({
   const lastDragEndRef = useRef(0)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
@@ -825,7 +851,7 @@ export function BoardView({
         <DndContext
           sensors={sensors}
           collisionDetection={boardCollision}
-          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+          measuring={{ droppable: { strategy: MeasuringStrategy.BeforeDragging } }}
           onDragStart={onDragStart}
           onDragCancel={onDragCancel}
           onDragEnd={onDragEnd}
@@ -837,7 +863,6 @@ export function BoardView({
                 column={column}
                 columnIndex={columnIndex}
                 total={columns.length}
-                isActive={activeCard?.columnID === column.id}
                 editingColumnID={editingColumnID}
                 editingColumnTitle={editingColumnTitle}
                 onEditTitle={setEditingColumnTitle}
@@ -877,6 +902,9 @@ export function BoardView({
               </button>
             </div>
           </div>
+          <DragOverlay adjustScale={false} dropAnimation={{ duration: 180, easing: "ease" }}>
+            {activeCard ? <CardOverlay card={activeCard} /> : null}
+          </DragOverlay>
         </DndContext>
       )}
 

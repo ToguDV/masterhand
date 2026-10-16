@@ -191,6 +191,95 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   await expectServerOrder("Backlog", [])
 })
 
+test("board drag floats above columns with a steady placeholder and no edit dialog", async ({ page }) => {
+  // Regression for the overlay fix: mid-drag the card must travel in a
+  // fixed-position portal (never clipped/painted under sibling columns), the
+  // source must stay put as a placeholder (no transform fighting the overlay),
+  // and the drop must not pop the edit dialog open.
+  test.setTimeout(120_000)
+  await login(page)
+  const wsName = await addWorkspace(page)
+  await openBoard(page)
+
+  /** Card titles of a column as the server has them (bypasses the UI cache). */
+  async function serverOrder(columnTitle: string): Promise<string[]> {
+    const wsList = await page.request.get("/api/workspaces")
+    const { workspaces } = (await wsList.json()) as { workspaces: Array<{ id: string; name: string }> }
+    const workspace = workspaces.find((entry) => entry.name === wsName)
+    expect(workspace).toBeDefined()
+    const boardResponse = await page.request.get(`/api/board?workspace=${workspace!.id}`)
+    const { board } = (await boardResponse.json()) as {
+      board: { columns: Array<{ title: string; cards: Array<{ title: string }> }> }
+    }
+    return board.columns.find((column) => column.title === columnTitle)?.cards.map((card) => card.title) ?? []
+  }
+
+  for (const title of ["Left", "Right"]) {
+    await page.getByLabel("New column title").last().fill(title)
+    await page.getByRole("button", { name: "Add column" }).last().click()
+    await expect(page.locator(`section[aria-label="Column ${title}"]`)).toBeVisible()
+  }
+
+  await page.getByLabel("New card title in Left").fill("Parcel")
+  await page.getByRole("button", { name: "Add card to Left" }).click()
+  await expect(page.getByRole("button", { name: "Edit card Parcel" })).toBeVisible()
+
+  const source = page.getByRole("button", { name: "Edit card Parcel" })
+  const target = page.locator('section[aria-label="Column Right"]')
+  const overlay = page.locator('[data-board-drag-overlay="true"]')
+
+  // Start the drag and hold it over the target column (no release yet).
+  await source.hover()
+  await page.mouse.down()
+  const targetBox = await target.boundingBox()
+  expect(targetBox).not.toBeNull()
+  await page.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2, { steps: 12 })
+
+  // Exactly one placeholder: the source stays in place while dragging.
+  const placeholder = page.locator('button[data-dragging="true"]')
+  await expect(placeholder).toHaveCount(1)
+  await expect(placeholder).toContainText("Parcel")
+  // The placeholder must not be transformed: applying the drag delta to the
+  // source on top of the overlay double-moved the card (flicker/snap-back).
+  await expect.poll(async () => placeholder.evaluate((node) => getComputedStyle(node).transform)).toBe("none")
+
+  // The floating copy travels in a fixed portal above everything, so it can
+  // never be clipped by the column scroll containers or paint underneath a
+  // sibling column.
+  await expect(overlay).toBeVisible()
+  await expect(overlay).toContainText("Parcel")
+  const overlayPosition = await overlay.evaluate((node) => {
+    const wrapper = node.parentElement!
+    const style = getComputedStyle(wrapper)
+    return { position: style.position, zIndex: style.zIndex }
+  })
+  expect(overlayPosition.position).toBe("fixed")
+  expect(Number.parseInt(overlayPosition.zIndex, 10)).toBeGreaterThanOrEqual(100)
+  // The overlay is the topmost element at its own center: the card paints
+  // above the target column instead of slipping underneath it.
+  const overlayBox = await overlay.boundingBox()
+  expect(overlayBox).not.toBeNull()
+  const topmostTestId = await page.evaluate(({ x, y }) => {
+    const topmost = document.elementFromPoint(x, y)
+    return topmost?.closest("[data-board-drag-overlay]")?.getAttribute("data-board-drag-overlay") ?? null
+  }, { x: overlayBox!.x + overlayBox!.width / 2, y: overlayBox!.y + overlayBox!.height / 2 })
+  expect(topmostTestId).toBe("true")
+  // The overlay is aria-hidden: the accessible name must not duplicate or
+  // E2E locators match twice mid-drag.
+  await expect(page.getByRole("button", { name: "Edit card Parcel" })).toHaveCount(1)
+
+  // Release over the target column: the card lands there…
+  await page.mouse.up()
+  const rightCards = page.locator('section[aria-label="Column Right"] button[aria-label^="Edit card"]')
+  await expect(rightCards).toHaveCount(1)
+  await expect(rightCards.first()).toContainText("Parcel")
+  await expect.poll(async () => serverOrder("Right"), { timeout: 20_000 }).toEqual(["Parcel"])
+  await expect.poll(async () => serverOrder("Left"), { timeout: 20_000 }).toEqual([])
+  // …and the click that ends the pointer drag must not open the edit dialog
+  // (it used to read as "drag fights with return").
+  await expect(page.getByRole("dialog")).toBeHidden()
+})
+
 test("board deletes a column with its cards after confirmation", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
