@@ -11,16 +11,25 @@ import {
 } from "@masterhand/client-core"
 import {
   DndContext,
+  KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
   TouchSensor,
-  KeyboardSensor,
-  closestCenter,
+  closestCorners,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core"
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { client } from "../client"
 import { Deco } from "./Deco"
@@ -63,12 +72,14 @@ function SortableCard({
       {...attributes}
       {...listeners}
       style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : undefined,
+        transform: CSS.Translate.toString(transform),
+        transition: isDragging ? undefined : transition,
       }}
-      className="w-full rounded-md border border-hairline bg-surface px-3 py-2 text-left shadow-sm hover:bg-surface-muted"
+      className={`relative w-full rounded-md border border-hairline bg-surface px-3 py-2 text-left shadow-sm hover:bg-surface-muted ${
+        isDragging ? "z-10 shadow-elev3" : ""
+      }`}
       aria-label={`Edit card ${card.title}`}
+      data-dragging={isDragging ? "true" : undefined}
     >
       <span className="block truncate text-sm font-medium text-ink">{card.title}</span>
       {card.description && (
@@ -76,6 +87,17 @@ function SortableCard({
       )}
     </button>
   )
+}
+
+/**
+ * Pointer-first collision: `pointerWithin` follows the cursor (stable with
+ * nested column/card droppables), falling back to `closestCorners` when the
+ * pointer sits in a gap. `closestCenter` flipped `over` between the source
+ * card and the column on every frame, which read as flicker.
+ */
+const boardCollision: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args)
+  return pointerHits.length > 0 ? pointerHits : closestCorners(args)
 }
 
 function ColumnMenu({
@@ -158,6 +180,7 @@ function BoardColumnView({
   column,
   columnIndex,
   total,
+  isActive,
   editingColumnID,
   editingColumnTitle,
   onEditTitle,
@@ -175,6 +198,7 @@ function BoardColumnView({
   column: import("@masterhand/client-core").BoardColumn
   columnIndex: number
   total: number
+  isActive: boolean
   editingColumnID: string | null
   editingColumnTitle: string
   onEditTitle: (value: string) => void
@@ -190,11 +214,16 @@ function BoardColumnView({
   onDelete: (columnID: string) => void
 }) {
   const { setNodeRef } = useDroppable({ id: column.id, data: { type: "column", columnID: column.id } })
+  // The source column (not just the card) rises above its siblings while its
+  // card drags: a z-index on the card alone only orders within its own column,
+  // so an earlier column's card would still paint underneath later columns.
   return (
     <section
       ref={setNodeRef}
       aria-label={`Column ${column.title}`}
-      className="flex w-72 max-w-[85vw] shrink-0 flex-col rounded-lg border border-hairline bg-canvas p-2"
+      className={`relative flex w-72 max-w-[85vw] shrink-0 flex-col rounded-lg border border-hairline bg-canvas p-2 ${
+        isActive ? "z-10" : ""
+      }`}
     >
       <header className="flex items-center gap-1 px-1 py-1">
         {editingColumnID === column.id ? (
@@ -438,14 +467,24 @@ export function BoardView({
   const [editingCard, setEditingCard] = useState<BoardCard | null>(null)
   const [cardDraft, setCardDraft] = useState({ title: "", description: "" })
   const [savingCard, setSavingCard] = useState(false)
+  const [activeCard, setActiveCard] = useState<BoardCard | null>(null)
+  const lastDragEndRef = useRef(0)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
-    useSensor(KeyboardSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
   const columns = useMemo(() => board?.columns ?? [], [board])
+
+  function findCard(cardID: string): BoardCard | null {
+    for (const column of columns) {
+      const card = column.cards.find((entry) => entry.id === cardID)
+      if (card) return card
+    }
+    return null
+  }
 
   function failBoard(error: unknown) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
@@ -546,6 +585,10 @@ export function BoardView({
   }
 
   function openCard(card: BoardCard) {
+    // A pointer drag ends with a click on the source button; ignore the
+    // click that immediately follows a drop so the edit dialog does not pop
+    // open on every drag (it read as "drag fights with return").
+    if (Date.now() - lastDragEndRef.current < 250) return
     setEditingCard(card)
     setCardDraft({ title: card.title, description: card.description })
   }
@@ -616,7 +659,6 @@ export function BoardView({
     const from = columnOfCard(cols, activeID)
     const target = targetOfOver(cols, overID)
     if (!from || !target) return
-    if (!from || !target) return
     if (from.columnID === target.columnID && from.index === target.index) return
     // One absolute position drives both the optimistic cache and the PATCH,
     // so the card never jumps on refetch. Same-column card-over-card uses the
@@ -685,9 +727,19 @@ export function BoardView({
     }
   }
 
+  function onDragStart(event: DragStartEvent) {
+    setActiveCard(findCard(String(event.active.id)))
+  }
+
+  function onDragCancel() {
+    setActiveCard(null)
+  }
+
   function onDragEnd(event: DragEndEvent) {
+    lastDragEndRef.current = Date.now()
     const activeID = String(event.active.id)
     const overID = event.over ? String(event.over.id) : null
+    setActiveCard(null)
     void commitCardMove(activeID, overID)
   }
 
@@ -770,7 +822,14 @@ export function BoardView({
           </div>
         </div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={boardCollision}
+          measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+          onDragStart={onDragStart}
+          onDragCancel={onDragCancel}
+          onDragEnd={onDragEnd}
+        >
           <div className="scroll-thin flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2" aria-label="Board columns">
             {columns.map((column, columnIndex) => (
               <BoardColumnView
@@ -778,6 +837,7 @@ export function BoardView({
                 column={column}
                 columnIndex={columnIndex}
                 total={columns.length}
+                isActive={activeCard?.columnID === column.id}
                 editingColumnID={editingColumnID}
                 editingColumnTitle={editingColumnTitle}
                 onEditTitle={setEditingColumnTitle}
