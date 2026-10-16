@@ -826,25 +826,36 @@ export function BoardView({
 
       {columns.length === 0 ? (
         <div className="mh-empty relative flex-1">
-          <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
-          <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
-          <h3 className="mh-heading-2">Board</h3>
-          <p className="mh-empty__body mh-body-sm">This workspace has no columns yet. Add the first one to start tracking work.</p>
-          <div className="flex w-full max-w-sm items-center gap-2">
-            <input
-              value={newColumnTitle}
-              onChange={(event) => setNewColumnTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void createColumn()
-              }}
-              placeholder="New column (e.g. To do)"
-              aria-label="New column title"
-              className="mh-input min-w-0 flex-1"
-              maxLength={200}
-            />
-            <button type="button" onClick={() => void createColumn()} disabled={creatingColumn} className="mh-btn mh-btn--primary mh-btn--sm">
-              {creatingColumn ? "Adding…" : "Add column"}
-            </button>
+          <div className="relative flex w-full flex-col items-center gap-2">
+            <Deco variant="blob" style={{ top: -70, left: "50%", width: 220, height: 200, opacity: 0.5, transform: "translateX(-50%)" }} />
+            <Deco variant="hatch" style={{ top: 0, left: "50%", width: 210, height: 30, transform: "translateX(-50%)" }} />
+            <h3 className="mh-heading-2 relative z-[1]">Board</h3>
+            <p className="mh-empty__body mh-body-sm relative z-[1]">This workspace has no columns yet. Add the first one to start tracking work.</p>
+            <div className="relative z-[1] flex w-full max-w-sm items-center gap-2">
+              <input
+                value={newColumnTitle}
+                onChange={(event) => setNewColumnTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void createColumn()
+                }}
+                placeholder="New column (e.g. To do)"
+                aria-label="New column title"
+                className="mh-input min-w-0 flex-1"
+                maxLength={200}
+              />
+              <button
+                type="button"
+                onClick={() => void createColumn()}
+                disabled={creatingColumn}
+                aria-label="Add column"
+                title="Add column"
+                className="mh-btn mh-btn--primary h-11 w-11 shrink-0 p-0"
+                style={{ marginTop: 0 }}
+              >
+                <PlusIcon size={16} />
+              </button>
+              <Deco variant="curve" style={{ top: 50, right: -10, width: 130, height: 71, opacity: 0.6 }} />
+            </div>
           </div>
         </div>
       ) : (
@@ -886,20 +897,29 @@ export function BoardView({
 
             <div className="flex w-72 max-w-[85vw] shrink-0 flex-col gap-2 rounded-lg border border-dashed border-hairline p-3">
               <p className="text-sm font-medium text-ink">Add column</p>
-              <input
-                value={newColumnTitle}
-                onChange={(event) => setNewColumnTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void createColumn()
-                }}
-                placeholder="Column title"
-                aria-label="New column title"
-                className="mh-input w-full"
-                maxLength={200}
-              />
-              <button type="button" onClick={() => void createColumn()} disabled={creatingColumn} className="mh-btn mh-btn--secondary mh-btn--sm w-fit">
-                {creatingColumn ? "Adding…" : "Add column"}
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  value={newColumnTitle}
+                  onChange={(event) => setNewColumnTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void createColumn()
+                  }}
+                  placeholder="Column title"
+                  aria-label="New column title"
+                  className="mh-input min-w-0 flex-1"
+                  maxLength={200}
+                />
+                <button
+                  type="button"
+                  onClick={() => void createColumn()}
+                  disabled={creatingColumn}
+                  aria-label="Add column"
+                  title="Add column"
+                  className="mh-btn mh-btn--icon shrink-0"
+                >
+                  <PlusIcon size={16} />
+                </button>
+              </div>
             </div>
           </div>
           <DragOverlay adjustScale={false} dropAnimation={{ duration: 180, easing: "ease" }}>
