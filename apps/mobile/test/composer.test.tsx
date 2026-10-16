@@ -105,7 +105,10 @@ describe("Composer", () => {
     await setup()
 
     expect(await screen.findByText("Build")).toBeOnTheScreen()
-    expect(screen.getByText("Test · Test Model")).toBeOnTheScreen()
+    // The trigger shows the provider brand mark plus the short model name.
+    expect(screen.getByText("Test Model")).toBeOnTheScreen()
+    expect(screen.queryByText("Test · Test Model")).toBeNull()
+    expect(screen.getByTestId("model-provider-glyph")).toBeOnTheScreen()
   })
 
   it("sends the typed prompt with the selected agent and model", async () => {
@@ -174,7 +177,7 @@ describe("Composer", () => {
   it("switches the model through the picker", async () => {
     const { client } = await setup()
 
-    await fireEvent.press(await screen.findByText("Test · Test Model"))
+    await fireEvent.press(await screen.findByText("Test Model"))
     await fireEvent.press(screen.getByText("Test · Alpha"))
     await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "hi")
     await fireEvent.press(screen.getByText("Send"))
@@ -339,7 +342,7 @@ describe("Composer", () => {
     await setup()
 
     expect(await screen.findByText("Explore")).toBeOnTheScreen()
-    expect(screen.getByText("Test · Alpha")).toBeOnTheScreen()
+    expect(screen.getByText("Alpha")).toBeOnTheScreen()
   })
 
   it("opens the command list on / and runs the selected command", async () => {

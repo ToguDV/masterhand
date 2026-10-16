@@ -11,6 +11,7 @@ import {
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ChevronDownIcon } from "./icons"
+import { ProviderGlyph } from "./ProviderGlyph"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -109,17 +110,19 @@ export function GoalReviewSection({ client }: { client: Client }) {
     return () => clearTimeout(timer)
   }, [settings.data, dirty, saving, criticModel, judgeModel, maxRounds, queryClient, client])
 
-  const modelOptions: ChoiceOption[] = [
-    { value: "", label: "Use the session model" },
-    ...flattenModels(models.data?.models ?? [], models.data?.providers ?? []).map((option) => ({
-      value: option.value,
-      label: option.label,
-    })),
-  ]
+  const flatModels = flattenModels(models.data?.models ?? [], models.data?.providers ?? [])
+  const modelOptions: ChoiceOption[] = [{ value: "", label: "Use the session model" }, ...flatModels]
 
-  function optionLabel(value: string): string {
-    return modelOptions.find((option) => option.value === value)?.label ?? (value || "Use the session model")
+  function selectedModel(value: string) {
+    return flatModels.find((option) => option.value === value)
   }
+
+  function triggerShortLabel(value: string): string {
+    return selectedModel(value)?.model ?? (value || "Use the session model")
+  }
+
+  const criticOption = selectedModel(criticModel)
+  const judgeOption = selectedModel(judgeModel)
 
   return (
     <View accessibilityLabel="Goal review">
@@ -141,8 +144,9 @@ export function GoalReviewSection({ client }: { client: Client }) {
           accessibilityLabel="Critic model"
           style={styles.select}
         >
+          {criticOption ? <ProviderGlyph providerID={criticOption.providerID} name={criticOption.provider} /> : null}
           <Text style={[styles.selectText, !criticModel && styles.selectPlaceholder]} numberOfLines={1}>
-            {optionLabel(criticModel)}
+            {triggerShortLabel(criticModel)}
           </Text>
           <ChevronDownIcon size={14} color={colors.textMuted} />
         </Pressable>
@@ -154,8 +158,9 @@ export function GoalReviewSection({ client }: { client: Client }) {
           accessibilityLabel="Judge model"
           style={styles.select}
         >
+          {judgeOption ? <ProviderGlyph providerID={judgeOption.providerID} name={judgeOption.provider} /> : null}
           <Text style={[styles.selectText, !judgeModel && styles.selectPlaceholder]} numberOfLines={1}>
-            {optionLabel(judgeModel)}
+            {triggerShortLabel(judgeModel)}
           </Text>
           <ChevronDownIcon size={14} color={colors.textMuted} />
         </Pressable>

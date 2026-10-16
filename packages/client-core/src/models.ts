@@ -4,6 +4,12 @@ export interface FlatModelOption {
   value: string
   label: string
   variants: string[]
+  /** Provider id the model belongs to (resolves the trigger brand mark). */
+  providerID: string
+  /** Provider display name shown in the full label. */
+  provider: string
+  /** Short model name shown next to the brand mark in compact triggers. */
+  model: string
 }
 
 export function selectableAgents(agents: AgentInfo[]): AgentInfo[] {
@@ -15,11 +21,18 @@ export function flattenModels(models: ModelInfo[], providers: ProviderInfo[]): F
   const providerNames = new Map(providers.map((provider) => [provider.id, provider.name]))
   const options = models
     .filter((model) => model.enabled !== false)
-    .map((model) => ({
-      value: `${model.providerID}/${model.id}`,
-      label: `${providerNames.get(model.providerID) ?? model.providerID} · ${model.name || model.id}`,
-      variants: model.variants.map((variant) => variant.id),
-    }))
+    .map((model) => {
+      const provider = providerNames.get(model.providerID) ?? model.providerID
+      const name = model.name || model.id
+      return {
+        value: `${model.providerID}/${model.id}`,
+        label: `${provider} · ${name}`,
+        variants: model.variants.map((variant) => variant.id),
+        providerID: model.providerID,
+        provider,
+        model: name,
+      }
+    })
   return options.sort((a, b) => a.label.localeCompare(b.label))
 }
 

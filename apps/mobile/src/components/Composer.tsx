@@ -32,6 +32,7 @@ import {
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
+import { ProviderGlyph } from "./ProviderGlyph"
 import { SideQuestionPanel } from "./SideQuestionPanel"
 import { BrainIcon, ChevronDownIcon, SlidersIcon } from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
@@ -436,6 +437,7 @@ export function Composer({
 
   const agentChoices: ChoiceOption[] = agents.map((item) => ({ value: item.id, label: item.name }))
   const modelChoices: ChoiceOption[] = modelOptions.map((option) => ({ value: option.value, label: option.label }))
+  const selectedModel = modelOptions.find((option) => option.value === model)
   const effortChoices: ChoiceOption[] = variants.map((key) => ({ value: key, label: variantLabel(key) }))
   // Effort variants get the brain glyph; provider-specific ones the sliders.
   const effortIsBrain = variants.length > 0 && variants.every((key) => isEffortVariant(key))
@@ -495,7 +497,13 @@ export function Composer({
             disabled={agentChoices.length === 0}
           />
           <Selector
-            label={modelOptions.find((option) => option.value === model)?.label ?? "model…"}
+            icon={
+              selectedModel ? (
+                <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
+              ) : undefined
+            }
+            accessibilityLabel={selectedModel ? `Model, ${selectedModel.label}` : "Model"}
+            label={selectedModel?.model ?? "model…"}
             onPress={() => setPicker("model")}
             disabled={modelChoices.length === 0}
           />

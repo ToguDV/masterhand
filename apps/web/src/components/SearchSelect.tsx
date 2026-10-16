@@ -5,6 +5,8 @@ import { ChevronDownIcon } from "./icons"
 export interface SearchSelectOption {
   value: string
   label: string
+  /** Compact text shown in the trigger instead of `label` (the list keeps `label`). */
+  triggerLabel?: string
 }
 
 export function SearchSelect({
@@ -83,7 +85,7 @@ export function SearchSelect({
         <span className="flex min-w-0 items-center gap-1.5">
           {icon}
           <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
-            {selected?.label ?? placeholder}
+            {selected?.triggerLabel ?? selected?.label ?? placeholder}
           </span>
         </span>
         <ChevronDownIcon size={14} className="shrink-0 text-ink-muted" />

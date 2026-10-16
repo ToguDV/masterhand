@@ -31,6 +31,7 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { ComposerSuggestions } from "./ComposerSuggestions"
+import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
 import { ArrowUpIcon, BrainIcon, ShieldCheckIcon, SlidersIcon, StopIcon } from "./icons"
@@ -165,6 +166,7 @@ export function Composer({
     () => modelOptions.find((option) => option.value === model)?.variants ?? [],
     [model, modelOptions],
   )
+  const selectedModel = modelOptions.find((option) => option.value === model)
 
   useEffect(() => {
     const fallback = agents[0]
@@ -578,11 +580,21 @@ export function Composer({
               compact
               ghost
               value={model}
-              options={modelOptions.map((option) => ({ value: option.value, label: option.label }))}
+              options={modelOptions.map((option) => ({
+                value: option.value,
+                label: option.label,
+                triggerLabel: option.model,
+              }))}
               onChange={(value) => {
                 modelTouched.current = true
                 setModel(value)
               }}
+              icon={
+                selectedModel ? (
+                  <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
+                ) : undefined
+              }
+              title={selectedModel?.label}
               ariaLabel="Model"
               placeholder="model…"
             />
