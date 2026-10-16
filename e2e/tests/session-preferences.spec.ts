@@ -21,7 +21,8 @@ test("remembers the agent and model for a session after a reload", async ({ page
   await page.reload()
 
   await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("plan")
-  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Other · Flash")
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Flash")
+  await expect(page.getByRole("button", { name: "Model", exact: true })).not.toContainText("Other")
 })
 
 test("remembers the effort for a session after a reload", async ({ page }) => {

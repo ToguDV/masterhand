@@ -8,6 +8,7 @@ import {
   useModels,
 } from "@masterhand/client-core"
 import { client } from "../client"
+import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect } from "./SearchSelect"
 
 /**
@@ -103,13 +104,17 @@ export function GoalReviewSection() {
     return () => clearTimeout(timer)
   }, [settings.data, dirty, saving, criticModel, judgeModel, maxRounds, queryClient])
 
+  const flatModels = flattenModels(models.data?.models ?? [], models.data?.providers ?? [])
   const modelOptions = [
     { value: "", label: "Use the session model" },
-    ...flattenModels(models.data?.models ?? [], models.data?.providers ?? []).map((option) => ({
+    ...flatModels.map((option) => ({
       value: option.value,
       label: option.label,
+      triggerLabel: option.model,
     })),
   ]
+  const criticFlat = flatModels.find((option) => option.value === criticModel)
+  const judgeFlat = flatModels.find((option) => option.value === judgeModel)
 
   return (
     <section aria-labelledby="settings-goal">
@@ -136,6 +141,10 @@ export function GoalReviewSection() {
               setDirty(true)
               editVersion.current += 1
             }}
+            icon={
+              criticFlat ? <ProviderGlyph providerID={criticFlat.providerID} name={criticFlat.provider} /> : undefined
+            }
+            title={criticFlat?.label}
             ariaLabel="Critic model"
             placeholder="Use the session model"
           />
@@ -150,6 +159,10 @@ export function GoalReviewSection() {
               setDirty(true)
               editVersion.current += 1
             }}
+            icon={
+              judgeFlat ? <ProviderGlyph providerID={judgeFlat.providerID} name={judgeFlat.provider} /> : undefined
+            }
+            title={judgeFlat?.label}
             ariaLabel="Judge model"
             placeholder="Use the session model"
           />

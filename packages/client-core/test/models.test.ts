@@ -56,6 +56,15 @@ describe("flattenModels", () => {
     expect(options[0]?.label).toBe("Alpha · M1")
   })
 
+  it("exposes the provider and model names for the compact trigger", () => {
+    const options = flattenModels(models, providers)
+    expect(options.find((option) => option.value === "alpha/m1")).toMatchObject({
+      providerID: "alpha",
+      provider: "Alpha",
+      model: "M1",
+    })
+  })
+
   it("exposes each model's variants", () => {
     const options = flattenModels(models, providers)
     expect(options.find((option) => option.value === "zeta/a-model")?.variants).toEqual(["low", "high"])
@@ -76,6 +85,11 @@ describe("flattenModels", () => {
       "unknown-provider · raw-id",
     )
     expect(options.find((option) => option.value === "no-name/named")?.label).toBe("no-name · Named")
+    expect(options.find((option) => option.value === "unknown-provider/raw-id")).toMatchObject({
+      providerID: "unknown-provider",
+      provider: "unknown-provider",
+      model: "raw-id",
+    })
   })
 
   it("tolerates empty catalogs", () => {

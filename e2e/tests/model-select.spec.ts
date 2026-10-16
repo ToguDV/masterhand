@@ -22,7 +22,11 @@ test("limits model options and searches the rest", async ({ page }) => {
   await expect(listbox.getByRole("option")).toHaveCount(1)
   await listbox.getByRole("option", { name: "Other · Flash" }).click()
 
-  await expect(modelButton).toContainText("Other · Flash")
+  // The trigger shows the provider brand mark plus the short model name; the
+  // full "Provider · Model" label lives in the list and the tooltip.
+  await expect(modelButton).toContainText("Flash")
+  await expect(modelButton).not.toContainText("Other")
+  await expect(modelButton.getByTestId("model-provider-glyph")).toHaveText("O")
   await expect(listbox).toBeHidden()
 })
 
@@ -35,7 +39,8 @@ test("remembers the last used model for new sessions", async ({ page }) => {
   await modelButton.click()
   await page.getByRole("textbox", { name: "Search model" }).fill("flash")
   await page.getByRole("listbox", { name: "Model" }).getByRole("option", { name: "Other · Flash" }).click()
-  await expect(modelButton).toContainText("Other · Flash")
+  await expect(modelButton).toContainText("Flash")
+  await expect(modelButton).not.toContainText("Other")
 
   await page.getByPlaceholder("Write a message…").fill("hello agent")
   await page.getByRole("button", { name: "Send" }).click()
@@ -43,5 +48,6 @@ test("remembers the last used model for new sessions", async ({ page }) => {
   await expect(page.getByText("Done!")).toBeVisible()
 
   await newSession(page)
-  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Other · Flash")
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Flash")
+  await expect(page.getByRole("button", { name: "Model", exact: true })).not.toContainText("Other")
 })
