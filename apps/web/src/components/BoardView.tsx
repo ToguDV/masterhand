@@ -106,6 +106,7 @@ function CardOverlay({ card }: { card: BoardCard }) {
   return (
     <div
       aria-hidden="true"
+      data-board-drag-overlay="true"
       className="w-[264px] max-w-[85vw] rotate-[2deg] cursor-grabbing rounded-md border border-hairline bg-surface px-3 py-2 shadow-elev3"
     >
       <span className="block truncate text-sm font-medium text-ink">{card.title}</span>
