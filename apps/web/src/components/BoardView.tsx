@@ -826,35 +826,36 @@ export function BoardView({
 
       {columns.length === 0 ? (
         <div className="mh-empty relative flex-1">
-          <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
-          <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
-          <Deco variant="hatch" style={{ top: 24, left: -32 }} />
-          <Deco variant="curve" style={{ bottom: -28, right: -12 }} />
-          <h3 className="mh-heading-2">Board</h3>
-          <p className="mh-empty__body mh-body-sm">This workspace has no columns yet. Add the first one to start tracking work.</p>
-          <div className="flex w-full max-w-sm items-center gap-2">
-            <input
-              value={newColumnTitle}
-              onChange={(event) => setNewColumnTitle(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void createColumn()
-              }}
-              placeholder="New column (e.g. To do)"
-              aria-label="New column title"
-              className="mh-input min-w-0 flex-1"
-              maxLength={200}
-            />
-            <button
-              type="button"
-              onClick={() => void createColumn()}
-              disabled={creatingColumn}
-              aria-label="Add column"
-              title="Add column"
-              className="mh-btn mh-btn--primary h-11 w-11 shrink-0 p-0"
-              style={{ marginTop: 0 }}
-            >
-              <PlusIcon size={16} />
-            </button>
+          <div className="relative flex w-full flex-col items-center gap-2">
+            <Deco variant="blob" style={{ top: -70, left: "50%", width: 220, height: 200, opacity: 0.5, transform: "translateX(-50%)" }} />
+            <Deco variant="hatch" style={{ top: 0, left: "50%", width: 210, height: 30, transform: "translateX(-50%)" }} />
+            <h3 className="mh-heading-2 relative z-[1]">Board</h3>
+            <p className="mh-empty__body mh-body-sm relative z-[1]">This workspace has no columns yet. Add the first one to start tracking work.</p>
+            <div className="relative z-[1] flex w-full max-w-sm items-center gap-2">
+              <input
+                value={newColumnTitle}
+                onChange={(event) => setNewColumnTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void createColumn()
+                }}
+                placeholder="New column (e.g. To do)"
+                aria-label="New column title"
+                className="mh-input min-w-0 flex-1"
+                maxLength={200}
+              />
+              <button
+                type="button"
+                onClick={() => void createColumn()}
+                disabled={creatingColumn}
+                aria-label="Add column"
+                title="Add column"
+                className="mh-btn mh-btn--primary h-11 w-11 shrink-0 p-0"
+                style={{ marginTop: 0 }}
+              >
+                <PlusIcon size={16} />
+              </button>
+              <Deco variant="curve" style={{ top: 50, right: -10, width: 130, height: 71, opacity: 0.6 }} />
+            </div>
           </div>
         </div>
       ) : (

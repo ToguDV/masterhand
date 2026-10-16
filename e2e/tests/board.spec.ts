@@ -347,12 +347,13 @@ test("board add-column buttons are icon-only and aligned with their inputs", asy
     expect(Math.abs(center(buttonBox!) - center(inputBox!))).toBeLessThanOrEqual(2)
   }
 
-  // Empty board: input + square "+" button, hatch (lines) + curve decorations.
+  // Empty board: input + square "+" button; blob behind the heading, short
+  // hatch accent and small curve — no corner dots.
   await expectIconButtonAligned(main.getByLabel("New column title").first(), main.getByRole("button", { name: "Add column" }).first())
   await expect(main.locator(".mh-empty .mh-deco--blob")).toBeVisible()
-  await expect(main.locator(".mh-empty .mh-deco--dots")).toBeVisible()
   await expect(main.locator(".mh-empty .mh-deco--hatch")).toBeVisible()
   await expect(main.locator(".mh-empty .mh-deco--curve")).toBeVisible()
+  await expect(main.locator(".mh-empty .mh-deco--dots")).toHaveCount(0)
 
   // Side add-column card once a column exists: same icon-only aligned row.
   await main.getByLabel("New column title").first().fill("First")
