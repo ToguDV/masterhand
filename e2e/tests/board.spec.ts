@@ -323,3 +323,40 @@ test("board workspace menu opens below the trigger and stays in view", async ({ 
   expect(menuBox!.y).toBeGreaterThanOrEqual(0)
   expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport!.height + 1)
 })
+
+test("board add-column buttons are icon-only and aligned with their inputs", async ({ page }) => {
+  // Regression: both "Add column" controls are icon-only "+" buttons at input
+  // height (44px, vertically centered with the input — the empty-state button
+  // used to be a shorter text button pushed down by `.mh-empty .mh-btn`), and
+  // the empty board carries the hatch + curve decorations.
+  await login(page)
+  await addWorkspace(page)
+  await openBoard(page)
+  const main = page.locator("main")
+
+  async function expectIconButtonAligned(input: import("@playwright/test").Locator, button: import("@playwright/test").Locator) {
+    await expect(button.locator("svg")).toBeVisible()
+    await expect(button).toHaveText("")
+    const inputBox = await input.boundingBox()
+    const buttonBox = await button.boundingBox()
+    expect(inputBox).not.toBeNull()
+    expect(buttonBox).not.toBeNull()
+    expect(buttonBox!.height).toBeCloseTo(44, 0)
+    expect(buttonBox!.height).toBeCloseTo(inputBox!.height, 0)
+    const center = (box: { y: number; height: number }) => box.y + box.height / 2
+    expect(Math.abs(center(buttonBox!) - center(inputBox!))).toBeLessThanOrEqual(2)
+  }
+
+  // Empty board: input + square "+" button, hatch (lines) + curve decorations.
+  await expectIconButtonAligned(main.getByLabel("New column title").first(), main.getByRole("button", { name: "Add column" }).first())
+  await expect(main.locator(".mh-empty .mh-deco--blob")).toBeVisible()
+  await expect(main.locator(".mh-empty .mh-deco--dots")).toBeVisible()
+  await expect(main.locator(".mh-empty .mh-deco--hatch")).toBeVisible()
+  await expect(main.locator(".mh-empty .mh-deco--curve")).toBeVisible()
+
+  // Side add-column card once a column exists: same icon-only aligned row.
+  await main.getByLabel("New column title").first().fill("First")
+  await main.getByRole("button", { name: "Add column" }).first().click()
+  await expect(page.locator('section[aria-label="Column First"]')).toBeVisible()
+  await expectIconButtonAligned(main.getByLabel("New column title").last(), main.getByRole("button", { name: "Add column" }).last())
+})
