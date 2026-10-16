@@ -25,3 +25,28 @@ test("composer renders as a single integrated dock", async ({ page }) => {
   await dock.getByPlaceholder("Write a message…").fill("/")
   await expect(page.locator("#composer-suggestions")).toBeVisible()
 })
+
+test("composer workspace menu opens above the trigger and stays in view", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  // The composer dock sits at the bottom of the page: the menu must open
+  // upward from the trigger and stay fully inside the viewport.
+  const dock = page.locator(".mh-composer-dock")
+  const trigger = dock.getByRole("button", { name: "Workspace" })
+  await trigger.click()
+  const menu = dock.getByRole("menu", { name: "Workspace" })
+  await expect(menu).toBeVisible()
+
+  const triggerBox = await trigger.boundingBox()
+  const menuBox = await menu.boundingBox()
+  expect(triggerBox).not.toBeNull()
+  expect(menuBox).not.toBeNull()
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(triggerBox!.y + 2)
+
+  const viewport = page.viewportSize()
+  expect(viewport).not.toBeNull()
+  expect(menuBox!.y).toBeGreaterThanOrEqual(0)
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport!.height + 1)
+})

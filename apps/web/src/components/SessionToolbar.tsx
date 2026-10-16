@@ -33,6 +33,7 @@ export function SessionToolbar({
         onSelect={onSelectWorkspace}
         onAdd={onAddWorkspace}
         onDelete={onRemoveWorkspace}
+        placement="up"
       />
       {branch}
       {trailing ? <div className="ml-auto flex min-w-0 items-center">{trailing}</div> : null}
