@@ -3,6 +3,7 @@ import {
   describeTool,
   formatDuration,
   looksLineNumbered,
+  sameLabel,
   stripAnsi,
   type ChatToolPart,
   type ChatToolStatus,
@@ -218,7 +219,16 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
   const summary = describeTool(part)
   const duration = useLiveDuration(summary.status, summary.timing)
   const pending = summary.status === "pending"
-  const showSubtitle = summary.subtitle && summary.kind !== "edit"
+  // Never render the same label twice: a generic `execute · Execute…` header or
+  // a `websearch · Web search` subtitle only repeats the tool name on the right.
+  const titleRedundant = sameLabel(summary.title, summary.tool)
+  const subtitle = summary.subtitle ?? undefined
+  const showSubtitle =
+    subtitle !== undefined &&
+    subtitle.length > 0 &&
+    summary.kind !== "edit" &&
+    !sameLabel(subtitle, summary.tool) &&
+    !sameLabel(subtitle, summary.title)
 
   return (
     <div
@@ -238,10 +248,10 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
         </span>
         <span className="mh-tool__title">
           <strong>{summary.tool}</strong>
-          {summary.title ? ` · ${summary.title}` : ""}
+          {!titleRedundant && summary.title ? ` · ${summary.title}` : ""}
         </span>
         {showSubtitle && (
-          <span className="hidden max-w-[26%] truncate text-xs text-ink-faint sm:block">{summary.subtitle}</span>
+          <span className="hidden max-w-[26%] truncate text-xs text-ink-faint sm:block">{subtitle}</span>
         )}
         <HeaderStats summary={summary} duration={duration} />
         <Chevron open={open} />

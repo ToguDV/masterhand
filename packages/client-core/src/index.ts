@@ -239,6 +239,7 @@ export {
   parsePatch,
   parseReadOutput,
   pathParts,
+  sameLabel,
   stripAnsi,
   truncateLines,
   type DiffLine,

@@ -27,7 +27,7 @@ import {
   type FormValue,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
-import { statusColor } from "./tools/theme"
+import { StatusDot } from "./tools/StatusDot"
 
 /**
  * Inline card for the agent's `question` tool (React Native mirror of the web
@@ -268,13 +268,12 @@ function AnsweredCard({
   answered: { form: FormInfo; answer: FormAnswer } | null
 }) {
   const styles = useThemedStyles(createStyles)
-  const { colors } = useTheme()
   const rows = answered ? describeFormAnswer(answered.form, answered.answer) : []
   const title = answered?.form.title || "Question"
   return (
     <View style={styles.answeredCard} testID="question-answered">
       <View style={styles.header}>
-        <View style={[styles.dot, { backgroundColor: statusColor(part.state.status, colors) }]} />
+        <StatusDot status={part.state.status} />
         <Text style={styles.badgeMuted}>QUESTION</Text>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {title}

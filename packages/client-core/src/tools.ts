@@ -166,6 +166,24 @@ export function lineCountLabel(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"}`
 }
 
+/**
+ * True when two header labels say the same thing (`websearch` vs `Web search`,
+ * `question` vs `2 questions`, a command vs its repeated description). Used to
+ * keep tool headers from rendering the same text twice (title vs tool name, or
+ * subtitle vs either of them).
+ */
+export function sameLabel(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false
+  const normalize = (value: string): string => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "")
+  const left = normalize(a)
+  const right = normalize(b)
+  if (!left || !right) return false
+  if (left === right) return true
+  if (left.length >= 4 && right.includes(left)) return true
+  if (right.length >= 4 && left.includes(right)) return true
+  return false
+}
+
 /** First non-empty line, trimmed and cut to `max` characters. */
 export function firstLine(text: string, max = 100): string {
   const line = text
@@ -495,13 +513,19 @@ export function describeTool(part: ChatToolPart): ToolSummary {
       if (!command) return genericSummary(part, state, status)
       const cwd = readString(input, "cwd", "workdir", "directory") ?? undefined
       const description = readString(input, "description") ?? state.title ?? undefined
+      const title = firstLine(command)
+      const rawSubtitle = description ?? cwd
+      const subtitle =
+        rawSubtitle && !sameLabel(rawSubtitle, title) && !sameLabel(rawSubtitle, part.tool)
+          ? rawSubtitle
+          : undefined
       return {
         ...baseOf(part),
         kind: "shell",
         icon: "terminal",
         accent: "emerald",
-        title: firstLine(command),
-        subtitle: description ?? cwd,
+        title,
+        subtitle,
         command,
         cwd,
         exitCode: readNumber(state.metadata, "exitCode", "exit_code", "exit", "code"),
@@ -588,13 +612,19 @@ export function describeTool(part: ChatToolPart): ToolSummary {
       const path = readString(input, "path", "directory") ?? undefined
       const matches = (state.output ?? "").split("\n").filter((line) => line.length > 0)
       if (!pattern && !path) return genericSummary(part, state, status)
+      const title = firstLine(pattern) || (path ?? part.tool)
+      const rawSubtitle = pattern ? path : undefined
+      const subtitle =
+        rawSubtitle && !sameLabel(rawSubtitle, title) && !sameLabel(rawSubtitle, part.tool)
+          ? rawSubtitle
+          : undefined
       return {
         ...baseOf(part),
         kind: "search",
         icon: "search",
         accent: "teal",
-        title: firstLine(pattern) || (path ?? part.tool),
-        subtitle: pattern ? path : undefined,
+        title,
+        subtitle,
         pattern,
         path,
         matches,
@@ -610,8 +640,10 @@ export function describeTool(part: ChatToolPart): ToolSummary {
         kind: "web",
         icon: "globe",
         accent: "cyan",
+        // No subtitle: the globe glyph plus the URL/query title already says
+        // what it is — the old "Web search" label only repeated the tool name.
         title: firstLine(url ?? query ?? part.tool),
-        subtitle: url ? undefined : "Web search",
+        subtitle: undefined,
         url,
         query,
         output: state.output,
@@ -643,7 +675,10 @@ export function describeTool(part: ChatToolPart): ToolSummary {
         icon: "question",
         accent: "indigo",
         title: questions[0]?.header || firstLine(questions[0]?.question ?? "") || "Questions",
-        subtitle: questions.length > 1 ? `${questions.length} questions` : "Waiting for your answer",
+        // No subtitle: the header already carries the tool name plus the first
+        // question, and the body lists every question — the old "N questions"
+        // / "Waiting for your answer" labels only repeated that on the right.
+        subtitle: undefined,
         questions,
       }
     }
