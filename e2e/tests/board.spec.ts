@@ -71,6 +71,16 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   // drop always resolves against the persisted order. Raise the budget so a
   // loaded runner still fits setup + drops + refetches.
   test.setTimeout(120_000)
+  // Timestamps of the client's own board refetches (page traffic only: the
+  // page.request polls below run in a separate context and never match).
+  // The last drop's refetch is awaited by timestamp so the column create
+  // below never races it: a click landing mid-refetch is silently eaten.
+  const boardGets: number[] = []
+  page.on("response", (response) => {
+    if (response.request().method() === "GET" && response.url().includes("/api/board?workspace=")) {
+      boardGets.push(Date.now())
+    }
+  })
   await login(page)
   const wsName = await addWorkspace(page)
   await openBoard(page)
@@ -121,6 +131,10 @@ test("board drags cards within a column and across columns", async ({ page }) =>
     await page.mouse.up()
   }
 
+  // Timestamp of the latest drop: the client quiescence wait below only
+  // accepts a refetch that landed after this drop.
+  let lastDropAt = 0
+
   const beta = page.getByRole("button", { name: "Edit card Beta" })
   const alpha = page.getByRole("button", { name: "Edit card Alpha" })
   await dragCardOnto(beta, alpha)
@@ -149,9 +163,18 @@ test("board drags cards within a column and across columns", async ({ page }) =>
   const alphaAfter = page.getByRole("button", { name: "Edit card Alpha" })
   const doingSection = page.locator('section[aria-label="Column Doing"]')
   await dragCardOnto(alphaAfter, doingSection)
+  lastDropAt = Date.now()
   await expect(page.locator('section[aria-label="Column Doing"] button[aria-label^="Edit card"]').first()).toContainText("Alpha")
   await expectServerOrder("Doing", ["Alpha"])
   await expectServerOrder("Backlog", ["Beta"])
+  // Client quiescence for this drop's own refetch (a timestamped response,
+  // never a stale one). Bounded wait: if nothing lands within 10 s there was
+  // nothing in flight, which is settled by definition.
+  const settleStart = Date.now()
+  while (!boardGets.some((at) => at > lastDropAt)) {
+    if (Date.now() - settleStart > 10_000) break
+    await page.waitForTimeout(50)
+  }
 
   // Drop on the header/empty area: a third empty column, so resolving the drop
   // to the column appends the only card deterministically.
