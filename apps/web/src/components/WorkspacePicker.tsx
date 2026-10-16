@@ -4,8 +4,10 @@ import { useDismissable } from "./useDismissable"
 import { CheckIcon, ChevronDownIcon, FolderIcon, PlusIcon, TrashIcon } from "./icons"
 
 /**
- * Condensed workspace switcher (composer bar): one trigger showing the current
- * workspace and a popover with the list plus the add/remove management actions.
+ * Condensed workspace switcher: one trigger showing the current workspace and
+ * a popover with the list plus the add/remove management actions. The popover
+ * opens below the trigger by default (top bars like the Board); pass
+ * `placement="up"` for bottom-docked bars like the composer.
  */
 export function WorkspacePicker({
   workspaces,
@@ -13,12 +15,14 @@ export function WorkspacePicker({
   onSelect,
   onAdd,
   onDelete,
+  placement = "down",
 }: {
   workspaces: WorkspaceRecord[]
   selectedID: string | null
   onSelect: (id: string | null) => void
   onAdd: () => void
   onDelete: (id: string) => void
+  placement?: "up" | "down"
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -47,7 +51,7 @@ export function WorkspacePicker({
         <div
           role="menu"
           aria-label="Workspace"
-          className="absolute bottom-full left-0 z-30 mb-2 max-h-[70vh] w-72 max-w-[85vw] overflow-y-auto rounded-md border border-hairline bg-surface p-1.5 shadow-elev3 scroll-thin"
+          className={`absolute left-0 z-30 max-h-[70vh] w-72 max-w-[85vw] overflow-y-auto rounded-md border border-hairline bg-surface p-1.5 shadow-elev3 scroll-thin ${placement === "up" ? "bottom-full mb-2" : "top-full mt-1"}`}
         >
           <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-ink-faint">Workspaces</p>
           {workspaces.length === 0 && (

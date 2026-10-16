@@ -186,3 +186,28 @@ test("board deletes a column with its cards after confirmation", async ({ page }
   await expect(page.locator('section[aria-label="Column Trash me"]')).toBeHidden()
   await expect(page.getByRole("button", { name: "Edit card Doomed" })).toBeHidden()
 })
+
+test("board workspace menu opens below the trigger and stays in view", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+  await openBoard(page)
+
+  // The Board toolbar sits at the top of the page: the menu must open
+  // downward from the trigger and stay fully inside the viewport.
+  const main = page.locator("main")
+  const trigger = main.getByRole("button", { name: "Workspace" })
+  await trigger.click()
+  const menu = main.getByRole("menu", { name: "Workspace" })
+  await expect(menu).toBeVisible()
+
+  const triggerBox = await trigger.boundingBox()
+  const menuBox = await menu.boundingBox()
+  expect(triggerBox).not.toBeNull()
+  expect(menuBox).not.toBeNull()
+  expect(menuBox!.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height - 2)
+
+  const viewport = page.viewportSize()
+  expect(viewport).not.toBeNull()
+  expect(menuBox!.y).toBeGreaterThanOrEqual(0)
+  expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(viewport!.height + 1)
+})
