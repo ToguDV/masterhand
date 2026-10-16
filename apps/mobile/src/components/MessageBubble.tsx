@@ -17,7 +17,7 @@ import {
   type FormInfo,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette, type ThemeName } from "../theme"
-import { statusColor } from "./tools/theme"
+import { StatusDot } from "./tools/StatusDot"
 import { ToolCard } from "./tools/ToolCard"
 import { QuestionCard } from "./QuestionCard"
 import { MessageStats } from "./MessageStats"
@@ -144,7 +144,6 @@ function Reasoning({ text }: { text: string }) {
 function Subagent({ part, onOpenSession }: { part: ChatToolPart; onOpenSession?: (id: string) => void }) {
   const [open, setOpen] = useState(false)
   const styles = useThemedStyles(createStyles)
-  const { colors } = useTheme()
   const state = part.state
   const info = subagentInfo(part)
   const output = subagentOutput(part)
@@ -152,7 +151,7 @@ function Subagent({ part, onOpenSession }: { part: ChatToolPart; onOpenSession?:
   return (
     <View style={styles.subagentCard}>
       <Pressable style={styles.toolHeader} onPress={() => setOpen((value) => !value)}>
-        <View style={[styles.dot, { backgroundColor: statusColor(state.status, colors) }]} />
+        <StatusDot status={state.status} />
         <Text style={styles.subagentBadge}>SUBAGENT</Text>
         <Text style={styles.subagentName} numberOfLines={1}>
           {info.name}

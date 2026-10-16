@@ -4,6 +4,7 @@ import {
   describeTool,
   formatDuration,
   looksLineNumbered,
+  sameLabel,
   stripAnsi,
   type ChatToolPart,
   type ChatToolStatus,
@@ -11,7 +12,8 @@ import {
   type ToolSummary,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../../theme"
-import { statusColor, toolAccent } from "./theme"
+import { toolAccent } from "./theme"
+import { StatusDot } from "./StatusDot"
 import { ToolIcon } from "../ToolIcon"
 import { CodeBlock, DiffView, KeyValueList, SearchBody, TerminalBody, TodoBody } from "./ToolBodies"
 
@@ -154,25 +156,36 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
   const accent = toolAccent(summary.accent, colors)
   const duration = useLiveDuration(summary.status, summary.timing)
   const pending = summary.status === "pending"
+  // Same dedup as web: never show the tool name twice (`websearch ·
+  // Web search`) and never repeat the title on the second line.
+  const titleRedundant = sameLabel(summary.title, summary.tool)
+  const subtitleClean =
+    summary.subtitle && summary.kind !== "edit" && !sameLabel(summary.subtitle, summary.tool) &&
+      !sameLabel(summary.subtitle, summary.title)
+      ? summary.subtitle
+      : undefined
+  const titleText = titleRedundant ? summary.tool : summary.title
 
   return (
     <View style={[styles.card, summary.status === "error" && styles.cardError]}>
       <Pressable style={styles.header} onPress={() => setOpen((value) => !value)}>
-        <View style={[styles.dot, { backgroundColor: statusColor(summary.status, colors) }]} />
+        <StatusDot status={summary.status} />
         <View style={[styles.iconChip, { backgroundColor: accent.bg }]}>
           <ToolIcon icon={summary.icon} size={13} color={accent.text} />
         </View>
         <View style={styles.titleWrap}>
           <Text style={[styles.title, pending && styles.pendingTitle]} numberOfLines={1}>
-            {summary.title}
+            {titleText}
           </Text>
-          {summary.subtitle && summary.kind !== "edit" ? (
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {summary.tool} · {summary.subtitle}
-            </Text>
+          {titleRedundant ? (
+            subtitleClean ? (
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {subtitleClean}
+              </Text>
+            ) : null
           ) : (
             <Text style={styles.subtitle} numberOfLines={1}>
-              {summary.tool}
+              {subtitleClean ? `${summary.tool} · ${subtitleClean}` : summary.tool}
             </Text>
           )}
         </View>

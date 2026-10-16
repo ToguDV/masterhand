@@ -13,6 +13,7 @@ import {
   parsePatch,
   parseReadOutput,
   pathParts,
+  sameLabel,
   stripAnsi,
   truncateLines,
 } from "../src/tools"
@@ -120,6 +121,31 @@ describe("describeTool", () => {
     })
   })
 
+  it("leaves web tools without a repeated subtitle", () => {
+    expect(describeTool(toolPart("websearch", { input: { query: "vitest" } }))).toMatchObject({
+      kind: "web",
+      subtitle: undefined,
+    })
+  })
+
+  it("drops a shell description that repeats the command", () => {
+    const part = toolPart("execute", { input: { command: "npm test", description: "npm test" } })
+    expect(describeTool(part)).toMatchObject({ kind: "shell", title: "npm test", subtitle: undefined })
+  })
+
+  it("drops a search path that repeats the pattern", () => {
+    const part = toolPart("grep", { input: { pattern: "TODO", path: "TODO" }, output: "TODO" })
+    expect(describeTool(part)).toMatchObject({ kind: "search", title: "TODO", subtitle: undefined })
+  })
+
+  it("matches labels ignoring case, spacing and plurals", () => {
+    expect(sameLabel("websearch", "Web search")).toBe(true)
+    expect(sameLabel("question", "2 questions")).toBe(true)
+    expect(sameLabel("execute", "Execute")).toBe(true)
+    expect(sameLabel("npm test", "Run tests")).toBe(false)
+    expect(sameLabel(undefined, "x")).toBe(false)
+  })
+
   it("counts completed todos", () => {
     const part = toolPart("todowrite", {
       input: {
@@ -143,7 +169,7 @@ describe("describeTool", () => {
     expect(describeTool(part)).toMatchObject({
       kind: "question",
       title: "DB",
-      subtitle: "Waiting for your answer",
+      subtitle: undefined,
       questions: [
         {
           header: "DB",
@@ -155,10 +181,10 @@ describe("describeTool", () => {
     })
   })
 
-  it("summarizes multiple questions", () => {
+  it("keeps question headers free of a repeated subtitle", () => {
     const part = toolPart("question", { input: { questions: [{ question: "a" }, { question: "b" }] } })
     const summary = describeTool(part)
-    expect(summary).toMatchObject({ kind: "question", subtitle: "2 questions" })
+    expect(summary).toMatchObject({ kind: "question", subtitle: undefined })
   })
 
   it("detects the question tool (including the ask alias) only for tool parts", () => {
