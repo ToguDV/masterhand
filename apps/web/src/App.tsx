@@ -38,11 +38,24 @@ import { BranchPicker } from "./components/BranchPicker"
 import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
+import { SchedulerPanel } from "./components/SchedulerPanel"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsDialog } from "./components/SettingsPanel"
 import { useToast } from "./components/Toast"
-import { ArrowLeftIcon, ChatBubbleIcon, ChevronLeftIcon, ChevronRightIcon, EllipsisIcon, GearIcon, KanbanIcon, LogOutIcon, MenuIcon, WavesIcon } from "./components/icons"
+import {
+  ArrowLeftIcon,
+  ChatBubbleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  EllipsisIcon,
+  GearIcon,
+  KanbanIcon,
+  LogOutIcon,
+  MenuIcon,
+  WavesIcon,
+} from "./components/icons"
 import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 
@@ -51,8 +64,8 @@ const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
 const SIDEBAR_SECTION_KEY = "mh-sidebar-section"
 
-/** Sections of the sidebar. Sessions is first; board follows the workspace. */
-type SidebarSection = "sessions" | "board"
+/** Sections of the sidebar. Sessions is first; board and scheduler follow. */
+type SidebarSection = "sessions" | "board" | "scheduler"
 
 /** Auto-accept retry policy: bounded attempts with a short backoff. */
 const AUTO_ACCEPT_MAX_ATTEMPTS = 3
@@ -136,7 +149,8 @@ export default function App() {
   // rail highlight and the main view; the collapse toggle only changes width.
   const [activeSection, setActiveSection] = useState<SidebarSection>(() => {
     try {
-      return window.localStorage.getItem(SIDEBAR_SECTION_KEY) === "board" ? "board" : "sessions"
+      const stored = window.localStorage.getItem(SIDEBAR_SECTION_KEY)
+      return stored === "board" || stored === "scheduler" ? stored : "sessions"
     } catch {
       return "sessions"
     }
@@ -921,7 +935,7 @@ export default function App() {
           </button>
         )}
         <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-medium">
-          {activeSection === "board" ? "Board" : selected ? selected.title || "Untitled" : "MasterHand"}
+          {activeSection === "board" ? "Board" : activeSection === "scheduler" ? "Scheduler" : selected ? selected.title || "Untitled" : "MasterHand"}
         </h1>
         {connected ? (
           <span
@@ -1065,6 +1079,16 @@ export default function App() {
               >
                 <KanbanIcon size={18} />
               </button>
+              <button
+                type="button"
+                onClick={() => selectSection("scheduler")}
+                className={`mh-btn mh-btn--quiet ${activeSection === "scheduler" ? "bg-surface-muted text-ink" : ""}`}
+                aria-label="Scheduler section"
+                title="Scheduler"
+                aria-current={activeSection === "scheduler" ? "page" : undefined}
+              >
+                <ClockIcon size={18} />
+              </button>
               <div className="mt-auto flex flex-col items-center gap-1">
                 <button
                   type="button"
@@ -1118,6 +1142,16 @@ export default function App() {
                           <span className="mh-session-item__title">Board</span>
                         </span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => selectSection("scheduler")}
+                        className={`mh-session-item ${activeSection === "scheduler" ? "is-active" : ""}`}
+                      >
+                        <span className="mh-session-item__top">
+                          <ClockIcon size={18} />
+                          <span className="mh-session-item__title">Scheduler</span>
+                        </span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1137,6 +1171,13 @@ export default function App() {
                     void createSession(isolated)
                   }}
                   creating={creating}
+                />
+              ) : activeSection === "scheduler" ? (
+                <SchedulerPanel
+                  onOpenSession={(openID) => {
+                    openSession(openID)
+                    setDrawerOpen(false)
+                  }}
                 />
               ) : (
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -1227,6 +1268,18 @@ export default function App() {
               onAddWorkspace={() => setAddingWorkspace(true)}
               onRemoveWorkspace={setRemoveWorkspaceID}
             />
+          ) : activeSection === "scheduler" ? (
+            <div className="relative flex flex-1 flex-col items-center justify-center gap-5 p-6">
+              <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
+                <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
+                <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
+                <ClockIcon size={26} className="text-ink-faint" />
+                <h3 className="mh-heading-2">Scheduled prompts</h3>
+                <p className="mh-empty__body mh-body-sm">
+                  Tasks fire a prompt into an opencode session on their schedule — create one from the sidebar panel.
+                </p>
+              </div>
+            </div>
           ) : sessionID ? (
             <ChatView
               key={sessionID}

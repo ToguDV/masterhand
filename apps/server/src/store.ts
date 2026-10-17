@@ -215,6 +215,69 @@ export interface WorkspaceRunRecord {
   updatedAt: number
 }
 
+/**
+ * How a scheduled task repeats (issue #147). `intervalMinutes` is enforced
+ * `>= 5` at the validation boundary; `cron` is a 5-field croner expression.
+ */
+export type ScheduleKind = "interval" | "cron"
+
+export interface ScheduleSpec {
+  kind: ScheduleKind
+  /** kind=interval, enforced >= 5. */
+  intervalMinutes?: number
+  /** kind=cron, 5-field expression. */
+  cron?: string
+}
+
+/** A model reference as MasterHand pins it on a session (`variant` optional). */
+export interface ModelRef {
+  providerID: string
+  id: string
+  variant?: string
+}
+
+/**
+ * A scheduler task: run `<prompt>` with `<model>` in `<directory>` on a
+ * schedule. Timestamps are ISO strings (they travel through the API as such);
+ * `timezone` is an IANA name, `""` meaning the server default.
+ */
+export interface ScheduledTask {
+  id: string
+  name: string
+  prompt: string
+  model: ModelRef
+  schedule: ScheduleSpec
+  timezone: string
+  /** Workspace slug the prompts run in. */
+  directory: string
+  paused: boolean
+  lastRunAt: string | null
+  nextRunAt: string | null
+  createdAt: string
+}
+
+export type ScheduledRunStatus =
+  | "queued"
+  | "firing"
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "skipped"
+
+/** One execution of a scheduled task (durable for restart reconciliation). */
+export interface ScheduledRun {
+  id: string
+  taskId: string
+  sessionID: string | null
+  status: ScheduledRunStatus
+  /** `schedule` = fired by the loop, `manual` = user-triggered run-now. */
+  source: "schedule" | "manual"
+  error: string | null
+  startedAt: string
+  endedAt: string | null
+}
+
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
@@ -275,6 +338,23 @@ export interface Store {
   ): BoardCardRecord | null
   /** Idempotent. */
   deleteBoardCard(id: string): void
+  createScheduledTask(record: ScheduledTask): void
+  /** Full upsert by id (goal drafting parity). */
+  saveScheduledTask(record: ScheduledTask): void
+  getScheduledTask(id: string): ScheduledTask | null
+  /** All tasks, oldest first (stable tick order). */
+  listScheduledTasks(): ScheduledTask[]
+  /** Idempotent; removes the task's runs in the same transaction. */
+  deleteScheduledTask(id: string): void
+  /** One task's run history, newest first. */
+  listScheduledRuns(taskId: string): ScheduledRun[]
+  createScheduledRun(record: ScheduledRun): void
+  saveScheduledRun(record: ScheduledRun): void
+  getScheduledRun(id: string): ScheduledRun | null
+  /** Newest run of a task still in queued/firing/running, or null. */
+  getActiveScheduledRun(taskId: string): ScheduledRun | null
+  /** Every queued/firing/running run across tasks (boot reconcile, liveness). */
+  listActiveScheduledRuns(): ScheduledRun[]
   /** True when the database answers a trivial read (readiness/health). */
   ping(): boolean
   close(): void
@@ -426,6 +506,38 @@ export function createSqliteStore(file: string): Store {
     )
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_board_cards_column ON board_cards (column_id, position)`)
+
+  // Scheduler (issue #147): durable scheduled tasks and their run history.
+  // No FK pragmas: task deletion removes its runs in the same transaction.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      model TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      timezone TEXT NOT NULL DEFAULT '',
+      directory TEXT NOT NULL,
+      paused INTEGER NOT NULL DEFAULT 0,
+      last_run_at TEXT,
+      next_run_at TEXT,
+      created_at TEXT NOT NULL
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      session_id TEXT,
+      status TEXT NOT NULL,
+      source TEXT NOT NULL,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_runs_task ON scheduled_runs (task_id, started_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status ON scheduled_runs (status)`)
 
   const createStatement = db.prepare(`
     INSERT INTO devices (id, name, created_at, last_used_at)
@@ -603,6 +715,46 @@ export function createSqliteStore(file: string): Store {
   `)
   const deleteBoardColumnsOfWorkspaceStatement = db.prepare("DELETE FROM board_columns WHERE workspace_id = ?")
 
+  const scheduledTaskColumns = `
+    SELECT id, name, prompt, model, schedule, timezone, directory, paused,
+           last_run_at AS lastRunAt, next_run_at AS nextRunAt, created_at AS createdAt
+    FROM scheduled_tasks
+  `
+  const getScheduledTaskStatement = db.prepare(`${scheduledTaskColumns} WHERE id = ?`)
+  const listScheduledTasksStatement = db.prepare(`${scheduledTaskColumns} ORDER BY created_at ASC, id ASC`)
+  const saveScheduledTaskStatement = db.prepare(`
+    INSERT OR REPLACE INTO scheduled_tasks (
+      id, name, prompt, model, schedule, timezone, directory, paused,
+      last_run_at, next_run_at, created_at
+    ) VALUES (
+      @id, @name, @prompt, @model, @schedule, @timezone, @directory, @paused,
+      @lastRunAt, @nextRunAt, @createdAt
+    )
+  `)
+  const deleteScheduledTaskStatement = db.prepare("DELETE FROM scheduled_tasks WHERE id = ?")
+  const deleteScheduledRunsOfTaskStatement = db.prepare("DELETE FROM scheduled_runs WHERE task_id = ?")
+
+  const scheduledRunColumns = `
+    SELECT id, task_id AS taskId, session_id AS sessionID, status, source,
+           error, started_at AS startedAt, ended_at AS endedAt
+    FROM scheduled_runs
+  `
+  const listScheduledRunsOfTaskStatement = db.prepare(
+    `${scheduledRunColumns} WHERE task_id = ? ORDER BY started_at DESC, rowid DESC`,
+  )
+  const listActiveScheduledRunsStatement = db.prepare(
+    `${scheduledRunColumns} WHERE status IN ('queued', 'firing', 'running') ORDER BY started_at DESC, rowid DESC`,
+  )
+  const getActiveScheduledRunStatement = db.prepare(
+    `${scheduledRunColumns} WHERE task_id = ? AND status IN ('queued', 'firing', 'running')
+     ORDER BY started_at DESC, rowid DESC LIMIT 1`,
+  )
+  const getScheduledRunStatement = db.prepare(`${scheduledRunColumns} WHERE id = ?`)
+  const saveScheduledRunStatement = db.prepare(`
+    INSERT OR REPLACE INTO scheduled_runs (id, task_id, session_id, status, source, error, started_at, ended_at)
+    VALUES (@id, @taskId, @sessionID, @status, @source, @error, @startedAt, @endedAt)
+  `)
+
   /** Reindexes a workspace's columns to 0..n-1 in position order. */
   function reindexBoardColumns(workspaceID: string, now: number): void {
     const rows = listBoardColumnsStatement.all(workspaceID) as BoardColumnRecord[]
@@ -681,6 +833,70 @@ export function createSqliteStore(file: string): Store {
       lastCritique: parseJson<GoalCritique>(row.lastCritique),
       lastVerdict: parseJson<GoalVerdict>(row.lastVerdict),
       history: Array.isArray(history) ? history : [],
+    }
+  }
+
+  /** `scheduled_tasks.model` is a JSON blob; a corrupt value degrades inertly. */
+  function normalizeModelRef(value: unknown): ModelRef {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const raw = value as { providerID?: unknown; id?: unknown; variant?: unknown }
+      return {
+        providerID: typeof raw.providerID === "string" ? raw.providerID : "",
+        id: typeof raw.id === "string" ? raw.id : "",
+        ...(typeof raw.variant === "string" && raw.variant ? { variant: raw.variant } : {}),
+      }
+    }
+    return { providerID: "", id: "" }
+  }
+
+  /** `scheduled_tasks.schedule` is a JSON blob; a corrupt value reads inert. */
+  function normalizeScheduleSpec(value: unknown): ScheduleSpec {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const raw = value as Record<string, unknown>
+      if (raw.kind === "cron") {
+        return { kind: "cron", ...(typeof raw.cron === "string" ? { cron: raw.cron } : {}) }
+      }
+      if (raw.kind === "interval") {
+        const interval = typeof raw.intervalMinutes === "number" && Number.isFinite(raw.intervalMinutes)
+          ? raw.intervalMinutes
+          : undefined
+        return {
+          kind: "interval",
+          ...(interval !== undefined ? { intervalMinutes: interval } : {}),
+        }
+      }
+    }
+    // Inert by construction: `computeNextRunAt` yields null for it.
+    return { kind: "interval", intervalMinutes: 0 }
+  }
+
+  function normalizeScheduledTask(row: Record<string, unknown>): ScheduledTask {
+    return {
+      id: typeof row.id === "string" ? row.id : "",
+      name: typeof row.name === "string" ? row.name : "",
+      prompt: typeof row.prompt === "string" ? row.prompt : "",
+      model: normalizeModelRef(parseJson<ModelRef>(row.model) ?? row.model),
+      schedule: normalizeScheduleSpec(parseJson<ScheduleSpec>(row.schedule) ?? row.schedule),
+      timezone: typeof row.timezone === "string" ? row.timezone : "",
+      directory: typeof row.directory === "string" ? row.directory : "",
+      paused: row.paused === 1,
+      lastRunAt: typeof row.lastRunAt === "string" ? row.lastRunAt : null,
+      nextRunAt: typeof row.nextRunAt === "string" ? row.nextRunAt : null,
+      createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
+    }
+  }
+
+  /** Corrupt rows must never crash reads; unknown statuses stay inert (no SQL match). */
+  function normalizeScheduledRun(row: Record<string, unknown>): ScheduledRun {
+    return {
+      id: typeof row.id === "string" ? row.id : "",
+      taskId: typeof row.taskId === "string" ? row.taskId : "",
+      sessionID: typeof row.sessionID === "string" && row.sessionID ? row.sessionID : null,
+      status: (typeof row.status === "string" ? row.status : "failed") as ScheduledRunStatus,
+      source: (typeof row.source === "string" ? row.source : "schedule") as ScheduledRun["source"],
+      error: typeof row.error === "string" ? row.error : null,
+      startedAt: typeof row.startedAt === "string" ? row.startedAt : "",
+      endedAt: typeof row.endedAt === "string" ? row.endedAt : null,
     }
   }
 
@@ -988,6 +1204,56 @@ export function createSqliteStore(file: string): Store {
       })
       remove()
     },
+    createScheduledTask(record) {
+      saveScheduledTaskStatement.run({
+        ...record,
+        paused: record.paused ? 1 : 0,
+        model: JSON.stringify(record.model),
+        schedule: JSON.stringify(record.schedule),
+      })
+    },
+    saveScheduledTask(record) {
+      saveScheduledTaskStatement.run({
+        ...record,
+        paused: record.paused ? 1 : 0,
+        model: JSON.stringify(record.model),
+        schedule: JSON.stringify(record.schedule),
+      })
+    },
+    getScheduledTask(id) {
+      const row = getScheduledTaskStatement.get(id) as Record<string, unknown> | undefined
+      return row ? normalizeScheduledTask(row) : null
+    },
+    listScheduledTasks() {
+      return (listScheduledTasksStatement.all() as Record<string, unknown>[]).map(normalizeScheduledTask)
+    },
+    deleteScheduledTask(id) {
+      const remove = db.transaction(() => {
+        deleteScheduledRunsOfTaskStatement.run(id)
+        deleteScheduledTaskStatement.run(id)
+      })
+      remove()
+    },
+    listScheduledRuns(taskId) {
+      return (listScheduledRunsOfTaskStatement.all(taskId) as Record<string, unknown>[]).map(normalizeScheduledRun)
+    },
+    createScheduledRun(record) {
+      saveScheduledRunStatement.run(record)
+    },
+    saveScheduledRun(record) {
+      saveScheduledRunStatement.run(record)
+    },
+    getScheduledRun(id) {
+      const row = getScheduledRunStatement.get(id) as Record<string, unknown> | undefined
+      return row ? normalizeScheduledRun(row) : null
+    },
+    getActiveScheduledRun(taskId) {
+      const row = getActiveScheduledRunStatement.get(taskId) as Record<string, unknown> | undefined
+      return row ? normalizeScheduledRun(row) : null
+    },
+    listActiveScheduledRuns() {
+      return (listActiveScheduledRunsStatement.all() as Record<string, unknown>[]).map(normalizeScheduledRun)
+    },
     ping() {
       try {
         db.prepare("SELECT 1").get()
@@ -1014,6 +1280,8 @@ export function createMemoryStore(): Store {
   let goalSettings: GoalSettingsRecord = { maxRounds: DEFAULT_GOAL_MAX_ROUNDS, criticModel: null, judgeModel: null }
   const boardColumns = new Map<string, BoardColumnRecord>()
   const boardCards = new Map<string, BoardCardRecord>()
+  const scheduledTasks = new Map<string, ScheduledTask>()
+  const scheduledRuns = new Map<string, ScheduledRun>()
 
   function columnsOf(workspaceID: string): BoardColumnRecord[] {
     return [...boardColumns.values()]
@@ -1290,6 +1558,64 @@ export function createMemoryStore(): Store {
       if (!current) return
       boardCards.delete(id)
       reindexMemoryCards(current.columnID, Date.now())
+    },
+    createScheduledTask(record) {
+      scheduledTasks.set(record.id, record)
+    },
+    saveScheduledTask(record) {
+      scheduledTasks.set(record.id, record)
+    },
+    getScheduledTask(id) {
+      return scheduledTasks.get(id) ?? null
+    },
+    listScheduledTasks() {
+      return [...scheduledTasks.values()].sort(
+        (a, b) =>
+          (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) || a.id.localeCompare(b.id),
+      )
+    },
+    deleteScheduledTask(id) {
+      scheduledTasks.delete(id)
+      for (const run of [...scheduledRuns.values()]) {
+        if (run.taskId === id) scheduledRuns.delete(run.id)
+      }
+    },
+    listScheduledRuns(taskId) {
+      return [...scheduledRuns.values()]
+        .filter((run) => run.taskId === taskId)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
+    },
+    createScheduledRun(record) {
+      scheduledRuns.set(record.id, record)
+    },
+    saveScheduledRun(record) {
+      scheduledRuns.set(record.id, record)
+    },
+    getScheduledRun(id) {
+      return scheduledRuns.get(id) ?? null
+    },
+    getActiveScheduledRun(taskId) {
+      const ACTIVE = new Set(["queued", "firing", "running"])
+      return (
+        [...scheduledRuns.values()]
+          .filter((run) => run.taskId === taskId && ACTIVE.has(run.status))
+          .sort(
+            (a, b) =>
+              (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+          )[0] ?? null
+      )
+    },
+    listActiveScheduledRuns() {
+      const ACTIVE = new Set(["queued", "firing", "running"])
+      return [...scheduledRuns.values()]
+        .filter((run) => ACTIVE.has(run.status))
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
     },
     ping() {
       return true

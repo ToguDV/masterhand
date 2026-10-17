@@ -19,6 +19,12 @@ test("the sidebar rail switches the main view between sessions and board", async
   await rail.getByRole("button", { name: "Board section" }).click()
   await expect(page.locator("main").getByRole("heading", { name: "Board" })).toBeVisible()
 
+  // The scheduler is the third section: the rail swaps the main view to the
+  // scheduler explainer (the collapsed sidebar hides the task panel itself).
+  await expect(rail.getByRole("button", { name: "Scheduler section" })).toBeVisible()
+  await rail.getByRole("button", { name: "Scheduler section" }).click()
+  await expect(page.locator("main").getByRole("heading", { name: "Scheduled prompts" })).toBeVisible()
+
   // Back in sessions with no open session: the empty state stays.
   await rail.getByRole("button", { name: "Sessions section" }).click()
   await expect(page.getByRole("heading", { name: "No session open" })).toBeVisible()
@@ -67,6 +73,7 @@ test("the header back button returns to the sections home", async ({ page }) => 
   // The < sits left of the title while a section panel is showing.
   await header.getByRole("button", { name: "Back to sections" }).click()
   await expect(aside.getByRole("button", { name: "Board", exact: true })).toBeVisible()
+  await expect(aside.getByRole("button", { name: "Scheduler", exact: true })).toBeVisible()
   // The home hides itself once a section is picked.
   await aside.getByRole("button", { name: "Board", exact: true }).click()
   // The board follows the selected workspace, and earlier specs in the same

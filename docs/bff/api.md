@@ -131,6 +131,31 @@ Validation: bounded `id` (1–128 chars of `[A-Za-z0-9._-]`), non-empty bounded 
 
 Reliability (see `ARCHITECTURE.md` §4.12 and `docs/past-mistakes.md`): every mutation is idempotent by design (absolute positions, client-generated ids with upsert creates, idempotent deletes), so a lost response is reconciled by a plain refetch/retry with no duplication. Every successful mutation publishes a synthetic **`board.updated`** frame through the existing hub (`{ workspaceID, board }`, the same full-snapshot shape as `GET`), exactly like `goal.updated`: no client polls, other devices stay in sync, reconnect reconciliation refetches (`invalidateOnReconnect` covers `["board"]`). Deleting a workspace drops its board rows; deleting a column drops its cards in one transaction.
 
+## Scheduler (scheduled tasks)
+
+The BFF owns a small task scheduler (`apps/server/src/scheduler.ts`, ADR-36): a single 20s tick (`setInterval`, unref'd) drives per-task serialized chains, and state lives in SQLite (`scheduled_tasks`/`scheduled_runs`, same database). A task = name + prompt + model (`{ providerID, id, variant? }`) + directory + schedule + timezone; the schedule is `{ kind: "interval" | "cron", intervalMinutes?, cron? }` — intervals must be ≥ 5 minutes, a 5-field cron expression is evaluated by `croner` (Intl-timezone support) and must keep at least a 5-minute gap between consecutive runs — and each task carries an explicit IANA timezone (empty = server default). Every fire creates a **new, normal opencode root session** in the task's directory, titled with the task name (it shows up like any workspace session), pins the stored model via `/api/session/:id/model` and sends the stored prompt with a metadata marker. Deleting a task cascades its runs but never the sessions it created; deleting a run's session (`session.deleted`) fails only that run.
+
+| Method | Route | Notes |
+|---|---|---|
+| `GET` | `/api/scheduled-tasks` | `{ tasks: ScheduledTask[] }` — every task with its `nextRunAt`/`lastRunAt` |
+| `POST` | `/api/scheduled-tasks` | `201 { task }`. Body: `{ name, prompt, model, schedule, directory, timezone? }`; `nextRunAt` is computed at create |
+| `PATCH` | `/api/scheduled-tasks/:id` | `{ task }`. Body: any subset `{ name, prompt, model, schedule, directory, timezone, paused }` — edits and pause/resume. An already-future `nextRunAt` is kept when the schedule still fits; resume recomputes it strictly in the future, so resuming late never fires at once |
+| `DELETE` | `/api/scheduled-tasks/:id` | `{ ok: true }` — idempotent; drops the task, its runs (including a queued envelope) and nothing else |
+| `POST` | `/api/scheduled-tasks/:id/run` | `202 { run }` — "Run now": a manual fire through the same serialized path (`source: "manual"`), otherwise identical to a scheduled fire. `409 task_paused` while paused, `404 task_not_found` |
+| `GET` | `/api/scheduled-tasks/:id/runs` | `{ runs: ScheduledRun[] }` — newest first, cap 50 |
+
+Validation at the trust boundary: non-empty `name`/`prompt`/`directory`, `model` as `{ providerID, id, variant? }` and a schedule validated left to right, answering `400` with `invalid_schedule`, `invalid_schedule_kind`, `invalid_interval` (interval < 5), `invalid_timezone` (unknown IANA zone), `invalid_cron` (missing/uncompilable/never-firing expression) or `invalid_frequency` (a cron firing more often than every 5 minutes); the task shapes answer `invalid_task`, `invalid_name`, `invalid_prompt`, `invalid_directory`, `invalid_model`. Unknown task ids answer `404 task_not_found`; storage failures through the existing `503 storage_unavailable` ladder.
+
+Run state machine: `queued → firing → running → completed | failed`, with `interrupted` and `skipped` terminal records — at boot `firing → interrupted` and `queued → skipped` (never auto-resumed). Overlap policy is enqueue, never stack: a due fire while a run is active records exactly **one** coalesced `queued` run that fires right after the active run settles, and pausing/deleting the task meanwhile turns it `skipped`. `nextRunAt` always advances from the **scheduled** slot; missed slots are skipped silently — no catch-up, no records for them.
+
+Reliability (see ADR-36 and `docs/past-mistakes.md`):
+
+- Every transition (tick pass, opencode event, manual run) is serialized through a per-task in-flight chain, so two devices or a retry can never double-fire a task (rule 12); "Run now" goes through the same chain, so double taps coalesce into one run.
+- The fire path is non-idempotent and reuses ADR-32: run + markers are persisted **before** each mutation (`masterhand.scheduler` = `<taskId>#<runId>#create` / `#prompt`), the create reconciles by directory (the pinned opencode drops `parentID`), and an unresolved ambiguity marks the run `failed` — no blind retries, no destructively deleted sessions.
+- `running` runs self-heal: each tick checks opencode's active sessions (goal-watchdog pattern) and settles the run `completed` when the session is idle; `session.idle`/`session.execution.succeeded` complete it, `session.execution.failed`/`session.error` fail it, and an outage leaves the run for a later tick instead of failing it.
+
+Every transition publishes a synthetic **`scheduler.updated`** frame through the existing hub ({ `taskID` } — bare, like `goal.updated`/`board.updated`; there is no payload to write into the cache): clients invalidate their scheduler queries and refetch (SSE has no replay, so reconnect reconciliation refetches too). This extends FR-6: scheduled fires surface to every connected device through the frame plus the normal session notifications of the created session.
+
 ## Workspace isolation & guardrails
 
 opencode resolves project-scoped features (`/init`, `/review`, `AGENTS.md` discovery, the reported "workspace root") from its **`project.directory`**, computed by walking up to the nearest `.git`/`.hg` — it does not use the session's `location.directory` for them. A workspace nested inside the MasterHand repo would therefore make opencode target the **server** repo. MasterHand prevents that on two layers:

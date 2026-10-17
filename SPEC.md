@@ -43,6 +43,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 | FR-8 | Health | Status indicator for the BFF and the opencode connection |
 | FR-9 | Self-hosting | Generic configuration (no hardcoded domain); deployer provides the reverse proxy and TLS |
 | FR-10 | Previews | Preview any web project the agent runs: a fixed port is reserved per session and exposed through a Cloudflare quick tunnel with explicit Start/Stop, embedded in the web/desktop UI and the mobile app. Public and ephemeral by design; for testing only, never for production data |
+| FR-11 | Scheduled tasks | Recurring agent tasks created from the web sidebar: schedule presets or a custom cron expression, model, workspace and timezone; each fire starts a new opencode session with the stored prompt and model; tasks appear in the left sidebar with run history, pause/resume and run-now; fires surface over SSE (`scheduler.updated`, extending FR-6) |
 
 ## 6. Non-functional requirements
 
@@ -63,7 +64,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 - PWA / service worker / installable web app.
 - Terminal in the browser.
 - Advanced visual diffs.
-- Multi-run, session goals, walkthroughs, GitHub workflows, scheduling.
+- Multi-run, session goals, walkthroughs, GitHub workflows.
 - Multi-user, teams, roles and per-user permissions.
 - Agent sandbox/container isolation (evaluated post-MVP).
 

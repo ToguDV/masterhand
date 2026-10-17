@@ -4,6 +4,7 @@ import { join } from "node:path"
 import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
 import { backupDatabase, createMemoryStore, createSqliteStore } from "../src/store.js"
+import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
 describe("sqlite device store", () => {
   it("persists, touches and removes devices", () => {
@@ -231,5 +232,178 @@ describe("preview port store", () => {
     expect(store.getPreviewPort("ses_1")).toBe(3200)
     store.removePreviewPort("ses_1")
     expect(store.getPreviewPort("ses_1")).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Scheduled tasks and their runs
+// ---------------------------------------------------------------------------
+
+function scheduledTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
+  return {
+    id: "task_1",
+    name: "Nightly check",
+    prompt: "check the build",
+    model: { providerID: "prov", id: "model-a", variant: "low" },
+    schedule: { kind: "cron", cron: "0 9 * * *" },
+    timezone: "Europe/Madrid",
+    directory: "/workspace/app",
+    paused: false,
+    lastRunAt: null,
+    nextRunAt: "2026-06-01T21:00:00.000Z",
+    createdAt: "2026-06-01T06:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function scheduledRun(overrides: Partial<ScheduledRun> = {}): ScheduledRun {
+  return {
+    id: "run_1",
+    taskId: "task_1",
+    sessionID: "ses_1",
+    status: "completed",
+    source: "schedule",
+    error: null,
+    startedAt: "2026-06-01T08:00:00.000Z",
+    endedAt: "2026-06-01T08:01:00.000Z",
+    ...overrides,
+  }
+}
+
+/** The round-trip, ordering, active-run and cascade contract, store-agnostic. */
+function scheduledStoreScenario(store: Store): void {
+  // Create + read back with full fidelity for both task shapes.
+  store.createScheduledTask(scheduledTask({ id: "task_a", schedule: { kind: "interval", intervalMinutes: 30 } }))
+  store.createScheduledTask(scheduledTask({ id: "task_b" }))
+  expect(store.getScheduledTask("task_a")).toEqual(
+    scheduledTask({ id: "task_a", schedule: { kind: "interval", intervalMinutes: 30 } }),
+  )
+  expect(store.getScheduledTask("task_b")).toEqual(scheduledTask({ id: "task_b" }))
+  expect(store.getScheduledTask("nope")).toBeNull()
+
+  // Listing is chronological by creation; save upserts the whole record.
+  expect(store.listScheduledTasks().map((task) => task.id)).toEqual(["task_a", "task_b"])
+  store.saveScheduledTask(scheduledTask({ id: "task_b", paused: true }))
+  expect(store.getScheduledTask("task_b")?.paused).toBe(true)
+
+  // Runs: insert out of order, read newest-first; the task filter applies.
+  store.createScheduledRun(
+    scheduledRun({ id: "run_old", taskId: "task_b", startedAt: "2026-06-01T07:00:00.000Z" }),
+  )
+  store.createScheduledRun(
+    scheduledRun({
+      id: "run_new",
+      taskId: "task_b",
+      startedAt: "2026-06-01T09:00:00.000Z",
+      status: "running",
+    }),
+  )
+  expect(store.listScheduledRuns("task_b").map((run) => run.id)).toEqual(["run_new", "run_old"])
+  expect(store.listScheduledRuns("task_missing")).toEqual([])
+  expect(store.getScheduledRun("run_new")).toMatchObject({ id: "run_new", status: "running" })
+  expect(store.getScheduledRun("nope")).toBeNull()
+
+  // Active-run lookups ignore terminal statuses and keep the newest one.
+  expect(store.getActiveScheduledRun("task_b")).toMatchObject({ id: "run_new", status: "running" })
+  store.saveScheduledRun(scheduledRun({ id: "run_new", taskId: "task_b" }))
+  expect(store.getActiveScheduledRun("task_b")).toBeNull()
+  store.createScheduledRun(
+    scheduledRun({
+      id: "run_queued",
+      taskId: "task_b",
+      startedAt: "2026-06-01T09:30:00.000Z",
+      status: "queued",
+      sessionID: null,
+      endedAt: null,
+    }),
+  )
+  expect(store.getActiveScheduledRun("task_b")).toMatchObject({ id: "run_queued" })
+  expect(store.getActiveScheduledRun("task_a")).toBeNull()
+  expect(store.listActiveScheduledRuns().map((run) => run.id)).toEqual(["run_queued"])
+
+  // Deleting a task takes its runs with it (cascade).
+  store.deleteScheduledTask("task_b")
+  expect(store.getScheduledTask("task_b")).toBeNull()
+  expect(store.getScheduledRun("run_queued")).toBeNull()
+  expect(store.listScheduledRuns("task_b")).toEqual([])
+}
+
+describe("scheduled task store", () => {
+  it("persists scheduled tasks and runs in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      scheduledStoreScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("behaves like the sqlite store in memory", () => {
+    scheduledStoreScenario(createMemoryStore())
+  })
+
+  it("reads corrupt scheduled rows inertly", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "test.sqlite")
+    const store = createSqliteStore(file)
+    try {
+      store.createScheduledTask(scheduledTask({ id: "task_x" }))
+      store.createScheduledRun(scheduledRun({ id: "run_x", taskId: "task_x" }))
+      store.createScheduledRun(
+        scheduledRun({ id: "run_y", taskId: "task_x", startedAt: "2026-06-02T09:00:00.000Z" }),
+      )
+    } finally {
+      store.close()
+    }
+
+    // Sabotage the JSON columns and status values with raw SQL, the way a
+    // partially-written or hand-edited database would look.
+    const db = new Database(file)
+    try {
+      db.exec(`UPDATE scheduled_tasks SET
+                 model = 'not json',
+                 schedule = '{broken',
+                 paused = 1,
+                 name = 42
+               WHERE id = 'task_x'`)
+      db.exec(`UPDATE scheduled_runs SET
+                 session_id = NULL,
+                 error = 42,
+                 status = 'weird'
+               WHERE id = 'run_x'`)
+      db.exec(`INSERT INTO scheduled_runs (id, task_id, session_id, status, source, error, started_at, ended_at)
+               VALUES ('run_garbage', 'task_x', 'ses_9', 'weird', 'schedule', NULL, 42, NULL)`)
+    } finally {
+      db.close()
+    }
+
+    const reopened = createSqliteStore(file)
+    try {
+      // Tolerant normalization: garbage degrades to inert defaults, never throws.
+      const task = reopened.getScheduledTask("task_x")
+      expect(task).toEqual(
+        scheduledTask({
+          id: "task_x",
+          // TEXT affinity stringified the sabotage value; it reads back.
+          name: "42",
+          schedule: { kind: "interval", intervalMinutes: 0 },
+          model: { providerID: "", id: "" },
+          paused: true,
+        }),
+      )
+      const weird = reopened.getScheduledRun("run_x")!
+      expect(weird).toMatchObject({ id: "run_x", sessionID: null, error: "42", status: "weird" })
+      const garbage = reopened.getScheduledRun("run_garbage")!
+      expect(garbage).toMatchObject({ id: "run_garbage", startedAt: "42", endedAt: null, status: "weird" })
+
+      // Unknown statuses are inert for liveness SQL: they never block new fires.
+      expect(reopened.getActiveScheduledRun("task_x")).toBeNull()
+      expect(reopened.listActiveScheduledRuns()).toEqual([])
+    } finally {
+      reopened.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

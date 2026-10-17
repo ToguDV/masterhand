@@ -3,19 +3,19 @@
 **Snapshot:** 2026-10-07. 5 open issues (#129–#131, #133–#134) grouped into **3 chunks**
 (C14–C16) by the code surface they share. The previous backlog (C1–C13) is fully merged or closed.
 
-**Last updated:** 2026-10-09 — **C14 merged** (goal mode, #129 + #130, PR #148)
-together with the shared opencode retry engine it relies on (ADR-32). The queue now is
-C15 (#131 releases + #133 F-Droid) and the deferred C16 (#134); the previous note
-(2026-10-07) recorded C11 landing in the theme-system session batch (Android nav bar,
-12 accent palettes, syntax highlighting). Stale trackers already shipped in #135
-(#120, #122, #125–#128) were closed as completed; #121 was closed as not planned (sign-out stays in
-the sessions options box per #136/#137). Re-chunked after the issue batch created from the maintainer's
-mobile/web review: #118 Android nav bar; #119–#122 settings hub and header cleanup; #123–#124
-syntax highlighting and color themes; #125–#127 chat feedback, per-message stats and the tok/s
-fix; #128 provider credentials; #129–#130 `/goal`; and the release/update work, split after the
-F-Droid and GHCR decisions into #131 (A: versioning, GHCR images, BFF update check, web/desktop),
-#133 (B: self-hosted F-Droid repo + Android notice) and #134 (standardized one-click BFF updater,
-deferred).
+**Last updated:** 2026-10-17 — **C17 landed** (scheduler, #147, on `feat/scheduler`): BFF scheduler
+module + routes, `client-core` contract/queries and the web sidebar; mobile parity is deferred to a
+**new follow-up issue** still to be filed. The queue now is C15 (#131 releases + #133 F-Droid) and
+the deferred C16 (#134); the previous note (2026-10-09) recorded C14 merged (goal mode, #129 + #130, PR
+#148) together with the shared opencode retry engine it relies on (ADR-32). Stale trackers already
+shipped in #135 (#120, #122, #125–#128) were closed as completed; #121 was closed as not planned
+(sign-out stays in the sessions options box per #136/#137). Re-chunked after the issue batch created
+from the maintainer's mobile/web review: #118 Android nav bar; #119–#122 settings hub and header
+cleanup; #123–#124 syntax highlighting and color themes; #125–#127 chat feedback, per-message stats
+and the tok/s fix; #128 provider credentials; #129–#130 `/goal`; and the release/update work, split
+after the F-Droid and GHCR decisions into #131 (A: versioning, GHCR images, BFF update check,
+web/desktop), #133 (B: self-hosted F-Droid repo + Android notice) and #134 (standardized one-click
+BFF updater, deferred).
 
 ## How to use this document
 
@@ -50,6 +50,7 @@ deferred).
 | C12 — Chat feedback and stats | #127 #126 #125 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
+| C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 
@@ -69,7 +70,7 @@ batch is the release/update system (C15), followed by the deferred C16. Suggeste
 **C15 → C16** — C16 is deferred (opt-in). C15's foundation (#131: versioning + GHCR + the update
 endpoint) has no hard blocker beyond the settings section and can be pulled earlier.
 
-## Chunks — current batch (C14–C16)
+## Chunks — current batch (C14–C17)
 
 ### C10 — Settings hub and header cleanup (web + mobile)
 
@@ -150,6 +151,24 @@ endpoint) has no hard blocker beyond the settings section and can be pulled earl
   the frozen contract/mock).
 - **Dependencies:** #130 needs #129 and #119; #129 none. Expected to be the largest session of the
   batch — budget for reconciliation and a `docs/past-mistakes.md` trace.
+
+### C17 — Scheduler: recurring scheduled tasks (web + client-core + BFF)
+
+- **Issues:** [#147](https://github.com/ToguDV/masterhand/issues/147) cron-like recurring tasks —
+  BFF scheduler manager, `client-core` queries and the web sidebar (one issue; split across the three
+  surfaces for the session batch).
+- **Surface:** `apps/server/src/scheduler.ts` (new module: 20s tick, per-task serialization, boot
+  reconciliation) + `store.ts` (`scheduled_tasks`/`scheduled_runs`) + route wiring;
+  `packages/client-core` (`scheduler.ts` contract, client + hooks, `scheduler.updated` frame);
+  web scheduler section in the left sidebar (create/edit, history, pause/resume, run-now);
+  `docs/bff/api.md`, `ARCHITECTURE.md` (ADR-36), `docs/past-mistakes.md`.
+- **Why together:** one feature; the client contract derives from the server state machine and the
+  `scheduler.updated` frame shape (same pattern as C14).
+- **Order:** BFF manager + contract first (freeze the routes/error codes) → `client-core` queries and
+  hooks → web sidebar (can start against the frozen contract/mock).
+- **Dependencies:** none on C15/C16 (independent surfaces). **Mobile parity deferred to a NEW
+  follow-up issue** (to be filed in this batch) — a new client must port the mutation contracts, not
+  reimplement them (see `docs/past-mistakes.md`).
 
 ### C15 — Releases and in-app updates
 
