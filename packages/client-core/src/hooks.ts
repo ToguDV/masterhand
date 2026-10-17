@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import type { Client } from "./client"
 import {
   appendDelta,
@@ -13,6 +19,7 @@ import {
 import { opencodeErrorMessage } from "./errors"
 import { goalPayloadOf, type GoalRun } from "./goal"
 import { boardPayloadOf, type BoardSnapshot } from "./board"
+import { schedulerEventOf, type ScheduledTaskInput, type ScheduledTaskPatch } from "./scheduler"
 import type {
   ChatMessage,
   FormInfo,
@@ -57,6 +64,10 @@ export const queryKeys = {
   goalSettings: ["goalSettings"] as const,
   /** Kanban board snapshot of a workspace (SSE-driven, see `useBoard`). */
   board: (workspaceID?: string | null) => ["board", workspaceID ?? null] as const,
+  /** Scheduled prompts the BFF fires into opencode (issue #147). */
+  scheduler: ["scheduler"] as const,
+  /** Run history of one scheduled task; a sibling prefix, so invalidations must target it explicitly. */
+  schedulerRuns: (taskID: string) => ["schedulerRuns", taskID] as const,
   /** Web search sources served by opencode (Settings > Web search). */
   websearchSources: ["websearchSources"] as const,
   /** Default web search source stored in MasterHand's config file. */
@@ -409,6 +420,75 @@ export function useBoard(client: Client, workspaceID?: string | null, enabled = 
   })
 }
 
+/**
+ * Scheduled prompts (a list, not one per session): SSE-driven, refetched
+ * after every `scheduler.updated` frame, mutation or reconnect; never polls
+ * on its own.
+ */
+export function useScheduledTasks(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.scheduler,
+    queryFn: () => client.api.scheduler.list(),
+    enabled,
+  })
+}
+
+/** Run history of one scheduled task; refreshed the same way as the task list. */
+export function useScheduledTaskRuns(client: Client, taskID: string | null, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.schedulerRuns(taskID ?? ""),
+    queryFn: () => client.api.scheduler.runs(taskID!),
+    enabled: enabled && Boolean(taskID),
+  })
+}
+
+/** Creates a scheduled task and refreshes the list when it lands. */
+export function useCreateScheduledTask(client: Client) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ScheduledTaskInput) => client.api.scheduler.create(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduler })
+    },
+  })
+}
+
+/** Updates a scheduled task (rename, reschedule, pause…). */
+export function useUpdateScheduledTask(client: Client) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { id: string; patch: ScheduledTaskPatch }) =>
+      client.api.scheduler.update(input.id, input.patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduler })
+    },
+  })
+}
+
+/** Deletes a scheduled task; its cached run history is dropped so ghost data cannot resurface. */
+export function useDeleteScheduledTask(client: Client) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskID: string) => client.api.scheduler.remove(taskID),
+    onSuccess: (_result, taskID) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduler })
+      void queryClient.removeQueries({ queryKey: queryKeys.schedulerRuns(taskID) })
+    },
+  })
+}
+
+/** Fires a "Run now" (rejected with 409 when the task is paused) and refreshes the task plus the fired run. */
+export function useRunScheduledTaskNow(client: Client) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (taskID: string) => client.api.scheduler.runNow(taskID),
+    onSuccess: (_task, taskID) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduler })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.schedulerRuns(taskID) })
+    },
+  })
+}
+
 export interface EventHandlerCallbacks {
   onPermission?: (permission: Permission) => void
   onPermissionReplied?: (permissionID: string) => void
@@ -512,6 +592,16 @@ export function createEventHandler(
     if (boardPayload) {
       boardWritesOf(queryClient).set(boardPayload.workspaceID, Date.now())
       queryClient.setQueryData<BoardSnapshot>(queryKeys.board(boardPayload.workspaceID), boardPayload.board)
+      return
+    }
+    // Scheduler frames carry no payload: they only announce that a task (or
+    // its schedule) changed, so the list and the targeted run history refetch.
+    const schedulerPayload = schedulerEventOf(raw)
+    if (schedulerPayload) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduler })
+      if (schedulerPayload.taskID) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.schedulerRuns(schedulerPayload.taskID) })
+      }
       return
     }
     const event = raw as V2Event
@@ -837,6 +927,9 @@ export function invalidateOnReconnect(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ["goal"] })
   // Boards: `board.updated` frames are never replayed either.
   void queryClient.invalidateQueries({ queryKey: ["board"] })
+  // Scheduled tasks: `scheduler.updated` frames are never replayed either.
+  void queryClient.invalidateQueries({ queryKey: ["scheduler"] })
+  void queryClient.invalidateQueries({ queryKey: ["schedulerRuns"] })
   // Catalogs recover on their own too: a page loaded while opencode rejected
   // the BFF credentials would otherwise keep empty composer selectors until a
   // manual reload.

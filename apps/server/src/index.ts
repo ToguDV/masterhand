@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
-import { createApp } from "./app.js"
+import { createApp, type AppWithScheduler } from "./app.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
@@ -71,6 +71,11 @@ try {
 }
 
 const app = createApp({ config, store, hub, worktrees, preview, providers })
+// Scheduled tasks (issue #147): the manager starts its loop with the app;
+// here the single boot pass settles what a restart orphaned (firing →
+// interrupted, queued → skipped) and recomputes every pending slot.
+const scheduler = (app as AppWithScheduler).scheduler
+scheduler?.reconcileTasks()
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist
@@ -89,7 +94,16 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`[masterhand] listening on :${info.port} → opencode ${config.opencodeUrl}`)
 })
 
-function shutdown(code = 0): void {
+async function shutdown(code = 0): Promise<void> {
+  // The scheduler goes first so its in-flight transitions settle against a
+  // live store and no more manager frames are produced once the other
+  // resources wind down; `flush` waits for the per-task chains to drain.
+  scheduler?.stop()
+  try {
+    await scheduler?.flush()
+  } catch {
+    // best effort: the store close below still runs
+  }
   preview.stopAll()
   hub.stop()
   store.close()
@@ -103,7 +117,7 @@ let shuttingDown = false
 function handleSignal(): void {
   if (shuttingDown) return
   shuttingDown = true
-  shutdown()
+  void shutdown()
 }
 
 /**
@@ -115,7 +129,7 @@ function handleFatal(kind: "uncaughtException" | "unhandledRejection", error: un
   console.error(`[masterhand] fatal ${kind}:`, error)
   if (shuttingDown) return
   shuttingDown = true
-  shutdown(1)
+  void shutdown(1)
 }
 
 process.on("SIGTERM", handleSignal)

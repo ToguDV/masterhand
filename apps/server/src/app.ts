@@ -54,7 +54,23 @@ import {
   type RunManager,
   type RunOpencode,
 } from "./runs.js"
-import type { IsolatedSessionRecord, Store, WorkspaceRunRecord } from "./store.js"
+import {
+  createScheduler,
+  nextScheduledRunAt,
+  SCHEDULER_MARKER_KEY,
+  SchedulerError,
+  validateScheduleSpec,
+  validateTaskInput,
+  type SchedulerManager,
+  type SchedulerOpencode,
+} from "./scheduler.js"
+import type {
+  IsolatedSessionRecord,
+  ScheduleSpec,
+  ScheduledTask,
+  Store,
+  WorkspaceRunRecord,
+} from "./store.js"
 import { isStorageConflict, isStorageError } from "./store.js"
 import {
   createWorktreeManager,
@@ -94,6 +110,8 @@ export interface AppDeps {
   providers?: CustomProviderStore
   /** Overridable for tests: Goal Mode orchestration. */
   goals?: GoalManager
+  /** Overridable for tests: task scheduler (issue #147). */
+  scheduler?: SchedulerManager
   /** Overridable for tests: proxy retry tuning (attempts/backoff/sleep). */
   proxyRetry?: ProxyRetryOptions
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
@@ -102,6 +120,15 @@ export interface AppDeps {
   sseQueueMax?: number
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
+}
+
+/**
+ * `createApp` exposes the scheduler it built (or received) so `index.ts` can
+ * run the boot reconciliation and stop it on shutdown without widening the
+ * return shape beyond Hono (tests inject managers like `goals`).
+ */
+export interface AppWithScheduler extends Hono {
+  scheduler?: SchedulerManager
 }
 
 const KEEPALIVE_MS = 25_000
@@ -428,6 +455,85 @@ export function createApp(deps: AppDeps): Hono {
     },
   }
 
+  /**
+   * opencode adapter for the Scheduler (issue #147): mirrors `goalOpencode`
+   * with the scheduler's own marker key. Creates and prompts carry
+   * `masterhand.scheduler` metadata so a lost response is reconciled against
+   * the persisted marker instead of a blind replay; the create lookup is
+   * scoped by DIRECTORY because the pinned opencode drops `parentID`.
+   */
+  const schedulerOpencode: SchedulerOpencode = {
+    async createSession(directory, marker, title) {
+      const response = await callOpencode("/api/session", {
+        method: "POST",
+        body: { location: { directory }, title, metadata: { [SCHEDULER_MARKER_KEY]: marker } },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: { id?: string } }
+      const id = body.data?.id
+      if (!id) throw new Error("opencode did not return a session id")
+      invalidateSessionsCache()
+      return { id }
+    },
+    async findSessionByMarker(directory, marker) {
+      // The marker is unique per run and the just-created session is the
+      // newest (desc order), so a single page wins — same page as goals.
+      const response = await callOpencode(
+        `/api/session?directory=${encodeURIComponent(directory)}&limit=200`,
+        { retry: false },
+      )
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: Array<{ id?: string; metadata?: Record<string, unknown> }>
+      }
+      const found = (body.data ?? []).find((session) => session.metadata?.[SCHEDULER_MARKER_KEY] === marker)
+      return found?.id ? { id: found.id } : null
+    },
+    async prompt(sessionID, text, marker) {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/prompt`, {
+        method: "POST",
+        body: { text, metadata: { [SCHEDULER_MARKER_KEY]: marker } },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async promptLanded(sessionID, marker) {
+      const response = await callOpencode(
+        `/api/session/${encodeURIComponent(sessionID)}/message?limit=20&order=desc`,
+        { retry: false },
+      )
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: Array<{ type?: string; metadata?: Record<string, unknown> }>
+      }
+      return (body.data ?? []).some(
+        (message) => message.type === "user" && message.metadata?.[SCHEDULER_MARKER_KEY] === marker,
+      )
+    },
+    async switchModel(sessionID, model) {
+      const body: { id: string; providerID: string; variant?: string } = { id: model.id, providerID: model.providerID }
+      if (model.variant) body.variant = model.variant
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/model`, {
+        method: "POST",
+        body: { model: body },
+      })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+    },
+    async activeSessions() {
+      // Same upstream call the goal watchdog uses to reconcile lost idle.
+      const response = await callOpencode("/api/session/active", { retry: false })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: Record<string, unknown> }
+      return Object.keys(body.data ?? {})
+    },
+    async modelExists(model) {
+      // Same catalog check the goal settings route's model list uses.
+      const response = await callOpencode("/api/model", { retry: false })
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as { data?: Array<{ id?: string; providerID?: string }> }
+      return (body.data ?? []).some((entry) => entry.providerID === model.providerID && entry.id === model.id)
+    },
+  }
+
   const goals: GoalManager =
     deps.goals ??
     createGoalManager({
@@ -439,6 +545,24 @@ export function createApp(deps: AppDeps): Hono {
   // In-flight runs never auto-resume after a restart: they surface as paused
   // with a resumable reason instead (docs/past-mistakes.md).
   goals.reconcileOnBoot()
+
+  /**
+   * Task scheduler (issue #147): the manager owns the loop and every fire
+   * body; the routes only validate and persist. It watches the same opencode
+   * lifecycle frames the goal runs do and filters them internally. No
+   * double-emit: its own `scheduler.updated` frames go out through `emit`
+   * and are ignored by `handleEvent` on the way back. `reconcileTasks()` is
+   * NOT called here — `index.ts` runs the single boot pass (next to the
+   * worktree reconciliation).
+   */
+  const scheduler: SchedulerManager =
+    deps.scheduler ??
+    createScheduler({
+      store: deps.store,
+      opencode: schedulerOpencode,
+      emit: (event) => deps.hub.emit(event),
+    })
+  deps.hub.subscribe((event) => scheduler.handleEvent(event))
 
   /**
    * Drops every MasterHand-managed resource tied to a session id: its quick
@@ -2050,7 +2174,205 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
+  /**
+   * Scheduled tasks (issue #147). The routes are the trust boundary: they
+   * validate the task input and the schedule (the model is checked against
+   * the opencode catalog, like the goal settings route) and persist through
+   * the store. The fire path, event settlement and slot math are exclusively
+   * the manager's, so clients follow changes through `scheduler.updated`
+   * frames (same synthetic shape as `goal.updated`).
+   */
+  function schedulerFailure(c: Context, error: unknown): Response {
+    if (error instanceof SchedulerError) return c.json({ error: error.code, detail: error.message }, error.status)
+    if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
+    return c.json({ error: "scheduler_failed", detail: error instanceof Error ? error.message : undefined }, 502)
+  }
+
+  function emitSchedulerUpdated(taskID: string): void {
+    try {
+      deps.hub.emit({ type: "scheduler.updated", data: { taskID } })
+    } catch {
+      // best effort: the mutation already applied
+    }
+  }
+
+  /** Only directories MasterHand manages (a workspace path) can be targeted. */
+  function validSchedulerDirectory(directory: string): boolean {
+    return Boolean(deps.store.getWorkspaceByPath(directory))
+  }
+
+  function unknownDirectory(): SchedulerError {
+    return new SchedulerError("invalid_directory", 400, "the task directory must be an existing workspace path")
+  }
+
+  /** The persisted shape of an already-validated spec (extra keys dropped). */
+  function schedulerSpec(input: unknown): ScheduleSpec {
+    const raw = (input ?? null) as Record<string, unknown> | null
+    return raw?.kind === "interval"
+      ? { kind: "interval", intervalMinutes: raw.intervalMinutes as number }
+      : { kind: "cron", cron: (raw?.cron ?? "") as string }
+  }
+
+  api.get("/scheduled-tasks", (c) => c.json({ tasks: deps.store.listScheduledTasks() }))
+
+  api.post("/scheduled-tasks", async (c) => {
+    let body: unknown
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    try {
+      const input = body as Record<string, unknown>
+      const validated = validateTaskInput(body)
+      if (!validSchedulerDirectory(validated.directory)) throw unknownDirectory()
+      const timezone = typeof input.timezone === "string" ? input.timezone.trim() : ""
+      validateScheduleSpec(input.schedule, Date.now(), timezone)
+      const spec = schedulerSpec(input.schedule)
+      // Fail closed: an unanswerable catalog check cannot accept the model.
+      if (!(await schedulerOpencode.modelExists?.(validated.model))) {
+        throw new SchedulerError(
+          "invalid_model",
+          400,
+          `the model is not in the opencode catalog: ${validated.model.providerID}/${validated.model.id}`,
+        )
+      }
+      const nowMs = Date.now()
+      const task: ScheduledTask = {
+        id: randomUUID(),
+        name: validated.name,
+        prompt: validated.prompt,
+        model: validated.model,
+        schedule: spec,
+        timezone,
+        directory: validated.directory,
+        paused: false,
+        lastRunAt: null,
+        nextRunAt: nextScheduledRunAt(spec, nowMs, nowMs, timezone),
+        createdAt: new Date(nowMs).toISOString(),
+      }
+      deps.store.createScheduledTask(task)
+      emitSchedulerUpdated(task.id)
+      return c.json({ task }, 201)
+    } catch (error) {
+      return schedulerFailure(c, error)
+    }
+  })
+
+  api.patch("/scheduled-tasks/:id", async (c) => {
+    const id = c.req.param("id")
+    const existing = deps.store.getScheduledTask(id)
+    if (!existing) return c.json({ error: "task_not_found" }, 404)
+    let body: Record<string, unknown>
+    try {
+      body = (await c.req.json()) as Record<string, unknown>
+    } catch {
+      return c.json({ error: "invalid_body" }, 400)
+    }
+    try {
+      const touchesTask = ["name", "prompt", "model", "directory"].some((key) => body[key] !== undefined)
+      const touchesSchedule = body.schedule !== undefined || body.timezone !== undefined
+      if (!touchesTask && !touchesSchedule && body.paused === undefined) {
+        throw new SchedulerError("invalid_body", 400, "no patchable field was provided")
+      }
+      if (body.paused !== undefined && typeof body.paused !== "boolean") {
+        throw new SchedulerError("invalid_paused", 400, "the paused flag must be a boolean")
+      }
+      let timezone = existing.timezone
+      if (body.timezone !== undefined) {
+        if (typeof body.timezone !== "string") {
+          throw new SchedulerError(
+            "invalid_timezone",
+            400,
+            "the timezone must be an IANA name, or empty for the server default",
+          )
+        }
+        timezone = body.timezone.trim()
+      }
+      // The merged record is validated wholesale (same rules as the create)
+      // so a partial patch can never persist an inconsistent task.
+      let validated: ReturnType<typeof validateTaskInput> | null = null
+      if (touchesTask) {
+        validated = validateTaskInput({
+          name: body.name !== undefined ? body.name : existing.name,
+          prompt: body.prompt !== undefined ? body.prompt : existing.prompt,
+          model: body.model !== undefined ? body.model : existing.model,
+          directory: body.directory !== undefined ? body.directory : existing.directory,
+        })
+        if (!validSchedulerDirectory(validated.directory)) throw unknownDirectory()
+        if (!(await schedulerOpencode.modelExists?.(validated.model))) {
+          throw new SchedulerError(
+            "invalid_model",
+            400,
+            `the model is not in the opencode catalog: ${validated.model.providerID}/${validated.model.id}`,
+          )
+        }
+      }
+      if (touchesSchedule) {
+        const mergedSchedule = body.schedule !== undefined ? body.schedule : existing.schedule
+        validateScheduleSpec(mergedSchedule, Date.now(), timezone)
+      }
+      // Only a schedule/timezone change re-arms the cadence; anything else
+      // keeps the pending slot (resuming recomputes it manager-side).
+      let savedTask: ScheduledTask | null = null
+      if (validated || touchesSchedule) {
+        const spec = touchesSchedule
+          ? schedulerSpec(body.schedule !== undefined ? body.schedule : existing.schedule)
+          : existing.schedule
+        savedTask = {
+          ...existing,
+          ...(validated ? { name: validated.name, prompt: validated.prompt, model: validated.model, directory: validated.directory } : {}),
+          ...(touchesSchedule
+            ? { schedule: spec, timezone, nextRunAt: nextScheduledRunAt(spec, Date.now(), Date.now(), timezone) }
+            : {}),
+        }
+        deps.store.saveScheduledTask(savedTask)
+        emitSchedulerUpdated(savedTask.id)
+      }
+      // Pause/resume ride the manager so the flag change is serialized with
+      // any transition in progress (one chain per task id).
+      if (body.paused === true) return c.json({ task: await scheduler.pauseTask(id) })
+      if (body.paused === false) return c.json({ task: await scheduler.resumeTask(id) })
+      return c.json({ task: deps.store.getScheduledTask(id) ?? savedTask ?? existing })
+    } catch (error) {
+      return schedulerFailure(c, error)
+    }
+  })
+
+  api.delete("/scheduled-tasks/:id", (c) => {
+    const id = c.req.param("id")
+    if (!deps.store.getScheduledTask(id)) return c.json({ error: "task_not_found" }, 404)
+    // Idempotent store delete cascading the run history; the frame lets
+    // clients drop the task from their lists.
+    deps.store.deleteScheduledTask(id)
+    emitSchedulerUpdated(id)
+    return c.body(null, 204)
+  })
+
+  /** Manual fire through the manager (serialized, single slot per task). */
+  api.post("/scheduled-tasks/:id/run", async (c) => {
+    const id = c.req.param("id")
+    try {
+      await scheduler.taskRunNow(id)
+    } catch (error) {
+      return schedulerFailure(c, error)
+    }
+    const task = deps.store.getScheduledTask(id)
+    if (!task) return c.json({ error: "task_not_found" }, 404)
+    return c.json({ task }, 202)
+  })
+
+  api.get("/scheduled-tasks/:id/runs", (c) => {
+    const id = c.req.param("id")
+    if (!deps.store.getScheduledTask(id)) return c.json({ error: "task_not_found" }, 404)
+    // The store already orders newest-first; the cap bounds the response.
+    return c.json({ runs: deps.store.listScheduledRuns(id).slice(0, 50) })
+  })
+
   app.route("/api", api)
+  // Exposed for index.ts boot/shutdown wiring (reconcile/stop/flush) without
+  // widening createApp's return shape; tests inject managers like `goals`.
+  ;(app as AppWithScheduler).scheduler = scheduler
 
   return app
 }

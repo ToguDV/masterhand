@@ -54,6 +54,7 @@ import {
   type BoardColumn,
   type BoardSnapshot,
 } from "./board"
+import type { ScheduledRun, ScheduledTask, ScheduledTaskInput, ScheduledTaskPatch } from "./scheduler"
 import {
   normalizeWebsearchSelection,
   normalizeWebsearchSources,
@@ -290,6 +291,23 @@ export interface Client {
         patch: { title?: string; description?: string; columnID?: string; position?: number },
       ): Promise<BoardCard>
       deleteCard(cardID: string): Promise<void>
+    }
+    /**
+     * Scheduled prompts the BFF fires into opencode sessions (issue #147).
+     * `runNow` and `create` are non-idempotent mutations: a lost response is
+     * reconciled by refetching, never by blind retry (409 rejects "Run now"
+     * on a paused task).
+     */
+    scheduler: {
+      list(): Promise<ScheduledTask[]>
+      create(input: ScheduledTaskInput): Promise<ScheduledTask>
+      update(taskID: string, patch: ScheduledTaskPatch): Promise<ScheduledTask>
+      /** Idempotent: deleting a task already deleted still ends with no task. */
+      remove(taskID: string): Promise<void>
+      /** Enqueues an immediate fire (async); returns the task. */
+      runNow(taskID: string): Promise<ScheduledTask>
+      /** Run history of a task, newest first as served by the BFF. */
+      runs(taskID: string): Promise<ScheduledRun[]>
     }
   }
   workspaces: {
@@ -800,6 +818,29 @@ export function createClient(options: ClientOptions = {}): Client {
             return card
           }),
         deleteCard: (cardID) => request<void>(`/api/board/cards/${encodeURIComponent(cardID)}`, { method: "DELETE" }),
+      },
+      scheduler: {
+        list: () => request<{ tasks: ScheduledTask[] }>("/api/scheduled-tasks").then((response) => response.tasks),
+        create: (input) =>
+          request<{ task: ScheduledTask }>("/api/scheduled-tasks", {
+            method: "POST",
+            body: JSON.stringify(input),
+          }).then((response) => response.task),
+        update: (taskID, patch) =>
+          request<{ task: ScheduledTask }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}`, {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+          }).then((response) => response.task),
+        remove: (taskID) =>
+          request<void>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" }),
+        runNow: (taskID) =>
+          request<{ task: ScheduledTask }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/run`, {
+            method: "POST",
+          }).then((response) => response.task),
+        runs: (taskID) =>
+          request<{ runs: ScheduledRun[] }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs`).then(
+            (response) => response.runs,
+          ),
       },
     },
     workspaces: {

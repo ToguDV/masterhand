@@ -374,3 +374,13 @@ export function KanbanIcon(props: IconProps) {
     </IconBase>
   )
 }
+
+/** Scheduler section (clock face) in the sidebar rail, sections home and empty states. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </IconBase>
+  )
+}

@@ -904,6 +904,33 @@ async function runGoalPrompt(sessionID: string, role: "main" | "critic" | "judge
   activeRuns.delete(sessionID)
 }
 
+ /**
+ * A scheduler fire (issue #147): the BFF prompts an automated run, so no
+ * operator is there to answer a permission request. opencode plays the turn
+ * headlessly and leaves the session idle when it completes — the mock mirrors
+ * that (a permission dance here would hold the run forever), and the final
+ * `session.idle` is the frame schedulers close runs on.
+ */
+async function runSchedulerPrompt(sessionID: string): Promise<void> {
+  const session = sessions.get(sessionID)
+  if (!session) return
+
+  activeRuns.add(sessionID)
+  broadcast("session.execution.started", { sessionID }, session.location.directory)
+  await delay(30)
+
+  const assistant = appendAssistantMessage(sessionID)
+  const text = "Scheduled sweep done."
+  assistant.content = [{ type: "text", text }]
+  streamText(sessionID, assistant.id, 0, text)
+  completeAssistant(session, assistant, {
+    cost: 0.001,
+    tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } },
+  })
+  broadcast("session.idle", { sessionID }, session.location.directory)
+  activeRuns.delete(sessionID)
+}
+
 async function runPrompt(sessionID: string, text: string): Promise<void> {
   const session = sessions.get(sessionID)
   const conversation = conversations.get(sessionID)
@@ -1447,10 +1474,15 @@ const server = createServer((req, res) => {
           return json(res, 429, { error: "rate_limited" })
         }
         const message = appendUserMessage(sessionID, text, metadata)
+        // Scheduler fires (issue #147): an automated prompt carries the
+        // scheduler marker in its metadata, so the turn runs headlessly.
+        const schedulerFired = typeof metadata?.["masterhand.scheduler"] === "string"
         // E2E helper: `/seed N` fills the conversation with N more messages and
         // reports the session idle, so clients refetch the whole history.
         const seed = /^\/seed (\d+)$/.exec(text.trim())
-        if (seed) {
+        if (schedulerFired) {
+          void runSchedulerPrompt(sessionID)
+        } else if (seed) {
           const count = Math.max(0, Math.min(Number(seed[1]), 1000))
           for (let index = 1; index <= count; index += 1) {
             appendUserMessage(sessionID, `Seed message ${index}`)
