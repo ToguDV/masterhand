@@ -82,8 +82,16 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
   // A's preview is running: the unified panel opens straight on the Preview tab.
   await page.getByRole("button", { name: "Run and preview" }).click()
-  await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
-    "src",
-    "https://e2e-preview.trycloudflare.com",
-  )
+  const frame = page.locator('iframe[title="Session preview"]')
+  await expect(frame).toHaveAttribute("src", "https://e2e-preview.trycloudflare.com")
+
+  // The preview must stay running across the workspace switches (that is the
+  // regression this test locks), but it must not outlive the test: this spec
+  // runs before preview.spec (smoke project first), and with the single-port
+  // PREVIEW_PORT_RANGE the BFF only reclaims ports of *stopped* tunnels,
+  // so a leaked running tunnel would fail every later preview start with
+  // `preview_ports_exhausted`.
+  await page.getByRole("button", { name: "Stop preview" }).click()
+  await expect(frame).toBeHidden()
+  await expect(page.getByRole("button", { name: "Start preview" })).toBeVisible()
 })
