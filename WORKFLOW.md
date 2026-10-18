@@ -59,8 +59,8 @@ Keep the **red → green evidence** in the PR: the exact command, the failure ob
 |---|---|---|
 | `pre-commit` (`.githooks/pre-commit`) | `npm run typecheck` + `npm run test:coverage` + `npm run test:scripts` | Fast: never commit broken types, failing unit tests or uncovered code |
 | `commit-msg` (`.githooks/commit-msg`) | Conventional Commits check | Keep an English, standard history |
-| `pre-push` (`.githooks/pre-push`) | typecheck + unit/coverage + E2E + builds | Full local mirror of CI before sharing the branch |
-| GitHub Actions (`.github/workflows/ci.yml`) | typecheck + unit/coverage + E2E + build | Required check on every PR to `main` |
+| `pre-push` (`.githooks/pre-push`) | typecheck + unit/coverage + E2E + builds | Full local gate before sharing the branch (CI then runs the diff-aware subset — see §CI) |
+| GitHub Actions (`.github/workflows/ci.yml`) | diff-aware via `scripts/ci-changes.mjs`: docs-only → gate only; client changes → typecheck + affected unit/coverage + smoke E2E; critical paths (`server`, `client-core`, `e2e`, dependency manifests, CI), pushes to `main` or label `ci:full` → full suite | Required check on every PR to `main` (`CI gate`) |
 
 Emergency bypass (use sparingly, never for `main`): `MASTERHAND_SKIP_HOOKS=1 git commit ...`.
 
@@ -89,6 +89,7 @@ npm run e2e:browsers     # downloads the Chromium used by Playwright
 
 - Workspace `e2e/`, built with [Playwright](https://playwright.dev).
 - Harness: `e2e/mock-opencode.ts` (fake `opencode serve`) + the real BFF serving the built web app, driven in a browser.
+- Two Playwright projects: **`smoke`** (`SMOKE_SPECS` in `e2e/playwright.config.ts` — the critical flows CI runs for client-only changes) and **`full`** (every other spec). Running without `--project` executes both, i.e. every spec exactly once; `npm run test:e2e -w @masterhand/e2e -- --project=smoke` runs only the critical flows.
 - Ports: mock `4097`, BFF `8788` (no conflict with a local `npm run dev`).
 - Run: `npm run test:e2e`. Debug interactively: `npm run test:e2e -w @masterhand/e2e -- --ui`.
 - Coverage today: invalid login, the full flow login → new session → prompt → live stream → permission approval, workspaces, isolated sessions, branch picker/creator (search + switch + create, read-only chip for isolated), model/effort/session preferences, subagents, semantic tool cards (shell/read/write/edit diffs), agent questions answered from an inline form, composer `/` command and `@` subagent popovers, `/btw` side questions, stalled-send recovery (history-confirmed early release, request-deadline fallback, retained text, "Sending…" feedback), session previews, run/preview death notices, the unified Run & preview panel (tab switching, auto-landing on Preview, one trigger), a lost Finish & PR response (ambiguity + safe retry), a failed Stop, an ambiguous permission reply confirmed by reconciliation, upstream reconnection recovery, paged long conversations, markdown rendering, and the ink-on-paper design system (theme persistence, deep-emerald user bubble, inline permission cards, choice modal for other-session questions).
@@ -108,7 +109,14 @@ Only skip this when the user explicitly asked for a plan, an analysis or a revie
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every PR and push to `main`: install, typecheck, unit + coverage, E2E and build. Coverage and E2E artifacts are uploaded on failure. A red check blocks the merge.
+`.github/workflows/ci.yml` runs on PRs to `main`, pushes to `main` and manual dispatches. A `changes` job classifies the diff (`scripts/ci-changes.mjs`, covered by `npm run test:scripts`; three-dot `base...head` on PRs, `before..after` on pushes) and the pipeline adapts:
+
+- **Docs-only** (`**.md`, `docs/**`, `design/**`, `LICENSE`): only the gate runs — the required check passes in seconds.
+- **Client changes**: typecheck, unit/coverage of the affected workspaces, dev-script tests when `scripts/` changed, the E2E **smoke** project and the builds.
+- **Critical changes** (`apps/server/**`, `packages/client-core/**`, `e2e/**`, dependency manifests, `.github/**`) and every push to `main`: the full pipeline (all unit suites + the complete E2E suite) plus the builds.
+- Any PR can force the full pipeline with the **`ci:full` label** (applies to an open PR without a new push).
+
+The required status check is **`CI gate`**: it always runs and fails when any job failed or was cancelled (skipped jobs are green). The classifier fails **open** — a missing or undiffable range, an unknown event, an empty diff or an unrecognized file all fall back to the full pipeline. Coverage and E2E artifacts are uploaded on failure. Never add trigger `paths:` filters: a required check that never reports blocks the merge. `scripts/ci-workflow.test.mjs` guards the gate wiring, the no-path-filters rule and the smoke list.
 
 ## Pull requests
 
