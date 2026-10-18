@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 // The composer footer used to be three loose strips (goal/worktree line,

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("renders the assistant reply as markdown", async ({ page }) => {

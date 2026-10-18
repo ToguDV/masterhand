@@ -1,7 +1,9 @@
-import { expect, test, type Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { login } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test.beforeEach(async ({ request }) => {
   await request.post(`${MOCK_URL}/e2e/reset-integrations`)

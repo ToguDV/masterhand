@@ -1,7 +1,9 @@
-import { expect, test, type Page } from "@playwright/test"
+import type { Page } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { login } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test.beforeEach(async ({ request }) => {
   await request.post(`${MOCK_URL}/e2e/reset-integrations`)
@@ -16,8 +18,9 @@ async function openWebSearch(page: Page) {
 }
 
 // Settings > Web search: the default source opencode uses for agent web
-// searches, the per-source API keys and the test probe. Runs first: it asserts
-// the boot-seeded keyless default (file order, single worker).
+// searches, the per-source API keys and the test probe. Runs first in this
+// file: it asserts the boot-seeded keyless default (file order within this
+// worker).
 test("seeds the keyless source as the default and keeps sources out of Providers", async ({ page }) => {
   await login(page)
   const settings = await openWebSearch(page)
@@ -80,7 +83,7 @@ test("runs a test search with the current source", async ({ page }) => {
   await login(page)
   const settings = await openWebSearch(page)
 
-  // Previous tests may have switched the default; pin the keyless one first.
+  // Earlier tests in this file may have switched the default; pin the keyless one first.
   await settings.getByTestId("websearch-source-tinyfish").getByRole("radio").click()
   await settings.getByLabel("Test search query").fill("effect typescript")
   await settings.getByRole("button", { name: "Test" }).click()

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 async function pick(page: import("@playwright/test").Page, name: string, option: string): Promise<void> {

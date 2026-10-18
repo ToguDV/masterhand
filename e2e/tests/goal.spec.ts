@@ -1,7 +1,16 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test"
+import type { APIRequestContext, Page } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK = "http://127.0.0.1:4097"
+const MOCK = e2eMockURL()
+
+test.afterEach(async ({ request }) => {
+  // A failed test must not leak armed controls into later specs of the same worker.
+  await request.post(`${MOCK}/e2e/goal-script`, { data: {} }).catch(() => {})
+  await request.post(`${MOCK}/e2e/goal-delay`, { data: { ms: 0 } }).catch(() => {})
+  await request.post(`${MOCK}/e2e/goal-fail-prompts`, { data: { count: 0 } }).catch(() => {})
+})
 
 /** Resets the mock's Goal Mode script (verdicts, critic issues, delays). */
 async function resetGoal(

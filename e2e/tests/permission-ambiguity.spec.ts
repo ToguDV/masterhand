@@ -1,10 +1,12 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test.afterEach(async ({ request }) => {
-  // The mock is shared by the whole suite: never leave stalled replies behind.
+  // The mock is shared by every spec in this worker: never leave stalled
+  // replies behind.
   await request.post(`${MOCK_URL}/e2e/hold-permission-replies`, { data: { value: false } }).catch(() => {})
   await request.post(`${MOCK_URL}/e2e/release-permission-replies`).catch(() => {})
 })

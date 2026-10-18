@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("creates an isolated session in a git worktree", async ({ page }) => {

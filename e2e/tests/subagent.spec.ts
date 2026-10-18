@@ -1,7 +1,14 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import type { APIRequestContext } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK = "http://127.0.0.1:4097"
+const MOCK = e2eMockURL()
+
+test.afterEach(async ({ request }) => {
+  // A failed test must not leak armed controls into later specs of the same worker.
+  await request.post(`${MOCK}/e2e/subagent-permission`, { data: { value: false } }).catch(() => {})
+})
 
 async function permissionReplies(request: APIRequestContext): Promise<number> {
   const response = await request.get(`${MOCK}/e2e/state`)

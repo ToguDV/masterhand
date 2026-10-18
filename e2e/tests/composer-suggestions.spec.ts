@@ -1,7 +1,9 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import type { APIRequestContext } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 interface MockState {
   stalledForks: number

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 // Session rows stay quiet when idle: no dot. A working session spins, and a

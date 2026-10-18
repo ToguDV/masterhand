@@ -1,7 +1,9 @@
 import { rmSync, writeFileSync } from "node:fs"
-import { expect, test } from "@playwright/test"
-import { E2E_CLOUDFLARED_DIE_FILE as DIE_FILE } from "../paths"
+import { expect, test } from "../fixtures"
+import { e2eDieFile } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
+
+const DIE_FILE = e2eDieFile()
 
 test("starts and stops a session preview through the tunnel", async ({ page }) => {
   await login(page)
