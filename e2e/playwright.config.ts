@@ -29,6 +29,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
+  // Deliberate: every spec shares one mock, one BFF, one preview port, one
+  // cloudflared die file and process-global mock controls, so parallel workers
+  // collide (measured 2026-10-17: w2 loses 5/103 tests, w4 loses 8/103 with
+  // 0 flaky). Per-worker isolation is required first: #175.
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
