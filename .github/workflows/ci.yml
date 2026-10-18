@@ -1,18 +1,104 @@
 name: CI
 
+# A required status check must always report, so the triggers carry no path
+# filters: the `changes` job classifies the diff and `gate` always runs
+# (green when a job was skipped, red when one failed or was cancelled).
+# See WORKFLOW.md §CI. Never add trigger path filters here.
 on:
   pull_request:
     branches: [main]
+    # `labeled` lets an open PR escalate to the full pipeline with the
+    # `ci:full` label, without pushing a new commit.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
+  # Manual runs always execute the full pipeline.
+  workflow_dispatch:
+
+# Least privilege: no job writes to the repository.
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: Typecheck, unit tests, E2E and builds
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+      full: ${{ steps.detect.outputs.full }}
+      smoke: ${{ steps.detect.outputs.smoke }}
+      workspaces: ${{ steps.detect.outputs.workspaces }}
+      scripts: ${{ steps.detect.outputs.scripts }}
+    steps:
+      # Full history so the classifier can diff any base/head pair (an
+      # undiffable range falls back to the full pipeline).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Classify the diff
+        id: detect
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_BEFORE_SHA: ${{ github.event.before }}
+          CI_AFTER_SHA: ${{ github.sha }}
+          CI_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: node scripts/ci-changes.mjs >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Typecheck, unit tests and dev scripts
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests and coverage
+        if: needs.changes.outputs.workspaces != ''
+        run: |
+          args=()
+          for workspace in ${{ needs.changes.outputs.workspaces }}; do
+            args+=(-w "@masterhand/$workspace")
+          done
+          npm run test:coverage "${args[@]}"
+
+      - name: Dev-script tests
+        if: needs.changes.outputs.scripts == 'true'
+        run: npm run test:scripts
+
+      - name: Upload coverage on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: "**/coverage/lcov.info"
+          retention-days: 7
+
+  e2e-smoke:
+    name: E2E smoke (critical flows)
+    needs: changes
+    if: needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,33 +114,93 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Unit tests and coverage
-        run: npm run test:coverage
-
-      - name: Dev-script tests
-        run: npm run test:scripts
-
-      - name: End-to-end tests
-        run: npm run test:e2e
-
-      - name: Build
-        run: npm run build
-
-      - name: Upload coverage on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: "**/coverage/lcov.info"
-          retention-days: 7
+      # The `smoke` Playwright project: login → prompt → stream → permission,
+      # permissions, ambiguity, reconnect, run, stuck composer, workspaces and
+      # the design system.
+      - name: Smoke E2E
+        run: npm run test:e2e -w @masterhand/e2e -- --project=smoke
 
       - name: Upload E2E results on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-results
+          name: e2e-smoke-results
           path: e2e/test-results
           retention-days: 7
+
+  e2e-full:
+    name: E2E full suite
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Both projects together: every spec runs exactly once.
+      - name: Full E2E suite
+        run: npm run test:e2e -w @masterhand/e2e
+
+      - name: Upload E2E results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-results
+          path: e2e/test-results
+          retention-days: 7
+
+  build:
+    name: Build
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  gate:
+    name: CI gate
+    # Always runs (the required check must report on every event) and fails
+    # when any job above failed or was cancelled; skipped jobs are green.
+    if: always()
+    needs: [changes, verify, e2e-smoke, e2e-full, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify job results
+        run: |
+          failed=0
+          for pair in \
+            "changes=${{ needs.changes.result }}" \
+            "verify=${{ needs.verify.result }}" \
+            "e2e-smoke=${{ needs.e2e-smoke.result }}" \
+            "e2e-full=${{ needs.e2e-full.result }}" \
+            "build=${{ needs.build.result }}"; do
+            echo "${pair%%=*}: ${pair#*=}"
+            case "${pair#*=}" in
+              failure|cancelled) failed=1 ;;
+            esac
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::one or more required jobs failed"
+            exit 1
+          fi

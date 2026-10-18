@@ -9,6 +9,21 @@ const repoRoot = path.resolve(e2eDir, "..")
 const MOCK_PORT = 4097
 const BFF_PORT = 8788
 
+// The flows a client-only change must never break. CI runs this list as the
+// `smoke` project (`.github/workflows/ci.yml`); the `full` project runs every
+// other spec, so both projects together always cover the suite exactly once
+// (no duplicated or dropped file). Guarded by scripts/ci-workflow.test.mjs.
+const SMOKE_SPECS = [
+  "**/chat.spec.ts",
+  "**/permissions.spec.ts",
+  "**/permission-ambiguity.spec.ts",
+  "**/reconnect.spec.ts",
+  "**/run.spec.ts",
+  "**/composer-stuck.spec.ts",
+  "**/workspaces.spec.ts",
+  "**/design.spec.ts",
+]
+
 export default defineConfig({
   testDir: "./tests",
   timeout: 30_000,
@@ -24,7 +39,10 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${BFF_PORT}`,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "smoke", testMatch: SMOKE_SPECS, use: { ...devices["Desktop Chrome"] } },
+    { name: "full", testIgnore: SMOKE_SPECS, use: { ...devices["Desktop Chrome"] } },
+  ],
   webServer: [
     {
       command: "npx tsx mock-opencode.ts",
