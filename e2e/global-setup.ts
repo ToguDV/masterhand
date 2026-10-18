@@ -1,20 +1,27 @@
-import { mkdir, rm } from "node:fs/promises"
-import { E2E_CLOUDFLARED_DIE_FILE, E2E_DATA_DIR, E2E_WORKSPACES_ROOT } from "./paths"
+import { execSync } from "node:child_process"
+import { rm } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { E2E_SCRATCH_ROOT } from "./paths"
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 /**
- * Starts every run from empty scratch state — a killed run's SQLite, preview
- * ports, tunnel records and workspaces never leak into the next one — and
- * returns the teardown, which leaves no trace behind.
+ * Once-per-run setup: build the web app the workers' BFFs serve, and wipe the
+ * whole scratch root so a killed run's leftover worker dirs never leak into the
+ * next run. The *per-worker* servers, dirs and die file are provisioned by the
+ * `harness` fixture (e2e/fixtures.ts); this teardown removes the root.
  */
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  await rm(E2E_DATA_DIR, { recursive: true, force: true })
-  await rm(E2E_WORKSPACES_ROOT, { recursive: true, force: true })
-  await rm(E2E_CLOUDFLARED_DIE_FILE, { force: true })
-  await mkdir(E2E_DATA_DIR, { recursive: true })
-  await mkdir(E2E_WORKSPACES_ROOT, { recursive: true })
+  // `VITE_*` values are baked into the bundle at build time; the shortened
+  // deadlines keep the stalled-send and lost-finish specs fast.
+  execSync("npm run build -w @masterhand/web", {
+    cwd: repoRoot,
+    stdio: "inherit",
+    env: { ...process.env, VITE_REQUEST_TIMEOUT_MS: "5000", VITE_FINISH_TIMEOUT_MS: "5000" },
+  })
+  await rm(E2E_SCRATCH_ROOT, { recursive: true, force: true })
   return async () => {
-    await rm(E2E_DATA_DIR, { recursive: true, force: true })
-    await rm(E2E_WORKSPACES_ROOT, { recursive: true, force: true })
-    await rm(E2E_CLOUDFLARED_DIE_FILE, { force: true })
+    await rm(E2E_SCRATCH_ROOT, { recursive: true, force: true })
   }
 }

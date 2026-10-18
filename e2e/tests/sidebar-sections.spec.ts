@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("the sidebar rail switches the main view between sessions and board", async ({ page }) => {
@@ -76,11 +76,11 @@ test("the header back button returns to the sections home", async ({ page }) => 
   await expect(aside.getByRole("button", { name: "Scheduler", exact: true })).toBeVisible()
   // The home hides itself once a section is picked.
   await aside.getByRole("button", { name: "Board", exact: true }).click()
-  // The board follows the selected workspace, and earlier specs in the same
-  // run leave workspaces behind on the shared backend: a fresh context may
-  // land on an empty board (Board heading + empty state) or on a board with
-  // columns (column scroll, no heading). Either proves the board content
-  // mounted — unlike the header title, which is visible before the click.
+  // The board follows the selected workspace, and earlier specs in this worker
+  // leave workspaces behind on the worker's backend: a fresh context may land
+  // on an empty board (Board heading + empty state) or on a board with columns
+  // (column scroll, no heading). Either proves the board content mounted —
+  // unlike the header title, which is visible before the click.
   const main = page.locator("main")
   const boardHeading = main.getByRole("heading", { name: "Board" })
   const boardColumns = main.locator('div[aria-label="Board columns"]')

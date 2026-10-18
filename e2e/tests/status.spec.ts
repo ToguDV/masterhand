@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 
 test("a 5xx from /api/status offers a retry instead of loading forever", async ({ page }) => {
   let statusCalls = 0

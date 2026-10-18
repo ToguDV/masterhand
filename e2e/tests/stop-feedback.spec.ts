@@ -1,11 +1,12 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test.afterEach(async ({ request }) => {
-  // The mock is shared by the whole suite: never leave a failed-abort flag or
-  // a pending permission behind.
+  // The mock is shared by every spec in this worker: never leave a
+  // failed-abort flag or a pending permission behind.
   await request.post(`${MOCK_URL}/e2e/fail-abort`, { data: { value: false } }).catch(() => {})
   const pending = await request.get(`${MOCK_URL}/e2e/pending`).catch(() => null)
   if (pending) {

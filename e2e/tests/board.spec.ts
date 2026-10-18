@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login } from "./helpers"
 
 async function openBoard(page: import("@playwright/test").Page) {

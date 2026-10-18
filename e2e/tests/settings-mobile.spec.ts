@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login } from "./helpers"
 
 // Settings on mobile (<768px): a vertical section list comes first; opening

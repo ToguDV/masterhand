@@ -1,7 +1,9 @@
-import { expect, test, type APIRequestContext } from "@playwright/test"
+import type { APIRequestContext } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 async function agentRequests(request: APIRequestContext): Promise<number> {
   const response = await request.get(`${MOCK_URL}/e2e/state`)
@@ -9,7 +11,7 @@ async function agentRequests(request: APIRequestContext): Promise<number> {
 }
 
 test.afterEach(async ({ request }) => {
-  // The mock is shared by the whole suite: never leave it offline.
+  // The mock is shared by every spec in this worker: never leave it offline.
   await request.post(`${MOCK_URL}/e2e/online`).catch(() => {})
 })
 

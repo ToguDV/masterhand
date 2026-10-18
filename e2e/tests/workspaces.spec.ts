@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("adds a workspace, deletes a session and removes the workspace", async ({ page }) => {
@@ -86,11 +86,10 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   await expect(frame).toHaveAttribute("src", "https://e2e-preview.trycloudflare.com")
 
   // The preview must stay running across the workspace switches (that is the
-  // regression this test locks), but it must not outlive the test: this spec
-  // runs before preview.spec (smoke project first), and with the single-port
-  // PREVIEW_PORT_RANGE the BFF only reclaims ports of *stopped* tunnels,
-  // so a leaked running tunnel would fail every later preview start with
-  // `preview_ports_exhausted`.
+  // regression this test locks), but it must not outlive the test: this worker
+  // has a single-port preview pool, and the BFF only reclaims ports of
+  // *stopped* tunnels, so a leaked running tunnel would fail every later
+  // preview start in this worker with `preview_ports_exhausted`.
   await page.getByRole("button", { name: "Stop preview" }).click()
   await expect(frame).toBeHidden()
   await expect(page.getByRole("button", { name: "Start preview" })).toBeVisible()

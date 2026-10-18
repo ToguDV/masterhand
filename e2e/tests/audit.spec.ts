@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("shows permission-denied commands in the activity log", async ({ page }) => {
@@ -13,8 +13,8 @@ test("shows permission-denied commands in the activity log", async ({ page }) =>
   await expect(page.getByText("That command was blocked by the permission guard.")).toBeVisible()
 
   await page.getByRole("button", { name: /Activity/ }).click()
-  // The local E2E BFF reuses its DATA_DIR, so the log may hold earlier runs:
-  // the newest entry is first.
+  // Each worker gets a wiped DATA_DIR at start, but entries from earlier tests
+  // in this worker can still exist: the newest entry is first.
   const entry = page.getByRole("listitem").first()
   // The panel may need one poll cycle if the invalidated refetch was in flight.
   await expect(entry.getByText("pkill -f node")).toBeVisible({ timeout: 15_000 })

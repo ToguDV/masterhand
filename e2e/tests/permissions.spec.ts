@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test("drops a pending permission answered elsewhere after reconnecting", async ({ page, request }) => {
   await login(page)
@@ -16,8 +17,8 @@ test("drops a pending permission answered elsewhere after reconnecting", async (
   // Another device answers the request while this client is offline: the mock
   // resolves it without broadcasting `permission.replied`, so the local state
   // goes stale and only a reconnect reconciliation can clear it.
-  // The mock keeps pendings from earlier specs, so pick the newest one: it is
-  // the request this test just created.
+  // The mock keeps pendings from earlier specs in this worker, so pick the
+  // newest one: it is the request this test just created.
   let requestID = ""
   await expect
     .poll(async () => {

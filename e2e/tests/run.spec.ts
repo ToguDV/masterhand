@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL, e2ePreviewPort } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
 test("configures, starts and stops the workspace dev server from the Run panel", async ({ page }) => {
@@ -22,7 +23,7 @@ test("configures, starts and stops the workspace dev server from the Run panel",
   // MasterHand starts the PTY through opencode; the agent is not involved.
   await page.getByRole("button", { name: "Start run" }).click()
   await expect(page.getByRole("button", { name: "Stop run" })).toBeVisible()
-  await expect(page.getByText("npm run dev -- --port 4097")).toBeVisible()
+  await expect(page.getByText(`npm run dev -- --port ${e2ePreviewPort()}`)).toBeVisible()
 
   await page.getByRole("button", { name: "Stop run" }).click()
   await expect(page.getByRole("button", { name: "Start run" })).toBeVisible()
@@ -45,7 +46,7 @@ test("surfaces a dev server that dies on its own", async ({ page, request }) => 
 
   // The PTY disappears outside MasterHand (the dev server crashed): the
   // bounded running poll must flip the panel back to Start with a notice (#89).
-  await request.post("http://127.0.0.1:4097/e2e/stop-run")
+  await request.post(`${e2eMockURL()}/e2e/stop-run`)
   await expect(page.getByText("The dev server stopped.")).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole("button", { name: "Start run" })).toBeVisible()
 })

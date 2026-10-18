@@ -1,7 +1,8 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "../fixtures"
+import { e2eMockURL } from "../paths"
 import { addWorkspace, login, newSession } from "./helpers"
 
-const MOCK_URL = "http://127.0.0.1:4097"
+const MOCK_URL = e2eMockURL()
 
 test("closes the open chat when another device deletes the session", async ({ page, request }) => {
   await login(page)
