@@ -67,3 +67,12 @@ test("specs resolve the cloudflared die file from the shared paths", () => {
   assert.ok(!spec.includes("/tmp/masterhand-e2e-cloudflared-die"), "spec must not hardcode the die file")
   assert.ok(spec.includes("paths"), "spec must import the die file from the shared paths module")
 })
+
+test("the suite stays pinned to one worker until per-worker isolation lands", () => {
+  // Every spec shares one mock, one BFF, one preview port and one die file, and
+  // several flip process-global mock controls: measured 2026-10-17, --workers=2
+  // loses 5/103 tests and --workers=4 loses 8/103 to cross-worker collisions.
+  // Per-worker isolation (#175) is the unlock; update this guard with it.
+  const config = read("playwright.config.ts")
+  assert.ok(/^\s*workers:\s*1,\s*$/m.test(config), "workers must stay at 1 until per-worker isolation (#175)")
+})
