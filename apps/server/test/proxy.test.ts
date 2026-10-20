@@ -90,6 +90,21 @@ describe("opencode proxy", () => {
     expect(response.status).toBe(401)
   })
 
+  it("rejects malformed percent-encoding with 400 invalid_path", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/oc/api/session/%E0%A4%A/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "invalid_path" })
+    expect(upstream.requests.filter((request) => request.path.includes("/prompt"))).toHaveLength(0)
+  })
+
   it("responds 502 when opencode is unavailable", async () => {
     app = await startTestApp({ config: { opencodeUrl: "http://127.0.0.1:1" } })
     const cookie = await login(app.url)

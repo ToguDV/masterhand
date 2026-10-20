@@ -225,6 +225,42 @@ describe("createWorktreeManager", () => {
     expect(await manager.headBranch("/repo")).toBe("abc1234")
   })
 
+  it("never returns an option-like branch name from HEAD", async () => {
+    const run = gitStub((args) => {
+      if (args[0] === "symbolic-ref") return ok("--force\n")
+      if (args[0] === "rev-parse") return ok("abc1234\n")
+      return ok()
+    })
+    const manager = createWorktreeManager({ run })
+    expect(await manager.headBranch("/repo")).toBe("abc1234")
+
+    const valid = gitStub((args) => {
+      if (args[0] === "symbolic-ref") return ok("feature/x\n")
+      return ok()
+    })
+    expect(await createWorktreeManager({ run: valid }).headBranch("/repo")).toBe("feature/x")
+  })
+
+  it("rejects option-like branch and base refs before running git", async () => {
+    const calls: string[][] = []
+    const manager = createWorktreeManager({
+      run: gitStub((args) => {
+        calls.push(args)
+        return ok()
+      }),
+    })
+
+    await expect(manager.create("/repo", "/tmp/mh-never-created", "--force", "main")).rejects.toThrow(
+      /invalid_branch_name/,
+    )
+    await expect(
+      manager.create("/repo", "/tmp/mh-never-created", "masterhand/app-x", "--force"),
+    ).rejects.toThrow(/invalid_base_ref/)
+    await expect(manager.createBranch("/repo", "--force")).rejects.toThrow(/invalid_branch_name/)
+    await expect(manager.createBranch("/repo", "feature/x", "--force")).rejects.toThrow(/invalid_base_ref/)
+    expect(calls).toEqual([])
+  })
+
   it("creates and removes worktrees with the expected git commands", async () => {
     const calls: string[][] = []
     const run = gitStub((args) => {

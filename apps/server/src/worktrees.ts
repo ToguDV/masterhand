@@ -369,12 +369,17 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
     async headBranch(path) {
       const branch = await git(["symbolic-ref", "--short", "HEAD"], path)
-      if (branch.status === 0 && branch.stdout.trim()) return branch.stdout.trim()
+      // A HEAD pointing at an option-like ref (`refs/heads/--force`) must never
+      // be fed back to git as an argument (issue #209).
+      const name = branch.status === 0 ? branch.stdout.trim() : ""
+      if (name && isValidBranchName(name)) return name
       const sha = await git(["rev-parse", "--short", "HEAD"], path)
       return sha.stdout.trim() || "HEAD"
     },
 
     async create(repoPath, worktreePath, branch, baseRef) {
+      if (!isValidBranchName(branch)) throw new Error("invalid_branch_name")
+      if (!isValidBranchName(baseRef)) throw new Error("invalid_base_ref")
       if (existsSync(worktreePath)) throw new Error("worktree_path_exists")
       await mkdir(dirname(worktreePath), { recursive: true })
       await gitOrThrow(
@@ -472,6 +477,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
     },
 
     async createBranch(repoPath, name, baseRef) {
+      if (!isValidBranchName(name)) throw new Error("invalid_branch_name")
+      if (baseRef !== undefined && !isValidBranchName(baseRef)) throw new Error("invalid_base_ref")
       await gitOrThrow(
         ["checkout", "-b", name, ...(baseRef ? [baseRef] : [])],
         repoPath,
