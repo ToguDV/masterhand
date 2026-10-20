@@ -5,10 +5,13 @@ board and mobile-parity follow-ups (#164, #172) and the 35 findings of the 2026-
 audit (#178–#212) — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
 C1–C14 and C17 are merged or closed.
 
-**Last updated:** 2026-10-20 — re-chunked after the **server audit** (security, correctness,
-performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22. The audit queue
-now precedes the release work: C18 contains the only P0 (repo-controlled git hooks executing in
-the BFF container) and C19 the remaining P1s (#179 is security, #185 and #186 are correctness).
+**Last updated:** 2026-10-20 — C18 partially landed: the session batch resolves #178, #180–#184,
+#209 and #210 (git env/config sandbox, bounded bodies, failure-only limiter, owner-only storage,
+strict boot config, provider target guard, path/ref and scheduler validation). **#179 remains
+open** (managed runs still use the engine uid, `/api/oc/*` is a broad passthrough and shells can
+inherit the engine password); it needs runtime uid verification and the deploy redesign.
+Re-chunked earlier the same day after the **server audit** (security, correctness,
+performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22.
 
 **Previous note:** 2026-10-17 — **C17 landed** (scheduler, #147, on `feat/scheduler`): BFF
 scheduler module + routes, `client-core` contract/queries and the web sidebar; mobile parity is
@@ -53,7 +56,7 @@ in the sessions options box per #136/#137).
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ⬜ Pending — **P0 #178** |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | 🟡 In progress — 8/9 landed in the session batch (#178 #180 #181 #182 #183 #184 #209 #210); **#179 remains open** |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
@@ -70,13 +73,13 @@ in the sessions options box per #136/#137).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** **P0 [#178](https://github.com/ToguDV/masterhand/issues/178)**
-(git hooks/config from a workspace execute as the BFF user with `/data` and its secrets) and
-**P1 [#179](https://github.com/ToguDV/masterhand/issues/179)** (managed runs keep the engine uid),
+**Highest severity in the queue:** **P1 [#179](https://github.com/ToguDV/masterhand/issues/179)**
+(managed runs keep the engine uid; `/api/oc/*` is still a broad passthrough and shells can inherit
+the engine password) — the former P0 #178 landed in this session batch. Next:
 **[#185](https://github.com/ToguDV/masterhand/issues/185)** (a create timeout deletes the worktree
 the client still has to reconcile) and **[#186](https://github.com/ToguDV/masterhand/issues/186)**
 (no SQLite migration runner). Suggested batch order:
-**C18 → C19 → C20 → C21 → C22 → C15 → C16**. C15 depends on #186 for its forward-only migrations;
+**C18 (#179) → C19 → C20 → C21 → C22 → C15 → C16**. C15 depends on #186 for its forward-only migrations;
 C16 stays deferred (opt-in).
 
 ## Chunks — current batch (C18–C22)
