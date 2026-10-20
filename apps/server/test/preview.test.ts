@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -250,6 +250,32 @@ describe("orphan tunnel cleanup", () => {
       writeFileSync(tunnelPidFile(dir), "{not json")
       expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("writes the tunnel PID file as 0600 and tightens an existing one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
+    const file = tunnelPidFile(dir)
+    // A file left by an older version is world-readable: tracking must fix it.
+    writeFileSync(file, JSON.stringify([111]))
+    chmodSync(file, 0o644)
+    const tunnel = createFakeTunnel("https://fake-preview.trycloudflare.com", { pid: 4242 })
+    const manager = createPreviewManager({
+      config: testConfig({ dataDir: dir }),
+      store: createMemoryStore(),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => true,
+    })
+    try {
+      await manager.start("ses_1")
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+      manager.stop("ses_1")
+      expect(statSync(file).mode & 0o777).toBe(0o600)
+    } finally {
+      manager.stopAll()
       rmSync(dir, { recursive: true, force: true })
     }
   })

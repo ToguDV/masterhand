@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process"
-import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { connect } from "node:net"
 import { join } from "node:path"
 import type { Config } from "./config.js"
@@ -62,6 +62,8 @@ const READINESS_REQUEST_TIMEOUT_MS = 5_000
 const KILL_GRACE_MS = 3000
 /** Port-allocation retries on a UNIQUE(port) race before giving up. */
 const MAX_PORT_ATTEMPTS = 5
+/** Tunnel PIDs are operational state; keep them owner-only like the data dir. */
+const PID_FILE_MODE = 0o600
 
 interface RunningPreview {
   child: ChildProcess
@@ -133,7 +135,9 @@ function readTrackedPids(file: string): number[] {
 
 function writeTrackedPids(file: string, pids: number[]): void {
   try {
-    writeFileSync(file, JSON.stringify(pids), "utf8")
+    writeFileSync(file, JSON.stringify(pids), { encoding: "utf8", mode: PID_FILE_MODE })
+    // `mode` only applies when the file is created; tighten a legacy file too.
+    chmodSync(file, PID_FILE_MODE)
   } catch {
     // best effort: a read-only data dir must not break previews
   }

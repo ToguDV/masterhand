@@ -1,4 +1,40 @@
+import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs"
 import Database from "better-sqlite3"
+
+/** Owner-only data directory: it holds the database, backups and tunnel PIDs. */
+const PRIVATE_DIR_MODE = 0o700
+/** Owner-only files: SQLite (and its WAL/SHM) plus backups contain credentials. */
+const PRIVATE_FILE_MODE = 0o600
+
+/**
+ * Creates the data directory or tightens an existing one to 0700 (issue #182).
+ * A pre-existing 0755 directory from an older release is fixed here.
+ */
+export function ensureDataDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR_MODE })
+  chmodSync(dir, PRIVATE_DIR_MODE)
+}
+
+/**
+ * Creates the database file at 0600 *before* SQLite opens it: SQLite copies the
+ * database mode onto the WAL/SHM sidecars it creates, so they are private from
+ * creation. Chmod also tightens a database left 0644 by an older release.
+ */
+function prepareDatabaseFile(file: string): void {
+  closeSync(openSync(file, "a", PRIVATE_FILE_MODE))
+  chmodSync(file, PRIVATE_FILE_MODE)
+}
+
+/** Sidecars are created on demand; a legacy one must not stay world-readable. */
+function tightenDatabaseSidecars(file: string): void {
+  for (const suffix of ["-wal", "-shm"]) {
+    try {
+      chmodSync(`${file}${suffix}`, PRIVATE_FILE_MODE)
+    } catch {
+      // Not created yet (or a read-only volume); SQLite inherits the DB mode.
+    }
+  }
+}
 
 /** True when the error is a SQLite failure (disk full, read-only, corrupt, …). */
 export function isStorageError(error: unknown): boolean {
@@ -17,11 +53,19 @@ export function isStorageConflict(error: unknown): boolean {
  * exist; the result is a consistent, compacted snapshot safe to restore.
  */
 export function backupDatabase(source: string, destination: string): void {
-  const db = new Database(source)
+  // The snapshot is a full copy of the database. Set the umask before VACUUM
+  // creates the file so it is never briefly world-readable; restore it after.
+  const previousUmask = process.umask(0o077)
   try {
-    db.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`)
+    const db = new Database(source)
+    try {
+      db.exec(`VACUUM INTO '${destination.replace(/'/g, "''")}'`)
+    } finally {
+      db.close()
+    }
+    chmodSync(destination, PRIVATE_FILE_MODE)
   } finally {
-    db.close()
+    process.umask(previousUmask)
   }
 }
 
@@ -361,12 +405,14 @@ export interface Store {
 }
 
 export function createSqliteStore(file: string): Store {
+  prepareDatabaseFile(file)
   const db = new Database(file)
   // Single BFF instance over one SQLite file (ARCHITECTURE.md ADR-26). WAL
   // keeps readers non-blocking while a write is in flight, NORMAL avoids an
   // fsync per commit on the audit/touch path, and busy_timeout absorbs a
   // concurrent writer briefly instead of failing with SQLITE_BUSY.
   db.pragma("journal_mode = WAL")
+  tightenDatabaseSidecars(file)
   db.pragma("synchronous = NORMAL")
   db.pragma("busy_timeout = 5000")
 
