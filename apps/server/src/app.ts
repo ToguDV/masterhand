@@ -262,6 +262,19 @@ export function createApp(deps: AppDeps): Hono {
   const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
   const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
+
+  /**
+   * Wrong credentials: count the failure, log it without the secret, and
+   * answer 429 only once the window's budget is exhausted (issue #181).
+   */
+  const rejectPassword = (c: Context, ip: string): Response => {
+    const now = Date.now()
+    const blocked = loginLimiter.isBlocked(ip, now)
+    if (!blocked) loginLimiter.recordFailure(ip, now)
+    console.warn(`[masterhand] login failed from ${ip} at ${new Date(now).toISOString()}`)
+    if (blocked) return c.json({ error: "too_many_attempts" }, 429)
+    return c.json({ error: "invalid_password" }, 401)
+  }
   const worktrees =
     deps.worktrees ??
     createWorktreeManager({
@@ -981,10 +994,6 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post("/api/login", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    if (!loginLimiter.check(ip)) {
-      return c.json({ error: "too_many_attempts" }, 429)
-    }
-
     let password: unknown
     try {
       password = (await c.req.json<{ password?: unknown }>()).password
@@ -994,8 +1003,10 @@ export function createApp(deps: AppDeps): Hono {
     if (typeof password !== "string" || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) {
       return c.json({ error: "bad_request" }, 400)
     }
+    // The correct password always wins, even when the failure budget is spent:
+    // only failures are counted, so a locked-out user is never locked out.
     if (!passwordsMatch(password, config.masterhandPassword)) {
-      return c.json({ error: "invalid_password" }, 401)
+      return rejectPassword(c, ip)
     }
 
     loginLimiter.reset(ip)
@@ -1006,10 +1017,6 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post("/api/devices", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    if (!loginLimiter.check(ip)) {
-      return c.json({ error: "too_many_attempts" }, 429)
-    }
-
     let body: { password?: unknown; name?: unknown }
     try {
       body = await c.req.json()
@@ -1024,7 +1031,7 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: "bad_request" }, 400)
     }
     if (!passwordsMatch(body.password, config.masterhandPassword)) {
-      return c.json({ error: "invalid_password" }, 401)
+      return rejectPassword(c, ip)
     }
 
     loginLimiter.reset(ip)

@@ -63,7 +63,7 @@ describe("cookie auth", () => {
     expect(setCookie).toContain("mh_session=")
   })
 
-  it("rate limits failed logins (429)", async () => {
+  it("rate limits failed logins but accepts the correct password", async () => {
     app = await startTestApp()
     for (let attempt = 0; attempt < 5; attempt++) {
       const response = await fetch(`${app.url}/api/login`, {
@@ -76,9 +76,17 @@ describe("cookie auth", () => {
     const blocked = await fetch(`${app.url}/api/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password: "secret" }),
+      body: JSON.stringify({ password: "wrong" }),
     })
     expect(blocked.status).toBe(429)
+
+    // A correct password is always verified first (issue #181).
+    const correct = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(correct.status).toBe(200)
   })
 
   it("rejects mutations from a foreign origin", async () => {

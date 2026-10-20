@@ -85,34 +85,72 @@ describe("verifyToken", () => {
 })
 
 describe("createRateLimiter", () => {
-  it("allows up to max attempts inside the window", () => {
+  it("blocks only after the failure budget is exhausted", () => {
     const limiter = createRateLimiter({ windowMs: 1000, max: 2 })
-    expect(limiter.check("ip", 0)).toBe(true)
-    expect(limiter.check("ip", 10)).toBe(true)
-    expect(limiter.check("ip", 20)).toBe(false)
+    expect(limiter.isBlocked("ip", 0)).toBe(false)
+    limiter.recordFailure("ip", 10)
+    expect(limiter.isBlocked("ip", 20)).toBe(false)
+    limiter.recordFailure("ip", 20)
+    expect(limiter.isBlocked("ip", 30)).toBe(true)
   })
 
   it("frees the slot once the window slides", () => {
     const limiter = createRateLimiter({ windowMs: 1000, max: 1 })
-    expect(limiter.check("ip", 0)).toBe(true)
-    expect(limiter.check("ip", 500)).toBe(false)
-    expect(limiter.check("ip", 1500)).toBe(true)
+    limiter.recordFailure("ip", 0)
+    expect(limiter.isBlocked("ip", 500)).toBe(true)
+    expect(limiter.isBlocked("ip", 1500)).toBe(false)
   })
 
   it("tracks keys independently and can reset them", () => {
     const limiter = createRateLimiter({ windowMs: 1000, max: 1 })
-    expect(limiter.check("a", 0)).toBe(true)
-    expect(limiter.check("b", 0)).toBe(true)
+    limiter.recordFailure("a", 0)
+    limiter.recordFailure("b", 0)
+    expect(limiter.isBlocked("a", 0)).toBe(true)
+    expect(limiter.isBlocked("b", 0)).toBe(true)
     limiter.reset("a")
-    expect(limiter.check("a", 0)).toBe(true)
+    expect(limiter.isBlocked("a", 0)).toBe(false)
+    expect(limiter.isBlocked("b", 0)).toBe(true)
+  })
+
+  it("bounds the key map, dropping the least recently failed key", () => {
+    const limiter = createRateLimiter({ windowMs: 10_000, max: 1, maxKeys: 2 })
+    limiter.recordFailure("a", 0)
+    limiter.recordFailure("b", 1)
+    limiter.recordFailure("a", 2) // refresh a; b is now the oldest
+    limiter.recordFailure("c", 3) // evicts b
+    expect(limiter.size()).toBe(2)
+    expect(limiter.isBlocked("a", 4)).toBe(true)
+    expect(limiter.isBlocked("b", 4)).toBe(false)
+    expect(limiter.isBlocked("c", 4)).toBe(true)
+  })
+
+  it("evicts keys whose failures fell outside the window", () => {
+    const limiter = createRateLimiter({ windowMs: 1000, max: 1 })
+    limiter.recordFailure("a", 0)
+    limiter.recordFailure("b", 10)
+    expect(limiter.size()).toBe(2)
+    // A failure far past the window triggers a sweep of stale keys.
+    limiter.recordFailure("c", 5000)
+    expect(limiter.size()).toBe(1)
+  })
+
+  it("bounds the number of tracked keys (LRU)", () => {
+    const limiter = createRateLimiter({ windowMs: 60_000, max: 5, maxKeys: 2 })
+    limiter.recordFailure("a", 0)
+    limiter.recordFailure("b", 1)
+    limiter.recordFailure("c", 2)
+    expect(limiter.size()).toBe(2)
+    // "a" was the least recently seen and its budget was dropped.
+    expect(limiter.isBlocked("a", 3)).toBe(false)
   })
 
   it("uses Date.now by default", () => {
     vi.useFakeTimers()
     try {
       const limiter = createRateLimiter({ windowMs: 1000, max: 1 })
-      expect(limiter.check("ip")).toBe(true)
-      expect(limiter.check("ip")).toBe(false)
+      expect(limiter.isBlocked("ip")).toBe(false)
+      limiter.recordFailure("ip")
+      expect(limiter.isBlocked("ip")).toBe(true)
     } finally {
       vi.useRealTimers()
     }

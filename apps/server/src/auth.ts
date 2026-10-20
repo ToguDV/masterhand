@@ -88,27 +88,80 @@ export function verifyToken(secret: string, token: string | undefined, now = Dat
   }
 }
 
-export interface RateLimiter {
-  check(key: string, now?: number): boolean
-  reset(key: string): void
+export interface RateLimiterOptions {
+  windowMs: number
+  max: number
+  /** Upper bound on tracked keys; the least recently failed key is dropped. */
+  maxKeys?: number
 }
 
-export function createRateLimiter(options: { windowMs: number; max: number }): RateLimiter {
+export interface RateLimiter {
+  /** True when `key` already reached its failure budget inside the window. */
+  isBlocked(key: string, now?: number): boolean
+  /** Records one failed attempt; successes must never consume the budget. */
+  recordFailure(key: string, now?: number): void
+  reset(key: string): void
+  /** Number of keys currently tracked (tests/observability). */
+  size(): number
+}
+
+/**
+ * Failure-only sliding-window limiter (issue #181): a correct password never
+ * calls `recordFailure`, so it succeeds even when the budget is exhausted.
+ * Keys are bounded (LRU) and swept once their failures leave the window, so
+ * an attacker rotating IPs cannot grow the map without limit.
+ */
+export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
+  const maxKeys = Math.max(1, options.maxKeys ?? 10_000)
   const attempts = new Map<string, number[]>()
+  let lastSweep = Number.NEGATIVE_INFINITY
+
+  function recent(key: string, now: number): number[] {
+    const timestamps = attempts.get(key)
+    if (!timestamps) return []
+    const kept = timestamps.filter((timestamp) => now - timestamp < options.windowMs)
+    if (kept.length === 0) attempts.delete(key)
+    else if (kept.length !== timestamps.length) attempts.set(key, kept)
+    return kept
+  }
+
+  function sweep(now: number): void {
+    // Amortized expiry: a full pass at most once per window, so a flood of
+    // distinct keys never turns every request into an O(map) scan.
+    if (now - lastSweep >= options.windowMs) {
+      lastSweep = now
+      for (const [key, timestamps] of attempts) {
+        const kept = timestamps.filter((timestamp) => now - timestamp < options.windowMs)
+        if (kept.length === 0) attempts.delete(key)
+        else if (kept.length !== timestamps.length) attempts.set(key, kept)
+      }
+    }
+    // Map iteration follows insertion order and `recordFailure` re-inserts the
+    // key, so the first entry is the least recently failed one.
+    while (attempts.size > maxKeys) {
+      const oldest = attempts.keys().next().value
+      if (oldest === undefined) break
+      attempts.delete(oldest)
+    }
+  }
 
   return {
-    check(key, now = Date.now()) {
-      const recent = (attempts.get(key) ?? []).filter((timestamp) => now - timestamp < options.windowMs)
-      if (recent.length >= options.max) {
-        attempts.set(key, recent)
-        return false
-      }
-      recent.push(now)
-      attempts.set(key, recent)
-      return true
+    isBlocked(key, now = Date.now()) {
+      sweep(now)
+      return recent(key, now).length >= options.max
+    },
+    recordFailure(key, now = Date.now()) {
+      const kept = recent(key, now)
+      kept.push(now)
+      attempts.delete(key)
+      attempts.set(key, kept)
+      sweep(now)
     },
     reset(key) {
       attempts.delete(key)
+    },
+    size() {
+      return attempts.size
     },
   }
 }

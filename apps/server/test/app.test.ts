@@ -980,6 +980,88 @@ describe("login rate limiting", () => {
     expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
     expect(statuses[5]).toBe(429)
   })
+
+  it("accepts the correct password after five failures", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong" }),
+      })
+      expect(response.status).toBe(401)
+    }
+
+    const correct = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(correct.status).toBe(200)
+    expect(correct.headers.getSetCookie()[0]).toContain("mh_session=")
+  })
+
+  it("accepts the correct password on the sixth attempt even when blocked", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong" }),
+      })
+      expect(response.status).toBe(attempt < 5 ? 401 : 429)
+    }
+
+    const correct = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(correct.status).toBe(200)
+  })
+
+  it("accepts the correct password after five failed device registrations", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch(`${app.url}/api/devices`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong", name: "Phone" }),
+      })
+      expect(response.status).toBe(401)
+    }
+
+    const correct = await fetch(`${app.url}/api/devices`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret", name: "Phone" }),
+    })
+    expect(correct.status).toBe(201)
+  })
+
+  it("logs failed attempts with IP and timestamp but never the password", async () => {
+    app = await startTestApp()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "super-secret-guess" }),
+      })
+
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "))
+      const entry = lines.find((line) => line.includes("login failed"))
+      expect(entry).toBeDefined()
+      expect(entry).toContain("127.0.0.1")
+      expect(entry).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+      expect(entry).not.toContain("super-secret-guess")
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })
 
 describe("out-of-band session deletion", () => {
