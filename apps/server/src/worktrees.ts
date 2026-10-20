@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process"
 import type { ChildProcess } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, mkdtempSync, realpathSync } from "node:fs"
 import { mkdir, rename, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { basename, dirname, join, resolve, sep } from "node:path"
 import type { Store } from "./store.js"
 
@@ -175,16 +176,146 @@ function spawnResult(
   })
 }
 
+/**
+ * Workspace repositories are untrusted input: agents and cloned projects
+ * control `.git/config`, hooks and attributes. Two layers keep that content
+ * from executing programs inside the BFF (issue #178):
+ *
+ * 1. Git children never inherit `process.env`. They get PATH, a private empty
+ *    HOME and explicit variables only, plus `GIT_CONFIG_*` overrides. Those
+ *    overrides are command-scope config, so they beat system/global/local/
+ *    worktree files and are inherited by any git process the CLI spawns.
+ * 2. `createWorktreeManager` preflights the repository-local config and
+ *    refuses keys that can execute a program or include more config.
+ *
+ * Residual risk: the preflight is a deny-list and runs immediately before each
+ * operation, so a writer that rewrites `.git/config` between the check and the
+ * command (TOCTOU) could still add a vector this list does not cover. The
+ * vectors reachable from the commands run here (hooks, fsmonitor, credential
+ * helpers, SSH command, filters/diff/merge drivers, includes) are both denied
+ * and — where git exposes an env override — neutralized. System/global config
+ * stays trusted operator config; the temp HOME guarantees git never reads the
+ * BFF user's `~/.gitconfig`.
+ */
+const UNSAFE_LOCAL_CONFIG =
+  /^(filter\..*\.(clean|smudge|process)|diff\..*\.(command|textconv)|diff\.external|merge\..*\.driver|include\..*|includeif\..*\.path|credential\..*|core\.(fsmonitor|sshcommand|worktree|askpass)|commit\.gpgsign|gpg\.program|url\..*\.insteadof|submodule\..*\.update)$/
+
+/**
+ * Forced on every git child. `GIT_CONFIG_*` entries are applied at command
+ * scope (after every config file), so repo-local values cannot win.
+ */
+const NEUTRALIZED_GIT_CONFIG: ReadonlyArray<readonly [string, string]> = [
+  // /dev/null disables every hook without needing a writable directory.
+  ["core.hooksPath", "/dev/null"],
+  ["core.fsmonitor", "false"],
+  // An empty helper resets the list, so a repo cannot point credentials at a script.
+  ["credential.helper", ""],
+  ["core.sshCommand", ""],
+  // Signing would execute a repo-configured gpg program on every commit.
+  ["commit.gpgSign", "false"],
+]
+
+/** Private empty HOME for git children; nothing from the BFF user's home is reachable. */
+let gitHome: string | null = null
+function isolatedGitHome(): string {
+  gitHome ??= mkdtempSync(join(tmpdir(), "masterhand-git-home-"))
+  return gitHome
+}
+
+/**
+ * Environment for git children. The allowlist is deliberate: BFF secrets
+ * (SESSION_SECRET, MASTERHAND_PASSWORD, OPENCODE_SERVER_PASSWORD, provider keys)
+ * and provider tokens must never reach a repo-controlled process.
+ *
+ * `safe.directory` is scoped to the exact repository path being operated on
+ * (command-scope config, verified against git 2.39): the image-level
+ * `safe.directory /workspace` does not cover `/workspace/<name>`, and a `*`
+ * would trust every repository in the container. Only paths the BFF itself
+ * resolved from its workspace record reach this function.
+ */
+function sanitizedGitEnv(extra: NodeJS.ProcessEnv = {}, cwd?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: isolatedGitHome(),
+    // Never block waiting for credentials on the server.
+    GIT_TERMINAL_PROMPT: "0",
+    ...extra,
+  }
+  // Operator-provided credential helpers (deployment runbook): still explicit,
+  // never inherited wholesale. Neither is ever repo-controlled.
+  if (process.env.GIT_SSH_COMMAND) env.GIT_SSH_COMMAND = process.env.GIT_SSH_COMMAND
+  if (process.env.GIT_ASKPASS) env.GIT_ASKPASS = process.env.GIT_ASKPASS
+  const config: Array<readonly [string, string]> = [...NEUTRALIZED_GIT_CONFIG]
+  if (cwd) {
+    const root = realpathSyncSafe(cwd)
+    config.push(["safe.directory", root])
+    if (root !== cwd) config.push(["safe.directory", cwd])
+  }
+  env.GIT_CONFIG_COUNT = String(config.length)
+  config.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key
+    env[`GIT_CONFIG_VALUE_${index}`] = value
+  })
+  return env
+}
+
+/**
+ * Only commands that can invoke repository-controlled code need the preflight:
+ * filters on `add`, hooks/fsmonitor on `commit`/`checkout`/`status`/`push`,
+ * external diff/textconv on `diff`. Read-only plumbing (`rev-parse`,
+ * `symbolic-ref`, `remote`, `for-each-ref`, `worktree list`) cannot execute
+ * repo content, and the env overrides already neutralize the vectors that
+ * apply there.
+ */
+function needsConfigPreflight(args: string[]): boolean {
+  const [command, subcommand] = args
+  if (command === "worktree") return subcommand === "add" || subcommand === "checkout"
+  return (
+    command === "add" ||
+    command === "commit" ||
+    command === "checkout" ||
+    command === "status" ||
+    command === "push" ||
+    command === "diff" ||
+    command === "merge"
+  )
+}
+
+/**
+ * Refuses a repository whose local config can execute code. Uses `spawnResult`
+ * directly (not the injectable runner) to avoid recursion, and only fails on a
+ * match: status 1 (no match) and non-repo errors let the real command report.
+ */
+async function assertSafeLocalConfig(cwd: string, timeoutMs: number): Promise<void> {
+  const unsafe = new Set<string>()
+  // `--local` is `.git/config`; with `extensions.worktreeConfig` a repo can also
+  // carry keys in `.git/config.worktree`, so both scopes are checked.
+  for (const scope of ["--local", "--worktree"]) {
+    const result = await spawnResult(
+      "git",
+      ["config", scope, "--name-only", "--get-regexp", UNSAFE_LOCAL_CONFIG.source],
+      cwd,
+      { timeoutMs, env: sanitizedGitEnv({}, cwd) },
+    )
+    if (result.status !== 0) continue
+    for (const line of result.stdout.split("\n")) {
+      const key = line.trim()
+      // Only a key from the deny-list is fatal: a broken/foreign `git` must not
+      // turn arbitrary output into an unsafe_git_config error.
+      if (key && UNSAFE_LOCAL_CONFIG.test(key)) unsafe.add(key)
+    }
+  }
+  if (unsafe.size > 0) {
+    throw new Error(`unsafe_git_config: ${[...unsafe].sort().join(", ")}`)
+  }
+}
+
 /** Default async git runner; exported for tests and for callers needing a custom cwd env. */
 export function runGitCommand(args: string[], cwd: string, options: GitRunOptions = {}): Promise<GitResult> {
   return spawnResult("git", args, cwd, {
     timeoutMs: options.timeoutMs ?? GIT_TIMEOUT_MS,
     signal: options.signal,
-    env: {
-      ...process.env,
-      // Never block waiting for credentials on the server.
-      GIT_TERMINAL_PROMPT: "0",
-    },
+    env: sanitizedGitEnv({}, cwd),
   })
 }
 
@@ -195,7 +326,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const userName = options.userName ?? "MasterHand"
   const userEmail = options.userEmail ?? "masterhand@localhost"
 
-  function git(args: string[], cwd: string, runOptions: GitRunOptions = {}): Promise<GitResult> {
+  async function git(args: string[], cwd: string, runOptions: GitRunOptions = {}): Promise<GitResult> {
+    if (needsConfigPreflight(args)) await assertSafeLocalConfig(cwd, gitTimeoutMs)
     return run(args, cwd, { timeoutMs: gitTimeoutMs, ...runOptions })
   }
 
@@ -227,7 +359,11 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       }
       const head = await git(["rev-parse", "--verify", "HEAD"], path)
       if (head.status !== 0) {
-        await gitOrThrow([...authorArgs, "commit", "--allow-empty", "-m", "Initial commit"], path, "git_commit_failed")
+        await gitOrThrow(
+          [...authorArgs, "commit", "--no-verify", "--allow-empty", "-m", "Initial commit"],
+          path,
+          "git_commit_failed",
+        )
       }
     },
 
@@ -285,7 +421,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       await gitOrThrow(["add", "-A"], worktreePath, "git_add_failed")
       const diff = await git(["diff", "--cached", "--quiet"], worktreePath)
       if (diff.status === 0) return false
-      await gitOrThrow([...authorArgs, "commit", "-m", message], worktreePath, "git_commit_failed")
+      await gitOrThrow([...authorArgs, "commit", "--no-verify", "-m", message], worktreePath, "git_commit_failed")
       return true
     },
 
@@ -305,7 +441,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
     },
 
     async push(worktreePath, branch) {
-      await gitOrThrow(["push", "-u", "origin", branch], worktreePath, "git_push_failed")
+      await gitOrThrow(["push", "--no-verify", "-u", "origin", branch], worktreePath, "git_push_failed")
     },
 
     async pullRequest(worktreePath, remoteUrl, branch, baseRef) {
@@ -422,14 +558,25 @@ export function remoteWebUrl(remoteUrl: string): string | null {
 export type CommandRunner = (command: string, args: string[], cwd: string) => Promise<GitResult>
 
 function defaultCommandRunner(command: string, args: string[], cwd: string): Promise<GitResult> {
-  return spawnResult(command, args, cwd, {
-    timeoutMs: GIT_TIMEOUT_MS,
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
+  const env = sanitizedGitEnv(
+    {
       GH_PROMPT_DISABLED: "1",
       GITLAB_PROMPT_DISABLED: "1",
     },
+    cwd,
+  )
+  // Operator credentials are opt-in, one provider at a time: the CLI never
+  // inherits the BFF's environment (and `git` never receives a provider token).
+  const token =
+    command === "gh"
+      ? (process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN)
+      : command === "glab"
+        ? process.env.GITLAB_TOKEN
+        : undefined
+  if (token) env[command === "gh" ? "GH_TOKEN" : "GITLAB_TOKEN"] = token
+  return spawnResult(command, args, cwd, {
+    timeoutMs: GIT_TIMEOUT_MS,
+    env,
   })
 }
 

@@ -183,6 +183,7 @@ describe("createWorktreeManager", () => {
     const commit = calls[3] ?? []
     expect(commit).toContain("commit")
     expect(commit).toContain("--allow-empty")
+    expect(commit).toContain("--no-verify")
     expect(commit).toContain("user.name=MH")
   })
 
@@ -320,6 +321,7 @@ describe("createWorktreeManager", () => {
       "-c",
       "user.email=masterhand@localhost",
       "commit",
+      "--no-verify",
       "-m",
       "message",
     ])
@@ -340,7 +342,7 @@ describe("createWorktreeManager", () => {
     expect(await manager.hasRemote("/worktree")).toBe(true)
     expect(await manager.remoteUrl("/worktree")).toBe("git@github.com:org/repo.git")
     await manager.push("/worktree", "masterhand/app-x")
-    expect(calls.at(-1)).toEqual(["push", "-u", "origin", "masterhand/app-x"])
+    expect(calls.at(-1)).toEqual(["push", "--no-verify", "-u", "origin", "masterhand/app-x"])
   })
 
   it("lists local branches with the current one first", async () => {
