@@ -96,7 +96,16 @@ export function createOpencodeProxy(
     const idempotent =
       method === "GET" || method === "HEAD" || (method === "POST" && IDEMPOTENT_POST_PATHS.some((re) => re.test(path)))
     const promptMatch = method === "POST" ? PROMPT_PATH.exec(path) : null
-    const promptSessionID = promptMatch?.[1] ? decodeURIComponent(promptMatch[1]) : null
+    let promptSessionID: string | null = null
+    if (promptMatch?.[1]) {
+      try {
+        promptSessionID = decodeURIComponent(promptMatch[1])
+      } catch {
+        // Malformed escapes used to throw a URIError and surface as a 500; the
+        // path is invalid input, never an internal failure (issue #209).
+        return c.json({ error: "invalid_path" }, 400)
+      }
+    }
     const deliveryMarker = promptSessionID ? deliveryMarkerOf(body) : null
     // A prompt without a delivery marker (slash commands) cannot be reconciled:
     // replaying it could duplicate the turn, so it stays single-shot.

@@ -1,5 +1,9 @@
 import { backupDatabase } from "./store.js"
 
+// Backups are full copies of the database (device tokens, password hashes):
+// owner-only from the first byte. See docs/runbooks/backups.md.
+process.umask(0o077)
+
 /**
  * Offline-safe database backup CLI: `VACUUM INTO` produces a consistent,
  * compacted copy of a live database.

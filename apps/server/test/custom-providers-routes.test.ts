@@ -182,6 +182,30 @@ describe("/api/providers/custom/models ", () => {
     }
   })
 
+  it("refuses loopback and link-local metadata targets without calling them", async () => {
+    let called = false
+    const fetchImpl = (async () => {
+      called = true
+      return Response.json({ data: [] })
+    }) as typeof fetch
+    const { app, headers } = await setup(fetchImpl)
+    try {
+      for (const baseURL of ["http://169.254.169.254/latest/meta-data", "http://[::1]:8080/v1"]) {
+        const response = await fetch(`${app.url}/api/providers/custom/models`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ baseURL, key: "sk-secret" }),
+        })
+        // A blocked target is invalid caller input, not an upstream failure.
+        expect(response.status).toBe(400)
+        expect(await response.json()).toEqual({ error: "invalid_base_url" })
+      }
+      expect(called).toBe(false)
+    } finally {
+      await app.close()
+    }
+  })
+
   it("maps a rejected key to a typed upstream error", async () => {
     const fetchImpl = (async () => new Response(null, { status: 401 })) as typeof fetch
     const { app, headers } = await setup(fetchImpl)

@@ -18,16 +18,18 @@ Fill in `deploy/.env`:
 
 | Variable | Purpose |
 |---|---|
-| `MASTERHAND_PASSWORD` | Password to access the UI |
-| `SESSION_SECRET` | Cookie/token signing secret (`openssl rand -hex 32`) |
+| `MASTERHAND_PASSWORD` | Password to access the UI. Production requires **at least 32 bytes** and rejects the example/placeholder values |
+| `SESSION_SECRET` | Cookie/token signing secret (`openssl rand -hex 32`), **at least 32 bytes** in production |
 | `OPENCODE_SERVER_PASSWORD` | Password for the internal opencode server |
 | `SESSION_TTL_HOURS` | Session lifetime in hours (default `720`) |
-| `COOKIE_SECURE` | Set `true` behind HTTPS, `false` only for local HTTP |
+| `COOKIE_SECURE` | Set `true` behind HTTPS, `false` only for local HTTP. Booleans accept `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive); any other value aborts boot. `false` logs a plain-HTTP warning |
 | `ALLOWED_ORIGINS` | Extra origins allowed on mutating requests (comma-separated) |
 | `MASTERHAND_BIND` / `MASTERHAND_PORT` | Host bind address and port for the BFF (default `0.0.0.0:8787`; use `127.0.0.1` when the proxy runs on the host) |
 | `WORKSPACES_DIR` | Host directory mounted into opencode as `/workspace` (default `../workspace`). Each workspace you add becomes a subfolder inside it |
 | `GIT_COMMIT_NAME` / `GIT_COMMIT_EMAIL` | Author for commits MasterHand creates in isolated worktrees |
-| `GH_TOKEN` / `GITLAB_TOKEN` | Optional credentials so "Finish & PR" can push and open pull requests |
+| `GH_TOKEN` / `GITLAB_TOKEN` | Optional credentials for `gh`/`glab` (PR creation). Git push uses `GIT_SSH_COMMAND` or `GIT_ASKPASS`; see "Git credentials" below |
+| `PROXY_BODY_LIMIT_MB` | Cap on proxied opencode request bodies (default `10`, range 1–1024) |
+| `PROVIDERS_ALLOW_LOOPBACK` | Allow loopback provider-discovery targets (default `false`; set `true` only for a local provider in native/dev, not in Docker) |
 | `OPENCODE_VERSION` | Pinned opencode version |
 
 > **Workspaces:** a workspace is a single project folder. From the UI you give it a name and the BFF creates the subfolder under the workspaces root (`/workspace` in the container, i.e. `WORKSPACES_DIR` on the host), isolated from the rest. The BFF and opencode share that mount, so the BFF can create and (optionally) delete the folder while opencode works inside it. Removing a workspace only forgets it in MasterHand unless you tick "also delete files from disk", which deletes the folder and its contents.
@@ -43,6 +45,8 @@ Fill in `deploy/.env`:
 > ```
 >
 > This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine.
+>
+> **Data directory permissions:** the BFF creates `/data` as `0700` and keeps `masterhand.sqlite`, its `-wal`/`-shm` files, backups and the preview PID file at `0600` (even when they were created by an older release). If a bind mount is not owned by uid 1000, the boot `chmod` fails closed — fix ownership rather than weakening the mode.
 
 ## 3. Start the stack
 
@@ -67,27 +71,18 @@ The same file carries opencode's `websearch` selection (Settings > Web search). 
 
 ### Git credentials (isolated sessions)
 
-"Finish & PR" runs inside the **BFF** container. Without credentials it still commits locally and reports the push error in the UI. To enable push + PR:
+"Finish & PR" runs inside the **BFF** container. Without credentials it still commits locally and reports the push error in the UI.
 
-- **GitHub CLI (bundled):** set `GH_TOKEN` in `deploy/.env` and let `gh` handle the PR. For `git push`, configure the credential helper once per container (or mount a persistent gitconfig):
+**Security model (2026-10-20):** workspace repositories are untrusted. Every git child now runs with a fixed allowlist and a **private empty `HOME`**, `credential.helper=` and `core.sshCommand=` are neutralized, and repo-local credential/filter/hook/fsmonitor config is rejected. Provider tokens are passed **only** to `gh`/`glab`, never to `git`. Consequences:
 
-  ```bash
-  docker compose -f deploy/docker-compose.yml exec masterhand gh auth setup-git
-  ```
+- `~/.gitconfig`, `~/.git-credentials` and `gh auth setup-git` are **not** read by the BFF's git calls anymore. Ambient HTTPS credential stores no longer work.
+- `GH_TOKEN` / `GITLAB_TOKEN` still authenticate `gh pr create` / `glab mr create` when a PR is opened.
 
-- **Mounted credentials (durable):** mount your git config and store file read-only and add a compose override:
+To enable push + PR, use one of the explicit channels:
 
-  ```yaml
-  services:
-    masterhand:
-      volumes:
-        - ~/.gitconfig:/home/node/.gitconfig:ro
-        - ~/.git-credentials:/home/node/.git-credentials:ro
-  ```
-
-  with `[credential] helper = store` in `~/.gitconfig`.
-
-- **SSH:** mount `~/.ssh` read-only and set `GIT_SSH_COMMAND="ssh -i /home/node/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new"` for the `masterhand` service.
+- **SSH (recommended):** mount the key read-only and set `GIT_SSH_COMMAND` for the `masterhand` service, e.g. `GIT_SSH_COMMAND="ssh -i /home/node/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new"`; mount `~/.ssh/id_ed25519` plus `known_hosts`.
+- **HTTPS with an askpass script:** mount a small executable script and set `GIT_ASKPASS=/path/to/askpass.sh`. The script receives the prompt as `$1` and must print the username or token; never bake the token into the image or the repo.
+- **Provider CLI:** set `GH_TOKEN` (GitHub) or `GITLAB_TOKEN` (GitLab) for the PR step. The BFF already pushed the branch separately.
 
 `glab` is not bundled; extend `deploy/server.Dockerfile` or mount the binary to use GitLab merge requests (without it, MasterHand still returns a compare URL).
 

@@ -573,6 +573,23 @@ describe("scheduler validation", () => {
     })
   })
 
+  it("caps the task name and prompt at the documented limits", () => {
+    const base = { directory: "/w", model: { providerID: "a", id: "b" } }
+    const codeOf = (input: unknown): string => {
+      try {
+        validateTaskInput(input)
+        return "ok"
+      } catch (error) {
+        return (error as SchedulerError).code
+      }
+    }
+    expect(codeOf({ ...base, name: "n".repeat(201), prompt: "p" })).toBe("invalid_name")
+    expect(codeOf({ ...base, name: "n", prompt: "p".repeat(8001) })).toBe("invalid_prompt")
+    // Exactly at the cap is still accepted.
+    expect(validateTaskInput({ ...base, name: "n".repeat(200), prompt: "p" }).name).toHaveLength(200)
+    expect(validateTaskInput({ ...base, name: "n", prompt: "p".repeat(8000) }).prompt).toHaveLength(8000)
+  })
+
   it("computes the next run from the schedule anchor", () => {
     // Interval: first slot strictly after now, anchored to the schedule base.
     expect(nextScheduledRunAt({ kind: "interval", intervalMinutes: 30 }, BASE - 70 * MINUTE, BASE)).toBe(

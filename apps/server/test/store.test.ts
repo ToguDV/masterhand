@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
-import { backupDatabase, createMemoryStore, createSqliteStore } from "../src/store.js"
+import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
 import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
 describe("sqlite device store", () => {
@@ -38,6 +38,72 @@ describe("memory device store", () => {
     store.remove("dev_1")
     expect(store.list()).toHaveLength(0)
     store.close()
+  })
+})
+
+describe("private data permissions", () => {
+  const modeOf = (path: string): number => statSync(path).mode & 0o777
+
+  it("creates the data directory as 0700 and tightens an existing one", () => {
+    const parent = mkdtempSync(join(tmpdir(), "masterhand-modes-"))
+    try {
+      const dir = join(parent, "data")
+      ensureDataDir(dir)
+      expect(modeOf(dir)).toBe(0o700)
+
+      chmodSync(dir, 0o755)
+      ensureDataDir(dir)
+      expect(modeOf(dir)).toBe(0o700)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
+  it("boots a native data dir with a 0600 database and backup", () => {
+    const parent = mkdtempSync(join(tmpdir(), "masterhand-modes-"))
+    const dir = join(parent, "data")
+    const source = join(dir, "masterhand.sqlite")
+    const destination = join(dir, "backup.sqlite")
+    try {
+      ensureDataDir(dir)
+      const store = createSqliteStore(source)
+      try {
+        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        backupDatabase(source, destination)
+        expect(modeOf(source)).toBe(0o600)
+        expect(modeOf(`${source}-wal`)).toBe(0o600)
+        expect(modeOf(`${source}-shm`)).toBe(0o600)
+      } finally {
+        store.close()
+      }
+      expect(modeOf(dir)).toBe(0o700)
+      expect(modeOf(destination)).toBe(0o600)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
+  it("tightens a database created earlier with a permissive mode", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-modes-"))
+    const source = join(dir, "legacy.sqlite")
+    try {
+      const legacy = new Database(source)
+      legacy.exec("CREATE TABLE legacy (id INTEGER)")
+      legacy.close()
+      chmodSync(source, 0o644)
+
+      const store = createSqliteStore(source)
+      try {
+        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        expect(modeOf(source)).toBe(0o600)
+        expect(modeOf(`${source}-wal`)).toBe(0o600)
+        expect(modeOf(`${source}-shm`)).toBe(0o600)
+      } finally {
+        store.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

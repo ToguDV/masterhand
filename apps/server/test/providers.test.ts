@@ -403,6 +403,181 @@ describe("fetchProviderModels ", () => {
     expect(seen!.headers.get("x-a")).toBe("b")
   })
 
+  function recorder(): { calls: string[]; fetchImpl: typeof fetch } {
+    const calls: string[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return Response.json({ data: [{ id: "a" }] })
+    }) as typeof fetch
+    return { calls, fetchImpl }
+  }
+
+  it("rejects loopback, unspecified, link-local/metadata, multicast and reserved targets", async () => {
+    const blocked = [
+      "http://127.0.0.1:8080/v1",
+      "http://127.10.20.30/v1",
+      "http://[::1]:8080/v1",
+      "http://0.0.0.0:8080/v1",
+      "http://[::]:8080/v1",
+      "http://169.254.169.254/latest/meta-data",
+      "http://[fe80::1]/v1",
+      "http://[fd00:ec2::254]/v1",
+      "http://224.0.0.1/v1",
+      "http://[ff02::1]/v1",
+      "http://[::ffff:127.0.0.1]/v1",
+      "http://[::ffff:169.254.169.254]/v1",
+      "http://[0:0:0:0:0:ffff:127.0.0.1]/v1",
+      "http://[fe80::1%25eth0]/v1",
+      "http://[::2]/v1",
+      "http://2130706433/v1",
+      "http://0x7f.1/v1",
+    ]
+    for (const baseURL of blocked) {
+      const { calls, fetchImpl } = recorder()
+      const result = await fetchProviderModels({ baseURL }, { fetchImpl, resolver: async () => [] })
+      expect(result, baseURL).toEqual({ ok: false, error: "invalid_base_url" })
+      expect(calls, baseURL).toEqual([])
+    }
+  })
+
+  it("keeps private LAN targets allowed, IPv4-mapped ones included (ADR-30)", async () => {
+    const allowed = [
+      "http://192.168.1.10:8080/v1",
+      "http://10.1.2.3/v1",
+      "http://172.20.0.2/v1",
+      "http://[fd12:3456:789a::10]/v1",
+      "http://[::ffff:192.168.1.10]/v1",
+    ]
+    for (const baseURL of allowed) {
+      const { calls, fetchImpl } = recorder()
+      const result = await fetchProviderModels({ baseURL }, { fetchImpl, resolver: async () => [] })
+      expect(result, baseURL).toEqual({ ok: true, models: [{ id: "a" }] })
+      expect(calls, baseURL).toHaveLength(1)
+    }
+  })
+
+  it("rejects a hostname when any resolved address is blocked", async () => {
+    const { calls, fetchImpl } = recorder()
+    const resolved: string[] = []
+    const result = await fetchProviderModels(
+      { baseURL: "https://provider.example/v1" },
+      {
+        fetchImpl,
+        resolver: async (hostname) => {
+          resolved.push(hostname)
+          return ["192.168.1.10", "169.254.169.254"]
+        },
+      },
+    )
+    expect(result).toEqual({ ok: false, error: "invalid_base_url" })
+    expect(resolved).toEqual(["provider.example"])
+    expect(calls).toEqual([])
+  })
+
+  it("fetches a hostname that resolves only to private LAN addresses", async () => {
+    const { calls, fetchImpl } = recorder()
+    const result = await fetchProviderModels(
+      { baseURL: "https://provider.lan/v1" },
+      { fetchImpl, resolver: async () => ["192.168.1.10", "fd12:3456:789a::10"] },
+    )
+    expect(result).toEqual({ ok: true, models: [{ id: "a" }] })
+    expect(calls).toEqual(["https://provider.lan/v1/models"])
+  })
+
+  it("allows loopback only with the explicit opt-in, never metadata", async () => {
+    for (const baseURL of ["http://127.0.0.1:8080/v1", "http://[::1]/v1"]) {
+      const { calls, fetchImpl } = recorder()
+      const result = await fetchProviderModels(
+        { baseURL },
+        { fetchImpl, allowLoopback: true, resolver: async () => [] },
+      )
+      expect(result, baseURL).toEqual({ ok: true, models: [{ id: "a" }] })
+      expect(calls, baseURL).toHaveLength(1)
+    }
+
+    const metadata = await fetchProviderModels(
+      { baseURL: "http://169.254.169.254/latest/meta-data" },
+      { fetchImpl: recorder().fetchImpl, allowLoopback: true, resolver: async () => [] },
+    )
+    expect(metadata).toEqual({ ok: false, error: "invalid_base_url" })
+
+    const mixed = await fetchProviderModels(
+      { baseURL: "https://provider.example/v1" },
+      {
+        fetchImpl: recorder().fetchImpl,
+        allowLoopback: true,
+        resolver: async () => ["127.0.0.1", "169.254.169.254"],
+      },
+    )
+    expect(mixed).toEqual({ ok: false, error: "invalid_base_url" })
+
+    const hostname = await fetchProviderModels(
+      { baseURL: "https://localhost-provider.example/v1" },
+      { fetchImpl: recorder().fetchImpl, allowLoopback: true, resolver: async () => ["127.0.0.1"] },
+    )
+    expect(hostname).toEqual({ ok: true, models: [{ id: "a" }] })
+  })
+
+  it("handles IPv6 edge forms consistently", async () => {
+    for (const baseURL of ["http://[::ffff:0.0.0.0]/v1", "http://[fe80::1%25]/v1"]) {
+      const { calls, fetchImpl } = recorder()
+      const result = await fetchProviderModels({ baseURL }, { fetchImpl, resolver: async () => [] })
+      expect(result, baseURL).toEqual({ ok: false, error: "invalid_base_url" })
+      expect(calls, baseURL).toEqual([])
+    }
+
+    const { calls, fetchImpl } = recorder()
+    const allowed = await fetchProviderModels(
+      { baseURL: "http://[2001:db8::192.0.2.1]/v1" },
+      { fetchImpl, resolver: async () => [] },
+    )
+    expect(allowed).toEqual({ ok: true, models: [{ id: "a" }] })
+    expect(calls).toHaveLength(1)
+  })
+
+  it("rejects a malformed URL and an unparseable resolved address", async () => {
+    const malformed = await fetchProviderModels(
+      { baseURL: "http://[::1" },
+      { fetchImpl: respond({ data: [] }) },
+    )
+    expect(malformed).toEqual({ ok: false, error: "invalid_base_url" })
+
+    const { calls, fetchImpl } = recorder()
+    const unparseable = await fetchProviderModels(
+      { baseURL: "https://provider.example/v1" },
+      { fetchImpl, resolver: async () => ["not-an-address"] },
+    )
+    expect(unparseable).toEqual({ ok: false, error: "invalid_base_url" })
+    expect(calls).toEqual([])
+  })
+
+  it("bounds the DNS lookup with the request budget", async () => {
+    const result = await fetchProviderModels(
+      { baseURL: "https://slow.example/v1" },
+      {
+        timeoutMs: 20,
+        fetchImpl: respond({ data: [{ id: "a" }] }),
+        resolver: () => new Promise(() => {}),
+      },
+    )
+    expect(result).toEqual({ ok: false, error: "provider_timeout" })
+  })
+
+  it("proceeds when DNS resolution fails (the fetch reports the transport error)", async () => {
+    const { calls, fetchImpl } = recorder()
+    const result = await fetchProviderModels(
+      { baseURL: "https://missing.example/v1" },
+      {
+        fetchImpl,
+        resolver: async () => {
+          throw new Error("ENOTFOUND")
+        },
+      },
+    )
+    expect(result).toEqual({ ok: true, models: [{ id: "a" }] })
+    expect(calls).toEqual(["https://missing.example/v1/models"])
+  })
+
   it("maps status and transport failures to typed errors", async () => {
     const unauthorized = await fetchProviderModels(
       { baseURL: "https://x" },

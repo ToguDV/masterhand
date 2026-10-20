@@ -266,6 +266,11 @@ export interface ValidatedTaskInput {
   model: ModelRef
 }
 
+/** Task name cap, shared with the 200-char session-title convention. */
+const MAX_TASK_NAME = 200
+/** Prompt cap: large enough for a real brief, small enough to bound the run. */
+const MAX_TASK_PROMPT = 8_000
+
 function validatedModelRef(value: unknown): ModelRef {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const raw = value as Record<string, unknown>
@@ -285,9 +290,9 @@ function validatedModelRef(value: unknown): ModelRef {
 }
 
 /**
- * Required fields and shapes of a task input (name/prompt/directory non-empty,
- * model as `{ providerID, id, variant? }`). Returns the trimmed values so
- * routes can persist the normalized result.
+ * Required fields and shapes of a task input (name/prompt/directory non-empty
+ * and within their caps, model as `{ providerID, id, variant? }`). Returns the
+ * trimmed values so routes can persist the normalized result.
  */
 export function validateTaskInput(input: unknown): ValidatedTaskInput {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -296,8 +301,14 @@ export function validateTaskInput(input: unknown): ValidatedTaskInput {
   const raw = input as Record<string, unknown>
   const name = typeof raw.name === "string" ? raw.name.trim() : ""
   if (!name) throw new SchedulerError("invalid_name", 400, "the task name is required")
+  if (name.length > MAX_TASK_NAME) {
+    throw new SchedulerError("invalid_name", 400, `the task name is limited to ${MAX_TASK_NAME} characters`)
+  }
   const prompt = typeof raw.prompt === "string" ? raw.prompt.trim() : ""
   if (!prompt) throw new SchedulerError("invalid_prompt", 400, "the task prompt is required")
+  if (prompt.length > MAX_TASK_PROMPT) {
+    throw new SchedulerError("invalid_prompt", 400, `the task prompt is limited to ${MAX_TASK_PROMPT} characters`)
+  }
   const directory = typeof raw.directory === "string" ? raw.directory.trim() : ""
   if (!directory) throw new SchedulerError("invalid_directory", 400, "the task directory is required")
   return { name, prompt, directory, model: validatedModelRef(raw.model) }

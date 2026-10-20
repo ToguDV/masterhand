@@ -46,6 +46,18 @@ describe("request validation", () => {
     expect(response.status).toBe(400)
   })
 
+  it("rejects an oversized proxied body before contacting opencode", async () => {
+    app = await startTestApp({ proxyBodyLimitBytes: 1024 })
+    const cookie = await login(app.url)
+    const response = await fetch(`${app.url}/api/oc/api/session`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ text: "x".repeat(4096) }),
+    })
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: "payload_too_large" })
+  })
+
   it("rejects a device request with an empty password", async () => {
     app = await startTestApp()
     const response = await fetch(`${app.url}/api/devices`, {
@@ -67,6 +79,66 @@ describe("request validation", () => {
     expect((await response.json()) as { device: { name: string } }).toMatchObject({
       device: { name: "Device" },
     })
+  })
+
+  it("rejects a password longer than the accepted maximum", async () => {
+    app = await startTestApp()
+    const response = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "a".repeat(4096) }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "bad_request" })
+  })
+
+  it("rejects an oversized login body with 413 and keeps serving", async () => {
+    app = await startTestApp()
+    const oversized = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "a".repeat(80 * 1024) }),
+    })
+    expect(oversized.status).toBe(413)
+    expect(await oversized.json()).toEqual({ error: "payload_too_large" })
+
+    const after = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(after.status).toBe(200)
+  })
+
+  it("rejects an oversized devices body with 413", async () => {
+    app = await startTestApp()
+    const response = await fetch(`${app.url}/api/devices`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret", name: "a".repeat(80 * 1024) }),
+    })
+    expect(response.status).toBe(413)
+  })
+
+  it("counts chunked login bodies towards the limit", async () => {
+    app = await startTestApp()
+    const chunks = Array.from({ length: 8 }, () => new Uint8Array(16 * 1024).fill(0x61))
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk)
+        controller.close()
+      },
+    })
+    const response = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit)
+    expect(response.status).toBe(413)
+
+    const after = await fetch(`${app.url}/api/health`)
+    expect(after.status).toBe(200)
   })
 })
 
@@ -907,6 +979,88 @@ describe("login rate limiting", () => {
 
     expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401])
     expect(statuses[5]).toBe(429)
+  })
+
+  it("accepts the correct password after five failures", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong" }),
+      })
+      expect(response.status).toBe(401)
+    }
+
+    const correct = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(correct.status).toBe(200)
+    expect(correct.headers.getSetCookie()[0]).toContain("mh_session=")
+  })
+
+  it("accepts the correct password on the sixth attempt even when blocked", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong" }),
+      })
+      expect(response.status).toBe(attempt < 5 ? 401 : 429)
+    }
+
+    const correct = await fetch(`${app.url}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret" }),
+    })
+    expect(correct.status).toBe(200)
+  })
+
+  it("accepts the correct password after five failed device registrations", async () => {
+    app = await startTestApp()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch(`${app.url}/api/devices`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "wrong", name: "Phone" }),
+      })
+      expect(response.status).toBe(401)
+    }
+
+    const correct = await fetch(`${app.url}/api/devices`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "secret", name: "Phone" }),
+    })
+    expect(correct.status).toBe(201)
+  })
+
+  it("logs failed attempts with IP and timestamp but never the password", async () => {
+    app = await startTestApp()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await fetch(`${app.url}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password: "super-secret-guess" }),
+      })
+
+      const lines = warn.mock.calls.map((args) => args.map(String).join(" "))
+      const entry = lines.find((line) => line.includes("login failed"))
+      expect(entry).toBeDefined()
+      expect(entry).toContain("127.0.0.1")
+      expect(entry).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+      expect(entry).not.toContain("super-secret-guess")
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

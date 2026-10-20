@@ -1,12 +1,30 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { loadConfig } from "../src/config.js"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
+const strongSecret = "0123456789abcdef".repeat(4)
+let warnings: string[]
+
+beforeEach(() => {
+  warnings = []
+  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+    warnings.push(args.map((arg) => String(arg)).join(" "))
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function env(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { MASTERHAND_PASSWORD: "pw", SESSION_SECRET: "secret", ...overrides }
+}
+
+/** A production environment whose secrets satisfy the hardened checks. */
+function prodEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return env({ NODE_ENV: "production", MASTERHAND_PASSWORD: strongSecret, SESSION_SECRET: strongSecret, ...overrides })
 }
 
 describe("loadConfig", () => {
@@ -47,6 +65,19 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PORT: "not-a-number" })).port).toBe(8787)
   })
 
+  it("bounds the proxy body cap", () => {
+    expect(loadConfig(env()).proxyBodyLimitMb).toBe(10)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "32" })).proxyBodyLimitMb).toBe(32)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "0" })).proxyBodyLimitMb).toBe(1)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "99999" })).proxyBodyLimitMb).toBe(1024)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "nope" })).proxyBodyLimitMb).toBe(10)
+  })
+
+  it("allows loopback provider discovery only when explicitly enabled", () => {
+    expect(loadConfig(env()).providersAllowLoopback).toBe(false)
+    expect(loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "true" })).providersAllowLoopback).toBe(true)
+    expect(() => loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "maybe" }))).toThrow(/PROVIDERS_ALLOW_LOOPBACK/)
+  })
   it("defaults the low-disk watermark and accepts overrides including zero", () => {
     expect(loadConfig(env()).diskLowWatermarkMb).toBe(512)
     expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "2048" })).diskLowWatermarkMb).toBe(2048)
@@ -59,7 +90,52 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ COOKIE_SECURE: "true" })).cookieSecure).toBe(true)
     expect(loadConfig(env({ COOKIE_SECURE: "1" })).cookieSecure).toBe(true)
     expect(loadConfig(env({ COOKIE_SECURE: "false" })).cookieSecure).toBe(false)
-    expect(loadConfig(env({ COOKIE_SECURE: "" })).cookieSecure).toBe(false)
+  })
+
+  it("accepts documented boolean spellings regardless of case", () => {
+    for (const value of ["true", "True", "TRUE", "1", "yes", "YES", "on", " On "]) {
+      expect(loadConfig(env({ COOKIE_SECURE: value })).cookieSecure).toBe(true)
+    }
+    for (const value of ["false", "False", "FALSE", "0", "no", "OFF"]) {
+      expect(loadConfig(env({ COOKIE_SECURE: value })).cookieSecure).toBe(false)
+    }
+    expect(loadConfig(env({ PREVIEW_ENABLED: "Yes" })).previewEnabled).toBe(true)
+    expect(loadConfig(env({ PREVIEW_ENABLED: "off" })).previewEnabled).toBe(false)
+  })
+
+  it("rejects unrecognized boolean values naming the variable", () => {
+    expect(() => loadConfig(env({ COOKIE_SECURE: "maybe" }))).toThrow(/COOKIE_SECURE[^\n]*maybe/)
+    expect(() => loadConfig(env({ PREVIEW_ENABLED: "Maybe" }))).toThrow(/PREVIEW_ENABLED[^\n]*Maybe/)
+    expect(() => loadConfig(env({ COOKIE_SECURE: "" }))).toThrow(/COOKIE_SECURE/)
+  })
+
+  it("warns when the cookie Secure flag is disabled", () => {
+    expect(loadConfig(env({ COOKIE_SECURE: "true" })).cookieSecure).toBe(true)
+    expect(warnings.some((line) => line.includes("COOKIE_SECURE"))).toBe(false)
+
+    expect(loadConfig(env({ COOKIE_SECURE: "false" })).cookieSecure).toBe(false)
+    expect(warnings.some((line) => line.includes("COOKIE_SECURE") && line.includes("false"))).toBe(true)
+  })
+
+  it("requires strong, non-placeholder secrets in production", () => {
+    expect(loadConfig(prodEnv()).sessionSecret).toBe(strongSecret)
+    expect(() => loadConfig(prodEnv({ SESSION_SECRET: "short-secret" }))).toThrow(/SESSION_SECRET[^\n]*32/)
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "short-password" }))).toThrow(/MASTERHAND_PASSWORD[^\n]*32/)
+    expect(() => loadConfig(prodEnv({ SESSION_SECRET: "changeme-changeme-changeme-changeme" }))).toThrow(
+      /SESSION_SECRET[^\n]*placeholder/i,
+    )
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "example-example-example-example-example" }))).toThrow(
+      /MASTERHAND_PASSWORD[^\n]*placeholder/i,
+    )
+    expect(() => loadConfig(prodEnv({ SESSION_SECRET: "dev-session-secret-change-me" }))).toThrow(
+      /SESSION_SECRET[^\n]*placeholder/i,
+    )
+  })
+
+  it("keeps short development secrets working with a warning", () => {
+    const config = loadConfig(env({ MASTERHAND_PASSWORD: "pw", SESSION_SECRET: "secret" }))
+    expect(config.sessionSecret).toBe("secret")
+    expect(warnings.some((line) => line.includes("SESSION_SECRET"))).toBe(true)
   })
 
   it("disables webDist when WEB_DIST is an empty string", () => {
@@ -77,7 +153,7 @@ describe("loadConfig", () => {
   })
 
   it("parses and trims the allowed origins list", () => {
-    const config = loadConfig(env({ ALLOWED_ORIGINS: " https://a.example , https://b.example ,,", NODE_ENV: "production" }))
+    const config = loadConfig(prodEnv({ ALLOWED_ORIGINS: " https://a.example , https://b.example ,," }))
     expect(config.allowedOrigins.sort()).toEqual(["https://a.example", "https://b.example"])
   })
 
@@ -95,7 +171,7 @@ describe("loadConfig", () => {
     expect(dev.allowedOrigins).toContain("http://localhost:5173")
     expect(dev.allowedOrigins).toContain("http://127.0.0.1:5173")
 
-    const prod = loadConfig(env({ NODE_ENV: "production" }))
+    const prod = loadConfig(prodEnv())
     expect(prod.allowedOrigins).not.toContain("http://localhost:5173")
   })
 

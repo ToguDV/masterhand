@@ -3,6 +3,7 @@ import { statfsSync } from "node:fs"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
+import { bodyLimit } from "hono/body-limit"
 import { streamSSE } from "hono/streaming"
 import {
   SESSION_COOKIE,
@@ -120,6 +121,8 @@ export interface AppDeps {
   sseQueueMax?: number
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
+  /** Cap on proxied opencode request bodies (default 10 MiB). */
+  proxyBodyLimitBytes?: number
 }
 
 /**
@@ -133,6 +136,12 @@ export interface AppWithScheduler extends Hono {
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** Login/device bodies are tiny JSON documents; anything larger is abusive. */
+const AUTH_BODY_LIMIT_BYTES = 64 * 1024
+/** Proxied prompts can be large, but must still be bounded. */
+const DEFAULT_PROXY_BODY_LIMIT_BYTES = 10 * 1024 * 1024
+/** Hashing more than this buys an attacker nothing and costs CPU. */
+const MAX_PASSWORD_LENGTH = 1024
 /** Frames a single SSE client may fall behind before it is dropped. */
 const MAX_SSE_QUEUE = 1024
 
@@ -250,6 +259,22 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: "internal_error" }, 500)
   })
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
+  const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
+  const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
+  const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
+
+  /**
+   * Wrong credentials: count the failure, log it without the secret, and
+   * answer 429 only once the window's budget is exhausted (issue #181).
+   */
+  const rejectPassword = (c: Context, ip: string): Response => {
+    const now = Date.now()
+    const blocked = loginLimiter.isBlocked(ip, now)
+    if (!blocked) loginLimiter.recordFailure(ip, now)
+    console.warn(`[masterhand] login failed from ${ip} at ${new Date(now).toISOString()}`)
+    if (blocked) return c.json({ error: "too_many_attempts" }, 429)
+    return c.json({ error: "invalid_password" }, 401)
+  }
   const worktrees =
     deps.worktrees ??
     createWorktreeManager({
@@ -967,23 +992,21 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
-  app.post("/api/login", async (c) => {
+  app.post("/api/login", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    if (!loginLimiter.check(ip)) {
-      return c.json({ error: "too_many_attempts" }, 429)
-    }
-
     let password: unknown
     try {
       password = (await c.req.json<{ password?: unknown }>()).password
     } catch {
       password = undefined
     }
-    if (typeof password !== "string" || password.length === 0) {
+    if (typeof password !== "string" || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) {
       return c.json({ error: "bad_request" }, 400)
     }
+    // The correct password always wins, even when the failure budget is spent:
+    // only failures are counted, so a locked-out user is never locked out.
     if (!passwordsMatch(password, config.masterhandPassword)) {
-      return c.json({ error: "invalid_password" }, 401)
+      return rejectPassword(c, ip)
     }
 
     loginLimiter.reset(ip)
@@ -992,23 +1015,23 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
-  app.post("/api/devices", async (c) => {
+  app.post("/api/devices", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    if (!loginLimiter.check(ip)) {
-      return c.json({ error: "too_many_attempts" }, 429)
-    }
-
     let body: { password?: unknown; name?: unknown }
     try {
       body = await c.req.json()
     } catch {
       return c.json({ error: "bad_request" }, 400)
     }
-    if (typeof body.password !== "string" || body.password.length === 0) {
+    if (
+      typeof body.password !== "string" ||
+      body.password.length === 0 ||
+      body.password.length > MAX_PASSWORD_LENGTH
+    ) {
       return c.json({ error: "bad_request" }, 400)
     }
     if (!passwordsMatch(body.password, config.masterhandPassword)) {
-      return c.json({ error: "invalid_password" }, 401)
+      return rejectPassword(c, ip)
     }
 
     loginLimiter.reset(ip)
@@ -1035,6 +1058,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.use("/api/oc/*", requireAuth(config, deps.store))
+  app.use("/api/oc/*", bodyLimit({ maxSize: proxyBodyLimitBytes, onError: rejectOversizedBody }))
   app.all("/api/oc/*", createOpencodeProxy(config, fetchImpl, undefined, deps.proxyRetry))
 
   const api = new Hono()
@@ -1255,9 +1279,16 @@ export function createApp(deps: AppDeps): Hono {
     const result = validateDiscoverInput(body)
     if (!result.ok) return c.json({ error: result.error }, 400)
 
-    const discovered = await fetchProviderModels(result.value, { fetchImpl })
+    const discovered = await fetchProviderModels(result.value, {
+      fetchImpl,
+      allowLoopback: config.providersAllowLoopback,
+    })
     if (!discovered.ok) {
-      return c.json({ error: discovered.error }, discovered.error === "provider_timeout" ? 504 : 502)
+      // A blocked target (loopback/link-local/metadata) is invalid caller input,
+      // not an upstream failure; timeouts keep their own mapping.
+      const status =
+        discovered.error === "provider_timeout" ? 504 : discovered.error === "invalid_base_url" ? 400 : 502
+      return c.json({ error: discovered.error }, status)
     }
     return c.json({ models: discovered.models })
   })

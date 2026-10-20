@@ -119,7 +119,9 @@ describe("scheduled task routes", () => {
       ["invalid_task", []],
       ["invalid_task", "not-an-object"],
       ["invalid_name", taskInput({ name: "   " })],
+      ["invalid_name", taskInput({ name: "n".repeat(201) })],
       ["invalid_prompt", taskInput({ prompt: "" })],
+      ["invalid_prompt", taskInput({ prompt: "p".repeat(8001) })],
       ["invalid_schedule", taskInput({ schedule: null })],
       ["invalid_schedule", taskInput({ schedule: undefined })],
       ["invalid_schedule_kind", taskInput({ schedule: { kind: "weekly" } })],
@@ -145,6 +147,29 @@ describe("scheduled task routes", () => {
     }
     // Nothing was persisted along the way.
     expect(app!.store.listScheduledTasks()).toHaveLength(0)
+  })
+
+  it("enforces the name and prompt limits on PATCH too", async () => {
+    const cookie = await boot()
+    const created = await createTask(cookie)
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ["invalid_name", { name: "n".repeat(201) }],
+      ["invalid_prompt", { prompt: "p".repeat(8001) }],
+    ]
+    for (const [code, patch] of cases) {
+      const response = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
+        method: "PATCH",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      })
+      expect(response.status, code).toBe(400)
+      expect(((await response.json()) as { error: string }).error, code).toBe(code)
+    }
+    // The rejected patches never touched the stored task.
+    expect(app!.store.getScheduledTask(created.id)).toMatchObject({
+      name: created.name,
+      prompt: created.prompt,
+    })
   })
 
   it("rejects a malformed body and a broken model catalog answer", async () => {

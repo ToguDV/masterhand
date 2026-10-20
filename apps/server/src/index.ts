@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
@@ -7,11 +7,11 @@ import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
 import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchDefault } from "./providers.js"
-import { createSqliteStore } from "./store.js"
+import { createSqliteStore, ensureDataDir } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
 const config = loadConfig()
-mkdirSync(config.dataDir, { recursive: true })
+ensureDataDir(config.dataDir)
 
 let store: ReturnType<typeof createSqliteStore>
 try {
@@ -70,7 +70,15 @@ try {
   console.warn("[masterhand] worktree reconciliation skipped:", error)
 }
 
-const app = createApp({ config, store, hub, worktrees, preview, providers })
+const app = createApp({
+  config,
+  store,
+  hub,
+  worktrees,
+  preview,
+  providers,
+  proxyBodyLimitBytes: config.proxyBodyLimitMb * 1024 * 1024,
+})
 // Scheduled tasks (issue #147): the manager starts its loop with the app;
 // here the single boot pass settles what a restart orphaned (firing →
 // interrupted, queued → skipped) and recomputes every pending slot.

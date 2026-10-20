@@ -147,6 +147,9 @@ export const test = base.extend<{}, { harness: WorkerHarness }>({
           MASTERHAND_PASSWORD: "e2e-password",
           SESSION_SECRET: "e2e-secret",
           COOKIE_SECURE: "false",
+          // The mock provider is on 127.0.0.1; the guard is opt-in for local
+          // providers (PROVIDERS_ALLOW_LOOPBACK).
+          PROVIDERS_ALLOW_LOOPBACK: "true",
           DATA_DIR: e2eDataDir(workerIndex),
           OPENCODE_CUSTOM_PROVIDERS_FILE: e2eProvidersFile(workerIndex),
           WORKSPACES_ROOT: e2eWorkspacesRoot(workerIndex),

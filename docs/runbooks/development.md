@@ -82,9 +82,9 @@ that file for the full list. The most relevant ones:
 
 | Variable | Development meaning |
 |---|---|
-| `MASTERHAND_PASSWORD` | UI password (`dev-password` by default) |
-| `SESSION_SECRET` | Cookie/token signing secret |
-| `COOKIE_SECURE` | `false` (dev runs over HTTP) |
+| `MASTERHAND_PASSWORD` | UI password (`dev-password` by default). Short/dev values are allowed outside production but log a warning |
+| `SESSION_SECRET` | Cookie/token signing secret. Production requires ≥ 32 bytes; the dev value is allowed with a warning |
+| `COOKIE_SECURE` | `false` (dev runs over HTTP). Booleans are strict: `true/false`, `1/0`, `yes/no`, `on/off`; an unrecognized value aborts boot |
 | `ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` (Vite origin) |
 | `MASTERHAND_PORT` / `MASTERHAND_DEV_WEB_PORT` | Published BFF / Vite ports |
 | `WORKSPACES_DIR` | Host folder mounted as `/workspace` (default `../workspace`) |

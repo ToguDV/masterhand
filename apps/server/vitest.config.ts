@@ -9,7 +9,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/index.ts"],
+      // Process entry points (boot/CLI): they only wire argv/env to the
+      // testable modules below, so their branches are not library behavior.
+      exclude: ["src/index.ts", "src/backup.ts"],
       thresholds: {
         lines: 80,
         functions: 80,

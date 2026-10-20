@@ -12,7 +12,7 @@ What to back up, how to take a consistent copy of the SQLite database while the 
 
 ## 2. Online database backup (no downtime)
 
-`VACUUM INTO` writes a consistent, compacted snapshot of a live database; WAL contents are included and the result has no `-wal`/`-shm` side files. The destination must **not** exist.
+`VACUUM INTO` writes a consistent, compacted snapshot of a live database; WAL contents are included and the result has no `-wal`/`-shm` side files. The destination must **not** exist. Since 2026-10-20 the backup CLI sets `umask 077` and the snapshot is created `0600`: it contains device tokens and should stay owner-only. Backups written by older releases may be `0644`; tighten them with `chmod 600` before moving them off the host.
 
 Docker:
 
@@ -53,7 +53,8 @@ docker compose -f deploy/docker-compose.yml start
      sh -c 'rm -f /data/masterhand.sqlite /data/masterhand.sqlite-wal /data/masterhand.sqlite-shm && \
             cp /backup/backup-2026-10-05.sqlite /data/masterhand.sqlite && chown 1000:1000 /data/masterhand.sqlite'
    ```
-3. Start the stack again. The BFF runs a `quick_check` at boot and refuses to start with a clear message when the file is corrupt (restore from a newer backup).
+3. Keep the restored file owner-only (`chmod 600`, owner `1000:1000` in the container); the BFF tightens the data directory and database on the next boot.
+4. Start the stack again. The BFF runs a `quick_check` at boot and refuses to start with a clear message when the file is corrupt (restore from a newer backup).
 
 After restoring an older database, isolated-session records may point at worktrees that no longer exist; startup reconciliation skips unconfirmed volumes and quarantines rather than deleting uncommitted work (see `docs/past-mistakes.md` rule 11).
 
