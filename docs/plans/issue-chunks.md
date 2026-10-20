@@ -1,15 +1,16 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-20. 40 open issues — the release/update work (#131, #133, #134), the
-board and mobile-parity follow-ups (#164, #172) and the 35 findings of the 2026-10-20 server
-audit (#178–#212) — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
+**Snapshot:** 2026-10-20. 32 open issues — the release/update work (#131, #133, #134), the
+board and mobile-parity follow-ups (#164, #172) and the remaining findings of the 2026-10-20
+server audit — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
 C1–C14 and C17 are merged or closed.
 
-**Last updated:** 2026-10-20 — C18 partially landed: the session batch resolves #178, #180–#184,
-#209 and #210 (git env/config sandbox, bounded bodies, failure-only limiter, owner-only storage,
-strict boot config, provider target guard, path/ref and scheduler validation). **#179 remains
-open** (managed runs still use the engine uid, `/api/oc/*` is a broad passthrough and shells can
-inherit the engine password); it needs runtime uid verification and the deploy redesign.
+**Last updated:** 2026-10-20 — **C18 mostly landed**: [#214](https://github.com/ToguDV/masterhand/pull/214)
+merged #178, #180–#184, #209 and #210 (git env/config sandbox, bounded bodies, failure-only
+limiter, owner-only storage, strict boot config, provider target guard, path/ref and scheduler
+validation). **#179 remains open** (managed runs still use the engine uid, `/api/oc/*` is a broad
+passthrough and shells can inherit the engine password); it needs runtime uid verification and the
+deploy redesign.
 Re-chunked earlier the same day after the **server audit** (security, correctness,
 performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22.
 
@@ -56,7 +57,7 @@ in the sessions options box per #136/#137).
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | 🟡 In progress — 8/9 landed in the session batch (#178 #180 #181 #182 #183 #184 #209 #210); **#179 remains open** |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 — #214 merged 8/9 (#178 #180–#184 #209 #210); **#179 remains open** |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
@@ -75,7 +76,7 @@ in the sessions options box per #136/#137).
 
 **Highest severity in the queue:** **P1 [#179](https://github.com/ToguDV/masterhand/issues/179)**
 (managed runs keep the engine uid; `/api/oc/*` is still a broad passthrough and shells can inherit
-the engine password) — the former P0 #178 landed in this session batch. Next:
+the engine password) — the former P0 #178 landed in #214. Next:
 **[#185](https://github.com/ToguDV/masterhand/issues/185)** (a create timeout deletes the worktree
 the client still has to reconcile) and **[#186](https://github.com/ToguDV/masterhand/issues/186)**
 (no SQLite migration runner). Suggested batch order:
