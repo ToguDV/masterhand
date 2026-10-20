@@ -57,9 +57,78 @@ function intFromEnv(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
+const TRUE_VALUES = new Set(["true", "1", "yes", "on"])
+const FALSE_VALUES = new Set(["false", "0", "no", "off"])
+
+/**
+ * Strict boolean parser: a typo ("Truee", "maybe") must fail at boot instead of
+ * silently reading as `false` (issue #183). Unset keeps the documented default.
+ */
+function boolFromEnv(name: string, value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback
-  return value === "true" || value === "1"
+  const normalized = value.trim().toLowerCase()
+  if (TRUE_VALUES.has(normalized)) return true
+  if (FALSE_VALUES.has(normalized)) return false
+  throw new Error(`${name} must be a boolean (true/false, 1/0, yes/no, on/off); got "${value}"`)
+}
+
+const MIN_PRODUCTION_SECRET_BYTES = 32
+const OPENSSL_HINT = "generate one with `openssl rand -hex 32`"
+
+/** Stand-ins shipped by the env examples or obviously not secrets. */
+const PLACEHOLDER_VALUES = new Set([
+  "x",
+  "changeme",
+  "change-me",
+  "change_me",
+  "secret",
+  "password",
+  "example",
+  "test",
+  "dev-password",
+  "dev-session-secret-change-me",
+])
+
+const PLACEHOLDER_MARKERS = [
+  "changeme",
+  "change-me",
+  "change_me",
+  "placeholder",
+  "example",
+  "dev-password",
+  "dev-session-secret",
+  "your-secret",
+  "your_secret",
+  "replace-me",
+  "replace_me",
+]
+
+function isPlaceholderSecret(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return (
+    PLACEHOLDER_VALUES.has(normalized) || PLACEHOLDER_MARKERS.some((marker) => normalized.includes(marker))
+  )
+}
+
+/** Production credentials must be random and long enough to resist guessing. */
+function assertStrongSecret(name: string, value: string): void {
+  if (isPlaceholderSecret(value)) {
+    throw new Error(`${name} looks like an example/placeholder value in production; ${OPENSSL_HINT}`)
+  }
+  const bytes = Buffer.byteLength(value, "utf8")
+  if (bytes < MIN_PRODUCTION_SECRET_BYTES) {
+    throw new Error(
+      `${name} must be at least ${MIN_PRODUCTION_SECRET_BYTES} bytes in production (got ${bytes}); ${OPENSSL_HINT}`,
+    )
+  }
+}
+
+/** Development keeps working with short values, but the operator is warned. */
+function warnWeakDevSecret(name: string, value: string): void {
+  if (Buffer.byteLength(value, "utf8") >= MIN_PRODUCTION_SECRET_BYTES && !isPlaceholderSecret(value)) return
+  console.warn(
+    `[masterhand] ${name} is weak for a deployed server (use at least ${MIN_PRODUCTION_SECRET_BYTES} random bytes; ${OPENSSL_HINT}); allowed because NODE_ENV is not production`,
+  )
 }
 
 function listFromEnv(value: string | undefined): string[] {
@@ -99,6 +168,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!sessionSecret) {
     throw new Error("SESSION_SECRET is required (cookie/token signing; generate one with `openssl rand -hex 32`)")
   }
+  if (env.NODE_ENV === "production") {
+    assertStrongSecret("MASTERHAND_PASSWORD", masterhandPassword)
+    assertStrongSecret("SESSION_SECRET", sessionSecret)
+  } else {
+    warnWeakDevSecret("MASTERHAND_PASSWORD", masterhandPassword)
+    warnWeakDevSecret("SESSION_SECRET", sessionSecret)
+  }
 
   const opencodeUsername = env.OPENCODE_SERVER_USERNAME ?? "opencode"
   const opencodePassword = env.OPENCODE_SERVER_PASSWORD ?? ""
@@ -114,6 +190,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const workspacesRoot = fromRepoRoot(env.WORKSPACES_ROOT, "workspace")
   const opencodeUrl = env.OPENCODE_URL ?? "http://127.0.0.1:4096"
+  const cookieSecure = boolFromEnv("COOKIE_SECURE", env.COOKIE_SECURE, true)
+  if (!cookieSecure) {
+    // The BFF listens on every interface; without HTTPS the session cookie
+    // travels in clear text. Keep the documented dev setup working, loudly.
+    console.warn(
+      "[masterhand] COOKIE_SECURE=false: session cookies are sent over plain HTTP; enable TLS before exposing this server",
+    )
+  }
   return {
     port: intFromEnv(env.PORT, 8787),
     opencodeUrl,
@@ -124,7 +208,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     masterhandPassword,
     sessionSecret,
     sessionTtlHours: intFromEnv(env.SESSION_TTL_HOURS, 720),
-    cookieSecure: boolFromEnv(env.COOKIE_SECURE, true),
+    cookieSecure,
     dataDir: fromRepoRoot(env.DATA_DIR, "data"),
     webDist: env.WEB_DIST === "" ? null : (env.WEB_DIST ?? "apps/web/dist"),
     allowedOrigins: [...allowedOrigins],
@@ -135,7 +219,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : resolve(workspacesRoot, ".worktrees"),
     gitUserName: env.GIT_COMMIT_NAME?.trim() || "MasterHand",
     gitUserEmail: env.GIT_COMMIT_EMAIL?.trim() || "masterhand@localhost",
-    previewEnabled: boolFromEnv(env.PREVIEW_ENABLED, true),
+    previewEnabled: boolFromEnv("PREVIEW_ENABLED", env.PREVIEW_ENABLED, true),
     // In Docker the tunnel targets the opencode container by service name; in
     // development both processes run on the host.
     previewOrigin: env.PREVIEW_ORIGIN?.trim() || hostFromUrl(opencodeUrl, "127.0.0.1"),
