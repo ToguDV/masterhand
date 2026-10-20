@@ -19,6 +19,11 @@ export interface Config {
   opencodeAuth: string | null
   /** Deadline for every internal opencode call (seconds at the HTTP layer). */
   opencodeTimeoutMs: number
+  /**
+   * Allow loopback targets in provider model discovery. Off by default
+   * (SSRF hardening); native installs with a local provider opt in.
+   */
+  providersAllowLoopback: boolean
   masterhandPassword: string
   sessionSecret: string
   sessionTtlHours: number
@@ -205,6 +210,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Internal calls are interactive; a wedged upstream must fail fast instead
     // of holding the route (and its socket) open forever.
     opencodeTimeoutMs: Math.max(1000, intFromEnv(env.OPENCODE_TIMEOUT_MS, 10_000)),
+    providersAllowLoopback: boolFromEnv("PROVIDERS_ALLOW_LOOPBACK", env.PROVIDERS_ALLOW_LOOPBACK, false),
     masterhandPassword,
     sessionSecret,
     sessionTtlHours: intFromEnv(env.SESSION_TTL_HOURS, 720),

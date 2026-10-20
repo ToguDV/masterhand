@@ -419,6 +419,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     previewReadinessMs: 25_000,
     cloudflaredBin: "cloudflared",
     diskLowWatermarkMb: 512,
+    proxyBodyLimitMb: 10,
+    providersAllowLoopback: false,
     customProvidersFile: "/tmp/masterhand-test/masterhand-providers.json",
     ...overrides,
   }

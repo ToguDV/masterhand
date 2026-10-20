@@ -1255,9 +1255,16 @@ export function createApp(deps: AppDeps): Hono {
     const result = validateDiscoverInput(body)
     if (!result.ok) return c.json({ error: result.error }, 400)
 
-    const discovered = await fetchProviderModels(result.value, { fetchImpl })
+    const discovered = await fetchProviderModels(result.value, {
+      fetchImpl,
+      allowLoopback: config.providersAllowLoopback,
+    })
     if (!discovered.ok) {
-      return c.json({ error: discovered.error }, discovered.error === "provider_timeout" ? 504 : 502)
+      // A blocked target (loopback/link-local/metadata) is invalid caller input,
+      // not an upstream failure; timeouts keep their own mapping.
+      const status =
+        discovered.error === "provider_timeout" ? 504 : discovered.error === "invalid_base_url" ? 400 : 502
+      return c.json({ error: discovered.error }, status)
     }
     return c.json({ models: discovered.models })
   })

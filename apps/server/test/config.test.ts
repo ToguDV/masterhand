@@ -65,6 +65,13 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PORT: "not-a-number" })).port).toBe(8787)
   })
 
+  it("allows loopback provider discovery only when explicitly enabled", () => {
+    expect(loadConfig(env()).providersAllowLoopback).toBe(false)
+    expect(loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "true" })).providersAllowLoopback).toBe(true)
+    expect(() => loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "maybe" }))).toThrow(/PROVIDERS_ALLOW_LOOPBACK/)
+  })
+
+
   it("defaults the low-disk watermark and accepts overrides including zero", () => {
     expect(loadConfig(env()).diskLowWatermarkMb).toBe(512)
     expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "2048" })).diskLowWatermarkMb).toBe(2048)

@@ -11,7 +11,9 @@
  * runtime exposes the same entry as `package`/`settings`.
  */
 
+import { lookup } from "node:dns/promises"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { isIP } from "node:net"
 import { dirname } from "node:path"
 
 /** AI SDK package that talks to the provider, keyed by the UI-facing name. */
@@ -427,6 +429,17 @@ export interface DiscoverModelsInput {
   headers?: Record<string, string>
 }
 
+/**
+ * Resolves a hostname to every address the request could reach. Injectable so
+ * tests never depend on real DNS; the default uses the system resolver.
+ */
+export type HostResolver = (hostname: string) => Promise<readonly string[]>
+
+async function lookupHostAddresses(hostname: string): Promise<readonly string[]> {
+  const entries = await lookup(hostname, { all: true, verbatim: true })
+  return entries.map((entry) => entry.address)
+}
+
 export type DiscoverModelsResult =
   | { ok: true; models: CustomProviderModel[] }
   | { ok: false; error: DiscoverModelsError }
@@ -504,16 +517,223 @@ export function parseModelsResponse(raw: unknown): CustomProviderModel[] {
 }
 
 /**
+ * Target guard for model discovery: it forwards a caller-supplied key/headers,
+ * so the target must not be able to reach this host or a cloud metadata
+ * service. Private LAN ranges stay allowed (ADR-30): self-hosted providers
+ * commonly live there. The ranges mirror the IANA special-purpose registry:
+ * loopback, "this network"/unspecified, link-local (cloud IMDS included),
+ * multicast and reserved/broadcast. IPv4-mapped IPv6 is unwrapped first.
+ */
+
+/** Strict dotted-quad parser; the URL parser already normalizes odd forms. */
+function parseIPv4(address: string): number | null {
+  const parts = address.split(".")
+  if (parts.length !== 4) return null
+  let value = 0
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null
+    const octet = Number(part)
+    if (octet > 255) return null
+    value = value * 256 + octet
+  }
+  return value >>> 0
+}
+
+function parseIPv6(raw: string): number[] | null {
+  let address = raw.trim().toLowerCase()
+  const zone = address.indexOf("%")
+  if (zone !== -1) address = address.slice(0, zone)
+  if (address.startsWith("[") && address.endsWith("]")) address = address.slice(1, -1)
+  if (!address.includes(":")) return null
+  if (address.includes(".")) {
+    // Trailing dotted quad (::ffff:127.0.0.1) becomes two hex groups.
+    const lastColon = address.lastIndexOf(":")
+    const embedded = parseIPv4(address.slice(lastColon + 1))
+    if (embedded === null) return null
+    address = `${address.slice(0, lastColon + 1)}${(embedded >>> 16).toString(16)}:${(embedded & 0xffff).toString(16)}`
+  }
+  const halves = address.split("::")
+  if (halves.length > 2) return null
+  const parse = (part: string): number[] | null => {
+    if (!part) return []
+    const groups: number[] = []
+    for (const item of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(item)) return null
+      groups.push(Number.parseInt(item, 16))
+    }
+    return groups
+  }
+  const head = parse(halves[0] ?? "")
+  const tail = parse(halves[1] ?? "")
+  if (!head || !tail) return null
+  if (halves.length === 1) return head.length === 8 ? head : null
+  const fill = 8 - head.length - tail.length
+  if (fill < 1) return null
+  return [...head, ...Array<number>(fill).fill(0), ...tail]
+}
+
+function isBlockedIPv4(value: number): boolean {
+  const first = value >>> 24
+  if (first === 0) return true // 0.0.0.0/8: unspecified and "this network"
+  if (first === 127) return true // loopback
+  if (value >>> 16 === 0xa9fe) return true // 169.254.0.0/16: link-local, cloud IMDS
+  if (first >= 224) return true // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved/broadcast
+  return false
+}
+
+function isBlockedIPv6(groups: readonly number[]): boolean {
+  const g = groups
+  const embedded = ((g[6]! << 16) | g[7]!) >>> 0
+  // :: and ::1
+  if (g.slice(0, 7).every((group) => group === 0) && (g[7] === 0 || g[7] === 1)) return true
+  // ::ffff:a.b.c.d/96 (IPv4-mapped) and the deprecated ::a.b.c.d/96 form.
+  if (g.slice(0, 5).every((group) => group === 0) && g[5] === 0xffff) return isBlockedIPv4(embedded)
+  if (g.slice(0, 6).every((group) => group === 0)) return isBlockedIPv4(embedded)
+  if ((g[0]! & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+  if ((g[0]! & 0xff00) === 0xff00) return true // ff00::/8 multicast
+  // AWS IPv6 IMDS sits inside the otherwise-private ULA space.
+  if (
+    g[0] === 0xfd00 &&
+    g[1] === 0x0ec2 &&
+    g.slice(2, 7).every((group) => group === 0) &&
+    g[7] === 0x0254
+  ) {
+    return true
+  }
+  return false
+}
+
+/** Loopback only: allows an explicit opt-in without opening metadata targets. */
+function isLoopbackAddress(address: string): boolean {
+  const zone = address.indexOf("%")
+  const bare = (zone === -1 ? address : address.slice(0, zone)).trim()
+  const family = isIP(bare)
+  if (family === 4) return parseIPv4(bare)! >>> 24 === 127
+  if (family !== 6) return false
+  const groups = parseIPv6(bare)
+  if (!groups) return false
+  const embedded = ((groups[6]! << 16) | groups[7]!) >>> 0
+  if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff) {
+    return embedded >>> 24 === 127
+  }
+  if (groups.slice(0, 6).every((group) => group === 0)) return embedded >>> 24 === 127
+  return false
+}
+
+/** Fails closed: an address shape this file cannot parse is never fetched. */
+function isBlockedTargetAddress(address: string): boolean {
+  const zone = address.indexOf("%")
+  const bare = (zone === -1 ? address : address.slice(0, zone)).trim()
+  const family = isIP(bare)
+  if (family === 4) {
+    const value = parseIPv4(bare)
+    return value === null || isBlockedIPv4(value)
+  }
+  if (family === 6) {
+    const groups = parseIPv6(bare)
+    return groups === null || isBlockedIPv6(groups)
+  }
+  return true
+}
+
+/** URL hostnames keep the IPv6 brackets and percent-encode the zone id. */
+function hostLiteral(hostname: string): string {
+  let value = hostname
+  if (value.startsWith("[") && value.endsWith("]")) value = value.slice(1, -1)
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+const TARGET_LOOKUP_TIMEOUT = Symbol("target_lookup_timeout")
+
+/**
+ * Resolves every address a hostname points at, bounded by the caller's
+ * deadline. A resolution error yields `[]`: the name cannot reach anything,
+ * so the request is attempted and its own error mapping applies.
+ */
+async function resolveTargetAddresses(
+  resolver: HostResolver,
+  hostname: string,
+  timeoutMs: number,
+): Promise<readonly string[] | typeof TARGET_LOOKUP_TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<typeof TARGET_LOOKUP_TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(TARGET_LOOKUP_TIMEOUT), timeoutMs)
+    ;(timer as { unref?: () => void }).unref?.()
+  })
+  const addresses = resolver(hostname).then(
+    (resolved) => resolved,
+    () => [] as readonly string[],
+  )
+  try {
+    return await Promise.race([addresses, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/** `null` when the target may be called; otherwise the typed discovery error. */
+async function inspectDiscoverTarget(
+  url: URL,
+  resolver: HostResolver,
+  timeoutMs: number,
+  allowLoopback: boolean,
+): Promise<"invalid_base_url" | "provider_timeout" | null> {
+  const hostname = hostLiteral(url.hostname)
+  const zone = hostname.indexOf("%")
+  const bare = zone === -1 ? hostname : hostname.slice(0, zone)
+  if (isIP(bare) !== 0) {
+    if (!isBlockedTargetAddress(bare)) return null
+    return allowLoopback && isLoopbackAddress(bare) ? null : "invalid_base_url"
+  }
+  const addresses = await resolveTargetAddresses(resolver, hostname, timeoutMs)
+  if (addresses === TARGET_LOOKUP_TIMEOUT) return "provider_timeout"
+  const blocked = addresses.filter((address) => isBlockedTargetAddress(address))
+  if (blocked.length === 0) return null
+  // The opt-in covers loopback only; a name resolving to both loopback and a
+  // link-local/metadata address stays blocked.
+  return allowLoopback && blocked.every((address) => isLoopbackAddress(address)) ? null : "invalid_base_url"
+}
+
+/**
  * Calls the provider's `/models` endpoint with the transient key. The request
  * is bounded (`MODELS_TIMEOUT_MS`) and injectable for tests; the key is never
- * logged or persisted here.
+ * logged or persisted here. The target is checked before any request: loopback,
+ * link-local/metadata, unspecified, multicast and reserved addresses are
+ * refused, including hostnames that resolve to them. Private LAN stays allowed.
  */
 export async function fetchProviderModels(
   input: DiscoverModelsInput,
-  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  options: {
+    fetchImpl?: typeof fetch
+    timeoutMs?: number
+    resolver?: HostResolver
+    /** Explicit opt-in for local providers (native installs, tests). */
+    allowLoopback?: boolean
+  } = {},
 ): Promise<DiscoverModelsResult> {
   const doFetch = options.fetchImpl ?? fetch
+  const timeoutMs = options.timeoutMs ?? MODELS_TIMEOUT_MS
+  const deadline = Date.now() + timeoutMs
   const target = `${input.baseURL.replace(/\/+$/, "")}/models`
+  let url: URL
+  try {
+    url = new URL(target)
+  } catch {
+    return { ok: false, error: "invalid_base_url" }
+  }
+  const targetError = await inspectDiscoverTarget(
+    url,
+    options.resolver ?? lookupHostAddresses,
+    timeoutMs,
+    options.allowLoopback === true,
+  )
+  if (targetError) return { ok: false, error: targetError }
+
   const headers: Record<string, string> = {
     accept: "application/json",
     ...input.headers,
@@ -525,7 +745,8 @@ export async function fetchProviderModels(
     response = await doFetch(target, {
       method: "GET",
       headers,
-      signal: AbortSignal.timeout(options.timeoutMs ?? MODELS_TIMEOUT_MS),
+      // One budget covers the target lookup and the request itself.
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
     })
   } catch (error) {
     if ((error as { name?: string } | null)?.name === "TimeoutError") {
