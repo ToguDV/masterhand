@@ -3,6 +3,7 @@ import { statfsSync } from "node:fs"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
+import { bodyLimit } from "hono/body-limit"
 import { streamSSE } from "hono/streaming"
 import {
   SESSION_COOKIE,
@@ -120,6 +121,8 @@ export interface AppDeps {
   sseQueueMax?: number
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
+  /** Cap on proxied opencode request bodies (default 10 MiB). */
+  proxyBodyLimitBytes?: number
 }
 
 /**
@@ -133,6 +136,12 @@ export interface AppWithScheduler extends Hono {
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** Login/device bodies are tiny JSON documents; anything larger is abusive. */
+const AUTH_BODY_LIMIT_BYTES = 64 * 1024
+/** Proxied prompts can be large, but must still be bounded. */
+const DEFAULT_PROXY_BODY_LIMIT_BYTES = 10 * 1024 * 1024
+/** Hashing more than this buys an attacker nothing and costs CPU. */
+const MAX_PASSWORD_LENGTH = 1024
 /** Frames a single SSE client may fall behind before it is dropped. */
 const MAX_SSE_QUEUE = 1024
 
@@ -250,6 +259,9 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: "internal_error" }, 500)
   })
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
+  const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
+  const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
+  const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
   const worktrees =
     deps.worktrees ??
     createWorktreeManager({
@@ -967,7 +979,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
-  app.post("/api/login", async (c) => {
+  app.post("/api/login", authBodyLimit, async (c) => {
     const ip = clientIp(c)
     if (!loginLimiter.check(ip)) {
       return c.json({ error: "too_many_attempts" }, 429)
@@ -979,7 +991,7 @@ export function createApp(deps: AppDeps): Hono {
     } catch {
       password = undefined
     }
-    if (typeof password !== "string" || password.length === 0) {
+    if (typeof password !== "string" || password.length === 0 || password.length > MAX_PASSWORD_LENGTH) {
       return c.json({ error: "bad_request" }, 400)
     }
     if (!passwordsMatch(password, config.masterhandPassword)) {
@@ -992,7 +1004,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
-  app.post("/api/devices", async (c) => {
+  app.post("/api/devices", authBodyLimit, async (c) => {
     const ip = clientIp(c)
     if (!loginLimiter.check(ip)) {
       return c.json({ error: "too_many_attempts" }, 429)
@@ -1004,7 +1016,11 @@ export function createApp(deps: AppDeps): Hono {
     } catch {
       return c.json({ error: "bad_request" }, 400)
     }
-    if (typeof body.password !== "string" || body.password.length === 0) {
+    if (
+      typeof body.password !== "string" ||
+      body.password.length === 0 ||
+      body.password.length > MAX_PASSWORD_LENGTH
+    ) {
       return c.json({ error: "bad_request" }, 400)
     }
     if (!passwordsMatch(body.password, config.masterhandPassword)) {
@@ -1035,6 +1051,7 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.use("/api/oc/*", requireAuth(config, deps.store))
+  app.use("/api/oc/*", bodyLimit({ maxSize: proxyBodyLimitBytes, onError: rejectOversizedBody }))
   app.all("/api/oc/*", createOpencodeProxy(config, fetchImpl, undefined, deps.proxyRetry))
 
   const api = new Hono()

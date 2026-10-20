@@ -65,13 +65,19 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PORT: "not-a-number" })).port).toBe(8787)
   })
 
+  it("bounds the proxy body cap", () => {
+    expect(loadConfig(env()).proxyBodyLimitMb).toBe(10)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "32" })).proxyBodyLimitMb).toBe(32)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "0" })).proxyBodyLimitMb).toBe(1)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "99999" })).proxyBodyLimitMb).toBe(1024)
+    expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "nope" })).proxyBodyLimitMb).toBe(10)
+  })
+
   it("allows loopback provider discovery only when explicitly enabled", () => {
     expect(loadConfig(env()).providersAllowLoopback).toBe(false)
     expect(loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "true" })).providersAllowLoopback).toBe(true)
     expect(() => loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "maybe" }))).toThrow(/PROVIDERS_ALLOW_LOOPBACK/)
   })
-
-
   it("defaults the low-disk watermark and accepts overrides including zero", () => {
     expect(loadConfig(env()).diskLowWatermarkMb).toBe(512)
     expect(loadConfig(env({ DISK_LOW_WATERMARK_MB: "2048" })).diskLowWatermarkMb).toBe(2048)

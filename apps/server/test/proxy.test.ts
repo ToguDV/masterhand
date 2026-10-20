@@ -1,4 +1,4 @@
-import { get as httpGet, type IncomingMessage } from "node:http"
+import { get as httpGet, request as httpRequest, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
 import { createOpencodeProxy } from "../src/proxy.js"
@@ -103,6 +103,72 @@ describe("opencode proxy", () => {
     expect(response.status).toBe(400)
     expect(await response.json()).toEqual({ error: "invalid_path" })
     expect(upstream.requests.filter((request) => request.path.includes("/prompt"))).toHaveLength(0)
+  })
+
+  it("rejects an oversized Content-Length before reading the body", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    const { status, body } = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: Number(new URL(app!.url).port),
+          path: "/api/oc/api/session/ses_1/prompt",
+          method: "POST",
+          headers: {
+            cookie,
+            "content-type": "application/json",
+            // Declares far more than the proxy cap without allocating it.
+            "content-length": String(32 * 1024 * 1024),
+            // Do not keep the socket waiting for a body that will never arrive.
+            connection: "close",
+          },
+        },
+        (response) => {
+          let text = ""
+          response.on("data", (chunk) => {
+            text += chunk
+          })
+          response.on("end", () => resolve({ status: response.statusCode ?? 0, body: text }))
+        },
+      )
+      request.on("error", reject)
+      request.end()
+    })
+
+    expect(status).toBe(413)
+    expect(JSON.parse(body)).toEqual({ error: "payload_too_large" })
+    expect(upstream.requests.filter((request) => request.path.includes("/prompt"))).toHaveLength(0)
+  })
+
+  it("counts chunked proxy bodies and rejects them past the cap", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    const chunk = new Uint8Array(64 * 1024)
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // ~11 MiB, just past the 10 MiB default proxy cap.
+        for (let i = 0; i < 180; i += 1) controller.enqueue(chunk)
+        controller.close()
+      },
+    })
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_1/prompt`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit)
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({ error: "payload_too_large" })
+    expect(upstream.requests.filter((request) => request.path.includes("/prompt"))).toHaveLength(0)
+
+    // The event loop and the app keep serving after the rejection.
+    const after = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    expect(after.status).toBe(200)
   })
 
   it("responds 502 when opencode is unavailable", async () => {

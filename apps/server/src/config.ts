@@ -24,6 +24,8 @@ export interface Config {
    * (SSRF hardening); native installs with a local provider opt in.
    */
   providersAllowLoopback: boolean
+  /** Cap on proxied opencode request bodies (MB), so a chunked body cannot OOM the BFF. */
+  proxyBodyLimitMb: number
   masterhandPassword: string
   sessionSecret: string
   sessionTtlHours: number
@@ -210,6 +212,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Internal calls are interactive; a wedged upstream must fail fast instead
     // of holding the route (and its socket) open forever.
     opencodeTimeoutMs: Math.max(1000, intFromEnv(env.OPENCODE_TIMEOUT_MS, 10_000)),
+    // Prompts can be large; the cap keeps a chunked body from being buffered
+    // without bound (issue #180). 1 MB..1 GB.
+    proxyBodyLimitMb: Math.min(1024, Math.max(1, intFromEnv(env.PROXY_BODY_LIMIT_MB, 10))),
     providersAllowLoopback: boolFromEnv("PROVIDERS_ALLOW_LOOPBACK", env.PROVIDERS_ALLOW_LOOPBACK, false),
     masterhandPassword,
     sessionSecret,

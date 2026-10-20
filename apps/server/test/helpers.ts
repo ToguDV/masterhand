@@ -564,6 +564,7 @@ export async function startTestApp(
     sessionsCacheMs?: number
     sseQueueMax?: number
     diskFreeBytes?: (path: string) => number | null
+    proxyBodyLimitBytes?: number
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -611,6 +612,7 @@ export async function startTestApp(
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
     diskFreeBytes: options.diskFreeBytes,
+    proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
   const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
   await new Promise<void>((resolve) => server.once("listening", resolve))

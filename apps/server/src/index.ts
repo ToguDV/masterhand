@@ -70,7 +70,15 @@ try {
   console.warn("[masterhand] worktree reconciliation skipped:", error)
 }
 
-const app = createApp({ config, store, hub, worktrees, preview, providers })
+const app = createApp({
+  config,
+  store,
+  hub,
+  worktrees,
+  preview,
+  providers,
+  proxyBodyLimitBytes: config.proxyBodyLimitMb * 1024 * 1024,
+})
 // Scheduled tasks (issue #147): the manager starts its loop with the app;
 // here the single boot pass settles what a restart orphaned (firing →
 // interrupted, queued → skipped) and recomputes every pending slot.
