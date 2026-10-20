@@ -8,7 +8,7 @@ C1–C14 and C17 are merged or closed.
 **Last updated:** 2026-10-20 — **C18 has landed (9/9)**: [#214](https://github.com/ToguDV/masterhand/pull/214)
 merged #178, #180–#184, #209 and #210 (git env/config sandbox, bounded bodies, failure-only
 limiter, owner-only storage, strict boot config, provider target guard, path/ref and scheduler
-validation); the session batch (#179) closed the last item — managed runs drop to `agent` through
+validation); the session batch ([#220](https://github.com/ToguDV/masterhand/pull/220), #179) closed the last item — managed runs drop to `agent` through
 `agent-exec --exec`, `/api/oc/*` is a method-exact allowlist, and engine credentials/config/log are
 owner-only, verified at runtime on the dev stack. Residual follow-ups: #216–#219.
 Re-chunked earlier the same day after the **server audit** (security, correctness,
@@ -57,7 +57,7 @@ in the sessions options box per #136/#137).
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in the session batch (#179); engine-side residuals #218/#219 |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #218/#219 |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
