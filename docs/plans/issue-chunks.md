@@ -1,21 +1,21 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-07. 5 open issues (#129–#131, #133–#134) grouped into **3 chunks**
-(C14–C16) by the code surface they share. The previous backlog (C1–C13) is fully merged or closed.
+**Snapshot:** 2026-10-20. 40 open issues — the release/update work (#131, #133, #134), the
+board and mobile-parity follow-ups (#164, #172) and the 35 findings of the 2026-10-20 server
+audit (#178–#212) — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
+C1–C14 and C17 are merged or closed.
 
-**Last updated:** 2026-10-17 — **C17 landed** (scheduler, #147, on `feat/scheduler`): BFF scheduler
-module + routes, `client-core` contract/queries and the web sidebar; mobile parity is deferred to a
-**new follow-up issue** still to be filed. The queue now is C15 (#131 releases + #133 F-Droid) and
-the deferred C16 (#134); the previous note (2026-10-09) recorded C14 merged (goal mode, #129 + #130, PR
-#148) together with the shared opencode retry engine it relies on (ADR-32). Stale trackers already
-shipped in #135 (#120, #122, #125–#128) were closed as completed; #121 was closed as not planned
-(sign-out stays in the sessions options box per #136/#137). Re-chunked after the issue batch created
-from the maintainer's mobile/web review: #118 Android nav bar; #119–#122 settings hub and header
-cleanup; #123–#124 syntax highlighting and color themes; #125–#127 chat feedback, per-message stats
-and the tok/s fix; #128 provider credentials; #129–#130 `/goal`; and the release/update work, split
-after the F-Droid and GHCR decisions into #131 (A: versioning, GHCR images, BFF update check,
-web/desktop), #133 (B: self-hosted F-Droid repo + Android notice) and #134 (standardized one-click
-BFF updater, deferred).
+**Last updated:** 2026-10-20 — re-chunked after the **server audit** (security, correctness,
+performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22. The audit queue
+now precedes the release work: C18 contains the only P0 (repo-controlled git hooks executing in
+the BFF container) and C19 the remaining P1s (#179 is security, #185 and #186 are correctness).
+
+**Previous note:** 2026-10-17 — **C17 landed** (scheduler, #147, on `feat/scheduler`): BFF
+scheduler module + routes, `client-core` contract/queries and the web sidebar; mobile parity is
+tracked in #172. The 2026-10-09 note recorded C14 merged (goal mode, #129 + #130, PR #148) with
+the shared opencode retry engine it relies on (ADR-32). Stale trackers already shipped in #135
+(#120, #122, #125–#128) were closed as completed; #121 was closed as not planned (sign-out stays
+in the sessions options box per #136/#137).
 
 ## How to use this document
 
@@ -51,8 +51,13 @@ BFF updater, deferred).
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
-| C15 — Releases and in-app updates | #131 #133 | ⬜ Pending |
+| C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ⬜ Pending — **P0 #178** |
+| C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
+| C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
+| C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
+| C22 — Architecture and test debt | #205 #206 #207 #212 | ⬜ Pending |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
@@ -65,12 +70,118 @@ BFF updater, deferred).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** none open — C14 (goal mode) landed on 2026-10-09; the next
-batch is the release/update system (C15), followed by the deferred C16. Suggested batch order:
-**C15 → C16** — C16 is deferred (opt-in). C15's foundation (#131: versioning + GHCR + the update
-endpoint) has no hard blocker beyond the settings section and can be pulled earlier.
+**Highest severity in the queue:** **P0 [#178](https://github.com/ToguDV/masterhand/issues/178)**
+(git hooks/config from a workspace execute as the BFF user with `/data` and its secrets) and
+**P1 [#179](https://github.com/ToguDV/masterhand/issues/179)** (managed runs keep the engine uid),
+**[#185](https://github.com/ToguDV/masterhand/issues/185)** (a create timeout deletes the worktree
+the client still has to reconcile) and **[#186](https://github.com/ToguDV/masterhand/issues/186)**
+(no SQLite migration runner). Suggested batch order:
+**C18 → C19 → C20 → C21 → C22 → C15 → C16**. C15 depends on #186 for its forward-only migrations;
+C16 stays deferred (opt-in).
 
-## Chunks — current batch (C14–C17)
+## Chunks — current batch (C18–C22)
+
+### C18 — Security boundary and input hardening (BFF)
+
+- **Issues:** [#178](https://github.com/ToguDV/masterhand/issues/178) sanitize git env/disable
+  repo-controlled hooks (P0), [#179](https://github.com/ToguDV/masterhand/issues/179) run managed
+  processes as `agent` and restrict `/api/oc/*`, [#180](https://github.com/ToguDV/masterhand/issues/180)
+  body limits, [#181](https://github.com/ToguDV/masterhand/issues/181) login limiter,
+  [#182](https://github.com/ToguDV/masterhand/issues/182) data/DB file modes,
+  [#183](https://github.com/ToguDV/masterhand/issues/183) secret/boolean config validation,
+  [#184](https://github.com/ToguDV/masterhand/issues/184) link-local provider discovery,
+  [#209](https://github.com/ToguDV/masterhand/issues/209) proxy decoding and `baseRef` validation,
+  [#210](https://github.com/ToguDV/masterhand/issues/210) scheduler input lengths.
+- **Surface:** `apps/server/src/worktrees.ts`, `runs.ts`, `proxy.ts`, `app.ts` (auth routes and
+  `/api/oc/*`), `config.ts`, `scheduler.ts` validation; `deploy/server.Dockerfile`,
+  `deploy/opencode.Dockerfile`, `deploy/docker-compose.yml`, `deploy/agent-exec.c`.
+- **Why together:** all cross a trust boundary in the same request/process path. #178/#179/#209
+  touch the same git/proxy surface, and #180/#181/#183 are the same auth entry path, so one
+  threat-model review covers the batch.
+- **Order:** #178 → #179 → #183 → #181 → #180 → #182 → #184 → #209 → #210.
+- **Dependencies:** #178/#179 before #209 (same files; #209 is the small hardening pass); #210
+  reuses the validation conventions settled in #181. #182/#183 are independent.
+- **Notes:** verify at runtime (disposable stack) the PTY uid and env-inheritance claims in #179
+  before implementing. Every fix records its failure class in `docs/past-mistakes.md` (rules 13/15
+  and the security section).
+
+### C19 — Persistence and mutation integrity
+
+- **Issues:** [#185](https://github.com/ToguDV/masterhand/issues/185) reconcile isolated sessions on
+  timeout, [#186](https://github.com/ToguDV/masterhand/issues/186) forward-only SQLite migrations,
+  [#187](https://github.com/ToguDV/masterhand/issues/187) coalesce Finish & PR,
+  [#188](https://github.com/ToguDV/masterhand/issues/188) workspace delete cleanup,
+  [#189](https://github.com/ToguDV/masterhand/issues/189) scheduler PATCH inside the chain,
+  [#191](https://github.com/ToguDV/masterhand/issues/191) storage errors mapped to 503,
+  [#193](https://github.com/ToguDV/masterhand/issues/193) device install id,
+  [#195](https://github.com/ToguDV/masterhand/issues/195) preview port conflicts.
+- **Surface:** `apps/server/src/app.ts` (isolated/finish/workspace/scheduler routes), `goal.ts`,
+  `scheduler.ts`, `store.ts` (schema + queries), `preview.ts`; `packages/client-core` device
+  registration; `apps/mobile/App.tsx`.
+- **Why together:** all are read-modify-write or lifecycle bugs over the same SQLite store and the
+  same isolated-session/device records; #186 is the prerequisite for #193's new column and for
+  C15's compatibility requirement.
+- **Order:** #186 → #193 → #185 → #187 → #188 → #189 → #191 → #195.
+- **Dependencies:** #186 blocks #193 and C15; #185/#187 share the isolated-session record; #188
+  touches the scheduler deletion path used by #189.
+- **Notes:** the #186 test must create a v1 file, open it with the new code and assert both the
+  upgrade and the data. #193 needs a coordinated mobile change (persisted install id).
+
+### C20 — Long-operation and shutdown reliability
+
+- **Issues:** [#192](https://github.com/ToguDV/masterhand/issues/192) close HTTP before the store,
+  [#194](https://github.com/ToguDV/masterhand/issues/194) provider key budget,
+  [#204](https://github.com/ToguDV/masterhand/issues/204) finish/delete operation deadlines,
+  [#208](https://github.com/ToguDV/masterhand/issues/208) single-instance lock.
+- **Surface:** `apps/server/src/index.ts` (boot/shutdown), `app.ts` (finish and workspace delete),
+  `providers.ts`, `store.ts` (data-dir lock).
+- **Why together:** all answer "the process or request must end predictably": bounded budgets,
+  ordered shutdown and a refused second instance.
+- **Order:** #192 → #194 → #204 → #208.
+- **Dependencies:** #204 reuses the record reconciliation from #65/#187; #208 uses the DB path
+  established by #186.
+- **Notes:** test shutdown with an in-flight write; never trade the bounded budget for a longer
+  client deadline.
+
+### C21 — Transport, memory and growth
+
+- **Issues:** [#190](https://github.com/ToguDV/masterhand/issues/190) SSE teardown on write failure,
+  [#196](https://github.com/ToguDV/masterhand/issues/196) SSE byte budget,
+  [#197](https://github.com/ToguDV/masterhand/issues/197) session pagination + scheduler retention,
+  [#198](https://github.com/ToguDV/masterhand/issues/198) scheduled-run history limit,
+  [#199](https://github.com/ToguDV/masterhand/issues/199) listen before reconciliation,
+  [#200](https://github.com/ToguDV/masterhand/issues/200) remove sync fs from request paths,
+  [#201](https://github.com/ToguDV/masterhand/issues/201) goal-role projections,
+  [#202](https://github.com/ToguDV/masterhand/issues/202) overlapping periodic passes,
+  [#203](https://github.com/ToguDV/masterhand/issues/203) audit index + retention,
+  [#211](https://github.com/ToguDV/masterhand/issues/211) board snapshot N+1.
+- **Surface:** `app.ts` (SSE writer, sessions/status routes), `events.ts`, `store.ts` (queries +
+  indexes), `goal.ts`, `scheduler.ts`, `index.ts`.
+- **Why together:** unbounded reads and event-loop stalls on the read/poll paths. #190/#196 are the
+  same SSE writer; #197/#198/#203/#211 are all "add a LIMIT/index/retention to a hot read"; #199
+  and #200 are boot/request blocking.
+- **Order:** #190 → #196 → #203 → #198 → #197 → #199 → #200 → #201 → #202 → #211.
+- **Dependencies:** #196 before raising the BFF memory limit; #211 feeds the same SSE queue, so
+  after #196; #197 changes the sessions contract and must update web + mobile in the same session.
+- **Notes:** #197 is the largest (contract + two clients); split the client work if the session
+  grows. Measure the SSE byte budget with a slow-client test, not by inspection.
+
+### C22 — Architecture and test debt
+
+- **Issues:** [#205](https://github.com/ToguDV/masterhand/issues/205) extract opencode adapters,
+  [#206](https://github.com/ToguDV/masterhand/issues/206) project the goal-run contract,
+  [#207](https://github.com/ToguDV/masterhand/issues/207) route tests on in-memory SQLite,
+  [#212](https://github.com/ToguDV/masterhand/issues/212) dead worktree helpers + cron catch-up.
+- **Surface:** `app.ts`, `goal.ts`, `scheduler.ts`, `store.ts`, `worktrees.ts`,
+  `packages/client-core` goal contract and tests.
+- **Why together:** refactors that unblock the next features and remove duplicate sources of truth;
+  #207 makes the schema work from C19 and the adapters from #205 safe to change.
+- **Order:** #207 → #205 → #206 → #212.
+- **Dependencies:** #205 before #206 (the adapter is the natural projection point); #212 is
+  independent.
+- **Notes:** no behavior change; keep the suite green and do not mix them into a C19/C21 session.
+
+## Chunks — earlier queue (C10–C17)
 
 ### C10 — Settings hub and header cleanup (web + mobile)
 
@@ -166,9 +277,9 @@ endpoint) has no hard blocker beyond the settings section and can be pulled earl
   `scheduler.updated` frame shape (same pattern as C14).
 - **Order:** BFF manager + contract first (freeze the routes/error codes) → `client-core` queries and
   hooks → web sidebar (can start against the frozen contract/mock).
-- **Dependencies:** none on C15/C16 (independent surfaces). **Mobile parity deferred to a NEW
-  follow-up issue** (to be filed in this batch) — a new client must port the mutation contracts, not
-  reimplement them (see `docs/past-mistakes.md`).
+- **Dependencies:** none on C15/C16 (independent surfaces). **Mobile parity is tracked in
+  [#172](https://github.com/ToguDV/masterhand/issues/172)** — a new client must port the mutation
+  contracts, not reimplement them (see `docs/past-mistakes.md`).
 
 ### C15 — Releases and in-app updates
 
