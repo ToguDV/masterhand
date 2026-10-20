@@ -315,7 +315,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!response.ok && response.status !== 404) throw new Error(`opencode ${response.status}`)
     },
   }
-  const runs = deps.runs ?? createRunManager({ opencode: runOpencode })
+  const runs = deps.runs ?? createRunManager({ opencode: runOpencode, launcher: config.managedRunLauncher })
   const providers = deps.providers ?? createCustomProviderStore({ file: config.customProvidersFile })
 
   /**

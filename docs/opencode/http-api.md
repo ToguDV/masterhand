@@ -1,6 +1,6 @@
 # opencode HTTP API (subset for MasterHand)
 
-Verified on **2026-10-01** against a live **opencode v2.0.6** server and the generated types from [`@opencode/client@2.0.21`](https://www.npmjs.com/package/@opencode/client). The OpenAPI 3.1 contract is published by the server itself at `/doc`.
+Verified on **2026-10-01** against a live **opencode v2.0.6** server and the generated types from [`@opencode/client@2.0.21`](https://www.npmjs.com/package/@opencode/client). The proxy/PTY and credential notes were re-verified on **2026-10-20** (#179/#216). The OpenAPI 3.1 contract is published by the server itself at `/doc`.
 
 > MasterHand targets opencode **v2 only**. The v1 server API (`/session`, `/global/event`, `x-opencode-directory`, `prompt_async`, per-prompt `system`, …) is not used anymore.
 
@@ -12,7 +12,7 @@ Verified on **2026-10-01** against a live **opencode v2.0.6** server and the gen
 
 ## Endpoints MasterHand uses
 
-Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/info` → `GET /api/info`).
+Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/model` → `GET /api/model`). Since #179 that passthrough is a **method-exact allowlist** of the routes the clients use (`docs/bff/api.md` §Proxy), not a general passthrough: PTY/shell/terminal, fs, config, plugin, mcp, session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and the credential list answer `404` without an upstream call. The BFF's own calls (`callOpencode`) are separate and unaffected. This allowlist protects the client boundary only; opencode's own read tools and project plugins run inside the engine as `node` (residual risks #218/#219).
 
 ### Health, locations and events
 
@@ -48,7 +48,7 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 
 | Method | Route | Usage in MasterHand |
 |---|---|---|
-| `POST` | `/api/pty` | Create a process; body `{ command, args?, cwd?, title?, env? }`; responds `{ location, data: { id, pid, status, … } }`. MasterHand starts the workspace's dev server with it (title `masterhand:<sessionID>`, `{port}` substituted in `args`, `PORT` in `env`). Verified against 2.0.21: `env` and `cwd` are honored and the command is spawned without a shell |
+| `POST` | `/api/pty` | Create a process; body `{ command, args?, cwd?, title?, env? }`; responds `{ location, data: { id, pid, status, … } }`. MasterHand starts the workspace's dev server with it (title `masterhand:<sessionID>`, `{port}` substituted in `args`, `PORT` in `env`). With `MANAGED_RUN_LAUNCHER` (Compose) the command is wrapped as `agent-exec --exec <command> <args>`, so the process drops to uid 1001 with a scrubbed environment instead of running as the engine; the client proxy does **not** expose `/api/pty`. Verified against 2.0.21: `env` and `cwd` are honored and the command is spawned without a shell |
 | `GET` | `/api/pty` | List PTYs of a location (`?location[directory]=…`), with `id`, `title`, `status`, `pid`. Used to adopt a still-running dev server after a BFF restart |
 | `DELETE` | `/api/pty/:ptyID` | Terminate the process; `204`. Verified: kills the whole process tree (children included), so a dev server started through `npm`/`bash` dies completely |
 
@@ -79,7 +79,8 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 - `package` values: `@opencode/ai/providers/openai-compatible` (`/v1/chat/completions`) and `@opencode/ai/providers/openai` (`/v1/responses`).
 - After a config write on the watched global config dir, `/api/model` and `/api/integration` include the provider without a restart.
 - A registered custom provider exposes an `api`/`key` method: `POST /api/integration/{id}/connect/key` succeeds (204). Before opencode reloads the config it answers `404 IntegrationNotFoundError`; a 404 creates nothing, so retrying is safe.
-- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential`.
+- Provider credentials are stored in opencode's credential store (`opencode.db` in 2.0.6; the older `auth.json` does not exist there).
+- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential` — that route is not available in the pinned **2.0.6** (it answers `404`) while clients still call it; tracked as [#216](https://github.com/ToguDV/masterhand/issues/216) and implemented by the E2E mock.
 
 ### Web search (verified against 2.0.6)
 

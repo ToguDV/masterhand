@@ -29,9 +29,13 @@ RUN useradd --uid 1001 --gid node --no-create-home --home-dir /home/agent --shel
   && mkdir -p /home/agent \
   && chown -R agent:node /home/agent
 
+# The config dir holds masterhand-providers.json; keep it owner-only at build
+# time so a fresh named volume inherits 0700 (deployments with an existing
+# volume are hardened by the CMD below).
 RUN mkdir -p /workspace /home/node/.config/opencode /home/node/.local/share/opencode \
   && chown -R node:node /workspace /home/node/.config /home/node/.local \
-  && chmod 2775 /workspace
+  && chmod 2775 /workspace \
+  && chmod 700 /home/node/.config/opencode
 
 COPY --from=agent-exec /agent-exec /usr/local/bin/agent-exec
 RUN chown root:root /usr/local/bin/agent-exec \
@@ -43,4 +47,11 @@ WORKDIR /workspace
 EXPOSE 4096
 # umask 002 keeps everything opencode creates group-writable, so the agent can
 # edit files made by the engine and vice versa.
-CMD ["sh", "-c", "umask 002; exec opencode serve --hostname 0.0.0.0 --port 4096"]
+#
+# Harden the engine-owned paths at every start: named volumes are pre-existing
+# in deployments, so a build-time chmod is not enough. The credential store
+# (opencode.db; credentials moved there from auth.json in 2.0.6), its WAL
+# sidecars and the engine log must not be readable/writable by the `agent` uid,
+# and the config dir (which carries provider definitions) is owner-only. The
+# BFF shares the config volume as `node`, so it can still write providers.
+CMD ["sh", "-c", "set -e; umask 002; data=/home/node/.local/share/opencode; mkdir -p \"$data/log\"; chmod 700 \"$data/log\"; if [ ! -e \"$data/opencode.db\" ]; then : > \"$data/opencode.db\"; fi; chmod 600 \"$data/opencode.db\"; for f in \"$data/opencode.db-wal\" \"$data/opencode.db-shm\"; do if [ -e \"$f\" ]; then chmod 600 \"$f\"; fi; done; chmod 700 /home/node/.config/opencode; for f in \"$data/auth.json\" /home/node/.config/opencode/auth.json; do if [ -e \"$f\" ]; then chmod 600 \"$f\"; fi; done; exec opencode serve --hostname 0.0.0.0 --port 4096"]

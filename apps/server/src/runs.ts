@@ -72,6 +72,9 @@ const DENIED_COMMANDS = new Set([
   "init",
   "eval",
   "exec",
+  // The managed-run launcher itself: `agent-exec --exec bash -c ...` would
+  // turn the validated argv back into a shell (and bypass the entries above).
+  "agent-exec",
 ])
 
 export class RunError extends Error {
@@ -213,10 +216,17 @@ interface RunningRun {
 
 export interface RunManagerDeps {
   opencode: RunOpencode
+  /**
+   * Optional setuid helper (inside the opencode container) that drops managed
+   * runs to the unprivileged `agent` user: `launcher --exec <command> <args>`.
+   * Empty/absent keeps the native behavior (the PTY runs as the engine user).
+   */
+  launcher?: string
 }
 
 export function createRunManager(deps: RunManagerDeps): RunManager {
   const running = new Map<string, RunningRun>()
+  const launcher = deps.launcher?.trim() || ""
   // In-flight starts, keyed per session: `start` is a non-idempotent
   // check→create, so two devices pressing Start in the same tick must share one
   // PTY instead of racing into two dev servers on the same port.
@@ -268,12 +278,17 @@ export function createRunManager(deps: RunManagerDeps): RunManager {
 
     const args = renderRunArgs(config.args, port)
     const cwd = config.cwd ? resolve(directory, config.cwd) : directory
+    // With a launcher, the argv is wrapped instead of replaced: the status and
+    // the UI keep showing the user's command, while the PTY runs through the
+    // setuid dropper (ADR-22). `argv[0]` stays the launcher, so no shell.
+    const ptyCommand = launcher || config.command
+    const ptyArgs = launcher ? ["--exec", config.command, ...args] : args
     let pty: RunPty
     try {
       pty = await deps.opencode.createPty({
         directory,
-        command: config.command,
-        args,
+        command: ptyCommand,
+        args: ptyArgs,
         cwd,
         title: `${RUN_TITLE_PREFIX}${sessionID}`,
         env: { PORT: String(port) },

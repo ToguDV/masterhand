@@ -5,12 +5,12 @@ board and mobile-parity follow-ups (#164, #172) and the remaining findings of th
 server audit — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
 C1–C14 and C17 are merged or closed.
 
-**Last updated:** 2026-10-20 — **C18 mostly landed**: [#214](https://github.com/ToguDV/masterhand/pull/214)
+**Last updated:** 2026-10-20 — **C18 has landed (9/9)**: [#214](https://github.com/ToguDV/masterhand/pull/214)
 merged #178, #180–#184, #209 and #210 (git env/config sandbox, bounded bodies, failure-only
 limiter, owner-only storage, strict boot config, provider target guard, path/ref and scheduler
-validation). **#179 remains open** (managed runs still use the engine uid, `/api/oc/*` is a broad
-passthrough and shells can inherit the engine password); it needs runtime uid verification and the
-deploy redesign.
+validation); the session batch (#179) closed the last item — managed runs drop to `agent` through
+`agent-exec --exec`, `/api/oc/*` is a method-exact allowlist, and engine credentials/config/log are
+owner-only, verified at runtime on the dev stack. Residual follow-ups: #216–#219.
 Re-chunked earlier the same day after the **server audit** (security, correctness,
 performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22.
 
@@ -57,7 +57,7 @@ in the sessions options box per #136/#137).
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 — #214 merged 8/9 (#178 #180–#184 #209 #210); **#179 remains open** |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in the session batch (#179); engine-side residuals #218/#219 |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
@@ -74,14 +74,11 @@ in the sessions options box per #136/#137).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** **P1 [#179](https://github.com/ToguDV/masterhand/issues/179)**
-(managed runs keep the engine uid; `/api/oc/*` is still a broad passthrough and shells can inherit
-the engine password) — the former P0 #178 landed in #214. Next:
-**[#185](https://github.com/ToguDV/masterhand/issues/185)** (a create timeout deletes the worktree
-the client still has to reconcile) and **[#186](https://github.com/ToguDV/masterhand/issues/186)**
-(no SQLite migration runner). Suggested batch order:
-**C18 (#179) → C19 → C20 → C21 → C22 → C15 → C16**. C15 depends on #186 for its forward-only migrations;
-C16 stays deferred (opt-in).
+**Highest severity in the queue:** **[#185](https://github.com/ToguDV/masterhand/issues/185)**
+(P1: a create timeout deletes the worktree the client still has to reconcile) and
+**[#186](https://github.com/ToguDV/masterhand/issues/186)** (P1: no SQLite migration runner). C18
+is closed (#179 landed), so the suggested batch order is **C19 → C20 → C21 → C22 → C15 → C16**.
+C15 depends on #186 for its forward-only migrations; C16 stays deferred (opt-in).
 
 ## Chunks — current batch (C18–C22)
 
@@ -105,9 +102,12 @@ C16 stays deferred (opt-in).
 - **Order:** #178 → #179 → #183 → #181 → #180 → #182 → #184 → #209 → #210.
 - **Dependencies:** #178/#179 before #209 (same files; #209 is the small hardening pass); #210
   reuses the validation conventions settled in #181. #182/#183 are independent.
-- **Notes:** verify at runtime (disposable stack) the PTY uid and env-inheritance claims in #179
-  before implementing. Every fix records its failure class in `docs/past-mistakes.md` (rules 13/15
-  and the security section).
+- **Notes:** the #179 runtime verification landed with the session batch: managed run uid 1001/gid
+  1000 with no supplementary groups, an allowlisted env and no `OPENCODE_SERVER_PASSWORD`, the
+  DB/config/log unreadable to the agent, PTY proxy `404` vs model `200`, and
+  `deploy/agent-exec-drill.sh` green. Every fix records its failure class in `docs/past-mistakes.md`
+  (rules 13/15/22 and the security section). Residual catalog/credential behavior is tracked in
+  #216–#219 (catalog/credential drift and engine-side tool/plugin residuals).
 
 ### C19 — Persistence and mutation integrity
 

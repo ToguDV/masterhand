@@ -1,7 +1,7 @@
 import { get as httpGet, request as httpRequest, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
-import { createOpencodeProxy } from "../src/proxy.js"
+import { createOpencodeProxy, isAllowedOpencodePath } from "../src/proxy.js"
 import { login, readUntil, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
 
 const TEST_AUTH = `Basic ${Buffer.from("opencode:oc-secret").toString("base64")}`
@@ -16,17 +16,167 @@ afterEach(async () => {
   upstream = null
 })
 
+/**
+ * The client surface verified for #179. Every other method/path pair is denied
+ * by the proxy before it can reach opencode (PTY, shell, terminal, fs, config…).
+ */
+const ALLOWED_OPENCODE_PATHS: Array<[string, string]> = [
+  ["GET", "/api/session/active"],
+  ["GET", "/api/session/ses_1/message"],
+  ["POST", "/api/session/ses_1/agent"],
+  ["POST", "/api/session/ses_1/model"],
+  ["POST", "/api/session/ses_1/prompt"],
+  ["POST", "/api/session/ses_1/command"],
+  ["POST", "/api/session/ses_1/fork"],
+  ["POST", "/api/session/ses_1/interrupt"],
+  ["DELETE", "/api/session/ses_1"],
+  ["GET", "/api/permission/request"],
+  ["POST", "/api/session/ses_1/permission/per_1/reply"],
+  ["GET", "/api/form"],
+  ["GET", "/api/session/ses_1/form"],
+  ["GET", "/api/session/ses_1/form/form_1"],
+  ["POST", "/api/session/ses_1/form/form_1/reply"],
+  ["DELETE", "/api/session/ses_1/form/form_1"],
+  ["GET", "/api/agent"],
+  ["GET", "/api/model"],
+  ["GET", "/api/model/default"],
+  ["GET", "/api/provider"],
+  ["GET", "/api/integration"],
+  ["POST", "/api/integration/acme/connect/key"],
+  ["POST", "/api/credential/cred_1/activate"],
+  ["DELETE", "/api/credential/cred_1"],
+  ["GET", "/api/websearch/provider"],
+  ["POST", "/api/websearch"],
+]
+
+const DENIED_OPENCODE_PATHS: Array<[string, string]> = [
+  // The #179 bypass: a client could spawn a PTY as the engine user.
+  ["POST", "/api/pty"],
+  ["GET", "/api/pty"],
+  ["DELETE", "/api/pty/pty_1"],
+  ["POST", "/api/shell"],
+  ["GET", "/api/shell"],
+  ["POST", "/api/session/ses_1/shell"],
+  ["POST", "/api/experimental/session/ses_1/terminal"],
+  ["GET", "/api/experimental/persistent-pty"],
+  ["GET", "/api/fs/read"],
+  ["POST", "/api/experimental/fs/write"],
+  ["GET", "/api/config"],
+  ["PATCH", "/api/config"],
+  ["GET", "/api/plugin"],
+  ["GET", "/api/experimental/mcp"],
+  // The list route does not exist in opencode 2.0.6 (issue #216).
+  ["GET", "/api/credential"],
+  ["GET", "/api/session"],
+  ["POST", "/api/session"],
+  ["GET", "/api/session/ses_1"],
+  ["PATCH", "/api/session/ses_1"],
+  ["GET", "/api/experimental/session/ses_1/instructions/entries/masterhand.preview"],
+  ["GET", "/api/info"],
+  ["GET", "/api/event"],
+  ["GET", "/api/command"],
+  ["GET", "/api/global/health"],
+  ["GET", "/api/instance/one"],
+  ["GET", "/api/tui/append-prompt"],
+  ["GET", "/api/app/init"],
+  ["GET", "/api/file/read"],
+  ["POST", "/api/session/ses_1/prompt_async"],
+  // Protocol-relative: must never be interpreted as a new origin (SSRF).
+  ["GET", "//evil.example.com/steal"],
+  // Method mismatches on an otherwise allowed path.
+  ["GET", "/api/session/ses_1/prompt"],
+  ["POST", "/api/agent"],
+  ["POST", "/api/session/ses_1/message"],
+  // Encoded slash: real opencode ids are slash-free, so this must not match.
+  ["GET", "/api/session/ses%2F1/message"],
+  ["POST", "/api/session/ses%2f1/prompt"],
+  ["GET", "/api/session/ses%2F1/form/form_1"],
+]
+
+describe("opencode proxy allowlist (#179)", () => {
+  it.each(ALLOWED_OPENCODE_PATHS)("allows %s %s", (method: string, path: string) => {
+    expect(isAllowedOpencodePath(method, path)).toBe(true)
+  })
+
+  it.each(DENIED_OPENCODE_PATHS)("denies %s %s", (method: string, path: string) => {
+    expect(isAllowedOpencodePath(method, path)).toBe(false)
+  })
+})
+
+/** High-risk groups that must never be reachable through the client proxy. */
+const DENIED_APP_REQUESTS: Array<[string, string]> = [
+  ["POST", "/api/oc/api/pty"],
+  ["GET", "/api/oc/api/pty"],
+  ["DELETE", "/api/oc/api/pty/pty_1"],
+  ["POST", "/api/oc/api/session/ses_1/shell"],
+  ["GET", "/api/oc/api/shell"],
+  ["POST", "/api/oc/api/experimental/session/ses_1/terminal"],
+  ["GET", "/api/oc/api/experimental/persistent-pty"],
+  ["GET", "/api/oc/api/fs/read"],
+  ["POST", "/api/oc/api/experimental/fs/write"],
+  ["GET", "/api/oc/api/config"],
+  ["GET", "/api/oc/api/plugin"],
+  ["GET", "/api/oc/api/experimental/mcp"],
+  ["GET", "/api/oc/api/credential"],
+  ["POST", "/api/oc/api/session"],
+  ["GET", "/api/oc/api/session"],
+  ["GET", "/api/oc/api/info"],
+  ["GET", "/api/oc/global/health"],
+  ["GET", "/api/oc//evil.example.com/steal"],
+  // An encoded slash must not smuggle extra path segments past the allowlist.
+  ["POST", "/api/oc/api/session/ses%2F1/prompt"],
+  ["GET", "/api/oc/api/session/ses%2F1/message"],
+]
+
+describe("opencode proxy allowlist at the HTTP boundary (#179)", () => {
+  it.each(DENIED_APP_REQUESTS)("denies %s %s without calling upstream", async (method: string, path: string) => {
+    const seen: string[] = []
+    const stub: typeof fetch = async (input) => {
+      seen.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url)
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    }
+    app = await startTestApp({ config: { opencodeUrl: "http://127.0.0.1:4096" }, fetchImpl: stub })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}${path}`, {
+      method,
+      headers: { cookie, "content-type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify({ command: "sh", args: ["-c", "id"] }),
+    })
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "not_found" })
+    expect(seen).toHaveLength(0)
+  })
+
+  it("forwards an allowlisted path and returns the upstream result", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { data: Array<Record<string, unknown>> }
+    expect(body.data).toContainEqual({ id: "test-model", providerID: "test" })
+    expect(upstream.requests.filter((request) => request.path === "/api/model")).toHaveLength(1)
+  })
+})
+
 describe("opencode proxy", () => {
   it("proxies GET and injects basic auth", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
 
-    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ version: "1.2.3" })
+    const body = (await response.json()) as { data: Array<Record<string, unknown>> }
+    expect(body.data).toContainEqual({ id: "test-model", providerID: "test" })
 
-    const proxied = upstream.requests.find((request) => request.path === "/api/info")
+    const proxied = upstream.requests.find((request) => request.path === "/api/model")
     expect(proxied?.authorization).toBe(TEST_AUTH)
   })
 
@@ -35,17 +185,17 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
 
-    const response = await fetch(`${app.url}/api/oc/api/session/ses_1/prompt_async`, {
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_1/agent`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ parts: [{ type: "text", text: "hello" }] }),
+      body: JSON.stringify({ agent: "build" }),
     })
     expect(response.status).toBe(204)
 
-    const proxied = upstream.requests.find((request) => request.path.includes("prompt_async"))
+    const proxied = upstream.requests.find((request) => request.path.endsWith("/agent"))
     expect(proxied).toBeDefined()
     // v2 no longer injects a `system` instruction: the body is byte-identical.
-    expect(JSON.parse(proxied?.body ?? "{}")).toEqual({ parts: [{ type: "text", text: "hello" }] })
+    expect(JSON.parse(proxied?.body ?? "{}")).toEqual({ agent: "build" })
   })
 
   it("leaves an existing system prompt untouched", async () => {
@@ -53,13 +203,13 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: upstream.url } })
     const cookie = await login(app.url)
 
-    await fetch(`${app.url}/api/oc/api/session/ses_7/message`, {
+    await fetch(`${app.url}/api/oc/api/session/ses_7/prompt`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ parts: [{ type: "text", text: "hi" }], system: "Be terse." }),
     })
 
-    const proxied = upstream.requests.find((request) => request.path.includes("/message"))
+    const proxied = upstream.requests.find((request) => request.path.includes("/prompt"))
     expect(JSON.parse(proxied?.body ?? "{}")).toEqual({
       parts: [{ type: "text", text: "hi" }],
       system: "Be terse.",
@@ -71,12 +221,12 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
 
-    await fetch(`${app.url}/api/oc/api/session?directory=%2Fworkspace%2Fapp&limit=200`, {
+    await fetch(`${app.url}/api/oc/api/model?location%5Bdirectory%5D=%2Fworkspace%2Fapp&limit=200`, {
       headers: { cookie, "x-opencode-directory": "/workspace/app", "accept-language": "es-ES" },
     })
 
-    const proxied = upstream.requests.find((request) => request.path === "/api/session")
-    expect(proxied?.query).toBe("directory=%2Fworkspace%2Fapp&limit=200")
+    const proxied = upstream.requests.find((request) => request.path === "/api/model")
+    expect(proxied?.query).toBe("location%5Bdirectory%5D=%2Fworkspace%2Fapp&limit=200")
     expect(proxied?.headers["accept-language"]).toBe("es-ES")
     expect(proxied?.headers["x-opencode-directory"]).toBeUndefined()
     expect(proxied?.authorization).toBe(TEST_AUTH)
@@ -86,7 +236,7 @@ describe("opencode proxy", () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
 
-    const response = await fetch(`${app.url}/api/oc/api/info`)
+    const response = await fetch(`${app.url}/api/oc/api/model`)
     expect(response.status).toBe(401)
   })
 
@@ -167,7 +317,7 @@ describe("opencode proxy", () => {
     expect(upstream.requests.filter((request) => request.path.includes("/prompt"))).toHaveLength(0)
 
     // The event loop and the app keep serving after the rejection.
-    const after = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    const after = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(after.status).toBe(200)
   })
 
@@ -175,7 +325,7 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: "http://127.0.0.1:1" } })
     const cookie = await login(app.url)
 
-    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(502)
   })
 
@@ -184,18 +334,18 @@ describe("opencode proxy", () => {
     app = await startTestApp({ fetchImpl: stub })
     const cookie = await login(app.url)
 
-    const response = await fetch(`${app.url}/api/oc/api/session`, { headers: { cookie } })
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(502)
     expect(await response.json()).toEqual({ error: "opencode_unauthorized" })
   })
 
-  it("keeps the upstream origin fixed for protocol-relative paths (SSRF)", async () => {
+  it("denies protocol-relative paths and keeps the upstream origin fixed for allowed paths (SSRF)", async () => {
     const seen: string[] = []
     const stub: typeof fetch = async (input) => {
       seen.push(
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
       )
-      return new Response(JSON.stringify({ ok: true }), {
+      return new Response(JSON.stringify({ data: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       })
@@ -203,7 +353,13 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: "http://127.0.0.1:4096" }, fetchImpl: stub })
     const cookie = await login(app.url)
 
-    const response = await fetch(`${app.url}/api/oc//evil.example.com/steal`, { headers: { cookie } })
+    // The allowlist rejects `//host/...` before the URL is even built.
+    const denied = await fetch(`${app.url}/api/oc//evil.example.com/steal`, { headers: { cookie } })
+    expect(denied.status).toBe(404)
+    expect(await denied.json()).toEqual({ error: "not_found" })
+    expect(seen).toHaveLength(0)
+
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(200)
     expect(seen).toHaveLength(1)
     expect(new URL(seen[0]!).host).toBe("127.0.0.1:4096")
@@ -221,8 +377,8 @@ describe("opencode proxy", () => {
     )
     const context = {
       req: {
-        url: "http://test/api/oc/api/info",
-        path: "/api/oc/api/info",
+        url: "http://test/api/oc/api/model",
+        path: "/api/oc/api/model",
         method: "GET",
         header: () => undefined,
         arrayBuffer: async () => new ArrayBuffer(0),
@@ -240,10 +396,10 @@ describe("opencode proxy", () => {
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
 
-    upstream.failNext("/api/info", 1, 503)
-    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    upstream.failNext("/api/model", 1, 503)
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(200)
-    expect(upstream.requests.filter((request) => request.path === "/api/info")).toHaveLength(2)
+    expect(upstream.requests.filter((request) => request.path === "/api/model")).toHaveLength(2)
   })
 
   it("returns the last transient response after the attempt budget", async () => {
@@ -254,10 +410,10 @@ describe("opencode proxy", () => {
     })
     const cookie = await login(app.url)
 
-    upstream.failNext("/api/info", 5, 503)
-    const response = await fetch(`${app.url}/api/oc/api/info`, { headers: { cookie } })
+    upstream.failNext("/api/model", 5, 503)
+    const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(503)
-    expect(upstream.requests.filter((request) => request.path === "/api/info")).toHaveLength(3)
+    expect(upstream.requests.filter((request) => request.path === "/api/model")).toHaveLength(3)
   })
 
   it("retries idempotent POST switches (agent/model)", async () => {

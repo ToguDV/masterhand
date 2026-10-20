@@ -25,6 +25,60 @@ const IDEMPOTENT_POST_PATHS = [/^\/api\/session\/[^/]+\/(agent|model)$/]
 /** The one non-idempotent POST with a persisted marker to reconcile against. */
 const PROMPT_PATH = /^\/api\/session\/([^/]+)\/prompt$/
 
+/**
+ * The client-facing opencode surface, verified against `client-core` (#179).
+ * Everything the BFF itself needs (session create/list, PTY for managed runs,
+ * config, instructions, goal/scheduler calls, previews) goes through
+ * `callOpencode` in `app.ts` and never through this passthrough.
+ *
+ * Anchored and method-exact: a new client call must be added here explicitly,
+ * so paths such as `/api/pty`, `/api/shell`, `/api/fs/*` or `/api/config`
+ * cannot be reached by an authenticated client (ADR-37).
+ */
+const ALLOWED_OPENCODE_ROUTES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
+  { method: "GET", pattern: /^\/api\/session\/active$/ },
+  { method: "GET", pattern: /^\/api\/session\/[^/]+\/message$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/agent$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/model$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/prompt$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/command$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/fork$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/interrupt$/ },
+  // `/btw` cleanup deletes its fork through the proxy; moving it to a BFF
+  // route is a separate follow-up.
+  { method: "DELETE", pattern: /^\/api\/session\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/permission\/request$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/permission\/[^/]+\/reply$/ },
+  { method: "GET", pattern: /^\/api\/form$/ },
+  { method: "GET", pattern: /^\/api\/session\/[^/]+\/form$/ },
+  { method: "GET", pattern: /^\/api\/session\/[^/]+\/form\/[^/]+$/ },
+  { method: "POST", pattern: /^\/api\/session\/[^/]+\/form\/[^/]+\/reply$/ },
+  { method: "DELETE", pattern: /^\/api\/session\/[^/]+\/form\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/agent$/ },
+  { method: "GET", pattern: /^\/api\/model$/ },
+  { method: "GET", pattern: /^\/api\/model\/default$/ },
+  { method: "GET", pattern: /^\/api\/provider$/ },
+  { method: "GET", pattern: /^\/api\/integration$/ },
+  { method: "POST", pattern: /^\/api\/integration\/[^/]+\/connect\/key$/ },
+  { method: "POST", pattern: /^\/api\/credential\/[^/]+\/activate$/ },
+  { method: "DELETE", pattern: /^\/api\/credential\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/websearch\/provider$/ },
+  { method: "POST", pattern: /^\/api\/websearch$/ },
+]
+
+/**
+ * Whether the client proxy may forward `method path` to opencode (#179).
+ * `path` is the already-normalized request path with `/api/oc` stripped.
+ * Encoded slashes are refused outright: opencode ids are slash-free, and a
+ * `%2f` whose decoding differs between layers would blur those segments.
+ * `//host/...` never matches an anchored `/api/...` pattern, so it cannot be
+ * interpreted as a protocol-relative target.
+ */
+export function isAllowedOpencodePath(method: string, path: string): boolean {
+  if (/%2f/i.test(path)) return false
+  return ALLOWED_OPENCODE_ROUTES.some((route) => route.method === method && route.pattern.test(path))
+}
+
 export interface ProxyRetryOptions {
   /** Total attempts for retryable requests. Default 3. */
   attempts?: number
@@ -67,6 +121,14 @@ export function createOpencodeProxy(
   return async (c: Context): Promise<Response> => {
     const requestUrl = new URL(c.req.url)
     const path = c.req.path.replace(/^\/api\/oc/, "") || "/"
+
+    // Method-aware allowlist: the passthrough must expose only the paths the
+    // clients actually use. Denied before the target URL is built and before
+    // this proxy reads the body (#179, ADR-37); the bodyLimit middleware runs
+    // first in app.ts and may answer 413 for oversized bodies.
+    if (!isAllowedOpencodePath(c.req.method, path)) {
+      return c.json({ error: "not_found" }, 404)
+    }
 
     let target: URL
     try {

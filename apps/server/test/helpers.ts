@@ -422,6 +422,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     proxyBodyLimitMb: 10,
     providersAllowLoopback: false,
     customProvidersFile: "/tmp/masterhand-test/masterhand-providers.json",
+    managedRunLauncher: "",
     ...overrides,
   }
 }

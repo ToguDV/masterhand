@@ -41,6 +41,9 @@ services:
       # MasterHand-owned custom-provider config, in opencode's global config dir
       # (shared volume below). opencode loads it with OPENCODE_CONFIG.
       OPENCODE_CUSTOM_PROVIDERS_FILE: /home/node/.config/opencode/masterhand-providers.json
+      # Setuid dropper that launches managed runs as the unprivileged `agent`
+      # user. The path is resolved inside the opencode container, not here.
+      MANAGED_RUN_LAUNCHER: /usr/local/bin/agent-exec
     volumes:
       - masterhand_data:/data
       # Shared with opencode: the BFF creates each workspace subfolder here.

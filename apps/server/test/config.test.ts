@@ -210,4 +210,25 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PREVIEW_PORT_RANGE: "80-90" })).previewPortRange).toEqual({ min: 3200, max: 3299 })
     expect(loadConfig(env({ PREVIEW_PORT_RANGE: "70000-80000" })).previewPortRange).toEqual({ min: 3200, max: 3299 })
   })
+
+  it("defaults the managed-run launcher to empty (native development)", () => {
+    expect(loadConfig(env()).managedRunLauncher).toBe("")
+    expect(loadConfig(env({ MANAGED_RUN_LAUNCHER: "   " })).managedRunLauncher).toBe("")
+  })
+
+  it("accepts an absolute managed-run launcher path", () => {
+    expect(loadConfig(env({ MANAGED_RUN_LAUNCHER: " /usr/local/bin/agent-exec " })).managedRunLauncher).toBe(
+      "/usr/local/bin/agent-exec",
+    )
+  })
+
+  it("rejects a relative, overly long or control-character launcher path", () => {
+    expect(() => loadConfig(env({ MANAGED_RUN_LAUNCHER: "bin/agent-exec" }))).toThrow(
+      /MANAGED_RUN_LAUNCHER[^\n]*absolute/,
+    )
+    expect(() => loadConfig(env({ MANAGED_RUN_LAUNCHER: `/${"a".repeat(256)}` }))).toThrow(/MANAGED_RUN_LAUNCHER/)
+    expect(() => loadConfig(env({ MANAGED_RUN_LAUNCHER: "/usr/local/bin/agent\n-exec" }))).toThrow(
+      /MANAGED_RUN_LAUNCHER/,
+    )
+  })
 })
