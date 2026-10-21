@@ -634,16 +634,38 @@ export function createApp(deps: AppDeps): Hono {
    * deleted by a client and, critically, when opencode reports it deleted
    * outside MasterHand (TUI/API), where no route runs.
    */
-  async function releaseSession(sessionID: string): Promise<void> {
-    void goals.forget(sessionID).catch(() => {})
-    preview.forget(sessionID)
-    runs.forget(sessionID)
+  async function releaseSession(sessionID: string, directory?: string, repoPath?: string): Promise<void> {
+    // A finish still needs the worktree to commit/push: deleting the branch
+    // under it would turn a successful finish into a lost push (#187/#188).
+    await awaitFinish(sessionID)
+    await goals.forget(sessionID).catch((error) => {
+      console.warn(`[masterhand] could not forget goal for ${sessionID}:`, error)
+    })
+    await preview.forget(sessionID).catch((error) => {
+      // Removing the port row is storage: surface it instead of hiding a full
+      // disk behind a best-effort cleanup log (rule 14).
+      if (isStorageError(error)) throw error
+      console.warn(`[masterhand] could not forget preview for ${sessionID}:`, error)
+    })
     const record = deps.store.getIsolatedSession(sessionID)
+    // `stop` (not `forget`) waits for an in-flight start and adopts an orphan
+    // PTY by title, so no dev server survives the session's directory.
+    const runDirectory = record?.path ?? directory
+    if (runDirectory) {
+      await runs.stop(sessionID, runDirectory).catch((error) => {
+        console.warn(`[masterhand] could not stop run for ${sessionID}:`, error)
+      })
+    } else {
+      // No directory known (out-of-band event without a record): best effort.
+      runs.forget(sessionID)
+    }
     if (!record) return
-    const workspace = deps.store.getWorkspace(record.workspaceID)
-    if (workspace) {
+    // Workspace deletion removes the row before its children; the caller then
+    // supplies the repo path so the worktree/branch still goes away.
+    const repo = deps.store.getWorkspace(record.workspaceID)?.path ?? repoPath
+    if (repo) {
       try {
-        await worktrees.remove(workspace.path, record.path, record.branch)
+        await worktrees.remove(repo, record.path, record.branch)
       } catch {
         // best effort: never block dropping the record
       }
@@ -1517,33 +1539,53 @@ export function createApp(deps: AppDeps): Hono {
       if (busy) return busy
     }
 
+    // Pause every task aimed at this folder through its serialized chain
+    // (#188): a fire already in progress settles first, and no tick starts
+    // another one after the row is gone. One bad task never blocks the delete.
+    for (const task of deps.store.listScheduledTasks()) {
+      if (task.directory !== workspace.path) continue
+      try {
+        await scheduler.pauseTask(task.id)
+      } catch (error) {
+        console.warn(`[masterhand] could not pause scheduled task ${task.id}:`, error)
+      }
+    }
+
+    // Remove the parent row before releasing children (synchronous, so it
+    // cannot interleave): a create that already passed its workspace lookup
+    // can no longer land a record that references a deleted workspace, because
+    // its pre-insert re-check now fails and rolls the worktree/session back.
+    // The row goes before the folder: if the folder delete fails, the files
+    // remain for inspection, but MasterHand no longer registers them.
+    deps.store.removeWorkspace(workspace.id)
+
     // Isolated worktrees live outside the workspace folder, and each session
     // owns lifecycles that outlive the folder (an in-flight finish, a managed
-    // PTY, a goal run, a preview). Release them in order before the parent.
-    for (const record of records) {
-      await awaitFinish(record.sessionID)
-      // `stop` (not `forget`) also adopts an orphan PTY by title and waits for
-      // an in-flight start, so no dev server survives its deleted worktree.
-      await runs.stop(record.sessionID, record.path).catch((error) => {
-        console.warn(`[masterhand] could not stop run for ${record.sessionID}:`, error)
-      })
-      await goals.forget(record.sessionID).catch((error) => {
-        console.warn(`[masterhand] could not forget goal for ${record.sessionID}:`, error)
-      })
-      preview.forget(record.sessionID)
-      try {
-        await worktrees.remove(workspace.path, record.path, record.branch)
-      } catch {
-        // best effort: the folder may already be gone
+    // PTY, a goal run, a preview). Wait/release them before removing the
+    // worktree and its record. Re-list after the row removal: a create that
+    // inserted its record during the guard/pause awaits is still reachable
+    // here (its own pre-insert re-check now fails), so no record is stranded.
+    // The repo path is passed explicitly because the workspace row (the usual
+    // lookup) is already gone.
+    for (const record of deps.store.listIsolatedSessions(workspace.id)) {
+      await releaseSession(record.sessionID, record.path, workspace.path)
+    }
+
+    // Base-folder sessions own the same lifecycles (`sessionRunContext`
+    // resolves them too): stop their PTY/preview/goal run before the folder
+    // disappears. Best effort: a delete must not fail because opencode is
+    // unreachable.
+    try {
+      const sessions = await fetchSessionsInDirectory(workspace.path)
+      for (const session of sessions) {
+        await releaseSession(session.id, workspace.path)
       }
-      deps.store.removeIsolatedSession(record.sessionID)
+    } catch (error) {
+      console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
     }
 
     if (deleteFiles) await removeDir(workspace.path)
 
-    // Atomic with the workspace row in both stores: no run config survives its
-    // workspace, and the scheduler pauses orphaned tasks on its next tick.
-    deps.store.removeWorkspace(workspace.id)
     invalidateSessionsCache()
     return c.json({ ok: true })
   })
@@ -1804,6 +1846,23 @@ export function createApp(deps: AppDeps): Hono {
       await ensurePreviewInstruction(session.id)
       await ensureWorkspaceGuard(session.id, path)
 
+      // The workspace may have been deleted while opencode was creating the
+      // session. The lookup at the top of the route is now stale; re-read the
+      // row synchronously immediately before the insert (workspace deletion
+      // removes it first), so no isolation record ever references a deleted
+      // workspace or leaks its worktree. Roll back like a definitive failure.
+      if (!deps.store.getWorkspace(workspace.id)) {
+        if (sessionID) {
+          void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
+        }
+        try {
+          await worktrees.remove(workspace.path, path, branch)
+        } catch {
+          // the worktree may already be gone
+        }
+        return c.json({ error: "workspace_busy" }, 409)
+      }
+
       const record: IsolatedSessionRecord = isolatedSessionRecord(session.id, workspace.id, path, branch, baseRef)
       deps.store.createIsolatedSession(record)
       return c.json({ session: { ...session, isolation: isolationOf(record) }, isolation: isolationOf(record) }, 201)
@@ -1829,6 +1888,19 @@ export function createApp(deps: AppDeps): Hono {
           }
         }
         if (!recovered) return c.json({ error: "opencode_timeout" }, 504)
+
+        // The timeout recovery is still a create: if the workspace was deleted
+        // meanwhile, roll the recovered session and worktree back instead of
+        // persisting an isolation record for a workspace that is gone.
+        if (!deps.store.getWorkspace(workspace.id)) {
+          void callOpencode(`/api/session/${encodeURIComponent(recovered.id)}`, { method: "DELETE" }).catch(() => {})
+          try {
+            await worktrees.remove(workspace.path, path, branch)
+          } catch {
+            // the worktree may already be gone
+          }
+          return c.json({ error: "workspace_busy" }, 409)
+        }
 
         // Persist before the best-effort guard writes: a crash after this point
         // keeps the record (and the worktree) recoverable after a restart.
@@ -1872,7 +1944,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    await releaseSession(sessionID)
+    await releaseSession(sessionID, deps.store.getIsolatedSession(sessionID)?.path ?? workspace.path)
     return c.json({ ok: true })
   })
 

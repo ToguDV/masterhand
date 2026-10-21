@@ -791,6 +791,20 @@ describe("scheduler workspace revalidation", () => {
     expect(liveTask(h).paused).toBe(true)
   })
 
+  it("refuses a manual run after the workspace was deleted, without firing", async () => {
+    const h = harness()
+    h.store.removeWorkspace("ws_app")
+
+    await expect(h.manager.taskRunNow("task_1")).rejects.toMatchObject({
+      code: "task_paused",
+      status: 409,
+    })
+
+    expect(h.opencode.creates).toHaveLength(0)
+    expect(h.store.listScheduledRuns("task_1")).toHaveLength(0)
+    expect(liveTask(h).paused).toBe(true)
+  })
+
   it("skips a queued run and pauses the task when its workspace disappears mid-run", async () => {
     const h = harness()
     await h.manager.tick()
@@ -876,6 +890,7 @@ describe("scheduler plumbing", () => {
   it("surfaces storage write failures from run-now instead of swallowing them", async () => {
     clockMs = BASE
     const store = createMemoryStore()
+    store.createWorkspace({ id: "ws_app", name: "app", path: "/workspace/app", createdAt: BASE })
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
     store.createScheduledTask(makeTask())
     store.saveScheduledRun = () => {

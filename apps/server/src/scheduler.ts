@@ -703,6 +703,12 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     return runExclusive(taskId, async () => {
       const live = store.getScheduledTask(taskId)
       if (!live) throw new SchedulerError("task_not_found", 404, "unknown scheduled task")
+      // A manual run is a fire path too: revalidate its directory inside the
+      // chain before the paused/fire branch (#188). Otherwise a tap after the
+      // workspace was deleted starts a session in the removed folder.
+      if (pauseWithoutWorkspace(live)) {
+        throw new SchedulerError("task_paused", 409, "the task's workspace no longer exists")
+      }
       if (live.paused) throw new SchedulerError("task_paused", 409, "the scheduled task is paused")
       const active = store.listActiveScheduledRuns().filter((run) => run.taskId === taskId)
       const queued = active.find((run) => run.status === "queued")

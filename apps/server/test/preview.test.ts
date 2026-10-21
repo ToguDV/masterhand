@@ -14,7 +14,15 @@ import {
   reachableOverHttp,
   tunnelPidFile,
 } from "../src/preview.js"
-import { createFakeTunnel, testConfig } from "./helpers.js"
+import { createFakeTunnel, testConfig, waitFor } from "./helpers.js"
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 function setup(overrides: Parameters<typeof testConfig>[0] = {}, tunnel = createFakeTunnel()) {
   const config = testConfig(overrides)
@@ -221,7 +229,38 @@ describe("preview tunnel lifecycle", () => {
     // stop keeps the reserved port: the tunnel can be restarted.
     expect(store.getPreviewPort("ses_1")).toBe(32900)
 
-    manager.forget("ses_1")
+    await manager.forget("ses_1")
+    expect(store.getPreviewPort("ses_1")).toBeNull()
+  })
+
+  it("waits for an in-flight start before forgetting, so the tunnel is killed and untracked", async () => {
+    const gate = deferred()
+    const config = testConfig()
+    const store = createMemoryStore()
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config,
+      store,
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        await gate.promise
+        return true
+      },
+    })
+
+    const start = manager.start("ses_1")
+    await waitFor(() => tunnel.children.length === 1)
+    expect(store.getPreviewPort("ses_1")).toBe(32900)
+
+    const forgotten = manager.forget("ses_1")
+    gate.resolve()
+    await forgotten
+    await start.catch(() => {})
+
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+    expect(manager.status("ses_1").status).toBe("stopped")
     expect(store.getPreviewPort("ses_1")).toBeNull()
   })
 

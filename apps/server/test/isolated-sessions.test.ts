@@ -72,6 +72,8 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
   const calls: OpencodeCall[] = []
   let counter = 0
   let ptyCounter = 0
+  let nextCreateGate: Promise<void> | null = null
+  let nextActiveGate: Promise<void> | null = null
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
@@ -97,6 +99,11 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
       return Response.json({ data: page, cursor: { previous: null, next } })
     }
     if (method === "POST" && url.pathname === "/api/session") {
+      if (nextCreateGate) {
+        const gate = nextCreateGate
+        nextCreateGate = null
+        await gate
+      }
       const session: MockSession = { id: `ses_${++counter}`, directory: directory ?? "" }
       const list = sessions.get(directory ?? "") ?? []
       list.push(session)
@@ -113,6 +120,11 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
       return new Response(null, { status: 204 })
     }
     if (method === "GET" && url.pathname === "/api/session/active") {
+      if (nextActiveGate) {
+        const gate = nextActiveGate
+        nextActiveGate = null
+        await gate
+      }
       return Response.json({
         data: Object.fromEntries([...active].map((id) => [id, { type: "running" }])),
       })
@@ -147,6 +159,12 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     sessions,
     ptys,
     calls,
+    holdNextCreate(gate: Promise<void>) {
+      nextCreateGate = gate
+    },
+    holdNextActive(gate: Promise<void>) {
+      nextActiveGate = gate
+    },
     setActive(sessionIDs: string[]) {
       active.clear()
       for (const id of sessionIDs) active.add(id)
@@ -631,6 +649,140 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
       await app.close()
     }
   })
+
+  it("waits for an in-flight finish before removing the worktree", async () => {
+    const gate = deferred()
+    let commits = 0
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      commitAll: vi.fn(async () => {
+        commits += 1
+        await gate.promise
+        return true
+      }),
+      push: async () => {},
+      pullRequest: async () => "https://github.com/org/repo/pull/11",
+    })
+    const removeStarted = deferred()
+    const originalRemove = worktrees.remove
+    worktrees.remove = async (repo, path, branch) => {
+      removeStarted.resolve()
+      await originalRemove(repo, path, branch)
+    }
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const finish = fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      await waitFor(() => commits === 1)
+
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      // The DELETE reaches opencode before releaseSession; if the worktree is
+      // removed in the same tick the branch disappears between commit and push.
+      await waitFor(() => opencode.calls.some((call) => call.method === "DELETE"))
+      const early = await Promise.race([
+        removeStarted.promise.then(() => "removed" as const),
+        new Promise<"waiting">((resolve) => setImmediate(() => resolve("waiting"))),
+      ])
+      expect(early).toBe("waiting")
+
+      gate.resolve()
+      const [finishResponse, deletionResponse] = await Promise.all([finish, deletion])
+      expect(finishResponse.status).toBe(200)
+      expect(deletionResponse.status).toBe(200)
+      expect(
+        worktrees.calls.findIndex((call) => call.startsWith("commit:")),
+      ).toBeLessThan(worktrees.calls.findIndex((call) => call.startsWith("remove:")))
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("waits for an in-flight finish when opencode reports the session deleted", async () => {
+    const gate = deferred()
+    let commits = 0
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      commitAll: vi.fn(async () => {
+        commits += 1
+        await gate.promise
+        return true
+      }),
+      push: async () => {},
+      pullRequest: async () => "https://github.com/org/repo/pull/12",
+    })
+    const removeStarted = deferred()
+    const originalRemove = worktrees.remove
+    worktrees.remove = async (repo, path, branch) => {
+      removeStarted.resolve()
+      await originalRemove(repo, path, branch)
+    }
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const finish = fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      await waitFor(() => commits === 1)
+
+      app.hub.emit({ type: "session.deleted", data: { sessionID: session.id } })
+      const early = await Promise.race([
+        removeStarted.promise.then(() => "removed" as const),
+        new Promise<"waiting">((resolve) => setImmediate(() => resolve("waiting"))),
+      ])
+      expect(early).toBe("waiting")
+
+      gate.resolve()
+      expect((await finish).status).toBe(200)
+      await waitFor(() => app.store.getIsolatedSession(session.id) === null)
+      expect(
+        worktrees.calls.findIndex((call) => call.startsWith("commit:")),
+      ).toBeLessThan(worktrees.calls.findIndex((call) => call.startsWith("remove:")))
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
 })
 
 describe("POST /api/isolated-sessions/:sessionID/finish", () => {
@@ -959,6 +1111,191 @@ describe("DELETE /api/workspaces/:id", () => {
       expect(app.store.getIsolatedSession(session.id)).toBeNull()
       expect(app.store.getWorkspaceRun(workspace.id)).toBeNull()
       expect(app.store.getWorkspace(workspace.id)).toBeNull()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("stops the managed run of a base-folder session and drops its board rows", async () => {
+    const { app, opencode, headers, workspace } = await setupApp()
+    try {
+      const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      })
+      const { session } = (await created.json()) as { session: { id: string } }
+      app.store.saveWorkspaceRun({
+        workspaceID: workspace.id,
+        command: "npm",
+        args: ["run", "dev"],
+        cwd: null,
+        source: "user",
+        updatedAt: 1,
+      })
+      app.store.createBoardColumn({ id: "col_1", workspaceID: workspace.id, title: "Todo" })
+
+      // `sessionRunContext` resolves base-folder sessions too, so their PTY is
+      // just as real as an isolated one.
+      const started = await fetch(`${app.url}/api/sessions/${session.id}/run?workspace=${workspace.id}`, {
+        method: "POST",
+        headers,
+      })
+      expect(started.status).toBe(200)
+      expect(opencode.ptys).toHaveLength(1)
+      const ptyID = opencode.ptys[0]!.id
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(200)
+
+      expect(
+        opencode.calls.some((call) => call.method === "DELETE" && call.path === `/api/pty/${ptyID}`),
+      ).toBe(true)
+      expect(opencode.ptys).toHaveLength(0)
+      expect(app.store.getWorkspaceRun(workspace.id)).toBeNull()
+      expect(app.store.getBoard(workspace.id).columns).toHaveLength(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("rejects an isolated create whose workspace was deleted while opencode was creating it", async () => {
+    const gate = deferred()
+    const { app, opencode, worktrees, headers, workspace } = await setupApp()
+    try {
+      opencode.holdNextCreate(gate.promise)
+      const creating = fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      await waitFor(() =>
+        opencode.calls.some((call) => call.method === "POST" && call.path === "/api/session"),
+      )
+
+      // The create passed the route's workspace lookup and is inside the
+      // upstream call. Deleting the row first must make the create roll back.
+      const deletion = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(deletion.status).toBe(200)
+
+      gate.resolve()
+      const response = await creating
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: "workspace_busy" })
+      expect(app.store.listIsolatedSessions()).toHaveLength(0)
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
+      expect(
+        opencode.calls.some((call) => call.method === "DELETE" && call.path.startsWith("/api/session/")),
+      ).toBe(true)
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("releases an isolated record created while the delete guard was in flight", async () => {
+    const gate = deferred()
+    const { app, opencode, worktrees, headers, workspace } = await setupApp()
+    try {
+      // A base session makes the guard consult `/api/session/active`; the
+      // route snapshotted the (empty) isolated list before it. The isolated
+      // create lands while that guard is held, so only a re-list after the row
+      // removal can find and release it.
+      const base = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      })
+      expect(base.status).toBe(201)
+      opencode.holdNextActive(gate.promise)
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+        method: "DELETE",
+        headers,
+      })
+      await waitFor(() =>
+        opencode.calls.some((call) => call.method === "GET" && call.path === "/api/session/active"),
+      )
+      const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      expect(created.status).toBe(201)
+      expect(app.store.listIsolatedSessions(workspace.id)).toHaveLength(1)
+
+      gate.resolve()
+      const response = await deletion
+      expect(response.status).toBe(200)
+      expect(app.store.listIsolatedSessions()).toHaveLength(0)
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
+      expect(app.store.getWorkspace(workspace.id)).toBeNull()
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("pauses scheduled tasks for the folder before removing it and refuses a later run", async () => {
+    let pausedAtRemove: boolean | null = null
+    const store = createMemoryStore()
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({
+      store,
+      fetchImpl: opencode.fetchImpl,
+      removeDir: async () => {
+        pausedAtRemove = store.getScheduledTask("task_ws")?.paused ?? null
+      },
+    })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string; path: string } }
+      store.createScheduledTask({
+        id: "task_ws",
+        name: "Nightly",
+        prompt: "check",
+        model: { providerID: "test", id: "test-model" },
+        schedule: { kind: "interval", intervalMinutes: 60 },
+        timezone: "",
+        directory: workspace.path,
+        paused: false,
+        lastRunAt: null,
+        nextRunAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+      })
+
+      const deletion = await fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(deletion.status).toBe(200)
+      expect(pausedAtRemove).toBe(true)
+      expect(store.getScheduledTask("task_ws")?.paused).toBe(true)
+
+      const createsBefore = opencode.calls.filter(
+        (call) => call.method === "POST" && call.path === "/api/session",
+      ).length
+      const run = await fetch(`${app.url}/api/scheduled-tasks/task_ws/run`, {
+        method: "POST",
+        headers,
+      })
+      expect(run.status).toBe(409)
+      expect(((await run.json()) as { error: string }).error).toBe("task_paused")
+      expect(
+        opencode.calls.filter((call) => call.method === "POST" && call.path === "/api/session").length,
+      ).toBe(createsBefore)
+      expect(store.listScheduledRuns("task_ws")).toHaveLength(0)
     } finally {
       await app.close()
     }

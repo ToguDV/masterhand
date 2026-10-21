@@ -21,7 +21,11 @@ export interface PreviewManager {
   stop(sessionID: string): void
   stopAll(): void
   /** Port mappings are removed when the session disappears. */
-  forget(sessionID: string): void
+  /**
+   * Kills the tunnel (waiting for an in-flight start first, so a child that
+   * appears after the call is still killed) and drops the reserved port.
+   */
+  forget(sessionID: string): Promise<void>
   /** Whether the `cloudflared` binary can be executed (cached, async probe). */
   available(): Promise<boolean>
 }
@@ -481,7 +485,12 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       starting.clear()
       failures.clear()
     },
-    forget(sessionID) {
+    async forget(sessionID) {
+      // An in-flight `start` is not tracked in `running` until its readiness
+      // checks finish: wait for it, then kill the child it produced. Otherwise
+      // the tunnel outlives the session with no row left to find it by (#188).
+      const pending = starting.get(sessionID)
+      if (pending) await pending.catch(() => {})
       const active = running.get(sessionID)
       if (active) {
         kill(active.child)
