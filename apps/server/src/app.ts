@@ -754,6 +754,10 @@ export function createApp(deps: AppDeps): Hono {
 
   /** Goal routes answer typed codes; unexpected failures stay 502. */
   function goalFailure(c: Context, error: unknown): Response {
+    // Infrastructure failures are not a goal failure: let app.onError answer
+    // the shared 503 storage_unavailable instead of a misleading 502
+    // (docs/past-mistakes.md rule 14).
+    if (isStorageError(error)) throw error
     if (error instanceof GoalError) return c.json({ error: error.code, detail: error.message }, error.status)
     if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
     return c.json({ error: "goal_failed", detail: error instanceof Error ? error.message : undefined }, 502)
@@ -1804,6 +1808,11 @@ export function createApp(deps: AppDeps): Hono {
       deps.store.createIsolatedSession(record)
       return c.json({ session: { ...session, isolation: isolationOf(record) }, isolation: isolationOf(record) }, 201)
     } catch (error) {
+      // A storage failure while persisting the isolation record says nothing
+      // about the worktree or the session: both are healthy, so never roll them
+      // back. Rethrow before any cleanup/typed fallback so app.onError answers
+      // 503 storage_unavailable instead of 500 isolation_failed (#191).
+      if (isStorageError(error)) throw error
       // A deadline is not proof of failure: opencode may have created the
       // session before its response stalled. Reconcile the persisted create
       // marker inside the worktree MasterHand just made; the worktree is never
@@ -2038,6 +2047,9 @@ export function createApp(deps: AppDeps): Hono {
         },
       })
     } catch (error) {
+      // Port allocation persists to the store: a storage failure is not an
+      // opencode failure. Let app.onError answer 503 storage_unavailable.
+      if (isStorageError(error)) throw error
       if (error instanceof PreviewError) return c.json({ error: error.code }, 503)
       return c.json({ error: "opencode_unreachable" }, 502)
     }
@@ -2052,6 +2064,9 @@ export function createApp(deps: AppDeps): Hono {
       const port = preview.portFor(context.sessionID)
       return c.json({ run: await runs.start(context.sessionID, context.directory, config, port) })
     } catch (error) {
+      // `runs.start` allocates/persists the preview port: a storage failure is
+      // infrastructure and must reach app.onError (503), not `run_failed` (500).
+      if (isStorageError(error)) throw error
       const code = error instanceof RunError ? error.code : error instanceof PreviewError ? error.code : "run_failed"
       const status = code === "run_spawn_failed" ? 502 : code === "preview_ports_exhausted" ? 503 : 500
       return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
@@ -2077,6 +2092,9 @@ export function createApp(deps: AppDeps): Hono {
     try {
       return c.json({ preview: await preview.start(c.req.param("sessionID")) })
     } catch (error) {
+      // `preview.start` reads/writes the port mapping: a storage failure is
+      // infrastructure and must reach app.onError (503), not `preview_failed`.
+      if (isStorageError(error)) throw error
       const code = error instanceof PreviewError ? error.code : "preview_failed"
       const status = code === "preview_not_running" ? 409 : code === "preview_ports_exhausted" ? 503 : 502
       return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
@@ -2389,6 +2407,9 @@ export function createApp(deps: AppDeps): Hono {
    * frames (same synthetic shape as `goal.updated`).
    */
   function schedulerFailure(c: Context, error: unknown): Response {
+    // Storage is infrastructure, not a scheduler failure: app.onError answers
+    // the shared 503 storage_unavailable (docs/past-mistakes.md rule 14).
+    if (isStorageError(error)) throw error
     if (error instanceof SchedulerError) return c.json({ error: error.code, detail: error.message }, error.status)
     if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
     return c.json({ error: "scheduler_failed", detail: error instanceof Error ? error.message : undefined }, 502)

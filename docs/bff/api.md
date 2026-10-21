@@ -263,7 +263,7 @@ curl -X POST https://your-origin.example/api/devices \
 
 ## Error shapes
 
-- Any uncaught route failure answers JSON instead of a bare 500: `500 { error: "internal_error" }` (method/path logged) or `503 { error: "storage_unavailable" }` when the failure is a SQLite error (disk full, read-only, corrupt).
+- Any uncaught route failure answers JSON instead of a bare 500: `500 { error: "internal_error" }` (method/path logged) or `503 { error: "storage_unavailable" }` when the failure is a SQLite error (disk full, read-only, corrupt). Route catch-alls rethrow storage failures before their typed mappings and before any rollback/cleanup, so a record that cannot be persisted answers `503` and never surfaces as `goal_failed`/`scheduler_failed`/`run_failed`/`preview_failed` or destroys a healthy worktree.
 - Expected conflicts are mapped: `POST /api/workspaces` answers `409 already_exists` when the insert races the path pre-check, and preview-port allocation retries a `UNIQUE(port)` race before giving up.
 - Advisory writes (device `lastUsedAt`, the audit log) never fail the request; the first failure is logged once.
 

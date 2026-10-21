@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest"
-import type { ScheduledRun, ScheduledTask } from "../src/store.js"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { createMemoryStore, type ScheduledRun, type ScheduledTask } from "../src/store.js"
 import {
   login,
   readUntil,
@@ -210,6 +210,31 @@ describe("scheduled task routes", () => {
     })
     expect(response.status).toBe(502)
     expect(((await response.json()) as { error: string }).error).toBe("scheduler_failed")
+  })
+
+  it("lets a storage failure while persisting a task reach the typed 503 mapping", async () => {
+    mock = await startMockOpencode()
+    const store = {
+      ...createMemoryStore(),
+      createScheduledTask: () => {
+        throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+      },
+    }
+    app = await startTestApp({ store, config: { opencodeUrl: mock.url } })
+    app.store.createWorkspace({ id: "ws_demo", name: "demo", path: DIRECTORY, createdAt: 1 })
+    const cookie = await login(app.url)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await fetch(`${app!.url}/api/scheduled-tasks`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(taskInput()),
+      })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 
   it("answers task_not_found for every task-scoped route", async () => {    const cookie = await boot()

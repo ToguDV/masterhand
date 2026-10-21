@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, waitFor } from "./helpers.js"
 import { pullRequestUrl } from "../src/worktrees.js"
-import type { GoalRunRecord } from "../src/store.js"
+import { createMemoryStore, type GoalRunRecord } from "../src/store.js"
 
 /** Promise a test can resolve explicitly to hold a request mid-operation. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -266,6 +266,46 @@ describe("POST /api/workspaces/:id/sessions", () => {
       )
       expect(instruction?.parsedBody?.value).toContain(isolation.worktreePath)
     } finally {
+      await app.close()
+    }
+  })
+
+  it("answers 503 and keeps the worktree when persisting the isolation record fails", async () => {
+    const opencode = createOpencodeMock()
+    const worktrees = createFakeWorktreeManager()
+    const store = {
+      ...createMemoryStore(),
+      createIsolatedSession: () => {
+        throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+      },
+    }
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl, store })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+
+      // The session and its worktree are healthy: a storage failure while
+      // persisting the record must never roll them back.
+      expect(worktrees.calls.some((call) => call.startsWith("create:"))).toBe(true)
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(false)
+      expect(opencode.calls.some((call) => call.method === "DELETE")).toBe(false)
+    } finally {
+      errorLog.mockRestore()
       await app.close()
     }
   })

@@ -845,6 +845,41 @@ describe("managed run errors", () => {
     expect(((await failed.json()) as { error: string }).error).toBe("run_spawn_failed")
   })
 
+  it("lets storage failures on run and preview routes reach the typed 503 mapping", async () => {
+    const store = {
+      ...createMemoryStore(),
+      getPreviewPort: () => {
+        throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+      },
+    }
+    app = await startTestApp({ store })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const cases: Array<[string, string]> = [
+        ["GET", "/api/sessions/ses_1/run?workspace=ws"],
+        ["POST", "/api/sessions/ses_1/run?workspace=ws"],
+        ["POST", "/api/sessions/ses_1/preview"],
+      ]
+      for (const [method, path] of cases) {
+        const response = await fetch(`${app.url}${path}`, { method, headers: { cookie } })
+        expect(response.status, `${method} ${path}`).toBe(503)
+        expect(await response.json(), `${method} ${path}`).toEqual({ error: "storage_unavailable" })
+      }
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
   it("runs an isolated session in its worktree directory", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url } })
