@@ -12,7 +12,7 @@
  */
 
 import { lookup } from "node:dns/promises"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { isIP } from "node:net"
 import { dirname } from "node:path"
 
@@ -372,7 +372,12 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
   }
 
   async function writeDocument(document: Document): Promise<void> {
-    await mkdir(dirname(file), { recursive: true })
+    // The file can carry provider settings and the web-search selection; the
+    // agent shares this volume as a different uid, so the file itself is
+    // owner-only and the directory is created owner-only (existing directories
+    // are left as they are: in native development they are the user's own
+    // ~/.config/opencode).
+    await mkdir(dirname(file), { recursive: true, mode: 0o700 })
     // Every top-level key the file carried (a hand-added `websearch`, another
     // tool's section, …) is written back untouched: this file is shared.
     const payload = {
@@ -381,8 +386,11 @@ export function createCustomProviderStore(options: { file: string }): CustomProv
       providers: document.providers,
     }
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(temp, `${JSON.stringify(payload, null, 2)}\n`, "utf8")
+    await writeFile(temp, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 })
     await rename(temp, file)
+    // `writeFile`'s mode only applies at creation; correct a pre-existing 0664
+    // file (and any permissive umask) after the atomic replace.
+    await chmod(file, 0o600)
   }
 
   return {

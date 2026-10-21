@@ -49,6 +49,8 @@ describe("request validation", () => {
   it("rejects an oversized proxied body before contacting opencode", async () => {
     app = await startTestApp({ proxyBodyLimitBytes: 1024 })
     const cookie = await login(app.url)
+    // `/api/session` is outside the client allowlist (#179): the 413 proves
+    // bodyLimit still runs before the proxy, so denied paths stay bounded too.
     const response = await fetch(`${app.url}/api/oc/api/session`, {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },

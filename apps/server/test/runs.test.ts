@@ -29,7 +29,18 @@ describe("validateRunConfig", () => {
   })
 
   it("rejects shells and process-killing commands", () => {
-    for (const command of ["bash", "/bin/sh", "pkill", "killall", "xargs", "sudo", "docker", "systemctl"]) {
+    for (const command of [
+      "bash",
+      "/bin/sh",
+      "pkill",
+      "killall",
+      "xargs",
+      "sudo",
+      "docker",
+      "systemctl",
+      "agent-exec",
+      "/usr/local/bin/agent-exec",
+    ]) {
       expect(validateRunConfig({ command, args: [] }, "/ws")).toMatchObject({
         ok: false,
         error: "command_not_allowed",
@@ -203,6 +214,37 @@ describe("createRunManager", () => {
     const manager = createRunManager({ opencode })
     await manager.start("ses_3", "/ws/app", { ...config, cwd: "packages/web" }, 3210)
     expect(opencode.calls[0]).toMatchObject({ cwd: "/ws/app/packages/web" })
+  })
+
+  it("wraps the run in the launcher when one is configured", async () => {
+    const opencode = createFakeOpencode()
+    const manager = createRunManager({ opencode, launcher: "/usr/local/bin/agent-exec" })
+
+    const started = await manager.start("ses_4", "/ws", config, 3210)
+    expect(opencode.calls[0]).toMatchObject({
+      op: "create",
+      command: "/usr/local/bin/agent-exec",
+      args: ["--exec", "npm", "run", "dev", "--", "--port", "3210"],
+      cwd: "/ws",
+      env: { PORT: "3210" },
+    })
+    // The status keeps showing what the user configured, not the wrapper.
+    expect(started).toMatchObject({
+      status: "running",
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "3210"],
+      port: 3210,
+    })
+  })
+
+  it("keeps the unwrapped argv when the launcher is empty", async () => {
+    const opencode = createFakeOpencode()
+    const manager = createRunManager({ opencode, launcher: "" })
+    await manager.start("ses_5", "/ws", config, 3200)
+    expect(opencode.calls[0]).toMatchObject({
+      command: "npm",
+      args: ["run", "dev", "--", "--port", "3200"],
+    })
   })
 
   it("wraps a spawn failure in run_spawn_failed", async () => {

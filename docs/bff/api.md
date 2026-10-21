@@ -1,6 +1,6 @@
 # MasterHand BFF API
 
-Verified on **2026-10-02** against the implementation (`apps/server/src/app.ts`).
+Verified on **2026-10-20** against the implementation (`apps/server/src/app.ts`, `proxy.ts`, `runs.ts`); the proxy allowlist and managed-run isolation were verified at runtime on the dev stack (opencode 2.0.6).
 
 Base URL: the deployer's origin (in development, `http://127.0.0.1:8787`).
 
@@ -89,6 +89,7 @@ MasterHand owns the dev-server process so agents never start or kill servers the
 - The agent declares the command in `<workspace>/.masterhand/run.json` (`{ "command": "npm", "args": ["run", "dev", "--", "--host", "0.0.0.0", "--port", "{port}"] }`); the BFF validates it (`POST /run/detect`) and the user applies or edits it in the UI. A saved config carries `source: "agent" | "user"`.
 - The command is **argv, no shell**: `command` is a single executable and `args` a bounded list, so a shell string cannot smuggle anything. Shells and process-killers (`sh`, `bash`, `pkill`, `killall`, `xargs`, `docker`, `systemctl`, …) are rejected; `cwd` must resolve inside the workspace.
 - On Start the BFF calls opencode's `POST /api/pty` with the session's reserved preview port substituted for `{port}` (and `PORT` in the env), in the session's directory (worktree for isolated sessions). On Stop it calls `DELETE /api/pty/:id`, which kills exactly that process tree — no `pkill`, no port sweeps.
+- **Isolation:** with `MANAGED_RUN_LAUNCHER` set (Compose passes `/usr/local/bin/agent-exec`), the PTY command becomes `agent-exec --exec <command> <args>`: the helper drops to `agent` (uid 1001/gid 1000, supplementary groups cleared), clears the inherited environment and sets only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `TMPDIR` and a validated `PORT`, then execs the argv verbatim (no shell). The status keeps reporting the user's command/args, `PORT` still carries the reserved preview port, and `agent-exec` is rejected as a run command. Native development leaves the variable unset, so the run inherits the user running `opencode serve` (Docker is the only isolation path).
 - The PTY is titled `masterhand:<sessionID>`; after a BFF restart the state endpoint adopts a still-running PTY instead of spawning a second server. Concurrent starts coalesce per session (one PTY even if two devices press Start at once). Deleting the session — or an out-of-band `session.deleted` event — forgets it.
 - Session creation writes a `masterhand.run` instruction telling the agent not to manage servers itself; the `masterhand.preview` instruction still carries the reserved port and the tunnel-host allowlist advice.
 
@@ -175,11 +176,20 @@ This is defense in depth; it does **not** sandbox shell access in general (an ag
 
 | Method | Route | Notes |
 |---|---|---|
-| `*` | `/api/oc/*` | Forwards to `OPENCODE_URL` (e.g. `http://opencode:4096`) injecting `Authorization: Basic` with `OPENCODE_SERVER_PASSWORD`. The `/api/oc` prefix is removed: `/api/oc/api/info` → `GET /api/info`. Preserves method, body, query and `content-type` byte-for-byte (including the `location[directory]` query used to target a workspace). An opencode `401/403` is converted into `502 { error: "opencode_unauthorized" }` instead of being relayed (relaying it would sign the MasterHand user out). SSE streaming without buffering (`cache-control: no-cache`, `x-accel-buffering: no`). Bodies are capped at `PROXY_BODY_LIMIT_MB` (10 MiB default) and oversized ones answer `413 { error: "payload_too_large" }` before anything is buffered; malformed percent-encoding in a prompt path answers `400 { error: "invalid_path" }`. `502 opencode_unreachable` if opencode does not answer. `504 { error: "opencode_timeout" }` when the upstream stalls past the 60s proxy deadline (the clients abort sooner with their own request timeout). |
+| as listed | `/api/oc/*` | Forwards the **allowlisted** method/path pairs (below) to `OPENCODE_URL` (e.g. `http://opencode:4096`) injecting `Authorization: Basic` with `OPENCODE_SERVER_PASSWORD`. The `/api/oc` prefix is removed: `/api/oc/api/model` → `GET /api/model`. Preserves method, body, query and `content-type` byte-for-byte on allowed routes (including the `location[directory]` query used to target a workspace). **Everything else answers `404 { error: "not_found" }` before an upstream call is made**, and encoded slashes (`%2f`) are refused. An opencode `401/403` is converted into `502 { error: "opencode_unauthorized" }` instead of being relayed (relaying it would sign the MasterHand user out). Bodies are capped at `PROXY_BODY_LIMIT_MB` (10 MiB default) and oversized ones answer `413 { error: "payload_too_large" }` before anything is buffered; malformed percent-encoding in a prompt path answers `400 { error: "invalid_path" }`. `502 opencode_unreachable` if opencode does not answer. `504 { error: "opencode_timeout" }` when the upstream stalls past the 60s proxy deadline (the clients abort sooner with their own request timeout). |
+
+**Allowlist** (method-exact, applied after auth and `bodyLimit` and before this proxy reads the body; `bodyLimit` may answer `413` first for oversized bodies. Paths shown after the `/api/oc` prefix):
+
+- `GET`: `/api/session/active`, `/api/session/{id}/message`, `/api/permission/request`, `/api/form`, `/api/session/{id}/form`, `/api/session/{id}/form/{formID}`, `/api/agent`, `/api/model`, `/api/model/default`, `/api/provider`, `/api/integration`, `/api/websearch/provider`.
+- `POST`: `/api/session/{id}/{agent,model,prompt,command,fork,interrupt}`, `/api/session/{id}/permission/{requestID}/reply`, `/api/session/{id}/form/{formID}/reply`, `/api/integration/{id}/connect/key`, `/api/credential/{id}/activate`, `/api/websearch`.
+- `DELETE`: `/api/session/{id}`, `/api/session/{id}/form/{formID}`, `/api/credential/{id}`.
+- **Denied by omission** (not exhaustive): every PTY/terminal/shell route (`POST /api/pty`, `/api/shell*`, `/api/session/{id}/shell`), `/api/fs/*`, `/api/config`, `/api/plugin`, `/api/experimental/mcp`, `GET /api/credential` (also not available upstream in 2.0.6, #216), session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and `prompt_async`.
+- The BFF's own `callOpencode` paths (session create/list, PTY/run control, instruction/permission writes, goal/scheduler, config reads) never traverse this proxy and are unaffected.
+- This is a client-boundary control, not an engine sandbox: opencode's own read tools and project-level plugins run as the engine user. Residual risks are tracked in [#218](https://github.com/ToguDV/masterhand/issues/218) and [#219](https://github.com/ToguDV/masterhand/issues/219).
 
 Transport hardening (shared with every internal call, ADR-32): `GET`/`HEAD` and the idempotent `agent`/`model` switches retry transient upstream statuses (429/5xx) and fast network failures with incremental backoff, and a `POST …/prompt` carrying the client's `masterhand.delivery` marker is retried too — after verifying through `GET /api/session/:id/message` that the marker did **not** already land, so a replay can never duplicate the turn. Mutations without a reconciliation marker (slash commands, permission/form replies, forks) stay single-shot; the client's own lost-response reconciliation covers them.
 
-The same proxy carries the provider integration/credential endpoints behind Settings > Providers (issue #128), verified against the pinned opencode v2.0.6: `GET /api/oc/api/integration`, `POST /api/oc/api/integration/{id}/connect/key`, `GET /api/oc/api/credential`, `POST /api/oc/api/credential/{id}/activate` and `DELETE /api/oc/api/credential/{id}`. No dedicated BFF route exists: an API key transits client → BFF → opencode only, is stored in opencode's data volume, and is never persisted, logged or echoed back by MasterHand.
+The same proxy carries the provider integration/credential endpoints behind Settings > Providers (issue #128), verified against the pinned opencode v2.0.6: `GET /api/oc/api/integration`, `POST /api/oc/api/integration/{id}/connect/key`, `POST /api/oc/api/credential/{id}/activate` and `DELETE /api/oc/api/credential/{id}`. **`GET /api/oc/api/credential` is not available in 2.0.6 (it answers `404`) and is not allowlisted; clients still call it, tracked as [#216](https://github.com/ToguDV/masterhand/issues/216), and the E2E mock implements it.** No dedicated BFF route exists: an API key transits client → BFF → opencode only, is stored in opencode's credential store (`opencode.db` in 2.0.6; there is no `auth.json`), and is never persisted or logged by MasterHand. The credential endpoints do not echo it; the separate `settings.apiKey` field in the provider/model catalogs is tracked in [#217](https://github.com/ToguDV/masterhand/issues/217). **#217:** `GET /api/provider` and `/api/model` include the upstream `settings.apiKey` field; treat both catalogs as secret-bearing until [#217](https://github.com/ToguDV/masterhand/issues/217) verifies/redacts it — never log, persist or echo them.
 
 ## Custom OpenAI-compatible providers
 
@@ -203,7 +213,7 @@ opencode has **no HTTP API to register a provider** — the definition only live
 - Writes are atomic (temp file + rename) and serialized; unknown `providers` entries are preserved, and a malformed file is **never overwritten** (the routes answer `custom_providers_corrupt`).
 - The **API key never enters the config**: `POST /api/providers/custom` connects it through opencode's `connect/key` with a bounded retry (opencode registers the integration only after reloading the config, answering `404` until then; a `404` created nothing, so retrying is safe). A failed connect never fails the create — the card offers Connect.
 - The add dialog **loads the model list automatically**: once the base URL is valid, it debounces a `POST /api/providers/custom/models`, which calls `<baseURL>/models` on a 10 s budget and returns `{ id, name? }` entries (accepts the OpenAI `{ data }` shape, `{ models }` or a bare array; deduplicated, cap 200 — the same cap the config write enforces, so a discovered list can never be rejected as `invalid_models`). It is read-only and the transient key is only forwarded to the provider. There is **no manual model entry**: a failed discovery shows `This provider does not expose models.` and keeps Create disabled until the list loads (an auth failure is reported separately). Self-hosted installs commonly point the base URL at a **private LAN** address, so RFC 1918/ULA ranges are allowed; loopback, link-local/metadata, multicast and reserved targets are refused before the request (DNS names are resolved and every address is checked, so a name pointing at `169.254.169.254` is rejected too). This is SSRF hardening, not a full egress allowlist: DNS rebinding between the lookup and `fetch` and cross-origin redirects remain residual risks (ADR-37).
-- opencode reloads the watched config dir, so `/api/model` and `/api/integration` pick the provider up without a restart; a custom provider then exposes a `key` method, and its connection state shows up in `GET /api/integration/{id}` (`/api/credential` does **not** list it).
+- opencode reloads the watched config dir, so `/api/model` and `/api/integration` pick the provider up without a restart; a custom provider then exposes a `key` method, and its connection state shows up in `GET /api/integration/{id}` (`GET /api/credential` is not available in 2.0.6, #216).
 
 ## Web search
 
@@ -226,10 +236,10 @@ opencode v2 ships five web search sources (**Exa, Firecrawl, Parallel, Tavily, T
 Examples:
 
 ```bash
-# create a session in a workspace (location travels in the body)
-curl -X POST https://your-origin.example/api/oc/api/session \
+# create a session in a workspace (BFF route; session create/list are not proxied)
+curl -X POST https://your-origin.example/api/workspaces/<workspaceID>/sessions \
   -H 'content-type: application/json' \
-  -d '{"location":{"directory":"/workspace/my-app"}}'
+  -d '{"isolated":false}'
 # switch model and send a prompt (progress arrives over /api/events)
 curl -X POST https://your-origin.example/api/oc/api/session/<id>/model \
   -H 'content-type: application/json' \
@@ -269,6 +279,7 @@ curl -X POST https://your-origin.example/api/devices \
 | `OPENCODE_URL` | `http://127.0.0.1:4096` | opencode upstream |
 | `OPENCODE_TIMEOUT_MS` | `10000` | Deadline for the BFF's internal opencode calls (session listing, `/api/commands`, session create/delete, instruction/permission writes, PTY/run control). A missed deadline answers `504 { error: "opencode_timeout" }` (minimum 1000 ms); the public `/api/oc/*` proxy keeps its own 60s budget |
 | `PROXY_BODY_LIMIT_MB` | `10` | Cap on `/api/oc/*` request bodies (1–1024 MB). Login/device bodies are fixed at 64 KiB; oversized requests answer `413 payload_too_large` |
+| `MANAGED_RUN_LAUNCHER` | — (empty = native) | Compose sets it to `/usr/local/bin/agent-exec`: managed runs execute as `agent` (uid 1001) through `agent-exec --exec <command> <args>`, with a scrubbed environment and a validated `PORT`. Must be an absolute path inside the opencode container (≤ 256 chars, no control characters) or boot fails; empty/absent keeps the native behavior (runs inherit the user running `opencode serve`) |
 | `OPENCODE_SERVER_PASSWORD` / `OPENCODE_SERVER_USERNAME` | — / `opencode` | Basic auth to opencode |
 | `DATA_DIR` | `<repo-root>/data` | SQLite path (`/data` in Docker). Relative values resolve against the repo root |
 | `WORKSPACES_ROOT` | `<repo-root>/workspace` | Base directory where workspaces are created as subfolders. Point it at the same folder opencode sees (e.g. `/workspace` in Docker). Relative values resolve against the repo root |

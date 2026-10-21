@@ -36,7 +36,7 @@ Fill in `deploy/.env`:
 
 > **Isolated sessions:** when you create a session with the "Isolated" toggle, MasterHand runs it in its own git worktree (`/workspace/.worktrees/<workspace>/<id>`) on branch `masterhand/<slug>-<id>`. The workspace is `git init`-ed automatically if needed. "Finish & PR" commits the worktree, and if the repo has a remote it pushes the branch and opens a PR/MR with `gh`/`glab` when available, otherwise it shows a compare URL.
 
-> **Workspace ownership (agent sandbox, ADR-22):** agent shell commands run as the unprivileged `agent` user (uid 1001) inside the opencode container, while the BFF and the engine run as `node` (uid 1000). Both share the `node` group, so `WORKSPACES_DIR` and every workspace subfolder must be writable by gid `1000`. Docker Compose usually creates the directory as root; if you create it by hand:
+> **Workspace ownership (agent sandbox, ADR-22):** agent shell commands **and MasterHand-managed dev servers** run as the unprivileged `agent` user (uid 1001) inside the opencode container, while the BFF and the engine run as `node` (uid 1000). The setuid `agent-exec` helper handles both paths: `-c` for opencode's shell setting and `--exec <command> <args>` for managed runs (Compose sets `MANAGED_RUN_LAUNCHER=/usr/local/bin/agent-exec`). It removes supplementary groups, clears the inherited environment and exposes only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `TMPDIR` and a validated `PORT`, so `OPENCODE_SERVER_PASSWORD`, provider keys and `NODE_OPTIONS`/`LD_*` never reach repository code. Both share the `node` group, so `WORKSPACES_DIR` and every workspace subfolder must be writable by gid `1000`. Docker Compose usually creates the directory as root; if you create it by hand:
 >
 > ```bash
 > sudo install -d -o 1000 -g 1000 -m 2775 /path/to/workspace
@@ -44,7 +44,13 @@ Fill in `deploy/.env`:
 > sudo chgrp -R 1000 /path/to/workspace && sudo chmod -R g+ws /path/to/workspace
 > ```
 >
-> This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine.
+> This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine. A new PTY or child-process path that bypasses `agent-exec` would run as the engine uid — use the helper for every execution path. Run `deploy/agent-exec-drill.sh` inside the container after an image change to prove the uid drop, env scrub and `PORT` allowlist (§6 has the command).
+>
+> **Engine data permissions:** at every start the opencode image hardens the engine-owned paths: `opencode.db` is pre-created `0600` (WAL/SHM inherit), `log/` and `/home/node/.config/opencode` are `0700`, and `auth.json` is `0600` when present (opencode 2.0.6 keeps credentials in `opencode.db`, not `auth.json`; the container fails closed if an existing engine file cannot be corrected). The BFF (same `node` uid) writes `masterhand-providers.json` `0600`. The `agent` uid can neither read nor write those stores, the config or the logs; `shell/` and `snapshot/` intentionally remain accessible to agent shells.
+>
+> **Client proxy:** `/api/oc/*` is a method-exact allowlist (see `docs/bff/api.md`); PTY/shell/fs/config/session-create/info/event and the credential list answer `404` before any upstream call. MasterHand's own BFF calls are not affected.
+>
+> **Engine-side residual:** `#179` isolates shell/PTY code, managed dev servers and the client proxy. opencode's own read/grep tools and project-level plugins/config still execute as `node` (uid 1000), so a malicious workspace may reach the engine credential store through those paths. Tracked in [#218](https://github.com/ToguDV/masterhand/issues/218) and [#219](https://github.com/ToguDV/masterhand/issues/219); do not treat `#179` as a full engine sandbox.
 >
 > **Data directory permissions:** the BFF creates `/data` as `0700` and keeps `masterhand.sqlite`, its `-wal`/`-shm` files, backups and the preview PID file at `0600` (even when they were created by an older release). If a bind mount is not owned by uid 1000, the boot `chmod` fails closed — fix ownership rather than weakening the mode.
 
@@ -63,9 +69,9 @@ The BFF is published on a host port (default `8787`, configurable with `MASTERHA
 docker compose -f deploy/docker-compose.yml run --rm opencode auth login
 ```
 
-Credentials persist in the `opencode_config` volume.
+Credentials persist in `opencode.db` inside the `opencode_data` volume (2.0.6 has no `auth.json`).
 
-Custom OpenAI-compatible providers added from Settings > Providers are written by the BFF to `~/.config/opencode/masterhand-providers.json` inside that same volume and loaded by opencode through `OPENCODE_CONFIG`; their API keys are stored by opencode's credential system, not in that file (see `ARCHITECTURE.md` ADR-30).
+Custom OpenAI-compatible providers added from Settings > Providers are written by the BFF to `~/.config/opencode/masterhand-providers.json` inside the `opencode_config` volume and loaded by opencode through `OPENCODE_CONFIG`; their API keys are stored by opencode's credential system (`opencode.db`), not in that file (see `ARCHITECTURE.md` ADR-30).
 
 The same file carries opencode's `websearch` selection (Settings > Web search). The BFF seeds the keyless source (`tinyfish`) when the key is absent, so agent web searches work without any API key; connecting a key for another source (Exa, Firecrawl, Parallel, Tavily) also stores it in opencode's credential system, never in the file (ADR-34).
 
@@ -139,6 +145,19 @@ Whatever you use, **disable response buffering for SSE** (`/api/events`) and for
 - `GET https://<your-domain>/api/health` returns `{ "ok": true }`.
 - Log in from web, desktop and mobile.
 - An external scan shows only the proxy port and SSH open; opencode is unreachable from outside.
+- The managed-run sandbox and the engine-data modes hold after an install or upgrade:
+
+```bash
+# uid drop, env scrub, PORT allowlist, exit codes (run as root inside opencode)
+docker compose -f deploy/docker-compose.yml exec -T --user root opencode \
+  sh -s < deploy/agent-exec-drill.sh
+
+# engine-owned paths are owner-only (expect 600/700, owner node)
+docker compose -f deploy/docker-compose.yml exec -T opencode sh -c \
+  'stat -c "%a %U:%G %n" /home/node/.local/share/opencode/opencode.db /home/node/.local/share/opencode/log /home/node/.config/opencode'
+```
+
+- The drill must print `agent-exec drill: OK`; the DB must be `600`, `log/` and the config dir `700`. `shell/` and `snapshot/` are expected to stay readable by the `agent` shells. Run these after `docker compose … up -d --build` (or any image upgrade): an existing container keeps the previous entrypoint and permissions until it is recreated.
 
 ## 7. Upgrade and backups
 

@@ -18,6 +18,7 @@ network and paths. In Docker both run the **same** image and topology:
 | Paths | `/data`, `/workspace`, `/workspace/.worktrees` | same |
 | Env contract | same variable names | same |
 | Previews | bundled `cloudflared`, `PREVIEW_ORIGIN=opencode` | same |
+| Managed runs | `agent-exec --exec` as `agent` (uid 1001), scrubbed env | same |
 | Runtime user | `node` (uid 1000) with `umask 002` | same |
 | BFF | **`tsx watch` from source** (dev only) | compiled `dist/` |
 | Web | **Vite dev server + HMR on `:5173`** (dev only) | static build served by the BFF |
@@ -74,6 +75,11 @@ On Windows-drive mounts (WSL2 `/mnt/...`) the watchers need polling there too:
 export `CHOKIDAR_USEPOLLING=1` before starting it (the Docker stack sets it for
 you, see §5).
 
+Managed runs are **not isolated** in the native fallback: `MANAGED_RUN_LAUNCHER`
+is unset, so the PTY inherits the user and environment of the process that runs
+`opencode serve`. Docker is the only isolation path; use the Compose stack for
+anything security-relevant (untrusted repositories, agent-produced code, demos).
+
 ## 4. Configuration
 
 `deploy/.env.dev` uses the **same variable names** as the production
@@ -129,8 +135,9 @@ Adding a dependency requires a rebuild: `npm run dev` (it runs
 
 ## 6. Authenticate providers (one-time)
 
-opencode keeps credentials in its named volume, so do it once per stack (the
-same command as production):
+opencode keeps credentials in `opencode.db` inside its named data volume
+(2.0.6 has no `auth.json`), so do it once per stack (the same command as
+production):
 
 ```bash
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
@@ -148,12 +155,27 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
   --env-file deploy/.env.dev exec opencode id
 
+# Managed-run helper: uid drop, env scrub, PORT allowlist, exit codes
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
+  --env-file deploy/.env.dev exec -T --user root opencode \
+  sh -s < deploy/agent-exec-drill.sh
+
+# Engine data is owner-only (expect 600/700, owner node)
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
+  --env-file deploy/.env.dev exec -T opencode sh -c \
+  'stat -c "%a %U:%G %n" /home/node/.local/share/opencode/opencode.db /home/node/.local/share/opencode/log /home/node/.config/opencode'
+
 # The BFF is healthy
 curl -fsS http://localhost:8787/api/health
 ```
 
 Then open `http://localhost:5173`, log in with `MASTERHAND_PASSWORD`, and edit a
 file under `apps/server/src` or `apps/web/src` to confirm the hot reload.
+
+The `agent-exec` helper and the engine-permission changes live in the image:
+`npm run dev` rebuilds the stack, while `npm run dev:restart` reuses the existing
+container and will not pick them up. After pulling, rebuild once with
+`npm run dev`.
 
 ## 8. Troubleshooting
 

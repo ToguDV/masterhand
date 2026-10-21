@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   CustomProvidersFileError,
@@ -178,6 +178,43 @@ describe("createCustomProviderStore ", () => {
       ),
     )
     expect((await store.list()).length).toBe(8)
+  })
+
+  it("creates its config directory 0700 and writes the file 0600", async () => {
+    const base = await mkdtemp(join(tmpdir(), "masterhand-providers-"))
+    dirs.push(base)
+    const dir = join(base, "opencode")
+    const file = join(dir, "masterhand-providers.json")
+    const store = createCustomProviderStore({ file })
+
+    await store.upsert({
+      id: "acme",
+      name: "Acme",
+      baseURL: "https://api.acme.example/v1",
+      package: "openai-compatible",
+      models: [{ id: "m1" }],
+    })
+
+    expect((await stat(dir)).mode & 0o777).toBe(0o700)
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+  })
+
+  it("corrects an existing group-readable config file to 0600", async () => {
+    const file = await tempFile()
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, JSON.stringify({ providers: {} }), "utf8")
+    await chmod(file, 0o664)
+    const store = createCustomProviderStore({ file })
+
+    await store.upsert({
+      id: "acme",
+      name: "Acme",
+      baseURL: "https://api.acme.example/v1",
+      package: "openai-compatible",
+      models: [{ id: "m1" }],
+    })
+
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
   it("preserves unknown top-level config keys on every write", async () => {

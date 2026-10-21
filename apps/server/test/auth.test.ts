@@ -164,10 +164,18 @@ describe("device tokens", () => {
   it("does not require same-origin for Bearer requests (no CSRF risk)", async () => {
     app = await startTestApp()
     const { token } = await createDevice(app.url)
-    const response = await fetch(`${app.url}/api/oc/global/health`, {
+    const response = await fetch(`${app.url}/api/oc/api/session/ses_1/interrupt`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, origin: "https://mobile.example" },
     })
     expect(response.status).toBe(502)
+  })
+
+  it("denies proxied paths outside the client allowlist", async () => {
+    app = await startTestApp()
+    const cookie = await login(app.url)
+    const response = await fetch(`${app.url}/api/oc/global/health`, { headers: { cookie } })
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "not_found" })
   })
 })

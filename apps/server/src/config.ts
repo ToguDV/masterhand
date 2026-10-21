@@ -1,5 +1,5 @@
 import { homedir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, isAbsolute, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
@@ -57,6 +57,12 @@ export interface Config {
    * providers. Lives in opencode's global config dir, loaded with `OPENCODE_CONFIG`.
    */
   customProvidersFile: string
+  /**
+   * Setuid helper inside the opencode container that launches managed runs as
+   * the unprivileged `agent` user. Empty keeps the native behavior (the PTY
+   * runs as the user that runs `opencode serve`).
+   */
+  managedRunLauncher: string
 }
 
 function intFromEnv(value: string | undefined, fallback: number): number {
@@ -166,6 +172,28 @@ function hostFromUrl(value: string, fallback: string): string {
   }
 }
 
+const MAX_LAUNCHER_LENGTH = 256
+
+/**
+ * The managed-run launcher is executed by opencode inside its own container, so
+ * it must be an absolute container path — a host path or bare name would fail
+ * at the first Start with an opaque spawn error. Empty keeps native installs
+ * working (the PTY runs as the user that runs `opencode serve`).
+ */
+function launcherFromEnv(value: string | undefined): string {
+  const launcher = value?.trim() ?? ""
+  if (!launcher) return ""
+  if (launcher.length > MAX_LAUNCHER_LENGTH || /[\u0000-\u001f\u007f]/.test(launcher)) {
+    throw new Error(
+      `MANAGED_RUN_LAUNCHER must be at most ${MAX_LAUNCHER_LENGTH} characters with no control characters`,
+    )
+  }
+  if (!isAbsolute(launcher)) {
+    throw new Error(`MANAGED_RUN_LAUNCHER must be an absolute path inside the opencode container (got "${launcher}")`)
+  }
+  return launcher
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const masterhandPassword = env.MASTERHAND_PASSWORD ?? ""
   if (!masterhandPassword) {
@@ -246,5 +274,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     customProvidersFile:
       env.OPENCODE_CUSTOM_PROVIDERS_FILE?.trim() ||
       join(homedir(), ".config", "opencode", "masterhand-providers.json"),
+    managedRunLauncher: launcherFromEnv(env.MANAGED_RUN_LAUNCHER),
   }
 }
