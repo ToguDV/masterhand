@@ -1,13 +1,12 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-21. 32 open issues — the release/update work (#131, #133, #134), the
-board and mobile-parity follow-ups (#164, #172), the engine-side residuals (#216–#219) and the
-remaining findings of the 2026-10-20 server audit. C19's eight issues are **in review** in
-[#221](https://github.com/ToguDV/masterhand/pull/221); the rest are grouped into **7 chunks**
-(C15–C16, C18–C22) by the code surface they share. C1–C14 and C17–C18 are merged or closed.
+**Snapshot:** 2026-10-21. 27 open issues — the release/update work (#131, #133, #134), the
+board and mobile-parity follow-ups (#164, #172), the C18 engine-side residuals (#216–#219) and the
+remaining findings of the 2026-10-20 server audit — grouped into **5 pending chunks**
+(C15–C16, C20–C22) by the code surface they share. C1–C14 and C17–C19 are merged or closed.
 
-**Last updated:** 2026-10-21 — **C19 is in review (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
-resolves #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
+**Last updated:** 2026-10-21 — **C19 has landed (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
+merged #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
 timeout reconciliation by create marker, coalesced Finish & PR with provider lookup and monotonic
 URL persistence, workspace-delete child release with a serialized scheduler pause, scheduler PATCH
 inside the per-task chain, storage failures mapped to 503, conflict-safe preview port allocation).
@@ -71,7 +70,7 @@ in the sessions options box per #136/#137).
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — #186 landed; add v3+ migrations |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #218/#219 |
-| C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | 🟡 In review 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
+| C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ⬜ Pending |
@@ -88,12 +87,12 @@ in the sessions options box per #136/#137).
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
 **Highest severity in the queue:** the P1 pair **#185** (a create timeout deleted the worktree the
-client still had to reconcile) and **#186** (no SQLite migration runner) is fixed in the C19 PR
-[#221](https://github.com/ToguDV/masterhand/pull/221). With C19 in review, the suggested batch
-order is **C20 → C21 → C22 → C15 → C16**. #186 unblocks C15 (new compatibility changes append
-v3+ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
+client still had to reconcile) and **#186** (no SQLite migration runner) was fixed by C19,
+merged as [#221](https://github.com/ToguDV/masterhand/pull/221). The suggested batch order is now
+**C20 → C21 → C22 → C15 → C16**. #186 unblocks C15 (new compatibility changes append v3+
+migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
 
-## Chunks — current batch (C18–C22)
+## Chunks — audit batch (C18–C22)
 
 ### C18 — Security boundary and input hardening (BFF)
 
@@ -145,7 +144,7 @@ v3+ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   upgrade and the data; #193 added the coordinated mobile change (a persisted install id under its
   own SecureStore key). **Migration contract from here:** v1 (baseline) and v2 (`install_id`) are
   immutable; every later compatibility change appends a new version (C15 starts at v3).
-- **Status:** 8/8 in PR [#221](https://github.com/ToguDV/masterhand/pull/221), with two review
+- **Status:** 8/8 merged in [#221](https://github.com/ToguDV/masterhand/pull/221), with two review
   rounds (single-flight release map, preview start/forget, pause-before-guard and task resume,
   delete-vs-create ordering, retryable session cleanup, deterministic race tests).
 - **Residuals for follow-ups:** `worktrees.remove` is git-status-silent, so a branch/directory it
