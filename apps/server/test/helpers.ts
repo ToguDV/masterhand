@@ -573,6 +573,7 @@ export async function startTestApp(
     createDir?: (path: string) => Promise<void>
     removeDir?: (path: string) => Promise<void>
     worktrees?: WorktreeManager
+    runs?: import("../src/runs.js").RunManager
     providers?: CustomProviderStore
     goals?: import("../src/goal.js").GoalManager
     proxyRetry?: import("../src/proxy.js").ProxyRetryOptions
@@ -623,6 +624,7 @@ export async function startTestApp(
     createDir: options.createDir ?? (async () => {}),
     removeDir: options.removeDir ?? (async () => {}),
     worktrees: options.worktrees ?? createFakeWorktreeManager(),
+    runs: options.runs,
     providers: options.providers,
     goals: options.goals,
     proxyRetry: options.proxyRetry ?? { baseDelayMs: 1, jitter: false },

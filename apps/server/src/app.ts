@@ -258,7 +258,6 @@ function isolatedSessionRecord(
 /** Result of one coalesced finish operation (commit + push + PR). */
 type FinishOutcome =
   | { ok: false; error: "not_found" }
-  | { ok: false; error: "workspace_busy" }
   | { ok: false; error: "commit_failed"; detail: string }
   | {
       ok: true
@@ -634,6 +633,53 @@ export function createApp(deps: AppDeps): Hono {
     directory: string | null
     /** Repo path supplied by a workspace delete, which removed the row first. */
     repoPath: string | null
+    /**
+     * First storage failure a best-effort cleanup swallowed. A strict caller
+     * that joins the shared release must still surface it (503), even though
+     * the release that started first had nothing to retry.
+     */
+    storageError: unknown | null
+  }
+
+  interface ReleaseOptions {
+    /** Directory supplied by the caller (or a later overlapping call). */
+    directory?: string
+    /**
+     * Repo path supplied by a workspace delete: the workspace row is gone, so
+     * the usual lookup cannot resolve it.
+     */
+    repoPath?: string
+    /**
+     * Log a cleanup failure and keep releasing the remaining children
+     * (workspace deletion, the out-of-band `session.deleted` event: once the
+     * row is gone nothing can retry it). The session DELETE passes `false`: the
+     * upstream session is already gone, so a storage failure leaves the
+     * record/port row behind and the same request can still clean it — it
+     * rethrows to `app.onError` (`503 storage_unavailable`) instead of
+     * pretending the cleanup succeeded.
+     */
+    bestEffort?: boolean
+  }
+
+  /**
+   * Handles one cleanup failure. A best-effort release logs it, records a
+   * storage failure on the shared entry (a strict joiner still answers `503`)
+   * and continues; a strict one rethrows storage failures so the route answers
+   * `503` with the row still there for a retry (docs/past-mistakes.md rules
+   * 14/27).
+   */
+  function cleanupFailure(
+    what: string,
+    sessionID: string,
+    error: unknown,
+    bestEffort: boolean,
+    entry?: SessionRelease,
+  ): void {
+    if (isStorageError(error)) {
+      if (!bestEffort) throw error
+      if (entry && entry.storageError === null) entry.storageError = error
+    }
+    console.warn(`[masterhand] could not ${what} for ${sessionID}:`, error)
   }
 
   /**
@@ -654,27 +700,43 @@ export function createApp(deps: AppDeps): Hono {
    * deleted by a client and, critically, when opencode reports it deleted
    * outside MasterHand (TUI/API), where no route runs.
    *
-   * Cleanup is best effort by policy: once the workspace row is gone a caller
-   * (workspace deletion) has nothing left to retry, so a storage failure while
-   * dropping one child is logged and the remaining children are still released
-   * instead of turning the whole delete into a `503` (docs/past-mistakes.md
-   * rule 14/27).
+   * Cleanup is best effort by default (workspace deletion and the out-of-band
+   * event): once the workspace row is gone a caller has nothing left to retry,
+   * so a failure while dropping one child is logged and the remaining children
+   * are still released instead of turning the whole delete into a `503`
+   * (docs/past-mistakes.md rule 14/27). The session DELETE passes
+   * `bestEffort: false`: its upstream session is already gone, so a storage
+   * failure must not answer `200` while the record/port row survives — it is
+   * rethrown to the shared `503` mapping and a retry can still clean it.
    */
-  function releaseSession(sessionID: string, directory?: string, repoPath?: string): Promise<void> {
+  function releaseSession(sessionID: string, options: ReleaseOptions = {}): Promise<void> {
+    const { directory, repoPath } = options
+    const bestEffort = options.bestEffort ?? true
     const existing = releasing.get(sessionID)
     if (existing) {
       const hadDirectory = existing.directory !== null
       if (directory && !existing.directory) existing.directory = directory
       if (repoPath && !existing.repoPath) existing.repoPath = repoPath
-      if (!directory || hadDirectory) return existing.promise
+      // Each caller owns its policy for the shared outcome: a strict release
+      // rethrows (including a storage failure a best-effort owner swallowed and
+      // recorded), a best-effort one swallows.
+      const shared = existing.promise.then(
+        () => {
+          if (!bestEffort && existing.storageError !== null) throw existing.storageError
+        },
+        (error) => {
+          if (!bestEffort) throw error
+        },
+      )
+      if (!directory || hadDirectory) return shared
       // This caller supplied the directory the first release lacked. The shared
       // cleanup reads `entry.directory` after its awaits, but it may already be
       // past the run step: re-run the (idempotent) stop once it settles.
-      return existing.promise.then(async () => {
+      return shared.then(async () => {
         try {
           await runs.stop(sessionID, directory)
         } catch (error) {
-          console.warn(`[masterhand] could not stop run for ${sessionID}:`, error)
+          cleanupFailure("stop run", sessionID, error, bestEffort, existing)
         }
       })
     }
@@ -683,6 +745,7 @@ export function createApp(deps: AppDeps): Hono {
       promise: Promise.resolve(),
       directory: directory ?? null,
       repoPath: repoPath ?? null,
+      storageError: null,
     }
     const task = (async () => {
       // A finish still needs the worktree to commit/push: deleting the branch
@@ -691,18 +754,18 @@ export function createApp(deps: AppDeps): Hono {
       try {
         await goals.forget(sessionID)
       } catch (error) {
-        console.warn(`[masterhand] could not forget goal for ${sessionID}:`, error)
+        cleanupFailure("forget goal", sessionID, error, bestEffort, entry)
       }
       try {
         await preview.forget(sessionID)
       } catch (error) {
-        console.warn(`[masterhand] could not forget preview for ${sessionID}:`, error)
+        cleanupFailure("forget preview", sessionID, error, bestEffort, entry)
       }
       let record: IsolatedSessionRecord | null = null
       try {
         record = deps.store.getIsolatedSession(sessionID)
       } catch (error) {
-        console.warn(`[masterhand] could not read isolated record for ${sessionID}:`, error)
+        cleanupFailure("read isolated record", sessionID, error, bestEffort, entry)
       }
       // `stop` (not `forget`) waits for an in-flight start and adopts an orphan
       // PTY by title, so no dev server survives the session's directory.
@@ -711,14 +774,14 @@ export function createApp(deps: AppDeps): Hono {
         try {
           await runs.stop(sessionID, runDirectory)
         } catch (error) {
-          console.warn(`[masterhand] could not stop run for ${sessionID}:`, error)
+          cleanupFailure("stop run", sessionID, error, bestEffort, entry)
         }
       } else {
         // No directory known (out-of-band event without a record): best effort.
         try {
           runs.forget(sessionID)
         } catch (error) {
-          console.warn(`[masterhand] could not forget run for ${sessionID}:`, error)
+          cleanupFailure("forget run", sessionID, error, bestEffort, entry)
         }
       }
       if (!record) return
@@ -728,7 +791,7 @@ export function createApp(deps: AppDeps): Hono {
       try {
         repo = deps.store.getWorkspace(record.workspaceID)?.path ?? repo
       } catch (error) {
-        console.warn(`[masterhand] could not resolve the repo for ${sessionID}:`, error)
+        cleanupFailure("resolve the repo", sessionID, error, bestEffort, entry)
       }
       if (repo) {
         try {
@@ -741,7 +804,7 @@ export function createApp(deps: AppDeps): Hono {
       try {
         deps.store.removeIsolatedSession(sessionID)
       } catch (error) {
-        console.warn(`[masterhand] could not drop the isolated record for ${sessionID}:`, error)
+        cleanupFailure("drop the isolated record", sessionID, error, bestEffort, entry)
       }
     })()
     entry.promise = task.finally(() => {
@@ -786,6 +849,42 @@ export function createApp(deps: AppDeps): Hono {
       await removeDir(path)
     } catch (error) {
       console.warn(`[masterhand] could not remove the worktree directory at ${path}:`, error)
+    }
+  }
+
+  /**
+   * Deletes an upstream session created for a request whose local outcome
+   * failed (rollback). Awaited and bounded (`OPENCODE_TIMEOUT_MS`): answering
+   * before it settles would lose the cleanup if the process stopped right
+   * after the response. A `404` means it is already gone; anything else is
+   * logged, never turned into a second error that hides the original failure.
+   */
+  async function rollbackUpstreamSession(sessionID: string): Promise<void> {
+    try {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" })
+      if (!response.ok && response.status !== 404) {
+        console.warn(`[masterhand] could not delete rolled-back session ${sessionID}: opencode ${response.status}`)
+      }
+    } catch (error) {
+      console.warn(`[masterhand] could not delete rolled-back session ${sessionID}:`, error)
+    }
+  }
+
+  /**
+   * Moves an unconfirmed worktree out of the way when its workspace row is
+   * gone: startup reconciliation only walks existing workspaces, so nobody
+   * would ever quarantine it. Keeps the data (rename, branch kept); when the
+   * directory is already gone there is nothing to preserve and the failure is
+   * only logged. Never deletes unknown work.
+   */
+  async function quarantineUnknownWorktree(repoPath: string, path: string): Promise<void> {
+    try {
+      const target = await worktrees.quarantine(repoPath, path)
+      console.warn(
+        `[masterhand] quarantined unconfirmed worktree ${path} (workspace gone) at ${target}; its session is unknown`,
+      )
+    } catch (error) {
+      console.warn(`[masterhand] could not quarantine the unconfirmed worktree at ${path}:`, error)
     }
   }
 
@@ -1727,7 +1826,7 @@ export function createApp(deps: AppDeps): Hono {
     // The repo path is passed explicitly because the workspace row (the usual
     // lookup) is already gone.
     for (const record of deps.store.listIsolatedSessions(workspace.id)) {
-      await releaseSession(record.sessionID, record.path, workspace.path)
+      await releaseSession(record.sessionID, { directory: record.path, repoPath: workspace.path })
     }
 
     // Base-folder sessions own the same lifecycles (`sessionRunContext`
@@ -1737,7 +1836,7 @@ export function createApp(deps: AppDeps): Hono {
     try {
       const sessions = await fetchSessionsInDirectory(workspace.path)
       for (const session of sessions) {
-        await releaseSession(session.id, workspace.path)
+        await releaseSession(session.id, { directory: workspace.path })
       }
     } catch (error) {
       console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
@@ -1975,21 +2074,10 @@ export function createApp(deps: AppDeps): Hono {
       // session. Re-read the row before the response: a standard session has
       // no isolation record that could be rolled back later, so delete the
       // upstream session now instead of leaving an orphan in a removed folder.
-      // Await the bounded DELETE: answering before it settles would lose the
-      // cleanup if the process stopped right after the response.
+      // The bounded DELETE is awaited: answering before it settles would lose
+      // the cleanup if the process stopped right after the response.
       if (!deps.store.getWorkspace(workspace.id)) {
-        try {
-          const deleted = await callOpencode(`/api/session/${encodeURIComponent(session.id)}`, {
-            method: "DELETE",
-          })
-          if (!deleted.ok && deleted.status !== 404) {
-            console.warn(
-              `[masterhand] could not delete rolled-back session ${session.id}: opencode ${deleted.status}`,
-            )
-          }
-        } catch (error) {
-          console.warn(`[masterhand] could not delete rolled-back session ${session.id}:`, error)
-        }
+        await rollbackUpstreamSession(session.id)
         return c.json({ error: "workspace_busy" }, 409)
       }
       invalidateSessionsCache()
@@ -2032,9 +2120,7 @@ export function createApp(deps: AppDeps): Hono {
       // removes it first), so no isolation record ever references a deleted
       // workspace or leaks its worktree. Roll back like a definitive failure.
       if (!deps.store.getWorkspace(workspace.id)) {
-        if (sessionID) {
-          void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
-        }
+        if (sessionID) await rollbackUpstreamSession(sessionID)
         await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
         return c.json({ error: "workspace_busy" }, 409)
       }
@@ -2063,13 +2149,28 @@ export function createApp(deps: AppDeps): Hono {
             // The lookup itself failed: the outcome stays unknown.
           }
         }
-        if (!recovered) return c.json({ error: "opencode_timeout" }, 504)
+        if (!recovered) {
+          // The workspace may have been deleted while the deadline ran. Startup
+          // reconciliation only walks existing workspaces, so an unregistered
+          // worktree of a deleted one would leak forever — but its session is
+          // unknown, so it is quarantined (renamed, data/branch kept), never
+          // deleted. A store read failure is not proof the row is gone: keep
+          // the current 504/preserve behavior.
+          let workspaceGone = false
+          try {
+            workspaceGone = deps.store.getWorkspace(workspace.id) === null
+          } catch (readError) {
+            console.warn(`[masterhand] could not check workspace ${workspace.id} after a timeout:`, readError)
+          }
+          if (workspaceGone) await quarantineUnknownWorktree(workspace.path, path)
+          return c.json({ error: "opencode_timeout" }, 504)
+        }
 
         // The timeout recovery is still a create: if the workspace was deleted
         // meanwhile, roll the recovered session and worktree back instead of
         // persisting an isolation record for a workspace that is gone.
         if (!deps.store.getWorkspace(workspace.id)) {
-          void callOpencode(`/api/session/${encodeURIComponent(recovered.id)}`, { method: "DELETE" }).catch(() => {})
+          await rollbackUpstreamSession(recovered.id)
           await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
           return c.json({ error: "workspace_busy" }, 409)
         }
@@ -2097,9 +2198,7 @@ export function createApp(deps: AppDeps): Hono {
         )
       }
 
-      if (sessionID) {
-        void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
-      }
+      if (sessionID) await rollbackUpstreamSession(sessionID)
       await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
       return c.json(
         { error: "isolation_failed", detail: error instanceof Error ? error.message : "unknown" },
@@ -2122,7 +2221,10 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    await releaseSession(sessionID, deps.store.getIsolatedSession(sessionID)?.path ?? workspace.path)
+    await releaseSession(sessionID, {
+      directory: deps.store.getIsolatedSession(sessionID)?.path ?? workspace.path,
+      bestEffort: false,
+    })
     return c.json({ ok: true })
   })
 
@@ -2221,7 +2323,6 @@ export function createApp(deps: AppDeps): Hono {
     const outcome = await finish(c.req.param("sessionID"))
     if (!outcome.ok) {
       if (outcome.error === "not_found") return c.json({ error: "not_found" }, 404)
-      if (outcome.error === "workspace_busy") return c.json({ error: "workspace_busy" }, 409)
       return c.json({ error: "commit_failed", detail: outcome.detail }, 500)
     }
     return c.json({

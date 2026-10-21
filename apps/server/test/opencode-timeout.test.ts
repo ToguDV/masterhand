@@ -12,6 +12,7 @@ import {
   createFakeWorktreeManager,
   login,
   startTestApp,
+  waitFor,
   type TestApp,
 } from "./helpers.js"
 
@@ -104,11 +105,14 @@ function isolatedCreateMock(options: { create: "stall" | "error"; landed: boolea
 
 async function isolatedApp(
   fetchImpl: typeof fetch,
-  options: { worktreesRoot?: string; store?: Store } = {},
+  options: { worktreesRoot?: string; store?: Store; opencodeTimeoutMs?: number } = {},
 ): Promise<{ app: TestApp; cookie: string; calls: string[] }> {
   const worktrees = createFakeWorktreeManager()
   const started = await startTestApp({
-    config: { opencodeTimeoutMs: 25, ...(options.worktreesRoot ? { worktreesRoot: options.worktreesRoot } : {}) },
+    config: {
+      opencodeTimeoutMs: options.opencodeTimeoutMs ?? 25,
+      ...(options.worktreesRoot ? { worktreesRoot: options.worktreesRoot } : {}),
+    },
     fetchImpl,
     worktrees,
     store: options.store,
@@ -222,6 +226,37 @@ describe("internal opencode call deadline", () => {
     expect(await response.json()).toEqual({ error: "opencode_timeout" })
     // An unknown outcome must never destroy the resource it may belong to
     // (#79): the worktree is left for the startup quarantine/reconcile.
+    expect(started.calls.some((call) => call.startsWith("remove:"))).toBe(false)
+    expect(app.store.listIsolatedSessions()).toHaveLength(0)
+  })
+
+  it("quarantines the unknown worktree when the workspace vanished before the deadline", { timeout: 5000 }, async () => {
+    const opencode = isolatedCreateMock({ create: "stall", landed: false })
+    const started = await isolatedApp(opencode.fetchImpl, { opencodeTimeoutMs: 400 })
+    app = started.app
+
+    const creating = fetch(`${started.app.url}/api/workspaces/ws_1/sessions`, {
+      method: "POST",
+      headers: { cookie: started.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ isolated: true, marker: "marker_12345" }),
+    })
+    // The create passed the route's workspace lookup and is waiting upstream.
+    await waitFor(() => opencode.createBodies.length === 1)
+    // The workspace (and its row) disappears while that create is in flight:
+    // no row means startup reconciliation will never walk this worktree.
+    const deletion = await fetch(`${started.app.url}/api/workspaces/ws_1`, {
+      method: "DELETE",
+      headers: { cookie: started.cookie },
+    })
+    expect(deletion.status).toBe(200)
+
+    const response = await creating
+    // The deadline still answers "unknown"; the workspace deletion is what
+    // changes the cleanup. Unknown work is never deleted: the worktree is
+    // quarantined (renamed, branch kept) instead of being left unregistered.
+    expect(response.status).toBe(504)
+    expect(await response.json()).toEqual({ error: "opencode_timeout" })
+    expect(started.calls.some((call) => call.startsWith("quarantine:"))).toBe(true)
     expect(started.calls.some((call) => call.startsWith("remove:"))).toBe(false)
     expect(app.store.listIsolatedSessions()).toHaveLength(0)
   })

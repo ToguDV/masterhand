@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, waitFor } from "./helpers.js"
 import { pullRequestUrl } from "../src/worktrees.js"
+import type { RunManager } from "../src/runs.js"
 import { createMemoryStore, type GoalRunRecord } from "../src/store.js"
 
 /** Promise a test can resolve explicitly to hold a request mid-operation. */
@@ -960,9 +961,73 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
     }
   })
 
-  it("answers 200 when dropping the isolated record fails after the cleanup ran", async () => {
+  it("stops the run when a later release supplies the directory", async () => {
+    const gate = deferred()
+    const entered = deferred()
+    const stop = vi.fn(async (_sessionID: string, _directory: string) => {})
+    const runs: RunManager = {
+      status: async () => ({ status: "stopped", command: null, args: [], port: null, pid: null, error: null }),
+      start: async () => ({ status: "stopped", command: null, args: [], port: null, pid: null, error: null }),
+      stop,
+      forget: vi.fn(),
+    }
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ runs, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string; path: string } }
+      // A base-folder session has no isolation record, so the out-of-band event
+      // cannot know its directory: only the later route release can supply it.
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const forget = app.preview.forget
+      app.preview.forget = vi.fn(async () => {
+        entered.resolve()
+        await gate.promise
+      })
+
+      // First release: the opencode event, with no directory.
+      app.hub.emit({ type: "session.deleted", data: { sessionID: session.id } })
+      await entered.promise
+
+      // Second release: the route, which knows the workspace path and joins the
+      // in-flight entry. The shared cleanup must still stop that run.
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      await waitFor(() =>
+        opencode.calls.some((call) => call.method === "DELETE" && call.path === `/api/session/${session.id}`),
+      )
+      // Let the route reach `releaseSession` and join the parked entry.
+      await new Promise((resolve) => setImmediate(resolve))
+      gate.resolve()
+      expect((await deletion).status).toBe(200)
+      const stopped = stop.mock.calls.some(
+        ([sessionID, directory]) => sessionID === session.id && directory === workspace.path,
+      )
+      expect(stopped).toBe(true)
+      app.preview.forget = forget
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("keeps the isolated record and answers 503 when dropping it fails", async () => {
     const { app, worktrees, headers, workspace } = await setupApp()
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
         method: "POST",
@@ -970,20 +1035,34 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
         body: JSON.stringify({ isolated: true }),
       })
       const { session } = (await created.json()) as { session: { id: string } }
+      const dropRecord = app.store.removeIsolatedSession.bind(app.store)
       app.store.removeIsolatedSession = () => {
         throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" })
       }
 
+      // The upstream session is already gone, but the record row (and the
+      // reserved port) survive a failed cleanup: answering 200 would leave no
+      // retry path, so the storage failure is rethrown to app.onError (503).
       const response = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
         method: "DELETE",
         headers,
       })
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ ok: true })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
       expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
-      expect(warn).toHaveBeenCalled()
+      expect(app.store.getIsolatedSession(session.id)).not.toBeNull()
+
+      // A retry (nothing upstream left to delete) drops the surviving row.
+      app.store.removeIsolatedSession = dropRecord
+      const retry = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(retry.status).toBe(200)
+      expect(await retry.json()).toEqual({ ok: true })
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
     } finally {
-      warn.mockRestore()
+      errorLog.mockRestore()
       await app.close()
     }
   })
@@ -1721,6 +1800,21 @@ describe("DELETE /api/workspaces/:id", () => {
       })
       const { session } = (await sessionResponse.json()) as { session: { id: string } }
       opencode.setActive([session.id])
+      app.store.createScheduledTask({
+        id: "task_refused",
+        name: "Nightly",
+        prompt: "check",
+        model: { providerID: "test", id: "test-model" },
+        schedule: { kind: "interval", intervalMinutes: 60 },
+        timezone: "",
+        directory: workspace.path,
+        paused: false,
+        lastRunAt: null,
+        nextRunAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+      })
+      const pauseTask = vi.spyOn(app.scheduler, "pauseTask")
+      const resumeTask = vi.spyOn(app.scheduler, "resumeTask")
 
       const response = await fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
         method: "DELETE",
@@ -1732,6 +1826,14 @@ describe("DELETE /api/workspaces/:id", () => {
       expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(false)
       expect(app.store.getIsolatedSession(session.id)).not.toBeNull()
       expect(app.store.getWorkspace(workspace.id)).not.toBeNull()
+      // The refusal paused the task (to let an in-flight fire settle before the
+      // guard) and then resumed exactly the task it paused, so the schedule is
+      // not silently disabled by a delete that deleted nothing.
+      expect(pauseTask).toHaveBeenCalledTimes(1)
+      expect(pauseTask).toHaveBeenCalledWith("task_refused")
+      expect(resumeTask).toHaveBeenCalledTimes(1)
+      expect(resumeTask).toHaveBeenCalledWith("task_refused")
+      expect(app.store.getScheduledTask("task_refused")?.paused).toBe(false)
     } finally {
       await app.close()
     }
