@@ -258,6 +258,7 @@ function isolatedSessionRecord(
 /** Result of one coalesced finish operation (commit + push + PR). */
 type FinishOutcome =
   | { ok: false; error: "not_found" }
+  | { ok: false; error: "workspace_busy" }
   | { ok: false; error: "commit_failed"; detail: string }
   | {
       ok: true
@@ -628,6 +629,14 @@ export function createApp(deps: AppDeps): Hono {
   deps.hub.subscribe((event) => scheduler.handleEvent(event))
 
   /**
+   * Sessions whose release is in progress. Registered synchronously at the top
+   * of `releaseSession`, before it awaits the in-flight finish map: a finish
+   * that starts after that sample must not register, or it would commit/push
+   * against the worktree while it is being removed (#187/#188).
+   */
+  const releasing = new Set<string>()
+
+  /**
    * Drops every MasterHand-managed resource tied to a session id: its quick
    * tunnel (a leaked one would stay publicly exposed), its dev-server PTY, its
    * reserved port and its worktree record/branch. Used when a session is
@@ -635,42 +644,47 @@ export function createApp(deps: AppDeps): Hono {
    * outside MasterHand (TUI/API), where no route runs.
    */
   async function releaseSession(sessionID: string, directory?: string, repoPath?: string): Promise<void> {
-    // A finish still needs the worktree to commit/push: deleting the branch
-    // under it would turn a successful finish into a lost push (#187/#188).
-    await awaitFinish(sessionID)
-    await goals.forget(sessionID).catch((error) => {
-      console.warn(`[masterhand] could not forget goal for ${sessionID}:`, error)
-    })
-    await preview.forget(sessionID).catch((error) => {
-      // Removing the port row is storage: surface it instead of hiding a full
-      // disk behind a best-effort cleanup log (rule 14).
-      if (isStorageError(error)) throw error
-      console.warn(`[masterhand] could not forget preview for ${sessionID}:`, error)
-    })
-    const record = deps.store.getIsolatedSession(sessionID)
-    // `stop` (not `forget`) waits for an in-flight start and adopts an orphan
-    // PTY by title, so no dev server survives the session's directory.
-    const runDirectory = record?.path ?? directory
-    if (runDirectory) {
-      await runs.stop(sessionID, runDirectory).catch((error) => {
-        console.warn(`[masterhand] could not stop run for ${sessionID}:`, error)
+    releasing.add(sessionID)
+    try {
+      // A finish still needs the worktree to commit/push: deleting the branch
+      // under it would turn a successful finish into a lost push (#187/#188).
+      await awaitFinish(sessionID)
+      await goals.forget(sessionID).catch((error) => {
+        console.warn(`[masterhand] could not forget goal for ${sessionID}:`, error)
       })
-    } else {
-      // No directory known (out-of-band event without a record): best effort.
-      runs.forget(sessionID)
-    }
-    if (!record) return
-    // Workspace deletion removes the row before its children; the caller then
-    // supplies the repo path so the worktree/branch still goes away.
-    const repo = deps.store.getWorkspace(record.workspaceID)?.path ?? repoPath
-    if (repo) {
-      try {
-        await worktrees.remove(repo, record.path, record.branch)
-      } catch {
-        // best effort: never block dropping the record
+      await preview.forget(sessionID).catch((error) => {
+        // Removing the port row is storage: surface it instead of hiding a full
+        // disk behind a best-effort cleanup log (rule 14).
+        if (isStorageError(error)) throw error
+        console.warn(`[masterhand] could not forget preview for ${sessionID}:`, error)
+      })
+      const record = deps.store.getIsolatedSession(sessionID)
+      // `stop` (not `forget`) waits for an in-flight start and adopts an orphan
+      // PTY by title, so no dev server survives the session's directory.
+      const runDirectory = record?.path ?? directory
+      if (runDirectory) {
+        await runs.stop(sessionID, runDirectory).catch((error) => {
+          console.warn(`[masterhand] could not stop run for ${sessionID}:`, error)
+        })
+      } else {
+        // No directory known (out-of-band event without a record): best effort.
+        runs.forget(sessionID)
       }
+      if (!record) return
+      // Workspace deletion removes the row before its children; the caller then
+      // supplies the repo path so the worktree/branch still goes away.
+      const repo = deps.store.getWorkspace(record.workspaceID)?.path ?? repoPath
+      if (repo) {
+        try {
+          await worktrees.remove(repo, record.path, record.branch)
+        } catch {
+          // best effort: never block dropping the record
+        }
+      }
+      deps.store.removeIsolatedSession(sessionID)
+    } finally {
+      releasing.delete(sessionID)
     }
-    deps.store.removeIsolatedSession(sessionID)
   }
 
   // Clients poll the workspace session list every 10 s and each poll walks the
@@ -1526,6 +1540,23 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ error: "outside_root" }, 403)
     }
 
+    // Pause every task aimed at this folder through its serialized chain
+    // (#188) BEFORE the active-session guard: `pauseTask` waits for a fire in
+    // flight, so its session is then visible to the guard. With the guard
+    // first, a fire starting in that window would be paused afterwards and the
+    // folder could be removed under the session it just created. One bad task
+    // never blocks the delete.
+    for (const task of deps.store.listScheduledTasks()) {
+      if (task.directory !== workspace.path) continue
+      try {
+        await scheduler.pauseTask(task.id)
+      } catch (error) {
+        console.warn(`[masterhand] could not pause scheduled task ${task.id}:`, error)
+      }
+    }
+
+    // Read the isolated records after the pause waits: a record created during
+    // an in-flight fire belongs to the guard too.
     const records = deps.store.listIsolatedSessions(workspace.id)
 
     // Deleting the folder under a running turn is destructive: refuse it while
@@ -1537,18 +1568,6 @@ export function createApp(deps: AppDeps): Hono {
         ...records.map((record) => record.path),
       ])
       if (busy) return busy
-    }
-
-    // Pause every task aimed at this folder through its serialized chain
-    // (#188): a fire already in progress settles first, and no tick starts
-    // another one after the row is gone. One bad task never blocks the delete.
-    for (const task of deps.store.listScheduledTasks()) {
-      if (task.directory !== workspace.path) continue
-      try {
-        await scheduler.pauseTask(task.id)
-      } catch (error) {
-        console.warn(`[masterhand] could not pause scheduled task ${task.id}:`, error)
-      }
     }
 
     // Remove the parent row before releasing children (synchronous, so it
@@ -1812,6 +1831,14 @@ export function createApp(deps: AppDeps): Hono {
       }
       if (!response.ok) return c.json({ error: "opencode_error" }, 502)
       const session = ((await response.json()) as { data: OpencodeSession }).data
+      // The workspace may have been deleted while opencode was creating the
+      // session. Re-read the row before the response: a standard session has
+      // no isolation record that could be rolled back later, so delete the
+      // upstream session now instead of leaving an orphan in a removed folder.
+      if (!deps.store.getWorkspace(workspace.id)) {
+        void callOpencode(`/api/session/${encodeURIComponent(session.id)}`, { method: "DELETE" }).catch(() => {})
+        return c.json({ error: "workspace_busy" }, 409)
+      }
       invalidateSessionsCache()
       await ensurePreviewInstruction(session.id)
       await ensureWorkspaceGuard(session.id, workspace.path)
@@ -1904,8 +1931,18 @@ export function createApp(deps: AppDeps): Hono {
 
         // Persist before the best-effort guard writes: a crash after this point
         // keeps the record (and the worktree) recoverable after a restart.
-        const record = isolatedSessionRecord(recovered.id, workspace.id, path, branch, baseRef)
-        deps.store.createIsolatedSession(record)
+        // A retry that reconciles the same marker twice hits the session's
+        // primary key: adopt the record the first reconciliation persisted
+        // instead of surfacing a storage conflict (#185/#191).
+        let record: IsolatedSessionRecord
+        try {
+          record = isolatedSessionRecord(recovered.id, workspace.id, path, branch, baseRef)
+          deps.store.createIsolatedSession(record)
+        } catch (error) {
+          const adopted = isStorageConflict(error) ? deps.store.getIsolatedSession(recovered.id) : null
+          if (!adopted) throw error
+          record = adopted
+        }
         await ensurePreviewInstruction(recovered.id)
         await ensureWorkspaceGuard(recovered.id, path)
         invalidateSessionsCache()
@@ -2016,6 +2053,10 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   function finish(sessionID: string): Promise<FinishOutcome> {
+    // Synchronous: a release that started after `awaitFinish` sampled the map
+    // must never see a finish registered behind it. The worktree is about to
+    // be removed, so the mutation is refused with 409 instead of racing it.
+    if (releasing.has(sessionID)) return Promise.resolve({ ok: false, error: "workspace_busy" })
     const pending = finishing.get(sessionID)
     if (pending) return pending
     const task = finishOnce(sessionID).finally(() => {
@@ -2038,6 +2079,7 @@ export function createApp(deps: AppDeps): Hono {
     const outcome = await finish(c.req.param("sessionID"))
     if (!outcome.ok) {
       if (outcome.error === "not_found") return c.json({ error: "not_found" }, 404)
+      if (outcome.error === "workspace_busy") return c.json({ error: "workspace_busy" }, 409)
       return c.json({ error: "commit_failed", detail: outcome.detail }, 500)
     }
     return c.json({

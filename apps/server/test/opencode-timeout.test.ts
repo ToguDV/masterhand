@@ -4,6 +4,11 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { reconcileWorktrees } from "../src/worktrees.js"
 import {
+  createMemoryStore,
+  type IsolatedSessionRecord,
+  type Store,
+} from "../src/store.js"
+import {
   createFakeWorktreeManager,
   login,
   startTestApp,
@@ -99,13 +104,14 @@ function isolatedCreateMock(options: { create: "stall" | "error"; landed: boolea
 
 async function isolatedApp(
   fetchImpl: typeof fetch,
-  config: { worktreesRoot?: string } = {},
+  options: { worktreesRoot?: string; store?: Store } = {},
 ): Promise<{ app: TestApp; cookie: string; calls: string[] }> {
   const worktrees = createFakeWorktreeManager()
   const started = await startTestApp({
-    config: { opencodeTimeoutMs: 25, ...config },
+    config: { opencodeTimeoutMs: 25, ...(options.worktreesRoot ? { worktreesRoot: options.worktreesRoot } : {}) },
     fetchImpl,
     worktrees,
+    store: options.store,
   })
   started.store.createWorkspace({
     id: "ws_1",
@@ -253,6 +259,44 @@ describe("internal opencode call deadline", () => {
     }
     const recovered = list.sessions.find((session) => session.id === body.session.id)
     expect(recovered?.isolation).toEqual(body.session.isolation)
+  })
+
+  it("adopts the record a previous reconciliation of the same marker persisted", { timeout: 3000 }, async () => {
+    const opencode = isolatedCreateMock({ create: "stall", landed: true })
+    const store = createMemoryStore()
+    let winner: IsolatedSessionRecord | null = null
+    store.createIsolatedSession = (record) => {
+      // The first reconciliation of this marker already committed the row; the
+      // retry hits the session's primary key instead of a writable slot.
+      winner = record
+      throw Object.assign(new Error("UNIQUE constraint failed: isolated_sessions.session_id"), {
+        code: "SQLITE_CONSTRAINT_PRIMARYKEY",
+      })
+    }
+    const readRecord = store.getIsolatedSession.bind(store)
+    store.getIsolatedSession = (sessionID) =>
+      winner && winner.sessionID === sessionID ? winner : readRecord(sessionID)
+    const started = await isolatedApp(opencode.fetchImpl, { store })
+    app = started.app
+
+    const response = await fetch(`${started.app.url}/api/workspaces/ws_1/sessions`, {
+      method: "POST",
+      headers: { cookie: started.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ isolated: true, marker: "marker_12345" }),
+    })
+    // #191 must not turn the conflict into 503: the duplicate reconcile adopts
+    // the existing record and answers exactly like the first one did.
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as {
+      session: { id: string; isolation: { branch: string; worktreePath: string } }
+      isolation: { branch: string; worktreePath: string }
+    }
+    expect(body.session.id).toBe("ses_recovered")
+    expect(winner).not.toBeNull()
+    expect(body.isolation).toEqual(body.session.isolation)
+    expect(body.isolation.branch).toBe(winner!.branch)
+    expect(body.isolation.worktreePath).toBe(winner!.path)
+    expect(started.calls.some((call) => call.startsWith("remove:"))).toBe(false)
   })
 
   it("answers 500 and rolls the worktree back on a non-timeout opencode error", { timeout: 3000 }, async () => {

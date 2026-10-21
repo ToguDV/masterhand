@@ -582,6 +582,8 @@ export async function startTestApp(
     sseQueueMax?: number
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
+    /** Test-only request observer, e.g. to signal that a request arrived. */
+    onRequest?: (request: Request) => void
     previewOptions?: {
       spawnImpl?: typeof import("node:child_process").spawn
       probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
@@ -631,7 +633,14 @@ export async function startTestApp(
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
-  const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" })
+  const server = serve({
+    fetch: (request, ...rest) => {
+      options.onRequest?.(request)
+      return app.fetch(request, ...rest)
+    },
+    port: 0,
+    hostname: "127.0.0.1",
+  })
   await new Promise<void>((resolve) => server.once("listening", resolve))
   const address = server.address() as AddressInfo
 

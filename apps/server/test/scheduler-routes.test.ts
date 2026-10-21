@@ -335,14 +335,15 @@ describe("scheduled task routes", () => {
 
     const gate = deferred()
     mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
     const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: "Renamed sweep" }),
     })
-    await waitFor(() =>
-      mock!.requests.some((request) => request.method === "GET" && request.path === "/api/model"),
-    )
+    await waitFor(() => modelRequests() > modelsBeforePatch)
 
     // The fire lands while the PATCH is still waiting on the model catalog.
     const started = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/run`, {
@@ -382,14 +383,15 @@ describe("scheduled task routes", () => {
 
     const gate = deferred()
     mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
     const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: "Paused sweep", paused: true }),
     })
-    await waitFor(() =>
-      mock!.requests.some((request) => request.method === "GET" && request.path === "/api/model"),
-    )
+    await waitFor(() => modelRequests() > modelsBeforePatch)
 
     await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/run`, { method: "POST", headers: { cookie } })
     const run = app!.store.listScheduledRuns(created.id)[0]!
@@ -417,14 +419,15 @@ describe("scheduled task routes", () => {
 
     const gate = deferred()
     mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
     const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
       method: "PATCH",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ name: "Renamed sweep" }),
     })
-    await waitFor(() =>
-      mock!.requests.some((request) => request.method === "GET" && request.path === "/api/model"),
-    )
+    await waitFor(() => modelRequests() > modelsBeforePatch)
 
     // The delete wins while the PATCH waits on validation: no resurrection.
     const removed = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {

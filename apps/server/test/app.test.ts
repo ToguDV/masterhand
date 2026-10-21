@@ -308,11 +308,15 @@ describe("storage resilience", () => {
     it("coalesces concurrent logins with the same install id into one row", async () => {
       app = await startTestApp()
       const [first, second] = await Promise.all([
-        createDevice(app.url, "Pixel", "secret", "install-shared"),
-        createDevice(app.url, "Pixel", "secret", "install-shared"),
+        // Different labels: only the stable install id can merge these rows, so
+        // the old name-based dedupe cannot make this test pass.
+        createDevice(app.url, "Pixel left", "secret", "install-shared"),
+        createDevice(app.url, "Pixel right", "secret", "install-shared"),
       ])
 
       expect(second.device.id).toBe(first.device.id)
+      expect(first.device.name).toBe(second.device.name)
+      expect(["Pixel left", "Pixel right"]).toContain(first.device.name)
       expect(app.store.list()).toHaveLength(1)
     })
 
