@@ -234,6 +234,26 @@ function assistantMessageText(message: { content?: unknown }): string {
     .join("\n")
 }
 
+/** The record persisted for a freshly created isolated session. */
+function isolatedSessionRecord(
+  sessionID: string,
+  workspaceID: string,
+  path: string,
+  branch: string,
+  baseRef: string,
+): IsolatedSessionRecord {
+  return {
+    sessionID,
+    workspaceID,
+    path,
+    branch,
+    baseRef,
+    pushed: false,
+    prUrl: null,
+    createdAt: Date.now(),
+  }
+}
+
 /** Fields MasterHand adds to an isolated session for the clients. */
 function isolationOf(record: IsolatedSessionRecord) {
   return {
@@ -871,6 +891,20 @@ export function createApp(deps: AppDeps): Hono {
     const sessions = await fetchSessionsInDirectory(directory)
     sessionsCache.set(directory, { at: Date.now(), sessions })
     return sessions
+  }
+
+  /**
+   * Finds the session a create whose response was lost may have produced. The
+   * lookup is a fresh list of the created directory (never the 5 s aggregation
+   * cache) and matches only the client's persisted `masterhand.create` marker,
+   * so a session from another directory or device can never be adopted (#185).
+   */
+  async function findSessionByCreateMarker(
+    directory: string,
+    marker: string,
+  ): Promise<OpencodeSession | null> {
+    const sessions = await fetchSessionsInDirectory(directory)
+    return sessions.find((session) => session.metadata?.[CREATE_MARKER_KEY] === marker) ?? null
   }
 
   /** Session and worktree mutations make the aggregation cache stale. */
@@ -1691,7 +1725,7 @@ export function createApp(deps: AppDeps): Hono {
     const token = randomUUID().replace(/-/g, "").slice(0, 10)
     let path: string
     let branch: string
-    let baseRef: string
+    let baseRef = ""
     try {
       branch = worktreeBranch(workspace.name, token)
       path = worktreeDir(config.worktreesRoot, workspace.name, token)
@@ -1716,19 +1750,40 @@ export function createApp(deps: AppDeps): Hono {
       await ensurePreviewInstruction(session.id)
       await ensureWorkspaceGuard(session.id, path)
 
-      const record: IsolatedSessionRecord = {
-        sessionID: session.id,
-        workspaceID: workspace.id,
-        path,
-        branch,
-        baseRef,
-        pushed: false,
-        prUrl: null,
-        createdAt: Date.now(),
-      }
+      const record: IsolatedSessionRecord = isolatedSessionRecord(session.id, workspace.id, path, branch, baseRef)
       deps.store.createIsolatedSession(record)
       return c.json({ session: { ...session, isolation: isolationOf(record) }, isolation: isolationOf(record) }, 201)
     } catch (error) {
+      // A deadline is not proof of failure: opencode may have created the
+      // session before its response stalled. Reconcile the persisted create
+      // marker inside the worktree MasterHand just made; the worktree is never
+      // removed on a timeout, because that would make a recovered session
+      // unreachable and destroy agent work (#79, #185). With no marker to prove
+      // the outcome, it stays for the startup quarantine/reconcile.
+      if (error instanceof OpencodeTimeoutError) {
+        let recovered: OpencodeSession | null = null
+        if (marker) {
+          try {
+            recovered = await findSessionByCreateMarker(path, marker)
+          } catch {
+            // The lookup itself failed: the outcome stays unknown.
+          }
+        }
+        if (!recovered) return c.json({ error: "opencode_timeout" }, 504)
+
+        // Persist before the best-effort guard writes: a crash after this point
+        // keeps the record (and the worktree) recoverable after a restart.
+        const record = isolatedSessionRecord(recovered.id, workspace.id, path, branch, baseRef)
+        deps.store.createIsolatedSession(record)
+        await ensurePreviewInstruction(recovered.id)
+        await ensureWorkspaceGuard(recovered.id, path)
+        invalidateSessionsCache()
+        return c.json(
+          { session: { ...recovered, isolation: isolationOf(record) }, isolation: isolationOf(record) },
+          201,
+        )
+      }
+
       if (sessionID) {
         void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
       }
@@ -1737,9 +1792,6 @@ export function createApp(deps: AppDeps): Hono {
       } catch {
         // the worktree may not exist if creation failed early
       }
-      // A deadline means the session may still have been created upstream; the
-      // client reconciles against the list (see #66) instead of blind retrying.
-      if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
       return c.json(
         { error: "isolation_failed", detail: error instanceof Error ? error.message : "unknown" },
         500,
