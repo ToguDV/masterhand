@@ -49,6 +49,12 @@ export function isStorageConflict(error: unknown): boolean {
   return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT")
 }
 
+/** True when the error is a UNIQUE collision (the conflicting row already exists). */
+export function isUniqueConstraint(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return code === "SQLITE_CONSTRAINT_UNIQUE"
+}
+
 /**
  * Online copy of a live database (`VACUUM INTO`). The destination must not
  * exist; the result is a consistent, compacted snapshot safe to restore.
@@ -353,7 +359,13 @@ export interface Store {
   removeIsolatedSession(sessionID: string): void
   listPreviewPorts(): PreviewPortRecord[]
   getPreviewPort(sessionID: string): number | null
-  assignPreviewPort(record: PreviewPortRecord): void
+  /**
+   * Reserves a preview port. A port owned by another session raises the
+   * `UNIQUE(port)` conflict (the caller retries with a fresh choice); an
+   * existing reservation for the same session is returned unchanged, never
+   * replaced or moved to the requested port.
+   */
+  assignPreviewPort(record: PreviewPortRecord): PreviewPortRecord
   removePreviewPort(sessionID: string): void
   recordAudit(event: Omit<AuditEventRecord, "id">): void
   listAudit(limit?: number): AuditEventRecord[]
@@ -530,8 +542,9 @@ export function createSqliteStore(file: string): Store {
   const listPreviewPortsStatement = db.prepare(`${previewPortColumns} ORDER BY created_at ASC`)
   const getPreviewPortStatement = db.prepare(`${previewPortColumns} WHERE session_id = ?`)
   const assignPreviewPortStatement = db.prepare(`
-    INSERT OR REPLACE INTO preview_ports (session_id, port, created_at)
+    INSERT INTO preview_ports (session_id, port, created_at)
     VALUES (@sessionID, @port, @createdAt)
+    ON CONFLICT(session_id) DO NOTHING
   `)
   const removePreviewPortStatement = db.prepare("DELETE FROM preview_ports WHERE session_id = ?")
 
@@ -900,7 +913,20 @@ export function createSqliteStore(file: string): Store {
       return row?.port ?? null
     },
     assignPreviewPort(record) {
-      assignPreviewPortStatement.run(record)
+      // Never `INSERT OR REPLACE`: a port owned by another session must raise
+      // UNIQUE(port) so the caller retries, not delete that session's row.
+      if (assignPreviewPortStatement.run(record).changes === 1) return record
+      // The session already held a reservation (DO NOTHING): return the row
+      // actually persisted, never the port this call picked but did not claim.
+      const existing = getPreviewPortStatement.get(record.sessionID) as PreviewPortRecord | undefined
+      if (!existing) {
+        // Only reachable if another process removed the row between the two
+        // synchronous statements; the store is single-process by design.
+        throw Object.assign(new Error("preview port reservation disappeared"), {
+          code: "SQLITE_CONSTRAINT",
+        })
+      }
+      return existing
     },
     removePreviewPort(sessionID) {
       removePreviewPortStatement.run(sessionID)
@@ -1325,7 +1351,17 @@ export function createMemoryStore(): Store {
       return previewPorts.get(sessionID)?.port ?? null
     },
     assignPreviewPort(record) {
+      // Same-session replay is idempotent and keeps the original reservation.
+      const existing = previewPorts.get(record.sessionID)
+      if (existing) return existing
+      // Parity with UNIQUE(port): another session's port is never stolen.
+      if ([...previewPorts.values()].some((reservation) => reservation.port === record.port)) {
+        throw Object.assign(new Error("UNIQUE constraint failed: preview_ports.port"), {
+          code: "SQLITE_CONSTRAINT_UNIQUE",
+        })
+      }
       previewPorts.set(record.sessionID, record)
+      return record
     },
     removePreviewPort(sessionID) {
       previewPorts.delete(sessionID)

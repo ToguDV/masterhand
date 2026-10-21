@@ -622,12 +622,73 @@ describe("preview port store", () => {
     }
   })
 
+  it("rejects a port reserved by another session and keeps the first row (sqlite)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+      store.assignPreviewPort(first)
+
+      expect(() =>
+        store.assignPreviewPort({ sessionID: "ses_2", port: 3200, createdAt: 2 }),
+      ).toThrow(/UNIQUE/i)
+
+      expect(store.getPreviewPort("ses_1")).toBe(3200)
+      expect(store.getPreviewPort("ses_2")).toBeNull()
+      expect(store.listPreviewPorts()).toEqual([first])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the original reservation for a repeated same-session assignment (sqlite)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+      store.assignPreviewPort(first)
+
+      // A replay must not move the session to another port or refresh created_at.
+      expect(store.assignPreviewPort({ sessionID: "ses_1", port: 3201, createdAt: 2 })).toEqual(first)
+      expect(store.getPreviewPort("ses_1")).toBe(3200)
+      expect(store.listPreviewPorts()).toEqual([first])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("behaves the same in memory", () => {
     const store = createMemoryStore()
     store.assignPreviewPort({ sessionID: "ses_1", port: 3200, createdAt: 1 })
     expect(store.getPreviewPort("ses_1")).toBe(3200)
     store.removePreviewPort("ses_1")
     expect(store.getPreviewPort("ses_1")).toBeNull()
+  })
+
+  it("rejects a port reserved by another session and keeps the first row (memory)", () => {
+    const store = createMemoryStore()
+    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+    store.assignPreviewPort(first)
+
+    expect(() => store.assignPreviewPort({ sessionID: "ses_2", port: 3200, createdAt: 2 })).toThrow(
+      /UNIQUE/i,
+    )
+
+    expect(store.getPreviewPort("ses_1")).toBe(3200)
+    expect(store.getPreviewPort("ses_2")).toBeNull()
+    expect(store.listPreviewPorts()).toEqual([first])
+  })
+
+  it("keeps the original reservation for a repeated same-session assignment (memory)", () => {
+    const store = createMemoryStore()
+    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+    store.assignPreviewPort(first)
+
+    expect(store.assignPreviewPort({ sessionID: "ses_1", port: 3201, createdAt: 2 })).toEqual(first)
+    expect(store.getPreviewPort("ses_1")).toBe(3200)
+    expect(store.listPreviewPorts()).toEqual([first])
   })
 })
 
