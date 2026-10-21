@@ -97,6 +97,15 @@ export interface SchedulerManagerOptions {
   retry?: { attempts?: number; baseDelayMs?: number; jitter?: boolean }
 }
 
+/**
+ * The fields a PATCH may write. Lifecycle fields (`paused`, `lastRunAt`,
+ * `createdAt`, `id`) are deliberately absent: pause/resume have their own
+ * serialized operations and the fire path owns the run timestamps.
+ */
+export type SchedulerTaskPatch = Partial<
+  Pick<ScheduledTask, "name" | "prompt" | "model" | "directory" | "schedule" | "timezone" | "nextRunAt">
+>
+
 export interface SchedulerManager {
   /** One tick pass: repair lost-idle runs, then process due tasks once. */
   tick(): Promise<void>
@@ -104,6 +113,11 @@ export interface SchedulerManager {
   handleEvent(event: unknown): void
   /** Manual run of a task through the same single-slot fire path. */
   taskRunNow(taskId: string): Promise<ScheduledRun>
+  /**
+   * Writes only the provided fields over the LIVE task, inside the task's
+   * chain. Returns null when the task no longer exists (never resurrects).
+   */
+  updateTask(taskId: string, patch: SchedulerTaskPatch): Promise<ScheduledTask | null>
   /** Pause is serialized per task so it cannot race the fire path. */
   pauseTask(taskId: string): Promise<ScheduledTask>
   /** Resume recomputes nextRunAt (no immediate catch-up fire). */
@@ -388,6 +402,21 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /**
+   * A task whose workspace row is gone has no directory to run in (#188).
+   * Deletion never writes to the scheduler store, so this revalidation runs on
+   * the serialized fire path and at boot: pause the task (persisted) instead of
+   * firing it forever into a removed folder. Returns true when it paused.
+   */
+  function pauseWithoutWorkspace(task: ScheduledTask): boolean {
+    if (store.getWorkspaceByPath(task.directory)) return false
+    if (!task.paused) {
+      console.warn(`[scheduler] pausing ${task.id}: workspace ${task.directory} no longer exists`)
+      patchTask(task.id, { paused: true })
+    }
+    return true
+  }
+
+  /**
    * The next slot for a task: an already-future `nextRunAt` is kept (terminal
    * recomputes are idempotent); a stale or missing one advances from itself —
    * so the schedule phase is preserved and missed slots are skipped silently.
@@ -521,6 +550,15 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     if (!queued) return
     const live = store.getScheduledTask(taskId)
     if (!live) return // cascaded away with its runs
+    if (pauseWithoutWorkspace(live)) {
+      persistRun({
+        ...queued,
+        status: "skipped",
+        error: "the workspace no longer exists",
+        endedAt: iso(),
+      })
+      return
+    }
     if (live.paused) {
       persistRun({
         ...queued,
@@ -546,6 +584,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   async function processDue(taskId: string): Promise<void> {
     const task = store.getScheduledTask(taskId)
     if (!task || task.paused) return
+    // Serialized revalidation immediately before the fire path: the workspace
+    // may have been deleted since the tick selected this task.
+    if (pauseWithoutWorkspace(task)) return
     const slot = parseMs(task.nextRunAt)
     if (slot === null || slot > now()) return
     const active = store.listActiveScheduledRuns().filter((run) => run.taskId === taskId)
@@ -650,6 +691,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
       }
     }
     for (const task of store.listScheduledTasks()) {
+      // Boot pass: a directory removed while MasterHand was down must not
+      // resume firing just because the task row survived.
+      if (pauseWithoutWorkspace(task)) continue
       const next = computeNextRunAt(task, current)
       if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next })
     }
@@ -659,6 +703,12 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     return runExclusive(taskId, async () => {
       const live = store.getScheduledTask(taskId)
       if (!live) throw new SchedulerError("task_not_found", 404, "unknown scheduled task")
+      // A manual run is a fire path too: revalidate its directory inside the
+      // chain before the paused/fire branch (#188). Otherwise a tap after the
+      // workspace was deleted starts a session in the removed folder.
+      if (pauseWithoutWorkspace(live)) {
+        throw new SchedulerError("task_paused", 409, "the task's workspace no longer exists")
+      }
       if (live.paused) throw new SchedulerError("task_paused", 409, "the scheduled task is paused")
       const active = store.listActiveScheduledRuns().filter((run) => run.taskId === taskId)
       const queued = active.find((run) => run.status === "queued")
@@ -679,6 +729,32 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
         return envelope
       }
       return fire(live, undefined, "manual")
+    })
+  }
+
+  /**
+   * Applies a PATCH to the live task inside its chain (#189). Only the fields
+   * the caller provided are written: the record is re-read immediately before
+   * the write, so a fire that advanced `lastRunAt`/`nextRunAt` (or a pause that
+   * landed meanwhile) is never overwritten by an earlier snapshot.
+   */
+  function updateTask(taskId: string, patch: SchedulerTaskPatch): Promise<ScheduledTask | null> {
+    return runExclusive(taskId, async () => {
+      const live = store.getScheduledTask(taskId)
+      if (!live) return null
+      if (!Object.values(patch).some((value) => value !== undefined)) return live
+      const updated: ScheduledTask = {
+        ...live,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
+        ...(patch.model !== undefined ? { model: patch.model } : {}),
+        ...(patch.directory !== undefined ? { directory: patch.directory } : {}),
+        ...(patch.schedule !== undefined ? { schedule: patch.schedule } : {}),
+        ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}),
+        ...(patch.nextRunAt !== undefined ? { nextRunAt: patch.nextRunAt } : {}),
+      }
+      persistTask(updated)
+      return updated
     })
   }
 
@@ -716,6 +792,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     tick,
     handleEvent,
     taskRunNow,
+    updateTask,
     pauseTask,
     resumeTask,
     reconcileTasks,

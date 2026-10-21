@@ -64,8 +64,10 @@ import {
   validateTaskInput,
   type SchedulerManager,
   type SchedulerOpencode,
+  type SchedulerTaskPatch,
 } from "./scheduler.js"
 import type {
+  DeviceRecord,
   IsolatedSessionRecord,
   ScheduleSpec,
   ScheduledTask,
@@ -136,6 +138,8 @@ export interface AppWithScheduler extends Hono {
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** A UUID fits comfortably; the cap only stops client-controlled bloat. */
+const MAX_INSTALL_ID_LENGTH = 128
 /** Login/device bodies are tiny JSON documents; anything larger is abusive. */
 const AUTH_BODY_LIMIT_BYTES = 64 * 1024
 /** Proxied prompts can be large, but must still be bounded. */
@@ -230,6 +234,40 @@ function assistantMessageText(message: { content?: unknown }): string {
     .map((part) => part.text)
     .join("\n")
 }
+
+/** The record persisted for a freshly created isolated session. */
+function isolatedSessionRecord(
+  sessionID: string,
+  workspaceID: string,
+  path: string,
+  branch: string,
+  baseRef: string,
+): IsolatedSessionRecord {
+  return {
+    sessionID,
+    workspaceID,
+    path,
+    branch,
+    baseRef,
+    pushed: false,
+    prUrl: null,
+    createdAt: Date.now(),
+  }
+}
+
+/** Result of one coalesced finish operation (commit + push + PR). */
+type FinishOutcome =
+  | { ok: false; error: "not_found" }
+  | { ok: false; error: "commit_failed"; detail: string }
+  | {
+      ok: true
+      committed: boolean
+      pushed: boolean
+      prUrl: string | null
+      branch: string
+      path: string
+      error: string | null
+    }
 
 /** Fields MasterHand adds to an isolated session for the clients. */
 function isolationOf(record: IsolatedSessionRecord) {
@@ -589,28 +627,265 @@ export function createApp(deps: AppDeps): Hono {
     })
   deps.hub.subscribe((event) => scheduler.handleEvent(event))
 
+  interface SessionRelease {
+    promise: Promise<void>
+    /** Directory supplied by the caller (or a later overlapping call). */
+    directory: string | null
+    /** Repo path supplied by a workspace delete, which removed the row first. */
+    repoPath: string | null
+    /**
+     * First storage failure a best-effort cleanup swallowed. A strict caller
+     * that joins the shared release must still surface it (503), even though
+     * the release that started first had nothing to retry.
+     */
+    storageError: unknown | null
+  }
+
+  interface ReleaseOptions {
+    /** Directory supplied by the caller (or a later overlapping call). */
+    directory?: string
+    /**
+     * Repo path supplied by a workspace delete: the workspace row is gone, so
+     * the usual lookup cannot resolve it.
+     */
+    repoPath?: string
+    /**
+     * Log a cleanup failure and keep releasing the remaining children
+     * (workspace deletion, the out-of-band `session.deleted` event: once the
+     * row is gone nothing can retry it). The session DELETE passes `false`: the
+     * upstream session is already gone, so a storage failure leaves the
+     * record/port row behind and the same request can still clean it — it
+     * rethrows to `app.onError` (`503 storage_unavailable`) instead of
+     * pretending the cleanup succeeded.
+     */
+    bestEffort?: boolean
+  }
+
+  /**
+   * Handles one cleanup failure. A best-effort release logs it, records a
+   * storage failure on the shared entry (a strict joiner still answers `503`)
+   * and continues; a strict one rethrows storage failures so the route answers
+   * `503` with the row still there for a retry (docs/past-mistakes.md rules
+   * 14/27).
+   */
+  function cleanupFailure(
+    what: string,
+    sessionID: string,
+    error: unknown,
+    bestEffort: boolean,
+    entry?: SessionRelease,
+  ): void {
+    if (isStorageError(error)) {
+      if (!bestEffort) throw error
+      if (entry && entry.storageError === null) entry.storageError = error
+    }
+    console.warn(`[masterhand] could not ${what} for ${sessionID}:`, error)
+  }
+
+  /**
+   * Sessions whose release is in progress, one single-flight entry per id.
+   * Registered synchronously at the top of `releaseSession`, before it awaits
+   * the in-flight finish map: a finish that starts while the worktree is being
+   * removed must not register (#187/#188). Overlapping releases (the DELETE
+   * route plus opencode's `session.deleted`, or two clients) share the same
+   * promise: a second caller must never clear the marker while the first is
+   * still removing the worktree.
+   */
+  const releasing = new Map<string, SessionRelease>()
+
   /**
    * Drops every MasterHand-managed resource tied to a session id: its quick
    * tunnel (a leaked one would stay publicly exposed), its dev-server PTY, its
    * reserved port and its worktree record/branch. Used when a session is
    * deleted by a client and, critically, when opencode reports it deleted
    * outside MasterHand (TUI/API), where no route runs.
+   *
+   * Cleanup is best effort by default (workspace deletion and the out-of-band
+   * event): once the workspace row is gone a caller has nothing left to retry,
+   * so a failure while dropping one child is logged and the remaining children
+   * are still released instead of turning the whole delete into a `503`
+   * (docs/past-mistakes.md rule 14/27). The session DELETE passes
+   * `bestEffort: false`: its upstream session is already gone, so a storage
+   * failure must not answer `200` while the record/port row survives — it is
+   * rethrown to the shared `503` mapping and a retry can still clean it.
    */
-  async function releaseSession(sessionID: string): Promise<void> {
-    void goals.forget(sessionID).catch(() => {})
-    preview.forget(sessionID)
-    runs.forget(sessionID)
-    const record = deps.store.getIsolatedSession(sessionID)
-    if (!record) return
-    const workspace = deps.store.getWorkspace(record.workspaceID)
-    if (workspace) {
-      try {
-        await worktrees.remove(workspace.path, record.path, record.branch)
-      } catch {
-        // best effort: never block dropping the record
-      }
+  function releaseSession(sessionID: string, options: ReleaseOptions = {}): Promise<void> {
+    const { directory, repoPath } = options
+    const bestEffort = options.bestEffort ?? true
+    const existing = releasing.get(sessionID)
+    if (existing) {
+      const hadDirectory = existing.directory !== null
+      if (directory && !existing.directory) existing.directory = directory
+      if (repoPath && !existing.repoPath) existing.repoPath = repoPath
+      // Each caller owns its policy for the shared outcome: a strict release
+      // rethrows (including a storage failure a best-effort owner swallowed and
+      // recorded), a best-effort one swallows.
+      const shared = existing.promise.then(
+        () => {
+          if (!bestEffort && existing.storageError !== null) throw existing.storageError
+        },
+        (error) => {
+          if (!bestEffort) throw error
+        },
+      )
+      if (!directory || hadDirectory) return shared
+      // This caller supplied the directory the first release lacked. The shared
+      // cleanup reads `entry.directory` after its awaits, but it may already be
+      // past the run step: re-run the (idempotent) stop once it settles.
+      return shared.then(async () => {
+        try {
+          await runs.stop(sessionID, directory)
+        } catch (error) {
+          cleanupFailure("stop run", sessionID, error, bestEffort, existing)
+        }
+      })
     }
-    deps.store.removeIsolatedSession(sessionID)
+
+    const entry: SessionRelease = {
+      promise: Promise.resolve(),
+      directory: directory ?? null,
+      repoPath: repoPath ?? null,
+      storageError: null,
+    }
+    const task = (async () => {
+      // A finish still needs the worktree to commit/push: deleting the branch
+      // under it would turn a successful finish into a lost push (#187/#188).
+      await awaitFinish(sessionID)
+      try {
+        await goals.forget(sessionID)
+      } catch (error) {
+        cleanupFailure("forget goal", sessionID, error, bestEffort, entry)
+      }
+      try {
+        await preview.forget(sessionID)
+      } catch (error) {
+        cleanupFailure("forget preview", sessionID, error, bestEffort, entry)
+      }
+      let record: IsolatedSessionRecord | null = null
+      try {
+        record = deps.store.getIsolatedSession(sessionID)
+      } catch (error) {
+        cleanupFailure("read isolated record", sessionID, error, bestEffort, entry)
+      }
+      // `stop` (not `forget`) waits for an in-flight start and adopts an orphan
+      // PTY by title, so no dev server survives the session's directory.
+      const runDirectory = record?.path ?? entry.directory
+      if (runDirectory) {
+        try {
+          await runs.stop(sessionID, runDirectory)
+        } catch (error) {
+          cleanupFailure("stop run", sessionID, error, bestEffort, entry)
+        }
+      } else {
+        // No directory known (out-of-band event without a record): best effort.
+        try {
+          runs.forget(sessionID)
+        } catch (error) {
+          cleanupFailure("forget run", sessionID, error, bestEffort, entry)
+        }
+      }
+      if (!record) return
+      // Workspace deletion removes the row before its children; the caller then
+      // supplies the repo path so the worktree/branch still goes away.
+      let repo: string | undefined = entry.repoPath ?? undefined
+      try {
+        repo = deps.store.getWorkspace(record.workspaceID)?.path ?? repo
+      } catch (error) {
+        cleanupFailure("resolve the repo", sessionID, error, bestEffort, entry)
+      }
+      if (repo) {
+        try {
+          await worktrees.remove(repo, record.path, record.branch)
+        } catch (error) {
+          // best effort: never block dropping the record
+          console.warn(`[masterhand] could not remove the worktree for ${sessionID}:`, error)
+        }
+      }
+      try {
+        deps.store.removeIsolatedSession(sessionID)
+      } catch (error) {
+        cleanupFailure("drop the isolated record", sessionID, error, bestEffort, entry)
+      }
+    })()
+    entry.promise = task.finally(() => {
+      // Only the entry that registered the slot may clear it: a later release
+      // of a re-created session must not be removed by this one's `finally`.
+      if (releasing.get(sessionID) === entry) releasing.delete(sessionID)
+    })
+    releasing.set(sessionID, entry)
+    return entry.promise
+  }
+
+  /**
+   * Rolls back an isolated create's worktree. Git cannot remove a worktree when
+   * the repository folder disappeared with its workspace (`deleteFiles=1`
+   * during the create), and startup reconciliation only walks existing
+   * workspace rows, so such a worktree would leak forever. When the row is
+   * confirmed gone, delete the directory directly (its path came from
+   * `worktreeDir`, inside `WORKTREES_ROOT`).
+   */
+  async function removeIsolatedWorktree(
+    workspaceID: string,
+    repoPath: string,
+    path: string,
+    branch: string,
+  ): Promise<void> {
+    try {
+      await worktrees.remove(repoPath, path, branch)
+    } catch (error) {
+      // the worktree or its repo may already be gone
+      console.warn(`[masterhand] could not remove the worktree at ${path}:`, error)
+    }
+    let workspaceGone = false
+    try {
+      workspaceGone = deps.store.getWorkspace(workspaceID) === null
+    } catch (error) {
+      // An unreadable store is not proof the workspace is gone: leave the
+      // directory for reconciliation rather than deleting it blind.
+      console.warn(`[masterhand] could not check workspace ${workspaceID} during rollback:`, error)
+    }
+    if (!workspaceGone) return
+    try {
+      await removeDir(path)
+    } catch (error) {
+      console.warn(`[masterhand] could not remove the worktree directory at ${path}:`, error)
+    }
+  }
+
+  /**
+   * Deletes an upstream session created for a request whose local outcome
+   * failed (rollback). Awaited and bounded (`OPENCODE_TIMEOUT_MS`): answering
+   * before it settles would lose the cleanup if the process stopped right
+   * after the response. A `404` means it is already gone; anything else is
+   * logged, never turned into a second error that hides the original failure.
+   */
+  async function rollbackUpstreamSession(sessionID: string): Promise<void> {
+    try {
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" })
+      if (!response.ok && response.status !== 404) {
+        console.warn(`[masterhand] could not delete rolled-back session ${sessionID}: opencode ${response.status}`)
+      }
+    } catch (error) {
+      console.warn(`[masterhand] could not delete rolled-back session ${sessionID}:`, error)
+    }
+  }
+
+  /**
+   * Moves an unconfirmed worktree out of the way when its workspace row is
+   * gone: startup reconciliation only walks existing workspaces, so nobody
+   * would ever quarantine it. Keeps the data (rename, branch kept); when the
+   * directory is already gone there is nothing to preserve and the failure is
+   * only logged. Never deletes unknown work.
+   */
+  async function quarantineUnknownWorktree(repoPath: string, path: string): Promise<void> {
+    try {
+      const target = await worktrees.quarantine(repoPath, path)
+      console.warn(
+        `[masterhand] quarantined unconfirmed worktree ${path} (workspace gone) at ${target}; its session is unknown`,
+      )
+    } catch (error) {
+      console.warn(`[masterhand] could not quarantine the unconfirmed worktree at ${path}:`, error)
+    }
   }
 
   // Clients poll the workspace session list every 10 s and each poll walks the
@@ -716,6 +991,10 @@ export function createApp(deps: AppDeps): Hono {
 
   /** Goal routes answer typed codes; unexpected failures stay 502. */
   function goalFailure(c: Context, error: unknown): Response {
+    // Infrastructure failures are not a goal failure: let app.onError answer
+    // the shared 503 storage_unavailable instead of a misleading 502
+    // (docs/past-mistakes.md rule 14).
+    if (isStorageError(error)) throw error
     if (error instanceof GoalError) return c.json({ error: error.code, detail: error.message }, error.status)
     if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
     return c.json({ error: "goal_failed", detail: error instanceof Error ? error.message : undefined }, 502)
@@ -870,6 +1149,20 @@ export function createApp(deps: AppDeps): Hono {
     return sessions
   }
 
+  /**
+   * Finds the session a create whose response was lost may have produced. The
+   * lookup is a fresh list of the created directory (never the 5 s aggregation
+   * cache) and matches only the client's persisted `masterhand.create` marker,
+   * so a session from another directory or device can never be adopted (#185).
+   */
+  async function findSessionByCreateMarker(
+    directory: string,
+    marker: string,
+  ): Promise<OpencodeSession | null> {
+    const sessions = await fetchSessionsInDirectory(directory)
+    return sessions.find((session) => session.metadata?.[CREATE_MARKER_KEY] === marker) ?? null
+  }
+
   /** Session and worktree mutations make the aggregation cache stale. */
   function invalidateSessionsCache(): void {
     sessionsCache.clear()
@@ -1017,7 +1310,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post("/api/devices", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    let body: { password?: unknown; name?: unknown }
+    let body: { password?: unknown; name?: unknown; installID?: unknown }
     try {
       body = await c.req.json()
     } catch {
@@ -1040,14 +1333,31 @@ export function createApp(deps: AppDeps): Hono {
       typeof body.name === "string" && body.name.trim()
         ? body.name.trim().slice(0, MAX_DEVICE_NAME_LENGTH)
         : "Device"
-    // One row per device name: a login from a known device refreshes its
-    // record instead of accumulating duplicates (issue #87c).
-    const existing = deps.store.list().find((record) => record.name === name)
-    const device = existing
-      ? { ...existing, lastUsedAt: now }
-      : { id: randomUUID(), name, createdAt: now, lastUsedAt: now }
-    if (existing) deps.store.touch(existing.id, now)
-    else deps.store.create(device)
+    const installID =
+      typeof body.installID === "string" && body.installID.trim()
+        ? body.installID.trim().slice(0, MAX_INSTALL_ID_LENGTH)
+        : null
+    // Identity is the stable install id, never the mutable display label
+    // (issue #193). Clients without one keep the pre-#87c behavior: a new row
+    // per login. A known install id keeps its existing label.
+    const existing = installID === null ? null : deps.store.getByInstallID(installID)
+    let device: DeviceRecord
+    if (existing) {
+      deps.store.touch(existing.id, now)
+      device = { ...existing, lastUsedAt: now }
+    } else {
+      device = { id: randomUUID(), name, installID, createdAt: now, lastUsedAt: now }
+      try {
+        deps.store.create(device)
+      } catch (error) {
+        // Two concurrent logins can race past the lookup; the unique index
+        // rejects the loser, which then re-reads the winner (idempotent).
+        const raced = installID !== null && isStorageConflict(error) ? deps.store.getByInstallID(installID) : null
+        if (!raced) throw error
+        deps.store.touch(raced.id, now)
+        device = { ...raced, lastUsedAt: now }
+      }
+    }
     const token = createDeviceToken(config.sessionSecret, device.id, config.sessionTtlHours * 3600)
     return c.json({ token, device }, 201)
   })
@@ -1424,27 +1734,116 @@ export function createApp(deps: AppDeps): Hono {
   api.delete("/workspaces/:id", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
+    const deleteFiles = c.req.query("deleteFiles") === "1"
 
-    // Isolated worktrees live outside the workspace folder, so they always
-    // have to be cleaned up explicitly.
-    for (const record of deps.store.listIsolatedSessions(workspace.id)) {
+    // A refused destructive delete must never have touched a child resource.
+    if (deleteFiles && !isInsideRoot(config.workspacesRoot, workspace.path)) {
+      return c.json({ error: "outside_root" }, 403)
+    }
+
+    // Pause every task aimed at this folder through its serialized chain
+    // (#188) BEFORE the active-session guard: `pauseTask` waits for a fire in
+    // flight, so its session is then visible to the guard. With the guard
+    // first, a fire starting in that window would be paused afterwards and the
+    // folder could be removed under the session it just created. One bad task
+    // never blocks the delete.
+    const tasksPausedHere: string[] = []
+    for (const task of deps.store.listScheduledTasks()) {
+      if (task.directory !== workspace.path) continue
+      if (!task.paused) tasksPausedHere.push(task.id)
       try {
-        await worktrees.remove(workspace.path, record.path, record.branch)
-      } catch {
-        // best effort: the folder may already be gone
+        await scheduler.pauseTask(task.id)
+      } catch (error) {
+        console.warn(`[masterhand] could not pause scheduled task ${task.id}:`, error)
       }
-      deps.store.removeIsolatedSession(record.sessionID)
-      preview.forget(record.sessionID)
     }
 
-    if (c.req.query("deleteFiles") === "1") {
-      if (!isInsideRoot(config.workspacesRoot, workspace.path)) {
-        return c.json({ error: "outside_root" }, 403)
+    /**
+     * A refused delete never removes the folder, so the tasks this request
+     * paused must be resumed (`resumeTask` recomputes a strictly future slot).
+     * Resuming a task another request paused too is harmless: the workspace is
+     * still there only because this delete was refused.
+     */
+    async function resumeTasksPausedHere(): Promise<void> {
+      for (const taskID of tasksPausedHere) {
+        try {
+          await scheduler.resumeTask(taskID)
+        } catch (error) {
+          console.warn(`[masterhand] could not resume scheduled task ${taskID}:`, error)
+        }
       }
-      await removeDir(workspace.path)
+      tasksPausedHere.length = 0
     }
 
-    deps.store.removeWorkspace(workspace.id)
+    // Read the isolated records after the pause waits: a record created during
+    // an in-flight fire belongs to the guard too.
+    let records: IsolatedSessionRecord[]
+    let busy: Response | null = null
+    try {
+      records = deps.store.listIsolatedSessions(workspace.id)
+
+      // Deleting the folder under a running turn is destructive: refuse it while
+      // any session of the base folder or an isolated worktree is active. The
+      // guard fails closed (see `activeSessionGuard`).
+      if (deleteFiles) {
+        busy = await activeSessionGuard(c, [
+          workspace.path,
+          ...records.map((record) => record.path),
+        ])
+      }
+    } catch (error) {
+      // Any refusal before the row removal (including a storage failure) must
+      // leave the workspace's schedules as they were.
+      await resumeTasksPausedHere()
+      throw error
+    }
+    if (busy) {
+      await resumeTasksPausedHere()
+      return busy
+    }
+
+    // Remove the parent row before releasing children (synchronous, so it
+    // cannot interleave): a create that already passed its workspace lookup
+    // can no longer land a record that references a deleted workspace, because
+    // its pre-insert re-check now fails and rolls the worktree/session back.
+    // The row goes before the folder: if the folder delete fails, the files
+    // remain for inspection, but MasterHand no longer registers them.
+    try {
+      deps.store.removeWorkspace(workspace.id)
+    } catch (error) {
+      // The delete did not happen: the folder and row are still there, so the
+      // paused schedules must stay active.
+      await resumeTasksPausedHere()
+      throw error
+    }
+
+    // Isolated worktrees live outside the workspace folder, and each session
+    // owns lifecycles that outlive the folder (an in-flight finish, a managed
+    // PTY, a goal run, a preview). Wait/release them before removing the
+    // worktree and its record. Re-list after the row removal: a create that
+    // inserted its record during the guard/pause awaits is still reachable
+    // here (its own pre-insert re-check now fails), so no record is stranded.
+    // The repo path is passed explicitly because the workspace row (the usual
+    // lookup) is already gone.
+    for (const record of deps.store.listIsolatedSessions(workspace.id)) {
+      await releaseSession(record.sessionID, { directory: record.path, repoPath: workspace.path })
+    }
+
+    // Base-folder sessions own the same lifecycles (`sessionRunContext`
+    // resolves them too): stop their PTY/preview/goal run before the folder
+    // disappears. Best effort: a delete must not fail because opencode is
+    // unreachable.
+    try {
+      const sessions = await fetchSessionsInDirectory(workspace.path)
+      for (const session of sessions) {
+        await releaseSession(session.id, { directory: workspace.path })
+      }
+    } catch (error) {
+      console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
+    }
+
+    if (deleteFiles) await removeDir(workspace.path)
+
     invalidateSessionsCache()
     return c.json({ ok: true })
   })
@@ -1472,20 +1871,15 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /**
-   * A branch switch under a running turn would move the files beneath it, and
-   * a branch operation on a dirty tree can lose the user's work: refuse both.
-   * The busy check fails closed — when it cannot confirm, the mutation is not
-   * attempted.
+   * Refuses a destructive change while any session in the given directories is
+   * active. The check is fresh (never the 5 s aggregation cache): a session
+   * created moments ago may already be running. It fails closed — when
+   * opencode cannot confirm, the mutation is not attempted.
    */
-  async function branchGuard(
-    c: Context,
-    workspacePath: string,
-    options: { requireClean: boolean },
-  ): Promise<Response | null> {
+  async function activeSessionGuard(c: Context, directories: string[]): Promise<Response | null> {
     try {
-      // Fresh list: a session created moments ago (not yet in the 5 s cache)
-      // may already be running, and a branch switch under it would corrupt it.
-      const sessions = await fetchSessionsInDirectory(workspacePath)
+      const lists = await Promise.all(directories.map((directory) => fetchSessionsInDirectory(directory)))
+      const sessions = lists.flat()
       if (sessions.length > 0) {
         const response = await callOpencode("/api/session/active")
         if (!response.ok) throw new Error(`opencode ${response.status}`)
@@ -1501,6 +1895,20 @@ export function createApp(deps: AppDeps): Hono {
         502,
       )
     }
+    return null
+  }
+
+  /**
+   * A branch switch under a running turn would move the files beneath it, and
+   * a branch operation on a dirty tree can lose the user's work: refuse both.
+   */
+  async function branchGuard(
+    c: Context,
+    workspacePath: string,
+    options: { requireClean: boolean },
+  ): Promise<Response | null> {
+    const busy = await activeSessionGuard(c, [workspacePath])
+    if (busy) return busy
     if (options.requireClean) {
       try {
         if (await worktrees.isDirty(workspacePath)) {
@@ -1662,6 +2070,16 @@ export function createApp(deps: AppDeps): Hono {
       }
       if (!response.ok) return c.json({ error: "opencode_error" }, 502)
       const session = ((await response.json()) as { data: OpencodeSession }).data
+      // The workspace may have been deleted while opencode was creating the
+      // session. Re-read the row before the response: a standard session has
+      // no isolation record that could be rolled back later, so delete the
+      // upstream session now instead of leaving an orphan in a removed folder.
+      // The bounded DELETE is awaited: answering before it settles would lose
+      // the cleanup if the process stopped right after the response.
+      if (!deps.store.getWorkspace(workspace.id)) {
+        await rollbackUpstreamSession(session.id)
+        return c.json({ error: "workspace_busy" }, 409)
+      }
       invalidateSessionsCache()
       await ensurePreviewInstruction(session.id)
       await ensureWorkspaceGuard(session.id, workspace.path)
@@ -1671,7 +2089,7 @@ export function createApp(deps: AppDeps): Hono {
     const token = randomUUID().replace(/-/g, "").slice(0, 10)
     let path: string
     let branch: string
-    let baseRef: string
+    let baseRef = ""
     try {
       branch = worktreeBranch(workspace.name, token)
       path = worktreeDir(config.worktreesRoot, workspace.name, token)
@@ -1696,30 +2114,92 @@ export function createApp(deps: AppDeps): Hono {
       await ensurePreviewInstruction(session.id)
       await ensureWorkspaceGuard(session.id, path)
 
-      const record: IsolatedSessionRecord = {
-        sessionID: session.id,
-        workspaceID: workspace.id,
-        path,
-        branch,
-        baseRef,
-        pushed: false,
-        prUrl: null,
-        createdAt: Date.now(),
+      // The workspace may have been deleted while opencode was creating the
+      // session. The lookup at the top of the route is now stale; re-read the
+      // row synchronously immediately before the insert (workspace deletion
+      // removes it first), so no isolation record ever references a deleted
+      // workspace or leaks its worktree. Roll back like a definitive failure.
+      if (!deps.store.getWorkspace(workspace.id)) {
+        if (sessionID) await rollbackUpstreamSession(sessionID)
+        await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
+        return c.json({ error: "workspace_busy" }, 409)
       }
+
+      const record: IsolatedSessionRecord = isolatedSessionRecord(session.id, workspace.id, path, branch, baseRef)
       deps.store.createIsolatedSession(record)
       return c.json({ session: { ...session, isolation: isolationOf(record) }, isolation: isolationOf(record) }, 201)
     } catch (error) {
-      if (sessionID) {
-        void callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { method: "DELETE" }).catch(() => {})
+      // A storage failure while persisting the isolation record says nothing
+      // about the worktree or the session: both are healthy, so never roll them
+      // back. Rethrow before any cleanup/typed fallback so app.onError answers
+      // 503 storage_unavailable instead of 500 isolation_failed (#191).
+      if (isStorageError(error)) throw error
+      // A deadline is not proof of failure: opencode may have created the
+      // session before its response stalled. Reconcile the persisted create
+      // marker inside the worktree MasterHand just made; the worktree is never
+      // removed on a timeout, because that would make a recovered session
+      // unreachable and destroy agent work (#79, #185). With no marker to prove
+      // the outcome, it stays for the startup quarantine/reconcile.
+      if (error instanceof OpencodeTimeoutError) {
+        let recovered: OpencodeSession | null = null
+        if (marker) {
+          try {
+            recovered = await findSessionByCreateMarker(path, marker)
+          } catch {
+            // The lookup itself failed: the outcome stays unknown.
+          }
+        }
+        if (!recovered) {
+          // The workspace may have been deleted while the deadline ran. Startup
+          // reconciliation only walks existing workspaces, so an unregistered
+          // worktree of a deleted one would leak forever — but its session is
+          // unknown, so it is quarantined (renamed, data/branch kept), never
+          // deleted. A store read failure is not proof the row is gone: keep
+          // the current 504/preserve behavior.
+          let workspaceGone = false
+          try {
+            workspaceGone = deps.store.getWorkspace(workspace.id) === null
+          } catch (readError) {
+            console.warn(`[masterhand] could not check workspace ${workspace.id} after a timeout:`, readError)
+          }
+          if (workspaceGone) await quarantineUnknownWorktree(workspace.path, path)
+          return c.json({ error: "opencode_timeout" }, 504)
+        }
+
+        // The timeout recovery is still a create: if the workspace was deleted
+        // meanwhile, roll the recovered session and worktree back instead of
+        // persisting an isolation record for a workspace that is gone.
+        if (!deps.store.getWorkspace(workspace.id)) {
+          await rollbackUpstreamSession(recovered.id)
+          await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
+          return c.json({ error: "workspace_busy" }, 409)
+        }
+
+        // Persist before the best-effort guard writes: a crash after this point
+        // keeps the record (and the worktree) recoverable after a restart.
+        // A duplicate reconcile could hit the session's primary key. Adopting
+        // the persisted row is defensive only (a real retry uses a new token,
+        // so a new worktree): accept it only when it belongs to this attempt.
+        let record: IsolatedSessionRecord
+        try {
+          record = isolatedSessionRecord(recovered.id, workspace.id, path, branch, baseRef)
+          deps.store.createIsolatedSession(record)
+        } catch (error) {
+          const adopted = isStorageConflict(error) ? deps.store.getIsolatedSession(recovered.id) : null
+          if (!adopted || adopted.path !== path || adopted.workspaceID !== workspace.id) throw error
+          record = adopted
+        }
+        await ensurePreviewInstruction(recovered.id)
+        await ensureWorkspaceGuard(recovered.id, path)
+        invalidateSessionsCache()
+        return c.json(
+          { session: { ...recovered, isolation: isolationOf(record) }, isolation: isolationOf(record) },
+          201,
+        )
       }
-      try {
-        await worktrees.remove(workspace.path, path, branch)
-      } catch {
-        // the worktree may not exist if creation failed early
-      }
-      // A deadline means the session may still have been created upstream; the
-      // client reconciles against the list (see #66) instead of blind retrying.
-      if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
+
+      if (sessionID) await rollbackUpstreamSession(sessionID)
+      await removeIsolatedWorktree(workspace.id, workspace.path, path, branch)
       return c.json(
         { error: "isolation_failed", detail: error instanceof Error ? error.message : "unknown" },
         500,
@@ -1741,30 +2221,48 @@ export function createApp(deps: AppDeps): Hono {
     if (!response.ok && response.status !== 404) return c.json({ error: "opencode_error" }, 502)
     invalidateSessionsCache()
 
-    await releaseSession(sessionID)
+    await releaseSession(sessionID, {
+      directory: deps.store.getIsolatedSession(sessionID)?.path ?? workspace.path,
+      bestEffort: false,
+    })
     return c.json({ ok: true })
   })
 
-  api.post("/isolated-sessions/:sessionID/finish", async (c) => {
-    const record = deps.store.getIsolatedSession(c.req.param("sessionID"))
-    if (!record) return c.json({ error: "not_found" }, 404)
+  // Finish is a non-idempotent check→create chain (commit, push, PR). Two
+  // devices — or a lost-response retry racing the first request — must share
+  // one operation and one PR, so the in-flight promise is registered before
+  // the first await (docs/past-mistakes.md rule 12; `RunManager.start` is the
+  // precedent). The map is app-scoped: one BFF instance per process.
+  const finishing = new Map<string, Promise<FinishOutcome>>()
+
+  async function finishOnce(sessionID: string): Promise<FinishOutcome> {
+    // Re-read after acquiring the slot: an earlier attempt may have persisted
+    // the push/PR while this request was queued.
+    const record = deps.store.getIsolatedSession(sessionID)
+    if (!record) return { ok: false, error: "not_found" }
     const workspace = deps.store.getWorkspace(record.workspaceID)
-    if (!workspace) return c.json({ error: "not_found" }, 404)
+    if (!workspace) return { ok: false, error: "not_found" }
 
     let committed = false
     try {
       committed = await worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`)
     } catch (error) {
-      return c.json(
-        { error: "commit_failed", detail: error instanceof Error ? error.message : "unknown" },
-        500,
-      )
+      return {
+        ok: false,
+        error: "commit_failed",
+        detail: error instanceof Error ? error.message : "unknown",
+      }
     }
 
     let pushed = false
     let pushError: string | null = null
-    let prUrl = record.prUrl
     const remoteUrl = await worktrees.remoteUrl(record.path)
+    // A compare URL is a response-only convenience, never proof of a PR. A
+    // stored value equal to it is a legacy row written by an older build and
+    // is treated as non-authoritative so the next finish can replace it.
+    const compareUrl = remoteUrl ? pullRequestUrl(remoteUrl, record.branch, record.baseRef) : null
+    const legacyCompare = record.prUrl !== null && record.prUrl === compareUrl
+    let prUrl = record.prUrl && !legacyCompare ? record.prUrl : null
     if (remoteUrl) {
       try {
         await worktrees.push(record.path, record.branch)
@@ -1772,25 +2270,68 @@ export function createApp(deps: AppDeps): Hono {
       } catch (error) {
         pushError = error instanceof Error ? error.message : "push_failed"
       }
-      if (pushed) {
-        // Prefer the provider CLI when authenticated; otherwise hand back a
-        // ready-to-open compare URL. A retry after a lost response must never
-        // create a second PR: the recorded URL wins.
-        prUrl =
-          record.prUrl ??
-          (await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)) ??
-          pullRequestUrl(remoteUrl, record.branch, record.baseRef)
+      if (pushed && !prUrl) {
+        // pullRequest reconciles an existing PR/MR when create reports a
+        // duplicate, so a retry never loses the real URL to the fallback.
+        prUrl = await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)
       }
     }
 
-    deps.store.updateIsolatedSession(record.sessionID, { pushed, prUrl })
-    return c.json({
-      committed,
-      pushed,
+    // Persist only a provider-returned real URL; pushed and the first real PR
+    // are monotonic (a later failed attempt cannot downgrade either).
+    deps.store.updateIsolatedSession(record.sessionID, {
+      pushed: pushed || record.pushed,
       prUrl,
+      replacePrUrl: legacyCompare,
+    })
+    return {
+      ok: true,
+      committed,
+      pushed: pushed || record.pushed,
+      prUrl: prUrl ?? compareUrl,
       branch: record.branch,
       path: record.path,
       error: pushError,
+    }
+  }
+
+  function finish(sessionID: string): Promise<FinishOutcome> {
+    // Synchronous: a release that started after `awaitFinish` sampled the map
+    // must never see a finish registered behind it. The session is being
+    // removed, so it is indistinguishable from a missing record for the caller:
+    // answer `404 not_found` (never a retryable `workspace_busy`).
+    if (releasing.has(sessionID)) return Promise.resolve({ ok: false, error: "not_found" })
+    const pending = finishing.get(sessionID)
+    if (pending) return pending
+    const task = finishOnce(sessionID).finally(() => {
+      if (finishing.get(sessionID) === task) finishing.delete(sessionID)
+    })
+    finishing.set(sessionID, task)
+    return task
+  }
+
+  /**
+   * Waits for an in-flight finish. Workspace deletion (#188) must await this
+   * before removing the worktree the operation is still using.
+   */
+  async function awaitFinish(sessionID: string): Promise<void> {
+    const pending = finishing.get(sessionID)
+    if (pending) await pending.catch(() => {})
+  }
+
+  api.post("/isolated-sessions/:sessionID/finish", async (c) => {
+    const outcome = await finish(c.req.param("sessionID"))
+    if (!outcome.ok) {
+      if (outcome.error === "not_found") return c.json({ error: "not_found" }, 404)
+      return c.json({ error: "commit_failed", detail: outcome.detail }, 500)
+    }
+    return c.json({
+      committed: outcome.committed,
+      pushed: outcome.pushed,
+      prUrl: outcome.prUrl,
+      branch: outcome.branch,
+      path: outcome.path,
+      error: outcome.error,
     })
   })
 
@@ -1863,6 +2404,9 @@ export function createApp(deps: AppDeps): Hono {
         },
       })
     } catch (error) {
+      // Port allocation persists to the store: a storage failure is not an
+      // opencode failure. Let app.onError answer 503 storage_unavailable.
+      if (isStorageError(error)) throw error
       if (error instanceof PreviewError) return c.json({ error: error.code }, 503)
       return c.json({ error: "opencode_unreachable" }, 502)
     }
@@ -1877,6 +2421,9 @@ export function createApp(deps: AppDeps): Hono {
       const port = preview.portFor(context.sessionID)
       return c.json({ run: await runs.start(context.sessionID, context.directory, config, port) })
     } catch (error) {
+      // `runs.start` allocates/persists the preview port: a storage failure is
+      // infrastructure and must reach app.onError (503), not `run_failed` (500).
+      if (isStorageError(error)) throw error
       const code = error instanceof RunError ? error.code : error instanceof PreviewError ? error.code : "run_failed"
       const status = code === "run_spawn_failed" ? 502 : code === "preview_ports_exhausted" ? 503 : 500
       return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
@@ -1902,6 +2449,9 @@ export function createApp(deps: AppDeps): Hono {
     try {
       return c.json({ preview: await preview.start(c.req.param("sessionID")) })
     } catch (error) {
+      // `preview.start` reads/writes the port mapping: a storage failure is
+      // infrastructure and must reach app.onError (503), not `preview_failed`.
+      if (isStorageError(error)) throw error
       const code = error instanceof PreviewError ? error.code : "preview_failed"
       const status = code === "preview_not_running" ? 409 : code === "preview_ports_exhausted" ? 503 : 502
       return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
@@ -2214,6 +2764,9 @@ export function createApp(deps: AppDeps): Hono {
    * frames (same synthetic shape as `goal.updated`).
    */
   function schedulerFailure(c: Context, error: unknown): Response {
+    // Storage is infrastructure, not a scheduler failure: app.onError answers
+    // the shared 503 storage_unavailable (docs/past-mistakes.md rule 14).
+    if (isStorageError(error)) throw error
     if (error instanceof SchedulerError) return c.json({ error: error.code, detail: error.message }, error.status)
     if (error instanceof OpencodeTimeoutError) return c.json({ error: "opencode_timeout" }, 504)
     return c.json({ error: "scheduler_failed", detail: error instanceof Error ? error.message : undefined }, 502)
@@ -2345,26 +2898,33 @@ export function createApp(deps: AppDeps): Hono {
       }
       // Only a schedule/timezone change re-arms the cadence; anything else
       // keeps the pending slot (resuming recomputes it manager-side).
-      let savedTask: ScheduledTask | null = null
-      if (validated || touchesSchedule) {
-        const spec = touchesSchedule
-          ? schedulerSpec(body.schedule !== undefined ? body.schedule : existing.schedule)
-          : existing.schedule
-        savedTask = {
-          ...existing,
-          ...(validated ? { name: validated.name, prompt: validated.prompt, model: validated.model, directory: validated.directory } : {}),
-          ...(touchesSchedule
-            ? { schedule: spec, timezone, nextRunAt: nextScheduledRunAt(spec, Date.now(), Date.now(), timezone) }
-            : {}),
-        }
-        deps.store.saveScheduledTask(savedTask)
-        emitSchedulerUpdated(savedTask.id)
+      // Only fields present in the body are sent. The manager re-reads the
+      // live task inside the per-task chain, so a fire (lastRunAt/nextRunAt) or
+      // a pause that landed while this route awaited the model catalog is
+      // never overwritten by the snapshot read above.
+      const patch: SchedulerTaskPatch = {}
+      if (validated) {
+        if (body.name !== undefined) patch.name = validated.name
+        if (body.prompt !== undefined) patch.prompt = validated.prompt
+        if (body.model !== undefined) patch.model = validated.model
+        if (body.directory !== undefined) patch.directory = validated.directory
       }
+      if (touchesSchedule) {
+        const spec =
+          body.schedule !== undefined ? schedulerSpec(body.schedule) : existing.schedule
+        const nowMs = Date.now()
+        patch.nextRunAt = nextScheduledRunAt(spec, nowMs, nowMs, timezone)
+        if (body.schedule !== undefined) patch.schedule = spec
+        if (body.timezone !== undefined) patch.timezone = timezone
+      }
+      const updated = await scheduler.updateTask(id, patch)
+      // Deleted while awaiting validation: answer 404 instead of resurrecting.
+      if (!updated) return c.json({ error: "task_not_found" }, 404)
       // Pause/resume ride the manager so the flag change is serialized with
       // any transition in progress (one chain per task id).
       if (body.paused === true) return c.json({ task: await scheduler.pauseTask(id) })
       if (body.paused === false) return c.json({ task: await scheduler.resumeTask(id) })
-      return c.json({ task: deps.store.getScheduledTask(id) ?? savedTask ?? existing })
+      return c.json({ task: deps.store.getScheduledTask(id) ?? updated })
     } catch (error) {
       return schedulerFailure(c, error)
     }

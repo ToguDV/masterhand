@@ -4,6 +4,7 @@ import {
   clearPalette,
   clearToken,
   clearWorkspaceID,
+  getOrCreateInstallID,
   loadAutoAcceptSessions,
   loadDevice,
   loadPalette,
@@ -68,6 +69,49 @@ describe("storage — device", () => {
     await SecureStore.setItemAsync("masterhand.device", "{not json")
 
     expect(await loadDevice()).toBeNull()
+  })
+})
+
+describe("storage — install id", () => {
+  it("returns the same persisted install id on every call", async () => {
+    const first = await getOrCreateInstallID()
+    expect(first).toEqual(expect.any(String))
+    expect(first.length).toBeGreaterThan(0)
+
+    expect(await getOrCreateInstallID()).toBe(first)
+    expect(await SecureStore.getItemAsync("masterhand.installID")).toBe(first)
+  })
+
+  it("coalesces concurrent calls into a single read", async () => {
+    const getItem = SecureStore.getItemAsync as jest.Mock
+    getItem.mockClear()
+
+    const ids = await Promise.all(Array.from({ length: 5 }, () => getOrCreateInstallID()))
+    expect(new Set(ids).size).toBe(1)
+    expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
+  it("falls back to an ephemeral id when SecureStore fails (#82)", async () => {
+    ;(SecureStore.getItemAsync as jest.Mock).mockRejectedValueOnce(new Error("keychain unavailable"))
+
+    await expect(getOrCreateInstallID()).resolves.toEqual(expect.any(String))
+  })
+
+  it("keeps the in-memory id when the secure store cannot persist it", async () => {
+    ;(SecureStore.setItemAsync as jest.Mock).mockRejectedValueOnce(new Error("disk full"))
+
+    const first = await getOrCreateInstallID()
+    expect(await getOrCreateInstallID()).toBe(first)
+  })
+
+  it("survives sign-out: clearing the session never clears the install id", async () => {
+    const id = await getOrCreateInstallID()
+
+    await clearToken()
+    await clearDevice()
+    await clearWorkspaceID()
+
+    expect(await getOrCreateInstallID()).toBe(id)
   })
 })
 

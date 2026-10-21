@@ -277,19 +277,104 @@ describe("storage resilience", () => {
     }
   })
 
-  it("deduplicates devices by name on repeated logins", async () => {
-    app = await startTestApp()
-    const first = await createDevice(app.url, "Pixel")
-    const second = await createDevice(app.url, "Pixel")
+  describe("device identity", () => {
+    it("keeps same-name devices with different install ids distinct and revocable independently", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Android device", "secret", "install-1")
+      const second = await createDevice(app.url, "Android device", "secret", "install-2")
 
-    expect(app.store.list()).toHaveLength(1)
-    expect(second.device.id).toBe(first.device.id)
-    expect(second.device.name).toBe("Pixel")
-    // Both tokens authenticate the same device record.
-    const response = await fetch(`${app.url}/api/status`, {
-      headers: { authorization: `Bearer ${second.token}` },
+      expect(second.device.id).not.toBe(first.device.id)
+      expect(second.token).not.toBe(first.token)
+      expect(second.device.installID).toBe("install-2")
+      expect(app.store.list()).toHaveLength(2)
+
+      const revoked = await fetch(`${app.url}/api/devices/${first.device.id}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${first.token}` },
+      })
+      expect(revoked.status).toBe(200)
+
+      const firstStatus = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${first.token}` },
+      })
+      expect(firstStatus.status).toBe(401)
+      // Revoking one phone must not sign out the other one with the same label.
+      const secondStatus = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${second.token}` },
+      })
+      expect(secondStatus.status).toBe(200)
     })
-    expect(response.status).toBe(200)
+
+    it("coalesces concurrent logins with the same install id into one row", async () => {
+      app = await startTestApp()
+      const [first, second] = await Promise.all([
+        // Different labels: only the stable install id can merge these rows, so
+        // the old name-based dedupe cannot make this test pass.
+        createDevice(app.url, "Pixel left", "secret", "install-shared"),
+        createDevice(app.url, "Pixel right", "secret", "install-shared"),
+      ])
+
+      expect(second.device.id).toBe(first.device.id)
+      expect(first.device.name).toBe(second.device.name)
+      expect(["Pixel left", "Pixel right"]).toContain(first.device.name)
+      expect(app.store.list()).toHaveLength(1)
+    })
+
+    it("re-reads the winner when the install id insert races the unique index", async () => {
+      const winner = {
+        id: "dev_winner",
+        name: "Pixel",
+        installID: "install-race",
+        createdAt: 1,
+        lastUsedAt: 1,
+      }
+      let inserted = false
+      const store: Store = {
+        ...createMemoryStore(),
+        getByInstallID: (installID) => (installID === "install-race" && inserted ? winner : null),
+        create: () => {
+          inserted = true
+          throw Object.assign(new Error("UNIQUE constraint failed: devices.install_id"), {
+            code: "SQLITE_CONSTRAINT_UNIQUE",
+          })
+        },
+      }
+      app = await startTestApp({ store })
+
+      const device = await createDevice(app.url, "Pixel", "secret", "install-race")
+      expect(device.device.id).toBe("dev_winner")
+      expect(device.device.name).toBe("Pixel")
+    })
+
+    it("creates a new row per login without an install id", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel")
+      const second = await createDevice(app.url, "Pixel")
+
+      expect(second.device.id).not.toBe(first.device.id)
+      expect(second.device.installID).toBeNull()
+      expect(app.store.list()).toHaveLength(2)
+    })
+
+    it("keeps the existing label when the same install id logs in with another name", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel", "secret", "install-label")
+      const second = await createDevice(app.url, "Renamed phone", "secret", "install-label")
+
+      expect(second.device.id).toBe(first.device.id)
+      expect(second.device.name).toBe("Pixel")
+      expect(app.store.list()).toHaveLength(1)
+    })
+
+    it("trims the install id before using it as identity", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel", "secret", "  install-trim  ")
+      const second = await createDevice(app.url, "Pixel", "secret", "install-trim")
+
+      expect(first.device.installID).toBe("install-trim")
+      expect(second.device.id).toBe(first.device.id)
+      expect(app.store.list()).toHaveLength(1)
+    })
   })
 
   it("answers 409 when the workspace insert races the path pre-check", async () => {
@@ -764,6 +849,41 @@ describe("managed run errors", () => {
     expect(((await failed.json()) as { error: string }).error).toBe("run_spawn_failed")
   })
 
+  it("lets storage failures on run and preview routes reach the typed 503 mapping", async () => {
+    const store = {
+      ...createMemoryStore(),
+      getPreviewPort: () => {
+        throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+      },
+    }
+    app = await startTestApp({ store })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.saveWorkspaceRun({
+      workspaceID: "ws",
+      command: "npm",
+      args: ["dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const cases: Array<[string, string]> = [
+        ["GET", "/api/sessions/ses_1/run?workspace=ws"],
+        ["POST", "/api/sessions/ses_1/run?workspace=ws"],
+        ["POST", "/api/sessions/ses_1/preview"],
+      ]
+      for (const [method, path] of cases) {
+        const response = await fetch(`${app.url}${path}`, { method, headers: { cookie } })
+        expect(response.status, `${method} ${path}`).toBe(503)
+        expect(await response.json(), `${method} ${path}`).toEqual({ error: "storage_unavailable" })
+      }
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
   it("runs an isolated session in its worktree directory", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url } })
@@ -888,8 +1008,12 @@ describe("/api/workspaces", () => {
   })
 
   it("deletes the folder when deleteFiles is set", async () => {
+    upstream = await startMockOpencode()
     const removedPaths: string[] = []
-    app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      removeDir: async (path) => { removedPaths.push(path) },
+    })
     const cookie = await login(app.url)
     const created = await fetch(`${app.url}/api/workspaces`, {
       method: "POST",
@@ -906,11 +1030,57 @@ describe("/api/workspaces", () => {
     expect(removedPaths).toEqual([workspace.path])
   })
 
-  it("refuses to delete files outside the root but still forgets the workspace", async () => {
+  it("fails closed when the destructive-delete busy guard cannot be evaluated", async () => {
     const removedPaths: string[] = []
     app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
     const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.createScheduledTask({
+      id: "task_guard",
+      name: "Guarded task",
+      prompt: "check",
+      model: { providerID: "test", id: "test-model" },
+      schedule: { kind: "interval", intervalMinutes: 60 },
+      timezone: "",
+      directory: "/tmp/masterhand-workspaces/ws",
+      paused: false,
+      lastRunAt: null,
+      nextRunAt: new Date(Date.now() + 3_600_000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+
+    const response = await fetch(`${app.url}/api/workspaces/ws?deleteFiles=1`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: "busy_check_failed" })
+    expect(removedPaths).toEqual([])
+    expect(app.store.getWorkspace("ws")).not.toBeNull()
+    // The workspace survives a refused delete: the task this request paused
+    // must be resumed instead of staying disabled forever.
+    expect(app.store.getScheduledTask("task_guard")?.paused).toBe(false)
+  })
+
+  it("refuses to delete files outside the root before touching any child resource", async () => {
+    const removedPaths: string[] = []
+    const worktrees = createFakeWorktreeManager()
+    app = await startTestApp({
+      worktrees,
+      removeDir: async (path) => { removedPaths.push(path) },
+    })
+    const cookie = await login(app.url)
     app.store.createWorkspace({ id: "legacy", name: "legacy", path: "/etc", createdAt: Date.now() })
+    app.store.createIsolatedSession({
+      sessionID: "ses_legacy",
+      workspaceID: "legacy",
+      path: "/tmp/masterhand-worktrees/legacy/abc",
+      branch: "masterhand/legacy-abc",
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt: 1,
+    })
 
     const refused = await fetch(`${app.url}/api/workspaces/legacy?deleteFiles=1`, {
       method: "DELETE",
@@ -918,6 +1088,9 @@ describe("/api/workspaces", () => {
     })
     expect(refused.status).toBe(403)
     expect(removedPaths).toEqual([])
+    // The 403 must win before the worktree/record cleanup.
+    expect(worktrees.calls).toEqual([])
+    expect(app.store.getIsolatedSession("ses_legacy")).not.toBeNull()
 
     const forgotten = await fetch(`${app.url}/api/workspaces/legacy`, {
       method: "DELETE",

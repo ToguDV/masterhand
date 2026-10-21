@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
+import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrations.js"
+import type { Migration } from "../src/migrations.js"
 import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
 import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
@@ -11,9 +13,9 @@ describe("sqlite device store", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
     const store = createSqliteStore(join(dir, "test.sqlite"))
     try {
-      const device = { id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 }
+      const device = { id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 }
       store.create(device)
-      expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+      expect(store.get("dev_1")).toMatchObject({ name: "Laptop", installID: null })
       expect(store.list()).toHaveLength(1)
 
       store.touch("dev_1", 99)
@@ -27,16 +29,47 @@ describe("sqlite device store", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it("looks devices up by install id and rejects a duplicate", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      store.create({ id: "dev_1", name: "Phone", installID: "install-1", createdAt: 1, lastUsedAt: 1 })
+      expect(store.getByInstallID("install-1")).toMatchObject({ id: "dev_1" })
+      expect(store.getByInstallID("missing")).toBeNull()
+      // Multiple legacy rows may have no install id; NULLs stay distinct.
+      store.create({ id: "dev_2", name: "Tablet", installID: null, createdAt: 2, lastUsedAt: 2 })
+      store.create({ id: "dev_3", name: "Laptop", installID: null, createdAt: 3, lastUsedAt: 3 })
+
+      expect(() =>
+        store.create({ id: "dev_4", name: "Clone", installID: "install-1", createdAt: 4, lastUsedAt: 4 }),
+      ).toThrow(/UNIQUE/)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("memory device store", () => {
   it("behaves like the sqlite store", () => {
     const store = createMemoryStore()
-    store.create({ id: "dev_1", name: "Phone", createdAt: 1, lastUsedAt: 1 })
+    store.create({ id: "dev_1", name: "Phone", installID: null, createdAt: 1, lastUsedAt: 1 })
     store.touch("dev_1", 5)
     expect(store.get("dev_1")?.lastUsedAt).toBe(5)
     store.remove("dev_1")
     expect(store.list()).toHaveLength(0)
+    store.close()
+  })
+
+  it("looks devices up by install id", () => {
+    const store = createMemoryStore()
+    store.create({ id: "dev_1", name: "Phone", installID: "install-1", createdAt: 1, lastUsedAt: 1 })
+    expect(store.getByInstallID("install-1")).toMatchObject({ id: "dev_1" })
+    expect(store.getByInstallID("missing")).toBeNull()
+    expect(() =>
+      store.create({ id: "dev_2", name: "Clone", installID: "install-1", createdAt: 2, lastUsedAt: 2 }),
+    ).toThrow(/UNIQUE/)
     store.close()
   })
 })
@@ -68,7 +101,7 @@ describe("private data permissions", () => {
       ensureDataDir(dir)
       const store = createSqliteStore(source)
       try {
-        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
         backupDatabase(source, destination)
         expect(modeOf(source)).toBe(0o600)
         expect(modeOf(`${source}-wal`)).toBe(0o600)
@@ -94,7 +127,7 @@ describe("private data permissions", () => {
 
       const store = createSqliteStore(source)
       try {
-        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
         expect(modeOf(source)).toBe(0o600)
         expect(modeOf(`${source}-wal`)).toBe(0o600)
         expect(modeOf(`${source}-shm`)).toBe(0o600)
@@ -114,7 +147,7 @@ describe("sqlite integrity and backup", () => {
     const store = createSqliteStore(source)
     try {
       expect(store.ping()).toBe(true)
-      store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+      store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
 
       const destination = join(dir, "backup.sqlite")
       backupDatabase(source, destination)
@@ -136,10 +169,237 @@ describe("sqlite integrity and backup", () => {
     try {
       const corrupt = join(dir, "corrupt.sqlite")
       writeFileSync(corrupt, "this is not a sqlite database")
-      expect(() => createSqliteStore(corrupt)).toThrow()
+      let error: unknown
+      try {
+        createSqliteStore(corrupt)
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(/failed its integrity check/)
+      expect((error as Error).message).toContain("docs/runbooks/backups.md")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("sqlite schema migrations", () => {
+  const tempDir = (): string => mkdtempSync(join(tmpdir(), "masterhand-migrations-"))
+
+  it("stamps a fresh database with the latest schema version", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    try {
+      const store = createSqliteStore(file)
+      store.close()
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("adopts a pre-versioning database without losing its data", () => {
+    const dir = tempDir()
+    const file = join(dir, "legacy.sqlite")
+    try {
+      // A database created before versioning existed: no user_version, but a
+      // populated table and the obsolete push_subscriptions one.
+      const legacy = new Database(file)
+      legacy.exec(`
+        CREATE TABLE devices (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER NOT NULL
+        )
+      `)
+      legacy.exec("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY)")
+      legacy.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+      expect(legacy.pragma("user_version", { simple: true })).toBe(0)
+      legacy.close()
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        expect(
+          db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get(),
+        ).toBeUndefined()
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("upgrades a v1 database to the install id schema without losing data", () => {
+    const dir = tempDir()
+    const file = join(dir, "v1.sqlite")
+    try {
+      // A real v1 database: every baseline statement already applied and the
+      // version stamped. The obsolete table is re-created on top to prove the
+      // upgrade cleans it instead of trusting the old baseline's drop.
+      const v1 = new Database(file)
+      try {
+        for (const statement of MIGRATIONS[0]!.statements) v1.exec(statement)
+        v1.exec("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY)")
+        v1.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+        v1.exec(
+          "INSERT INTO workspaces (id, name, path, created_at) VALUES ('ws_1', 'App', '/workspace/app', 1)",
+        )
+        v1.pragma("user_version = 1")
+      } finally {
+        v1.close()
+      }
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop", installID: null })
+        expect(store.getWorkspace("ws_1")).toMatchObject({ name: "App", path: "/workspace/app" })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        const columns = db.pragma("table_info(devices)") as { name: string }[]
+        expect(columns.map((column) => column.name)).toContain("install_id")
+        expect(
+          db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get(),
+        ).toBeUndefined()
+        const index = db
+          .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_devices_install_id'")
+          .get() as { sql: string } | undefined
+        expect(index?.sql).toMatch(/UNIQUE/i)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does not re-run migrations that were already applied", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    const applied: Migration[] = [
+      {
+        version: 1,
+        description: "create the counter table",
+        statements: ["CREATE TABLE counter (value INTEGER NOT NULL)", "INSERT INTO counter (value) VALUES (1)"],
+      },
+    ]
+    // If reopening replayed the applied version, this statement would throw:
+    // there is no missing_table.
+    const replay: Migration[] = [
+      {
+        version: 1,
+        description: "must never run twice",
+        statements: ["INSERT INTO missing_table (value) VALUES (1)"],
+      },
+    ]
+    try {
+      const first = new Database(file)
+      runMigrations(first, applied)
+      expect(first.pragma("user_version", { simple: true })).toBe(1)
+      first.close()
+
+      const reopened = new Database(file)
+      try {
+        expect(() => runMigrations(reopened, replay)).not.toThrow()
+        expect(reopened.prepare("SELECT value FROM counter").pluck().get()).toBe(1)
+      } finally {
+        reopened.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a database written by a newer schema with the restore pointer", () => {
+    const dir = tempDir()
+    const file = join(dir, "future.sqlite")
+    const newer = LATEST_SCHEMA_VERSION + 1
+    try {
+      const future = new Database(file)
+      future.pragma(`user_version = ${newer}`)
+      future.close()
+
+      let error: unknown
+      try {
+        createSqliteStore(file)
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(new RegExp(`schema version ${newer} is newer`))
+      expect((error as Error).message).toContain("docs/runbooks/backups.md")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("rolls back a failed migration and keeps the previous version", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    const migrations: Migration[] = [
+      { version: 1, description: "baseline", statements: ["CREATE TABLE applied (id INTEGER)"] },
+      {
+        version: 2,
+        description: "broken",
+        statements: [
+          "CREATE TABLE partial (id INTEGER)",
+          "ALTER TABLE applied ADD COLUMN extra TEXT",
+          "INSERT INTO missing_table (id) VALUES (1)",
+        ],
+      },
+    ]
+    try {
+      const db = new Database(file)
+      try {
+        let error: unknown
+        try {
+          runMigrations(db, migrations)
+        } catch (caught) {
+          error = caught
+        }
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/migration 2/)
+        expect((error as Error).message).toContain("docs/runbooks/backups.md")
+
+        expect(db.pragma("user_version", { simple: true })).toBe(1)
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'partial'").get()).toBeUndefined()
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'applied'").get()).toBeDefined()
+        const columns = db.pragma("table_info(applied)") as { name: string }[]
+        expect(columns.map((column) => column.name)).not.toContain("extra")
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("exposes ordered, unique migration versions up to the latest", () => {
+    expect(MIGRATIONS.length).toBeGreaterThan(0)
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual(
+      Array.from({ length: LATEST_SCHEMA_VERSION }, (_, index) => index + 1),
+    )
   })
 })
 
@@ -150,6 +410,14 @@ describe("sqlite workspace store", () => {
     try {
       store.createWorkspace({ id: "ws_1", name: "App", path: "/workspace/app", createdAt: 1 })
       store.createWorkspace({ id: "ws_2", name: "Lib", path: "/workspace/lib", createdAt: 2 })
+      store.saveWorkspaceRun({
+        workspaceID: "ws_1",
+        command: "npm",
+        args: ["run", "dev"],
+        cwd: null,
+        source: "user",
+        updatedAt: 1,
+      })
 
       expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws_1", "ws_2"])
       expect(store.getWorkspace("ws_1")).toMatchObject({ name: "App" })
@@ -158,6 +426,7 @@ describe("sqlite workspace store", () => {
 
       store.removeWorkspace("ws_1")
       expect(store.getWorkspace("ws_1")).toBeNull()
+      expect(store.getWorkspaceRun("ws_1")).toBeNull()
       expect(store.listWorkspaces()).toHaveLength(1)
     } finally {
       store.close()
@@ -171,12 +440,73 @@ describe("memory workspace store", () => {
     const store = createMemoryStore()
     store.createWorkspace({ id: "ws_1", name: "App", path: "/workspace/app", createdAt: 1 })
     store.createWorkspace({ id: "ws_2", name: "Lib", path: "/workspace/lib", createdAt: 2 })
+    store.saveWorkspaceRun({
+      workspaceID: "ws_2",
+      command: "npm",
+      args: ["run", "dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
 
     expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws_1", "ws_2"])
     expect(store.getWorkspaceByPath("/workspace/lib")?.id).toBe("ws_2")
     store.removeWorkspace("ws_2")
     expect(store.listWorkspaces()).toHaveLength(1)
+    expect(store.getWorkspaceRun("ws_2")).toBeNull()
     store.close()
+  })
+})
+
+describe("isolated session store", () => {
+  function isolatedSessionScenario(store: Store): void {
+    store.createIsolatedSession({
+      sessionID: "ses_1",
+      workspaceID: "ws_1",
+      path: "/workspace/.worktrees/app/abc",
+      branch: "masterhand/app-abc",
+      baseRef: "main",
+      pushed: false,
+      // A row written by an older build: a compare URL was stored as the PR.
+      prUrl: "https://github.com/org/repo/compare/main...masterhand%2Fapp-abc?expand=1",
+      createdAt: 1,
+    })
+
+    // First successful finish replaces the non-authoritative URL and sets pushed.
+    store.updateIsolatedSession("ses_1", {
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+      replacePrUrl: true,
+    })
+    expect(store.getIsolatedSession("ses_1")).toMatchObject({
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+    })
+
+    // A later attempt cannot downgrade the push or overwrite the real PR URL.
+    store.updateIsolatedSession("ses_1", {
+      pushed: false,
+      prUrl: "https://github.com/org/repo/pull/2",
+    })
+    expect(store.getIsolatedSession("ses_1")).toMatchObject({
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+    })
+  }
+
+  it("keeps the first real PR URL and never downgrades pushed in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      isolatedSessionScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("behaves the same in memory", () => {
+    isolatedSessionScenario(createMemoryStore())
   })
 })
 
@@ -292,12 +622,73 @@ describe("preview port store", () => {
     }
   })
 
+  it("rejects a port reserved by another session and keeps the first row (sqlite)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+      store.assignPreviewPort(first)
+
+      expect(() =>
+        store.assignPreviewPort({ sessionID: "ses_2", port: 3200, createdAt: 2 }),
+      ).toThrow(/UNIQUE/i)
+
+      expect(store.getPreviewPort("ses_1")).toBe(3200)
+      expect(store.getPreviewPort("ses_2")).toBeNull()
+      expect(store.listPreviewPorts()).toEqual([first])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the original reservation for a repeated same-session assignment (sqlite)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+      store.assignPreviewPort(first)
+
+      // A replay must not move the session to another port or refresh created_at.
+      expect(store.assignPreviewPort({ sessionID: "ses_1", port: 3201, createdAt: 2 })).toEqual(first)
+      expect(store.getPreviewPort("ses_1")).toBe(3200)
+      expect(store.listPreviewPorts()).toEqual([first])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("behaves the same in memory", () => {
     const store = createMemoryStore()
     store.assignPreviewPort({ sessionID: "ses_1", port: 3200, createdAt: 1 })
     expect(store.getPreviewPort("ses_1")).toBe(3200)
     store.removePreviewPort("ses_1")
     expect(store.getPreviewPort("ses_1")).toBeNull()
+  })
+
+  it("rejects a port reserved by another session and keeps the first row (memory)", () => {
+    const store = createMemoryStore()
+    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+    store.assignPreviewPort(first)
+
+    expect(() => store.assignPreviewPort({ sessionID: "ses_2", port: 3200, createdAt: 2 })).toThrow(
+      /UNIQUE/i,
+    )
+
+    expect(store.getPreviewPort("ses_1")).toBe(3200)
+    expect(store.getPreviewPort("ses_2")).toBeNull()
+    expect(store.listPreviewPorts()).toEqual([first])
+  })
+
+  it("keeps the original reservation for a repeated same-session assignment (memory)", () => {
+    const store = createMemoryStore()
+    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
+    store.assignPreviewPort(first)
+
+    expect(store.assignPreviewPort({ sessionID: "ses_1", port: 3201, createdAt: 2 })).toEqual(first)
+    expect(store.getPreviewPort("ses_1")).toBe(3200)
+    expect(store.listPreviewPorts()).toEqual([first])
   })
 })
 

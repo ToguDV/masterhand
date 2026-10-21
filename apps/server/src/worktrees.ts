@@ -595,16 +595,64 @@ export interface PullRequestOptions {
   runCommand?: CommandRunner
 }
 
+/** First http(s) URL in CLI output (create commands print one). */
+function firstUrl(text: string): string | null {
+  return text.match(/https?:\/\/\S+/)?.[0]?.replace(/[)\],.]+$/, "") ?? null
+}
+
 /**
- * Best-effort PR creation with the provider CLI. Returns the PR URL when the
- * CLI exists and is authenticated, `null` otherwise (the caller falls back to
- * a compare URL).
+ * Reads a PR/MR URL from a provider CLI JSON payload: a single object
+ * (`{ url }`) or an array (`gh pr list`, `glab mr list` with `web_url`).
+ */
+function jsonUrl(text: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    const entries = Array.isArray(parsed) ? parsed : [parsed]
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue
+      const record = entry as Record<string, unknown>
+      for (const key of ["url", "web_url", "webUrl"]) {
+        const value = record[key]
+        if (typeof value === "string" && /^https?:\/\//.test(value)) return value
+      }
+    }
+  } catch {
+    // Not JSON: a plain URL may still be printed.
+  }
+  return null
+}
+
+/**
+ * Looks up the PR/MR that a failed create may have produced (a retry, a second
+ * device, or a lost response). The provider rejects a duplicate create, so the
+ * resource exists and must be reconciled before falling back to a compare URL
+ * (#187). Uses the same bounded runner/env as the create call; any failure —
+ * including a missing/unauthenticated CLI — returns null.
+ */
+async function findPullRequest(
+  provider: RemoteProvider,
+  options: PullRequestOptions,
+  run: CommandRunner,
+): Promise<string | null> {
+  const result =
+    provider === "github"
+      ? await run("gh", ["pr", "list", "--head", options.branch, "--state", "all", "--json", "url"], options.cwd)
+      : await run("glab", ["mr", "list", "--source-branch", options.branch, "--output", "json"], options.cwd)
+  if (result.status !== 0) return null
+  return jsonUrl(result.stdout) ?? firstUrl(result.stdout)
+}
+
+/**
+ * Best-effort PR creation with the provider CLI. When creation fails (already
+ * exists, a retry after a lost response, a second device) the existing PR/MR is
+ * looked up before giving up. Returns `null` only when no real PR can be found
+ * or the provider is unsupported (the caller may render a compare URL, but must
+ * never persist it).
  */
 export async function createPullRequest(options: PullRequestOptions): Promise<string | null> {
   const run = options.runCommand ?? defaultCommandRunner
   const provider = remoteProvider(options.remoteUrl)
-  const firstUrl = (text: string): string | null =>
-    text.match(/https?:\/\/\S+/)?.[0]?.replace(/[)\],.]+$/, "") ?? null
+  if (!provider) return null
 
   if (provider === "github") {
     const result = await run(
@@ -612,8 +660,8 @@ export async function createPullRequest(options: PullRequestOptions): Promise<st
       ["pr", "create", "--head", options.branch, "--base", options.baseRef, "--fill"],
       options.cwd,
     )
-    if (result.status === 0) return firstUrl(result.stdout)
-  } else if (provider === "gitlab") {
+    if (result.status === 0) return firstUrl(result.stdout) ?? (await findPullRequest(provider, options, run))
+  } else {
     const result = await run(
       "glab",
       [
@@ -628,9 +676,9 @@ export async function createPullRequest(options: PullRequestOptions): Promise<st
       ],
       options.cwd,
     )
-    if (result.status === 0) return firstUrl(result.stdout)
+    if (result.status === 0) return firstUrl(result.stdout) ?? (await findPullRequest(provider, options, run))
   }
-  return null
+  return findPullRequest(provider, options, run)
 }
 
 /** "Create pull/merge request" URL for GitHub or GitLab; null when unsupported. */

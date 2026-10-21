@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { GoalError, type GoalManager } from "../src/goal.js"
 import { OpencodeTimeoutError } from "../src/retry.js"
 import type { GoalRunRecord } from "../src/store.js"
@@ -176,6 +176,29 @@ describe("goal routes", () => {
     })
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ error: "goal_failed", detail: "boom" })
+  })
+
+  it("lets a storage failure reach the typed 503 mapping", async () => {
+    app = await startTestApp({
+      goals: fakeManager({
+        start: async () => {
+          throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+        },
+      }),
+    })
+    const cookie = await login(app.url)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await fetch(`${app.url}/api/sessions/ses_main/goal`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({ goal: "x" }),
+      })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 
   it("drives pause, resume and cancel", async () => {

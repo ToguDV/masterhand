@@ -1,17 +1,30 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-20. 32 open issues — the release/update work (#131, #133, #134), the
-board and mobile-parity follow-ups (#164, #172) and the remaining findings of the 2026-10-20
-server audit — grouped into **7 chunks** (C15–C16, C18–C22) by the code surface they share.
-C1–C14 and C17 are merged or closed.
+**Snapshot:** 2026-10-21. 32 open issues — the release/update work (#131, #133, #134), the
+board and mobile-parity follow-ups (#164, #172), the engine-side residuals (#216–#219) and the
+remaining findings of the 2026-10-20 server audit. C19's eight issues are **in review** in
+[#221](https://github.com/ToguDV/masterhand/pull/221); the rest are grouped into **7 chunks**
+(C15–C16, C18–C22) by the code surface they share. C1–C14 and C17–C18 are merged or closed.
 
-**Last updated:** 2026-10-20 — **C18 has landed (9/9)**: [#214](https://github.com/ToguDV/masterhand/pull/214)
+**Last updated:** 2026-10-21 — **C19 is in review (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
+resolves #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
+timeout reconciliation by create marker, coalesced Finish & PR with provider lookup and monotonic
+URL persistence, workspace-delete child release with a serialized scheduler pause, scheduler PATCH
+inside the per-task chain, storage failures mapped to 503, conflict-safe preview port allocation).
+Two review rounds added lifecycle hardening: a single-flight release map shared by session DELETE,
+the `session.deleted` event and workspace deletion; `preview.forget` awaits an in-flight tunnel
+start; refused deletes resume the tasks they paused; delete-vs-create is closed by removing the
+workspace row first and re-reading it before persisting. Gates on the final commit: typecheck,
+1.424 unit/integration tests with coverage, 34 script tests, 103 E2E and the production build.
+Residuals are recorded in the C19 section below.
+
+**Previous note:** 2026-10-20 — **C18 landed (9/9)**: [#214](https://github.com/ToguDV/masterhand/pull/214)
 merged #178, #180–#184, #209 and #210 (git env/config sandbox, bounded bodies, failure-only
 limiter, owner-only storage, strict boot config, provider target guard, path/ref and scheduler
 validation); the session batch ([#220](https://github.com/ToguDV/masterhand/pull/220), #179) closed the last item — managed runs drop to `agent` through
 `agent-exec --exec`, `/api/oc/*` is a method-exact allowlist, and engine credentials/config/log are
 owner-only, verified at runtime on the dev stack. Residual follow-ups: #216–#219.
-Re-chunked earlier the same day after the **server audit** (security, correctness,
+Re-chunked after the **server audit** (security, correctness,
 performance/memory and tech debt): 35 issues, #178–#212, grouped into C18–C22.
 
 **Previous note:** 2026-10-17 — **C17 landed** (scheduler, #147, on `feat/scheduler`): BFF
@@ -55,10 +68,10 @@ in the sessions options box per #136/#137).
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
-| C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — needs #186 (migrations) |
+| C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — #186 landed; add v3+ migrations |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #218/#219 |
-| C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ⬜ Pending — **P1 #185 #186** |
+| C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | 🟡 In review 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ⬜ Pending |
@@ -74,11 +87,11 @@ in the sessions options box per #136/#137).
 [#92](https://github.com/ToguDV/masterhand/issues/92),
 [#99](https://github.com/ToguDV/masterhand/issues/99)), all in PR #117.
 
-**Highest severity in the queue:** **[#185](https://github.com/ToguDV/masterhand/issues/185)**
-(P1: a create timeout deletes the worktree the client still has to reconcile) and
-**[#186](https://github.com/ToguDV/masterhand/issues/186)** (P1: no SQLite migration runner). C18
-is closed (#179 landed), so the suggested batch order is **C19 → C20 → C21 → C22 → C15 → C16**.
-C15 depends on #186 for its forward-only migrations; C16 stays deferred (opt-in).
+**Highest severity in the queue:** the P1 pair **#185** (a create timeout deleted the worktree the
+client still had to reconcile) and **#186** (no SQLite migration runner) is fixed in the C19 PR
+[#221](https://github.com/ToguDV/masterhand/pull/221). With C19 in review, the suggested batch
+order is **C20 → C21 → C22 → C15 → C16**. #186 unblocks C15 (new compatibility changes append
+v3+ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
 
 ## Chunks — current batch (C18–C22)
 
@@ -128,8 +141,21 @@ C15 depends on #186 for its forward-only migrations; C16 stays deferred (opt-in)
 - **Order:** #186 → #193 → #185 → #187 → #188 → #189 → #191 → #195.
 - **Dependencies:** #186 blocks #193 and C15; #185/#187 share the isolated-session record; #188
   touches the scheduler deletion path used by #189.
-- **Notes:** the #186 test must create a v1 file, open it with the new code and assert both the
-  upgrade and the data. #193 needs a coordinated mobile change (persisted install id).
+- **Notes:** the #186 test creates a v1 file, opens it with the new code and asserts both the
+  upgrade and the data; #193 added the coordinated mobile change (a persisted install id under its
+  own SecureStore key). **Migration contract from here:** v1 (baseline) and v2 (`install_id`) are
+  immutable; every later compatibility change appends a new version (C15 starts at v3).
+- **Status:** 8/8 in PR [#221](https://github.com/ToguDV/masterhand/pull/221), with two review
+  rounds (single-flight release map, preview start/forget, pause-before-guard and task resume,
+  delete-vs-create ordering, retryable session cleanup, deterministic race tests).
+- **Residuals for follow-ups:** `worktrees.remove` is git-status-silent, so a branch/directory it
+  fails to drop is logged but not retried; base-folder session release on workspace delete is
+  sequential (O(N) upstream calls) and best effort when opencode is unreachable; the destructive
+  delete removes the workspace row before the folder, so a `removeDir` failure leaves files
+  without a registration; a crash between `pauseTask` and the response leaves tasks paused (no
+  cross-request pause refcount); old mobile clients without `installID` keep the documented
+  new-row-per-login fallback; a no-marker timeout after the workspace row vanished quarantines the
+  worktree, but an upstream session created without a marker stays unknown.
 
 ### C20 — Long-operation and shutdown reliability
 

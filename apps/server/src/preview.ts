@@ -3,7 +3,7 @@ import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { connect } from "node:net"
 import { join } from "node:path"
 import type { Config } from "./config.js"
-import { isStorageConflict, type Store } from "./store.js"
+import { isUniqueConstraint, type Store } from "./store.js"
 
 export type PreviewStatus = "stopped" | "starting" | "running" | "error"
 
@@ -21,7 +21,11 @@ export interface PreviewManager {
   stop(sessionID: string): void
   stopAll(): void
   /** Port mappings are removed when the session disappears. */
-  forget(sessionID: string): void
+  /**
+   * Kills the tunnel (waiting for an in-flight start first, so a child that
+   * appears after the call is still killed) and drops the reserved port.
+   */
+  forget(sessionID: string): Promise<void>
   /** Whether the `cloudflared` binary can be executed (cached, async probe). */
   available(): Promise<boolean>
 }
@@ -301,14 +305,17 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (existing !== null) return existing
     // Listing the pool and inserting are not atomic: a concurrent session can
     // take the port in between, violating UNIQUE(port). Retry with a fresh
-    // choice instead of failing session creation/run start (issue #87b).
+    // choice instead of failing session creation/run start (issue #87b). The
+    // store returns the persisted row, so a same-session replay keeps its
+    // original port instead of the one this attempt picked.
     for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt += 1) {
       const port = allocatePort()
       try {
-        store.assignPreviewPort({ sessionID, port, createdAt: Date.now() })
-        return port
+        return store.assignPreviewPort({ sessionID, port, createdAt: Date.now() }).port
       } catch (error) {
-        if (!isStorageConflict(error)) throw error
+        // Only a UNIQUE collision means another session won the race; any
+        // other constraint or storage failure is real and must surface.
+        if (!isUniqueConstraint(error)) throw error
       }
     }
     throw new PreviewError("preview_ports_exhausted")
@@ -478,7 +485,12 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       starting.clear()
       failures.clear()
     },
-    forget(sessionID) {
+    async forget(sessionID) {
+      // An in-flight `start` is not tracked in `running` until its readiness
+      // checks finish: wait for it, then kill the child it produced. Otherwise
+      // the tunnel outlives the session with no row left to find it by (#188).
+      const pending = starting.get(sessionID)
+      if (pending) await pending.catch(() => {})
       const active = running.get(sessionID)
       if (active) {
         kill(active.child)

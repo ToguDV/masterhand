@@ -1,5 +1,6 @@
 import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs"
 import Database from "better-sqlite3"
+import { runMigrations } from "./migrations.js"
 
 /** Owner-only data directory: it holds the database, backups and tunnel PIDs. */
 const PRIVATE_DIR_MODE = 0o700
@@ -48,6 +49,12 @@ export function isStorageConflict(error: unknown): boolean {
   return typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT")
 }
 
+/** True when the error is a UNIQUE collision (the conflicting row already exists). */
+export function isUniqueConstraint(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  return code === "SQLITE_CONSTRAINT_UNIQUE"
+}
+
 /**
  * Online copy of a live database (`VACUUM INTO`). The destination must not
  * exist; the result is a consistent, compacted snapshot safe to restore.
@@ -71,7 +78,10 @@ export function backupDatabase(source: string, destination: string): void {
 
 export interface DeviceRecord {
   id: string
+  /** Editable display label, never identity. */
   name: string
+  /** Stable client-generated identity; null for clients older than #193. */
+  installID: string | null
   createdAt: number
   lastUsedAt: number
 }
@@ -325,6 +335,7 @@ export interface ScheduledRun {
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
+  getByInstallID(installID: string): DeviceRecord | null
   list(): DeviceRecord[]
   remove(id: string): void
   touch(id: string, now?: number): void
@@ -336,11 +347,25 @@ export interface Store {
   listIsolatedSessions(workspaceID?: string): IsolatedSessionRecord[]
   getIsolatedSession(sessionID: string): IsolatedSessionRecord | null
   createIsolatedSession(record: IsolatedSessionRecord): void
-  updateIsolatedSession(sessionID: string, patch: { pushed?: boolean; prUrl?: string | null }): void
+  /**
+   * Monotonic: `pushed` is never downgraded and the first real `prUrl` wins.
+   * `replacePrUrl` is the one exception: it replaces a legacy, non-authoritative
+   * value (a compare URL persisted by older builds) with the real one.
+   */
+  updateIsolatedSession(
+    sessionID: string,
+    patch: { pushed?: boolean; prUrl?: string | null; replacePrUrl?: boolean },
+  ): void
   removeIsolatedSession(sessionID: string): void
   listPreviewPorts(): PreviewPortRecord[]
   getPreviewPort(sessionID: string): number | null
-  assignPreviewPort(record: PreviewPortRecord): void
+  /**
+   * Reserves a preview port. A port owned by another session raises the
+   * `UNIQUE(port)` conflict (the caller retries with a fresh choice); an
+   * existing reservation for the same session is returned unchanged, never
+   * replaced or moved to the requested port.
+   */
+  assignPreviewPort(record: PreviewPortRecord): PreviewPortRecord
   removePreviewPort(sessionID: string): void
   recordAudit(event: Omit<AuditEventRecord, "id">): void
   listAudit(limit?: number): AuditEventRecord[]
@@ -411,191 +436,59 @@ export function createSqliteStore(file: string): Store {
   // keeps readers non-blocking while a write is in flight, NORMAL avoids an
   // fsync per commit on the audit/touch path, and busy_timeout absorbs a
   // concurrent writer briefly instead of failing with SQLITE_BUSY.
-  db.pragma("journal_mode = WAL")
-  tightenDatabaseSidecars(file)
-  db.pragma("synchronous = NORMAL")
-  db.pragma("busy_timeout = 5000")
-
-  // A corrupt file must fail loudly at boot with a pointer to the restore
-  // procedure, not throw opaque errors per request later (issue #80).
-  const integrity = db.pragma("quick_check", { simple: true })
+  //
+  // A corrupt (or non-SQLite) file must fail loudly at boot with a pointer to
+  // the restore procedure, not throw opaque errors per request later (#80).
+  // SQLite may reject the file at the first pragma, so the whole open/check
+  // phase shares one actionable error.
+  const integrityFailure = (reason: unknown): Error =>
+    new Error(
+      `masterhand database cannot be opened or failed its integrity check (${
+        reason instanceof Error ? reason.message : String(reason)
+      }); restore it from a backup — see docs/runbooks/backups.md`,
+    )
+  let integrity: unknown
+  try {
+    db.pragma("journal_mode = WAL")
+    tightenDatabaseSidecars(file)
+    db.pragma("synchronous = NORMAL")
+    db.pragma("busy_timeout = 5000")
+    integrity = db.pragma("quick_check", { simple: true })
+  } catch (error) {
+    db.close()
+    throw integrityFailure(error)
+  }
   if (integrity !== "ok") {
     db.close()
-    throw new Error(
-      `masterhand database failed its integrity check (${String(integrity)}); restore it from a backup — see docs/runbooks/backups.md`,
-    )
+    throw integrityFailure(integrity)
   }
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS devices (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      last_used_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workspaces (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS isolated_sessions (
-      session_id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      path TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      base_ref TEXT NOT NULL,
-      pushed INTEGER NOT NULL DEFAULT 0,
-      pr_url TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `)
-  // Push subscriptions belonged to the pre-re-architecture PWA plan.
-  db.exec("DROP TABLE IF EXISTS push_subscriptions")
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS preview_ports (
-      session_id TEXT PRIMARY KEY,
-      port INTEGER NOT NULL UNIQUE,
-      created_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS audit_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      at INTEGER NOT NULL,
-      session_id TEXT,
-      workspace_id TEXT,
-      kind TEXT NOT NULL,
-      command TEXT,
-      reason TEXT,
-      source TEXT NOT NULL
-    )
-  `)
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workspace_runs (
-      workspace_id TEXT PRIMARY KEY,
-      command TEXT NOT NULL,
-      args TEXT NOT NULL,
-      cwd TEXT,
-      source TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-
-  // Goal mode (`/goal`): the adversarial review loop state and its settings.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS goal_runs (
-      session_id TEXT PRIMARY KEY,
-      run_token TEXT NOT NULL DEFAULT '',
-      goal TEXT NOT NULL,
-      state TEXT NOT NULL,
-      round INTEGER NOT NULL,
-      max_rounds INTEGER NOT NULL,
-      main_model TEXT,
-      critic_model TEXT,
-      judge_model TEXT,
-      critic_session_id TEXT,
-      judge_session_id TEXT,
-      last_report TEXT,
-      last_critique TEXT,
-      last_verdict TEXT,
-      history TEXT NOT NULL DEFAULT '[]',
-      error TEXT,
-      awaiting_kind TEXT,
-      awaiting_session_id TEXT,
-      awaiting_assistant_id TEXT,
-      attempt INTEGER NOT NULL DEFAULT 0,
-      last_error TEXT,
-      paused_phase TEXT,
-      prompt_serial INTEGER NOT NULL DEFAULT 0,
-      nudged INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS goal_settings (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      max_rounds INTEGER NOT NULL,
-      critic_model TEXT,
-      judge_model TEXT
-    )
-  `)
-
-  // Kanban board (one board per workspace, issue #164). No FK pragmas: column
-  // deletion removes its cards in the same transaction, and workspace deletion
-  // drops its board rows there too.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS board_columns (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_board_columns_workspace ON board_columns (workspace_id, position)`)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS board_cards (
-      id TEXT PRIMARY KEY,
-      column_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      position INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_board_cards_column ON board_cards (column_id, position)`)
-
-  // Scheduler (issue #147): durable scheduled tasks and their run history.
-  // No FK pragmas: task deletion removes its runs in the same transaction.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS scheduled_tasks (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      model TEXT NOT NULL,
-      schedule TEXT NOT NULL,
-      timezone TEXT NOT NULL DEFAULT '',
-      directory TEXT NOT NULL,
-      paused INTEGER NOT NULL DEFAULT 0,
-      last_run_at TEXT,
-      next_run_at TEXT,
-      created_at TEXT NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS scheduled_runs (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      session_id TEXT,
-      status TEXT NOT NULL,
-      source TEXT NOT NULL,
-      error TEXT,
-      started_at TEXT NOT NULL,
-      ended_at TEXT
-    )
-  `)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_runs_task ON scheduled_runs (task_id, started_at)`)
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status ON scheduled_runs (status)`)
+  // Forward-only schema upgrades (#186): run after the integrity check and
+  // before the first db.prepare, so an existing database is upgraded instead
+  // of breaking boot. A failure closes the handle and fails loudly with a
+  // restore pointer.
+  try {
+    runMigrations(db)
+  } catch (error) {
+    db.close()
+    throw error
+  }
 
   const createStatement = db.prepare(`
-    INSERT INTO devices (id, name, created_at, last_used_at)
-    VALUES (@id, @name, @createdAt, @lastUsedAt)
+    INSERT INTO devices (id, name, install_id, created_at, last_used_at)
+    VALUES (@id, @name, @installID, @createdAt, @lastUsedAt)
   `)
   const getStatement = db.prepare(`
-    SELECT id, name, created_at AS createdAt, last_used_at AS lastUsedAt
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
     FROM devices
     WHERE id = ?
   `)
+  const getByInstallIDStatement = db.prepare(`
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
+    FROM devices
+    WHERE install_id = ?
+  `)
   const listStatement = db.prepare(`
-    SELECT id, name, created_at AS createdAt, last_used_at AS lastUsedAt
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
     FROM devices
     ORDER BY created_at DESC
   `)
@@ -639,7 +532,8 @@ export function createSqliteStore(file: string): Store {
   `)
   const updateIsolatedSessionStatement = db.prepare(`
     UPDATE isolated_sessions
-    SET pushed = COALESCE(@pushed, pushed), pr_url = COALESCE(@prUrl, pr_url)
+    SET pushed = CASE WHEN @pushed = 1 THEN 1 ELSE pushed END,
+        pr_url = CASE WHEN @replacePrUrl = 1 OR pr_url IS NULL THEN @prUrl ELSE pr_url END
     WHERE session_id = @sessionID
   `)
   const removeIsolatedSessionStatement = db.prepare("DELETE FROM isolated_sessions WHERE session_id = ?")
@@ -648,8 +542,9 @@ export function createSqliteStore(file: string): Store {
   const listPreviewPortsStatement = db.prepare(`${previewPortColumns} ORDER BY created_at ASC`)
   const getPreviewPortStatement = db.prepare(`${previewPortColumns} WHERE session_id = ?`)
   const assignPreviewPortStatement = db.prepare(`
-    INSERT OR REPLACE INTO preview_ports (session_id, port, created_at)
+    INSERT INTO preview_ports (session_id, port, created_at)
     VALUES (@sessionID, @port, @createdAt)
+    ON CONFLICT(session_id) DO NOTHING
   `)
   const removePreviewPortStatement = db.prepare("DELETE FROM preview_ports WHERE session_id = ?")
 
@@ -953,6 +848,9 @@ export function createSqliteStore(file: string): Store {
     get(id) {
       return (getStatement.get(id) as DeviceRecord | undefined) ?? null
     },
+    getByInstallID(installID) {
+      return (getByInstallIDStatement.get(installID) as DeviceRecord | undefined) ?? null
+    },
     list() {
       return listStatement.all() as DeviceRecord[]
     },
@@ -975,12 +873,13 @@ export function createSqliteStore(file: string): Store {
       createWorkspaceStatement.run(record)
     },
     removeWorkspace(id) {
-      const removeBoardRows = db.transaction(() => {
+      const removeWorkspaceRows = db.transaction(() => {
         deleteBoardCardsOfWorkspaceStatement.run(id)
         deleteBoardColumnsOfWorkspaceStatement.run(id)
+        removeWorkspaceRunStatement.run(id)
         removeWorkspaceStatement.run(id)
       })
-      removeBoardRows()
+      removeWorkspaceRows()
     },
     listIsolatedSessions(workspaceID) {
       const rows = workspaceID
@@ -1000,6 +899,7 @@ export function createSqliteStore(file: string): Store {
         sessionID,
         pushed: patch.pushed === undefined ? null : patch.pushed ? 1 : 0,
         prUrl: patch.prUrl === undefined ? null : patch.prUrl,
+        replacePrUrl: patch.replacePrUrl ? 1 : 0,
       })
     },
     removeIsolatedSession(sessionID) {
@@ -1013,7 +913,20 @@ export function createSqliteStore(file: string): Store {
       return row?.port ?? null
     },
     assignPreviewPort(record) {
-      assignPreviewPortStatement.run(record)
+      // Never `INSERT OR REPLACE`: a port owned by another session must raise
+      // UNIQUE(port) so the caller retries, not delete that session's row.
+      if (assignPreviewPortStatement.run(record).changes === 1) return record
+      // The session already held a reservation (DO NOTHING): return the row
+      // actually persisted, never the port this call picked but did not claim.
+      const existing = getPreviewPortStatement.get(record.sessionID) as PreviewPortRecord | undefined
+      if (!existing) {
+        // Only reachable if another process removed the row between the two
+        // synchronous statements; the store is single-process by design.
+        throw Object.assign(new Error("preview port reservation disappeared"), {
+          code: "SQLITE_CONSTRAINT",
+        })
+      }
+      return existing
     },
     removePreviewPort(sessionID) {
       removePreviewPortStatement.run(sessionID)
@@ -1359,10 +1272,22 @@ export function createMemoryStore(): Store {
   }
   return {
     create(record) {
+      // Parity with the SQLite unique index on install_id (NULLs stay distinct).
+      if (
+        record.installID !== null &&
+        [...records.values()].some((existing) => existing.installID === record.installID)
+      ) {
+        throw Object.assign(new Error(`UNIQUE constraint failed: devices.install_id`), {
+          code: "SQLITE_CONSTRAINT_UNIQUE",
+        })
+      }
       records.set(record.id, record)
     },
     get(id) {
       return records.get(id) ?? null
+    },
+    getByInstallID(installID) {
+      return [...records.values()].find((record) => record.installID === installID) ?? null
     },
     list() {
       return [...records.values()]
@@ -1388,6 +1313,7 @@ export function createMemoryStore(): Store {
     },
     removeWorkspace(id) {
       workspaces.delete(id)
+      workspaceRuns.delete(id)
       for (const column of [...boardColumns.values()]) {
         if (column.workspaceID !== id) continue
         for (const card of [...boardCards.values()]) {
@@ -1411,8 +1337,8 @@ export function createMemoryStore(): Store {
       if (!record) return
       isolatedSessions.set(sessionID, {
         ...record,
-        pushed: patch.pushed ?? record.pushed,
-        prUrl: patch.prUrl === undefined ? record.prUrl : patch.prUrl,
+        pushed: record.pushed || patch.pushed === true,
+        prUrl: patch.replacePrUrl || record.prUrl === null ? (patch.prUrl ?? null) : record.prUrl,
       })
     },
     removeIsolatedSession(sessionID) {
@@ -1425,7 +1351,17 @@ export function createMemoryStore(): Store {
       return previewPorts.get(sessionID)?.port ?? null
     },
     assignPreviewPort(record) {
+      // Same-session replay is idempotent and keeps the original reservation.
+      const existing = previewPorts.get(record.sessionID)
+      if (existing) return existing
+      // Parity with UNIQUE(port): another session's port is never stolen.
+      if ([...previewPorts.values()].some((reservation) => reservation.port === record.port)) {
+        throw Object.assign(new Error("UNIQUE constraint failed: preview_ports.port"), {
+          code: "SQLITE_CONSTRAINT_UNIQUE",
+        })
+      }
       previewPorts.set(record.sessionID, record)
+      return record
     },
     removePreviewPort(sessionID) {
       previewPorts.delete(sessionID)

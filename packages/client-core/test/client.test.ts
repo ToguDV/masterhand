@@ -150,7 +150,23 @@ describe("createClient", () => {
     const result = await client.auth.loginDevice("secret", "Phone")
     expect(result.token).toBe("tok")
     expect(calls[0]?.url).toBe("https://mh.example/api/devices")
+    // Without an install id the body keeps the pre-#193 shape.
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ password: "secret", name: "Phone" })
+  })
+
+  it("creates device tokens with an install id when provided", async () => {
+    const { calls, fetchImpl } = recordingFetch(() =>
+      jsonResponse({ token: "tok", device: { id: "dev_1", name: "Phone", installID: "install-1" } }, 201),
+    )
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    const result = await client.auth.loginDevice("secret", "Phone", "install-1")
+    expect(result.device.installID).toBe("install-1")
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      password: "secret",
+      name: "Phone",
+      installID: "install-1",
+    })
   })
 
   it("targets the expected BFF and opencode endpoints", async () => {

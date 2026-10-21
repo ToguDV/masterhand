@@ -5,6 +5,7 @@ import {
   clearDevice,
   clearToken,
   clearWorkspaceID,
+  getOrCreateInstallID,
   loadServerUrl,
   loadToken,
   saveServerUrl,
@@ -15,6 +16,7 @@ jest.mock("../src/storage", () => ({
   loadServerUrl: jest.fn(async () => null),
   loadToken: jest.fn(async () => null),
   loadDevice: jest.fn(async () => null),
+  getOrCreateInstallID: jest.fn(async () => "install-test"),
   loadWorkspaceID: jest.fn(async () => null),
   loadAutoAcceptSessions: jest.fn(async () => []),
   loadSessionPreferences: jest.fn(async () => ({})),
@@ -53,6 +55,7 @@ const createClientMock = createClient as unknown as jest.Mock
 const mocked = {
   loadServerUrl: loadServerUrl as jest.Mock,
   loadToken: loadToken as jest.Mock,
+  getOrCreateInstallID: getOrCreateInstallID as jest.Mock,
   saveServerUrl: saveServerUrl as jest.Mock,
   saveToken: saveToken as jest.Mock,
   clearToken: clearToken as jest.Mock,
@@ -84,6 +87,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mocked.loadServerUrl.mockResolvedValue(null)
   mocked.loadToken.mockResolvedValue(null)
+  mocked.getOrCreateInstallID.mockResolvedValue("install-test")
   createClientMock.mockReturnValue(makeClient())
 })
 
@@ -105,6 +109,23 @@ describe("App", () => {
     expect(await screen.findByText("Sessions")).toBeOnTheScreen()
     expect(mocked.saveToken).toHaveBeenCalledWith("tok")
     expect(mocked.saveServerUrl).toHaveBeenCalledWith("https://host")
+  })
+
+  it("sends the stable install id with the device login", async () => {
+    const loginDevice = jest.fn(async () => ({
+      token: "tok",
+      device: { id: "d1", name: "Android device", installID: "install-test", createdAt: 0, lastUsedAt: 0 },
+    }))
+    createClientMock.mockReturnValue(makeClient(loginDevice))
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByPlaceholderText("https://masterhand.example.com"), "https://host")
+    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
+    await fireEvent.press(screen.getByText("Sign in"))
+
+    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(mocked.getOrCreateInstallID).toHaveBeenCalled()
+    expect(loginDevice).toHaveBeenCalledWith("pw", expect.any(String), "install-test")
   })
 
   it("shows the wrong-password error from the server", async () => {

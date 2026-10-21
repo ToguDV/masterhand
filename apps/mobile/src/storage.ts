@@ -14,6 +14,8 @@ export interface SessionPreferences {
 const SERVER_URL_KEY = "masterhand.serverUrl"
 const TOKEN_KEY = "masterhand.token"
 const DEVICE_KEY = "masterhand.device"
+/** Own key on purpose: signing out clears the session, never the device identity. */
+const INSTALL_ID_KEY = "masterhand.installID"
 const WORKSPACE_KEY = "masterhand.workspaceID"
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
@@ -56,6 +58,57 @@ export function saveDevice(device: StoredDevice): Promise<void> {
 
 export function clearDevice(): Promise<void> {
   return SecureStore.deleteItemAsync(DEVICE_KEY)
+}
+
+/** `crypto.randomUUID` where the runtime has it, with a small dependency-free fallback. */
+function newInstallID(): string {
+  const crypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+  const uuid = crypto?.randomUUID?.()
+  if (uuid) return uuid
+  return `install-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`
+}
+
+let installIDInFlight: Promise<string> | null = null
+/** Kept for this process only when SecureStore is unavailable (login must not break). */
+let ephemeralInstallID: string | null = null
+
+async function resolveInstallID(): Promise<string> {
+  let stored: string | null
+  try {
+    stored = await SecureStore.getItemAsync(INSTALL_ID_KEY)
+  } catch {
+    // Never write here: a transient read failure must not overwrite a real id.
+    ephemeralInstallID ??= newInstallID()
+    return ephemeralInstallID
+  }
+  if (stored) {
+    ephemeralInstallID = null
+    return stored
+  }
+  // Reuse an id that only lived in memory (previous write failure) instead of
+  // registering a new device on every retry.
+  const created = ephemeralInstallID ?? newInstallID()
+  try {
+    await SecureStore.setItemAsync(INSTALL_ID_KEY, created)
+    ephemeralInstallID = null
+  } catch {
+    ephemeralInstallID = created
+  }
+  return created
+}
+
+/**
+ * Stable per-installation identity for device registration (#193). Concurrent
+ * callers share one read; a SecureStore failure falls back to an in-memory id
+ * so a broken keychain can never block login (#82).
+ */
+export function getOrCreateInstallID(): Promise<string> {
+  if (!installIDInFlight) {
+    installIDInFlight = resolveInstallID().finally(() => {
+      installIDInFlight = null
+    })
+  }
+  return installIDInFlight
 }
 
 export function loadWorkspaceID(): Promise<string | null> {

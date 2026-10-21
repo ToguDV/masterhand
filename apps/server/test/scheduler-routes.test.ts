@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest"
-import type { ScheduledRun, ScheduledTask } from "../src/store.js"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { createMemoryStore, type ScheduledRun, type ScheduledTask } from "../src/store.js"
 import {
   login,
   readUntil,
@@ -54,6 +54,15 @@ function seededRun(taskId: string, index: number, overrides: Partial<ScheduledRu
     endedAt: new Date(Date.parse(startedAt) + 500).toISOString(),
     ...overrides,
   }
+}
+
+/** A promise a test resolves exactly when it wants the held request to land. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }
 
 let app: TestApp | null = null
@@ -203,6 +212,31 @@ describe("scheduled task routes", () => {
     expect(((await response.json()) as { error: string }).error).toBe("scheduler_failed")
   })
 
+  it("lets a storage failure while persisting a task reach the typed 503 mapping", async () => {
+    mock = await startMockOpencode()
+    const store = {
+      ...createMemoryStore(),
+      createScheduledTask: () => {
+        throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
+      },
+    }
+    app = await startTestApp({ store, config: { opencodeUrl: mock.url } })
+    app.store.createWorkspace({ id: "ws_demo", name: "demo", path: DIRECTORY, createdAt: 1 })
+    const cookie = await login(app.url)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await fetch(`${app!.url}/api/scheduled-tasks`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify(taskInput()),
+      })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: "storage_unavailable" })
+    } finally {
+      errorLog.mockRestore()
+    }
+  })
+
   it("answers task_not_found for every task-scoped route", async () => {    const cookie = await boot()
     const base = `${app!.url}/api/scheduled-tasks/task_unknown`
     const patch = await fetch(base, {
@@ -291,6 +325,122 @@ describe("scheduled task routes", () => {
     const resumedTask = ((await response.json()) as { task: ScheduledTask }).task
     expect(resumedTask.paused).toBe(false)
     expect(new Date(resumedTask.nextRunAt!).getTime()).toBeGreaterThan(Date.now())
+  })
+
+  it("keeps the fired slot and lastRunAt when a PATCH is in flight", async () => {
+    const cookie = await boot()
+    const created = await createTask(cookie)
+    // Due now: the fire advances nextRunAt from this stale slot.
+    app!.store.saveScheduledTask({ ...created, nextRunAt: new Date(Date.now() - 60_000).toISOString() })
+
+    const gate = deferred()
+    mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
+    const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Renamed sweep" }),
+    })
+    await waitFor(() => modelRequests() > modelsBeforePatch)
+
+    // The fire lands while the PATCH is still waiting on the model catalog.
+    const started = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/run`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(started.status).toBe(202)
+    const run = app!.store.listScheduledRuns(created.id)[0]!
+    const fired = app!.store.getScheduledTask(created.id)!
+    expect(fired.lastRunAt).toBeTruthy()
+    expect(new Date(fired.nextRunAt!).getTime()).toBeGreaterThan(Date.now())
+    mock!.emit({ type: "session.idle", data: { sessionID: run.sessionID } })
+    await waitFor(() => app!.store.listScheduledRuns(created.id)[0]!.status === "completed")
+
+    gate.resolve()
+    const response = await patched
+    expect(response.status).toBe(200)
+    const task = ((await response.json()) as { task: ScheduledTask }).task
+    expect(task.name).toBe("Renamed sweep")
+    expect(task.lastRunAt).toBe(fired.lastRunAt)
+    expect(task.nextRunAt).toBe(fired.nextRunAt)
+    expect(app!.store.getScheduledTask(created.id)).toMatchObject({
+      name: "Renamed sweep",
+      lastRunAt: fired.lastRunAt,
+      nextRunAt: fired.nextRunAt,
+    })
+
+    // The stale slot was not restored: nothing is due on the next tick.
+    await app!.scheduler.tick()
+    expect(app!.store.listScheduledRuns(created.id)).toHaveLength(1)
+  })
+
+  it("applies a mixed name+pause patch after a fire without losing its slot", async () => {
+    const cookie = await boot()
+    const created = await createTask(cookie)
+    app!.store.saveScheduledTask({ ...created, nextRunAt: new Date(Date.now() - 60_000).toISOString() })
+
+    const gate = deferred()
+    mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
+    const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Paused sweep", paused: true }),
+    })
+    await waitFor(() => modelRequests() > modelsBeforePatch)
+
+    await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/run`, { method: "POST", headers: { cookie } })
+    const run = app!.store.listScheduledRuns(created.id)[0]!
+    const fired = app!.store.getScheduledTask(created.id)!
+    expect(fired.lastRunAt).toBeTruthy()
+    mock!.emit({ type: "session.idle", data: { sessionID: run.sessionID } })
+    await waitFor(() => app!.store.listScheduledRuns(created.id)[0]!.status === "completed")
+
+    gate.resolve()
+    const response = await patched
+    expect(response.status).toBe(200)
+    const task = ((await response.json()) as { task: ScheduledTask }).task
+    expect(task).toMatchObject({
+      name: "Paused sweep",
+      paused: true,
+      lastRunAt: fired.lastRunAt,
+      nextRunAt: fired.nextRunAt,
+    })
+    expect(app!.store.listScheduledRuns(created.id)).toHaveLength(1)
+  })
+
+  it("answers task_not_found and does not resurrect a task deleted during a PATCH", async () => {
+    const cookie = await boot()
+    const created = await createTask(cookie)
+
+    const gate = deferred()
+    mock!.holdNext("/api/model", gate.promise)
+    const modelRequests = () =>
+      mock!.requests.filter((request) => request.method === "GET" && request.path === "/api/model").length
+    const modelsBeforePatch = modelRequests()
+    const patched = fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Renamed sweep" }),
+    })
+    await waitFor(() => modelRequests() > modelsBeforePatch)
+
+    // The delete wins while the PATCH waits on validation: no resurrection.
+    const removed = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(removed.status).toBe(204)
+
+    gate.resolve()
+    const response = await patched
+    expect(response.status).toBe(404)
+    expect(((await response.json()) as { error: string }).error).toBe("task_not_found")
+    expect(app!.store.getScheduledTask(created.id)).toBeNull()
   })
 
   it("deletes a task with its run history", async () => {

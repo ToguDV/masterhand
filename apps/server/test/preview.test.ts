@@ -4,7 +4,8 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AddressInfo } from "node:net"
-import { createMemoryStore } from "../src/store.js"
+import { createMemoryStore, createSqliteStore } from "../src/store.js"
+import type { Store } from "../src/store.js"
 import {
   cleanupOrphanTunnels,
   createPreviewManager,
@@ -13,7 +14,15 @@ import {
   reachableOverHttp,
   tunnelPidFile,
 } from "../src/preview.js"
-import { createFakeTunnel, testConfig } from "./helpers.js"
+import { createFakeTunnel, testConfig, waitFor } from "./helpers.js"
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 function setup(overrides: Parameters<typeof testConfig>[0] = {}, tunnel = createFakeTunnel()) {
   const config = testConfig(overrides)
@@ -49,31 +58,50 @@ describe("preview port reservation", () => {
     expect(store.getPreviewPort("ses_c")).toBe(33000)
   })
 
-  it("retries allocation when a concurrent session takes the port", () => {
-    const store = createMemoryStore()
-    const original = store.assignPreviewPort.bind(store)
-    let conflicts = 0
-    const racing = {
-      ...store,
-      assignPreviewPort: (record: Parameters<typeof original>[0]) => {
-        if (conflicts++ === 0) {
-          throw Object.assign(new Error("UNIQUE constraint failed: preview_ports.port"), {
-            code: "SQLITE_CONSTRAINT_UNIQUE",
-          })
-        }
-        original(record)
-      },
-    }
-    const manager = createPreviewManager({
-      config: testConfig({ previewPortRange: { min: 33000, max: 33002 } }),
-      store: racing,
-      probe: async () => true,
-      availableImpl: () => true,
-      readinessImpl: async () => true,
-    })
+  it("retries with a fresh port when a concurrent session takes the port", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-preview-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const config = testConfig({ previewPortRange: { min: 33000, max: 33002 } })
+      const manager = createPreviewManager({
+        config,
+        store,
+        probe: async () => true,
+        availableImpl: () => true,
+        readinessImpl: async () => true,
+      })
+      expect(manager.portFor("ses_a")).toBe(33000)
 
-    expect(manager.portFor("ses_a")).toBe(33000)
-    expect(store.getPreviewPort("ses_a")).toBe(33000)
+      // Reproduce the list/insert race against the real constraint: the second
+      // allocation does not see ses_a's row, picks 33000 again and UNIQUE(port)
+      // rejects the insert. The retry must choose a fresh port and keep both
+      // rows, instead of silently replacing ses_a's reservation.
+      let hideReserved = true
+      const racing: Store = {
+        ...store,
+        listPreviewPorts: () => {
+          if (!hideReserved) return store.listPreviewPorts()
+          hideReserved = false
+          return []
+        },
+      }
+      const racer = createPreviewManager({
+        config,
+        store: racing,
+        probe: async () => true,
+        availableImpl: () => true,
+        readinessImpl: async () => true,
+      })
+
+      expect(racer.portFor("ses_b")).toBe(33001)
+      expect(store.listPreviewPorts().map(({ sessionID, port }) => [sessionID, port])).toEqual([
+        ["ses_a", 33000],
+        ["ses_b", 33001],
+      ])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -201,7 +229,38 @@ describe("preview tunnel lifecycle", () => {
     // stop keeps the reserved port: the tunnel can be restarted.
     expect(store.getPreviewPort("ses_1")).toBe(32900)
 
-    manager.forget("ses_1")
+    await manager.forget("ses_1")
+    expect(store.getPreviewPort("ses_1")).toBeNull()
+  })
+
+  it("waits for an in-flight start before forgetting, so the tunnel is killed and untracked", async () => {
+    const gate = deferred()
+    const config = testConfig()
+    const store = createMemoryStore()
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config,
+      store,
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        await gate.promise
+        return true
+      },
+    })
+
+    const start = manager.start("ses_1")
+    await waitFor(() => tunnel.children.length === 1)
+    expect(store.getPreviewPort("ses_1")).toBe(32900)
+
+    const forgotten = manager.forget("ses_1")
+    gate.resolve()
+    await forgotten
+    await start.catch(() => {})
+
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+    expect(manager.status("ses_1").status).toBe("stopped")
     expect(store.getPreviewPort("ses_1")).toBeNull()
   })
 
