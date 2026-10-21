@@ -440,6 +440,58 @@ describe("memory workspace store", () => {
   })
 })
 
+describe("isolated session store", () => {
+  function isolatedSessionScenario(store: Store): void {
+    store.createIsolatedSession({
+      sessionID: "ses_1",
+      workspaceID: "ws_1",
+      path: "/workspace/.worktrees/app/abc",
+      branch: "masterhand/app-abc",
+      baseRef: "main",
+      pushed: false,
+      // A row written by an older build: a compare URL was stored as the PR.
+      prUrl: "https://github.com/org/repo/compare/main...masterhand%2Fapp-abc?expand=1",
+      createdAt: 1,
+    })
+
+    // First successful finish replaces the non-authoritative URL and sets pushed.
+    store.updateIsolatedSession("ses_1", {
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+      replacePrUrl: true,
+    })
+    expect(store.getIsolatedSession("ses_1")).toMatchObject({
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+    })
+
+    // A later attempt cannot downgrade the push or overwrite the real PR URL.
+    store.updateIsolatedSession("ses_1", {
+      pushed: false,
+      prUrl: "https://github.com/org/repo/pull/2",
+    })
+    expect(store.getIsolatedSession("ses_1")).toMatchObject({
+      pushed: true,
+      prUrl: "https://github.com/org/repo/pull/1",
+    })
+  }
+
+  it("keeps the first real PR URL and never downgrades pushed in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      isolatedSessionScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("behaves the same in memory", () => {
+    isolatedSessionScenario(createMemoryStore())
+  })
+})
+
 describe("audit store", () => {
   const event = {
     at: 1,

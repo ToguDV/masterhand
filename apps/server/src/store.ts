@@ -341,7 +341,15 @@ export interface Store {
   listIsolatedSessions(workspaceID?: string): IsolatedSessionRecord[]
   getIsolatedSession(sessionID: string): IsolatedSessionRecord | null
   createIsolatedSession(record: IsolatedSessionRecord): void
-  updateIsolatedSession(sessionID: string, patch: { pushed?: boolean; prUrl?: string | null }): void
+  /**
+   * Monotonic: `pushed` is never downgraded and the first real `prUrl` wins.
+   * `replacePrUrl` is the one exception: it replaces a legacy, non-authoritative
+   * value (a compare URL persisted by older builds) with the real one.
+   */
+  updateIsolatedSession(
+    sessionID: string,
+    patch: { pushed?: boolean; prUrl?: string | null; replacePrUrl?: boolean },
+  ): void
   removeIsolatedSession(sessionID: string): void
   listPreviewPorts(): PreviewPortRecord[]
   getPreviewPort(sessionID: string): number | null
@@ -512,7 +520,8 @@ export function createSqliteStore(file: string): Store {
   `)
   const updateIsolatedSessionStatement = db.prepare(`
     UPDATE isolated_sessions
-    SET pushed = COALESCE(@pushed, pushed), pr_url = COALESCE(@prUrl, pr_url)
+    SET pushed = CASE WHEN @pushed = 1 THEN 1 ELSE pushed END,
+        pr_url = CASE WHEN @replacePrUrl = 1 OR pr_url IS NULL THEN @prUrl ELSE pr_url END
     WHERE session_id = @sessionID
   `)
   const removeIsolatedSessionStatement = db.prepare("DELETE FROM isolated_sessions WHERE session_id = ?")
@@ -876,6 +885,7 @@ export function createSqliteStore(file: string): Store {
         sessionID,
         pushed: patch.pushed === undefined ? null : patch.pushed ? 1 : 0,
         prUrl: patch.prUrl === undefined ? null : patch.prUrl,
+        replacePrUrl: patch.replacePrUrl ? 1 : 0,
       })
     },
     removeIsolatedSession(sessionID) {
@@ -1299,8 +1309,8 @@ export function createMemoryStore(): Store {
       if (!record) return
       isolatedSessions.set(sessionID, {
         ...record,
-        pushed: patch.pushed ?? record.pushed,
-        prUrl: patch.prUrl === undefined ? record.prUrl : patch.prUrl,
+        pushed: record.pushed || patch.pushed === true,
+        prUrl: patch.replacePrUrl || record.prUrl === null ? (patch.prUrl ?? null) : record.prUrl,
       })
     },
     removeIsolatedSession(sessionID) {

@@ -153,6 +153,62 @@ describe("createPullRequest", () => {
       }),
     ).toBeNull()
   })
+
+  it("reconciles an existing GitHub PR when gh pr create reports it exists", async () => {
+    const runCommand = vi.fn(async (_command: string, args: string[], _cwd: string) => {
+      if (args[0] === "pr" && args[1] === "create") return fail("a pull request for branch already exists")
+      if (args[0] === "pr" && args[1] === "list") {
+        expect(args).toContain("--head")
+        expect(args).toContain("masterhand/app-x")
+        expect(args).toContain("--json")
+        return ok(JSON.stringify([{ url: "https://github.com/org/repo/pull/9" }]))
+      }
+      return fail()
+    })
+    const url = await createPullRequest({
+      cwd: "/worktree",
+      remoteUrl: "git@github.com:org/repo.git",
+      branch: "masterhand/app-x",
+      baseRef: "main",
+      runCommand,
+    })
+    expect(url).toBe("https://github.com/org/repo/pull/9")
+  })
+
+  it("reconciles an existing GitLab MR when glab mr create fails", async () => {
+    const runCommand = vi.fn(async (_command: string, args: string[], _cwd: string) => {
+      if (args[0] === "mr" && args[1] === "create") return fail("merge request already exists")
+      if (args[0] === "mr" && args[1] === "list") {
+        expect(args).toContain("--source-branch")
+        expect(args).toContain("masterhand/app-x")
+        expect(args).toContain("--output")
+        return ok(JSON.stringify([{ web_url: "https://gitlab.com/org/repo/-/merge_requests/4" }]))
+      }
+      return fail()
+    })
+    const url = await createPullRequest({
+      cwd: "/worktree",
+      remoteUrl: "https://gitlab.com/org/repo.git",
+      branch: "masterhand/app-x",
+      baseRef: "main",
+      runCommand,
+    })
+    expect(url).toBe("https://gitlab.com/org/repo/-/merge_requests/4")
+  })
+
+  it("stays null when the CLI is truly missing and no PR can be looked up", async () => {
+    const runCommand = vi.fn(async () => fail("spawn gh ENOENT"))
+    expect(
+      await createPullRequest({
+        cwd: "/worktree",
+        remoteUrl: "git@github.com:org/repo.git",
+        branch: "masterhand/app-x",
+        baseRef: "main",
+        runCommand,
+      }),
+    ).toBeNull()
+    expect(runCommand).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe("createWorktreeManager", () => {

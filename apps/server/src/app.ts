@@ -254,6 +254,20 @@ function isolatedSessionRecord(
   }
 }
 
+/** Result of one coalesced finish operation (commit + push + PR). */
+type FinishOutcome =
+  | { ok: false; error: "not_found" }
+  | { ok: false; error: "commit_failed"; detail: string }
+  | {
+      ok: true
+      committed: boolean
+      pushed: boolean
+      prUrl: string | null
+      branch: string
+      path: string
+      error: string | null
+    }
+
 /** Fields MasterHand adds to an isolated session for the clients. */
 function isolationOf(record: IsolatedSessionRecord) {
   return {
@@ -1817,26 +1831,41 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ ok: true })
   })
 
-  api.post("/isolated-sessions/:sessionID/finish", async (c) => {
-    const record = deps.store.getIsolatedSession(c.req.param("sessionID"))
-    if (!record) return c.json({ error: "not_found" }, 404)
+  // Finish is a non-idempotent check→create chain (commit, push, PR). Two
+  // devices — or a lost-response retry racing the first request — must share
+  // one operation and one PR, so the in-flight promise is registered before
+  // the first await (docs/past-mistakes.md rule 12; `RunManager.start` is the
+  // precedent). The map is app-scoped: one BFF instance per process.
+  const finishing = new Map<string, Promise<FinishOutcome>>()
+
+  async function finishOnce(sessionID: string): Promise<FinishOutcome> {
+    // Re-read after acquiring the slot: an earlier attempt may have persisted
+    // the push/PR while this request was queued.
+    const record = deps.store.getIsolatedSession(sessionID)
+    if (!record) return { ok: false, error: "not_found" }
     const workspace = deps.store.getWorkspace(record.workspaceID)
-    if (!workspace) return c.json({ error: "not_found" }, 404)
+    if (!workspace) return { ok: false, error: "not_found" }
 
     let committed = false
     try {
       committed = await worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`)
     } catch (error) {
-      return c.json(
-        { error: "commit_failed", detail: error instanceof Error ? error.message : "unknown" },
-        500,
-      )
+      return {
+        ok: false,
+        error: "commit_failed",
+        detail: error instanceof Error ? error.message : "unknown",
+      }
     }
 
     let pushed = false
     let pushError: string | null = null
-    let prUrl = record.prUrl
     const remoteUrl = await worktrees.remoteUrl(record.path)
+    // A compare URL is a response-only convenience, never proof of a PR. A
+    // stored value equal to it is a legacy row written by an older build and
+    // is treated as non-authoritative so the next finish can replace it.
+    const compareUrl = remoteUrl ? pullRequestUrl(remoteUrl, record.branch, record.baseRef) : null
+    const legacyCompare = record.prUrl !== null && record.prUrl === compareUrl
+    let prUrl = record.prUrl && !legacyCompare ? record.prUrl : null
     if (remoteUrl) {
       try {
         await worktrees.push(record.path, record.branch)
@@ -1844,25 +1873,63 @@ export function createApp(deps: AppDeps): Hono {
       } catch (error) {
         pushError = error instanceof Error ? error.message : "push_failed"
       }
-      if (pushed) {
-        // Prefer the provider CLI when authenticated; otherwise hand back a
-        // ready-to-open compare URL. A retry after a lost response must never
-        // create a second PR: the recorded URL wins.
-        prUrl =
-          record.prUrl ??
-          (await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)) ??
-          pullRequestUrl(remoteUrl, record.branch, record.baseRef)
+      if (pushed && !prUrl) {
+        // pullRequest reconciles an existing PR/MR when create reports a
+        // duplicate, so a retry never loses the real URL to the fallback.
+        prUrl = await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)
       }
     }
 
-    deps.store.updateIsolatedSession(record.sessionID, { pushed, prUrl })
-    return c.json({
-      committed,
-      pushed,
+    // Persist only a provider-returned real URL; pushed and the first real PR
+    // are monotonic (a later failed attempt cannot downgrade either).
+    deps.store.updateIsolatedSession(record.sessionID, {
+      pushed: pushed || record.pushed,
       prUrl,
+      replacePrUrl: legacyCompare,
+    })
+    return {
+      ok: true,
+      committed,
+      pushed: pushed || record.pushed,
+      prUrl: prUrl ?? compareUrl,
       branch: record.branch,
       path: record.path,
       error: pushError,
+    }
+  }
+
+  function finish(sessionID: string): Promise<FinishOutcome> {
+    const pending = finishing.get(sessionID)
+    if (pending) return pending
+    const task = finishOnce(sessionID).finally(() => {
+      if (finishing.get(sessionID) === task) finishing.delete(sessionID)
+    })
+    finishing.set(sessionID, task)
+    return task
+  }
+
+  /**
+   * Waits for an in-flight finish. Workspace deletion (#188) must await this
+   * before removing the worktree the operation is still using.
+   */
+  async function awaitFinish(sessionID: string): Promise<void> {
+    const pending = finishing.get(sessionID)
+    if (pending) await pending.catch(() => {})
+  }
+
+  api.post("/isolated-sessions/:sessionID/finish", async (c) => {
+    const outcome = await finish(c.req.param("sessionID"))
+    if (!outcome.ok) {
+      if (outcome.error === "not_found") return c.json({ error: "not_found" }, 404)
+      return c.json({ error: "commit_failed", detail: outcome.detail }, 500)
+    }
+    return c.json({
+      committed: outcome.committed,
+      pushed: outcome.pushed,
+      prUrl: outcome.prUrl,
+      branch: outcome.branch,
+      path: outcome.path,
+      error: outcome.error,
     })
   })
 

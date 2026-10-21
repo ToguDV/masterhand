@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest"
 import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, waitFor } from "./helpers.js"
+import { pullRequestUrl } from "../src/worktrees.js"
 import type { GoalRunRecord } from "../src/store.js"
+
+/** Promise a test can resolve explicitly to hold a request mid-operation. */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((settle) => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
 
 interface MockSession {
   id: string
@@ -612,7 +622,7 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
     }
   })
 
-  it("falls back to a compare URL without a provider CLI", async () => {
+  it("falls back to a compare URL without a provider CLI but never persists it", async () => {
     const worktrees = createFakeWorktreeManager({
       hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
@@ -641,7 +651,115 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
       })
       const body = (await response.json()) as { prUrl: string | null }
       expect(body.prUrl).toMatch(/^https:\/\/github\.com\/org\/repo\/compare\/main\.\.\./)
+      // The compare URL is a response-only convenience: it is not proof that a
+      // pull request exists, so it must never win over a later real lookup.
+      expect(app.store.getIsolatedSession(session.id)?.prUrl).toBeNull()
     } finally {
+      await app.close()
+    }
+  })
+
+  it("replaces a legacy persisted compare URL with the real PR", async () => {
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      pullRequest: async () => "https://github.com/org/repo/pull/12",
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const record = app.store.getIsolatedSession(session.id)!
+      const legacy = pullRequestUrl("git@github.com:org/repo.git", record.branch, record.baseRef)!
+      app.store.updateIsolatedSession(session.id, { prUrl: legacy })
+
+      const response = await fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      const body = (await response.json()) as { prUrl: string | null }
+      expect(body.prUrl).toBe("https://github.com/org/repo/pull/12")
+      expect(app.store.getIsolatedSession(session.id)?.prUrl).toBe("https://github.com/org/repo/pull/12")
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("coalesces concurrent finishes into one commit, push and PR", async () => {
+    const gate = deferred()
+    const secondCommit = deferred()
+    let commits = 0
+    const commitAll = vi.fn(async () => {
+      commits += 1
+      if (commits === 2) secondCommit.resolve()
+      await gate.promise
+      return true
+    })
+    const push = vi.fn(async () => {})
+    const pullRequest = vi.fn(async () => "https://github.com/org/repo/pull/5")
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      commitAll,
+      push,
+      pullRequest,
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const finish = () =>
+        fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, { method: "POST", headers })
+      const first = finish()
+      await waitFor(() => commits === 1)
+      const second = finish()
+      // Red path: the second request runs its own finish and reaches the gate.
+      // Green path: it awaits the first one, so only the timeout releases us.
+      await Promise.race([secondCommit.promise, new Promise((resolve) => setTimeout(resolve, 100))])
+      gate.resolve()
+
+      const [firstResponse, secondResponse] = await Promise.all([first, second])
+      const bodies = (await Promise.all([firstResponse.json(), secondResponse.json()])) as Array<{
+        prUrl: string | null
+      }>
+      expect(firstResponse.status).toBe(200)
+      expect(secondResponse.status).toBe(200)
+      expect(bodies[0]?.prUrl).toBe("https://github.com/org/repo/pull/5")
+      expect(bodies[1]?.prUrl).toBe("https://github.com/org/repo/pull/5")
+      expect(commitAll).toHaveBeenCalledTimes(1)
+      expect(push).toHaveBeenCalledTimes(1)
+      expect(pullRequest).toHaveBeenCalledTimes(1)
+      expect(app.store.getIsolatedSession(session.id)?.prUrl).toBe("https://github.com/org/repo/pull/5")
+    } finally {
+      gate.resolve()
       await app.close()
     }
   })
