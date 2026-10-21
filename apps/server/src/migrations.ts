@@ -180,6 +180,20 @@ export const MIGRATIONS: readonly Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_scheduled_runs_status ON scheduled_runs (status)",
     ],
   },
+  {
+    version: 2,
+    description: "identify devices by install id",
+    statements: [
+      // A mutable display label is not identity (issue #193): a stable,
+      // client-generated install id is. NULL stays allowed for older clients,
+      // and SQLite keeps multiple NULLs distinct in a unique index.
+      "ALTER TABLE devices ADD COLUMN install_id TEXT",
+      "CREATE UNIQUE INDEX idx_devices_install_id ON devices (install_id)",
+      // v1 already drops the obsolete table; databases stamped at v1 that still
+      // carry it are cleaned here too.
+      "DROP TABLE IF EXISTS push_subscriptions",
+    ],
+  },
 ]
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(

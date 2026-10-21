@@ -72,7 +72,10 @@ export function backupDatabase(source: string, destination: string): void {
 
 export interface DeviceRecord {
   id: string
+  /** Editable display label, never identity. */
   name: string
+  /** Stable client-generated identity; null for clients older than #193. */
+  installID: string | null
   createdAt: number
   lastUsedAt: number
 }
@@ -326,6 +329,7 @@ export interface ScheduledRun {
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
+  getByInstallID(installID: string): DeviceRecord | null
   list(): DeviceRecord[]
   remove(id: string): void
   touch(id: string, now?: number): void
@@ -450,16 +454,21 @@ export function createSqliteStore(file: string): Store {
   }
 
   const createStatement = db.prepare(`
-    INSERT INTO devices (id, name, created_at, last_used_at)
-    VALUES (@id, @name, @createdAt, @lastUsedAt)
+    INSERT INTO devices (id, name, install_id, created_at, last_used_at)
+    VALUES (@id, @name, @installID, @createdAt, @lastUsedAt)
   `)
   const getStatement = db.prepare(`
-    SELECT id, name, created_at AS createdAt, last_used_at AS lastUsedAt
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
     FROM devices
     WHERE id = ?
   `)
+  const getByInstallIDStatement = db.prepare(`
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
+    FROM devices
+    WHERE install_id = ?
+  `)
   const listStatement = db.prepare(`
-    SELECT id, name, created_at AS createdAt, last_used_at AS lastUsedAt
+    SELECT id, name, install_id AS installID, created_at AS createdAt, last_used_at AS lastUsedAt
     FROM devices
     ORDER BY created_at DESC
   `)
@@ -816,6 +825,9 @@ export function createSqliteStore(file: string): Store {
     },
     get(id) {
       return (getStatement.get(id) as DeviceRecord | undefined) ?? null
+    },
+    getByInstallID(installID) {
+      return (getByInstallIDStatement.get(installID) as DeviceRecord | undefined) ?? null
     },
     list() {
       return listStatement.all() as DeviceRecord[]
@@ -1223,10 +1235,22 @@ export function createMemoryStore(): Store {
   }
   return {
     create(record) {
+      // Parity with the SQLite unique index on install_id (NULLs stay distinct).
+      if (
+        record.installID !== null &&
+        [...records.values()].some((existing) => existing.installID === record.installID)
+      ) {
+        throw Object.assign(new Error(`UNIQUE constraint failed: devices.install_id`), {
+          code: "SQLITE_CONSTRAINT_UNIQUE",
+        })
+      }
       records.set(record.id, record)
     },
     get(id) {
       return records.get(id) ?? null
+    },
+    getByInstallID(installID) {
+      return [...records.values()].find((record) => record.installID === installID) ?? null
     },
     list() {
       return [...records.values()]

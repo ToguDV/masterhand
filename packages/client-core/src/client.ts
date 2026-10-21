@@ -121,7 +121,7 @@ export interface Client {
   auth: {
     login(password: string): Promise<void>
     logout(): Promise<void>
-    loginDevice(password: string, name: string): Promise<DeviceLoginResponse>
+    loginDevice(password: string, name: string, installID?: string): Promise<DeviceLoginResponse>
     status(): Promise<BffStatus>
     devices(): Promise<DeviceRecord[]>
     revokeDevice(id: string): Promise<void>
@@ -488,10 +488,10 @@ export function createClient(options: ClientOptions = {}): Client {
       login: (password) =>
         request<void>("/api/login", { method: "POST", body: JSON.stringify({ password }) }),
       logout: () => request<void>("/api/logout", { method: "POST" }),
-      loginDevice: (password, name) =>
+      loginDevice: (password, name, installID) =>
         request<DeviceLoginResponse>("/api/devices", {
           method: "POST",
-          body: JSON.stringify({ password, name }),
+          body: JSON.stringify({ password, name, ...(installID ? { installID } : {}) }),
         }),
       status: () => request<BffStatus>("/api/status"),
       devices: () =>

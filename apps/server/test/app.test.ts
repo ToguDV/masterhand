@@ -277,19 +277,100 @@ describe("storage resilience", () => {
     }
   })
 
-  it("deduplicates devices by name on repeated logins", async () => {
-    app = await startTestApp()
-    const first = await createDevice(app.url, "Pixel")
-    const second = await createDevice(app.url, "Pixel")
+  describe("device identity", () => {
+    it("keeps same-name devices with different install ids distinct and revocable independently", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Android device", "secret", "install-1")
+      const second = await createDevice(app.url, "Android device", "secret", "install-2")
 
-    expect(app.store.list()).toHaveLength(1)
-    expect(second.device.id).toBe(first.device.id)
-    expect(second.device.name).toBe("Pixel")
-    // Both tokens authenticate the same device record.
-    const response = await fetch(`${app.url}/api/status`, {
-      headers: { authorization: `Bearer ${second.token}` },
+      expect(second.device.id).not.toBe(first.device.id)
+      expect(second.token).not.toBe(first.token)
+      expect(second.device.installID).toBe("install-2")
+      expect(app.store.list()).toHaveLength(2)
+
+      const revoked = await fetch(`${app.url}/api/devices/${first.device.id}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${first.token}` },
+      })
+      expect(revoked.status).toBe(200)
+
+      const firstStatus = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${first.token}` },
+      })
+      expect(firstStatus.status).toBe(401)
+      // Revoking one phone must not sign out the other one with the same label.
+      const secondStatus = await fetch(`${app.url}/api/status`, {
+        headers: { authorization: `Bearer ${second.token}` },
+      })
+      expect(secondStatus.status).toBe(200)
     })
-    expect(response.status).toBe(200)
+
+    it("coalesces concurrent logins with the same install id into one row", async () => {
+      app = await startTestApp()
+      const [first, second] = await Promise.all([
+        createDevice(app.url, "Pixel", "secret", "install-shared"),
+        createDevice(app.url, "Pixel", "secret", "install-shared"),
+      ])
+
+      expect(second.device.id).toBe(first.device.id)
+      expect(app.store.list()).toHaveLength(1)
+    })
+
+    it("re-reads the winner when the install id insert races the unique index", async () => {
+      const winner = {
+        id: "dev_winner",
+        name: "Pixel",
+        installID: "install-race",
+        createdAt: 1,
+        lastUsedAt: 1,
+      }
+      let inserted = false
+      const store: Store = {
+        ...createMemoryStore(),
+        getByInstallID: (installID) => (installID === "install-race" && inserted ? winner : null),
+        create: () => {
+          inserted = true
+          throw Object.assign(new Error("UNIQUE constraint failed: devices.install_id"), {
+            code: "SQLITE_CONSTRAINT_UNIQUE",
+          })
+        },
+      }
+      app = await startTestApp({ store })
+
+      const device = await createDevice(app.url, "Pixel", "secret", "install-race")
+      expect(device.device.id).toBe("dev_winner")
+      expect(device.device.name).toBe("Pixel")
+    })
+
+    it("creates a new row per login without an install id", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel")
+      const second = await createDevice(app.url, "Pixel")
+
+      expect(second.device.id).not.toBe(first.device.id)
+      expect(second.device.installID).toBeNull()
+      expect(app.store.list()).toHaveLength(2)
+    })
+
+    it("keeps the existing label when the same install id logs in with another name", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel", "secret", "install-label")
+      const second = await createDevice(app.url, "Renamed phone", "secret", "install-label")
+
+      expect(second.device.id).toBe(first.device.id)
+      expect(second.device.name).toBe("Pixel")
+      expect(app.store.list()).toHaveLength(1)
+    })
+
+    it("trims the install id before using it as identity", async () => {
+      app = await startTestApp()
+      const first = await createDevice(app.url, "Pixel", "secret", "  install-trim  ")
+      const second = await createDevice(app.url, "Pixel", "secret", "install-trim")
+
+      expect(first.device.installID).toBe("install-trim")
+      expect(second.device.id).toBe(first.device.id)
+      expect(app.store.list()).toHaveLength(1)
+    })
   })
 
   it("answers 409 when the workspace insert races the path pre-check", async () => {

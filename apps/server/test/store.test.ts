@@ -13,9 +13,9 @@ describe("sqlite device store", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
     const store = createSqliteStore(join(dir, "test.sqlite"))
     try {
-      const device = { id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 }
+      const device = { id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 }
       store.create(device)
-      expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+      expect(store.get("dev_1")).toMatchObject({ name: "Laptop", installID: null })
       expect(store.list()).toHaveLength(1)
 
       store.touch("dev_1", 99)
@@ -29,16 +29,47 @@ describe("sqlite device store", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it("looks devices up by install id and rejects a duplicate", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      store.create({ id: "dev_1", name: "Phone", installID: "install-1", createdAt: 1, lastUsedAt: 1 })
+      expect(store.getByInstallID("install-1")).toMatchObject({ id: "dev_1" })
+      expect(store.getByInstallID("missing")).toBeNull()
+      // Multiple legacy rows may have no install id; NULLs stay distinct.
+      store.create({ id: "dev_2", name: "Tablet", installID: null, createdAt: 2, lastUsedAt: 2 })
+      store.create({ id: "dev_3", name: "Laptop", installID: null, createdAt: 3, lastUsedAt: 3 })
+
+      expect(() =>
+        store.create({ id: "dev_4", name: "Clone", installID: "install-1", createdAt: 4, lastUsedAt: 4 }),
+      ).toThrow(/UNIQUE/)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("memory device store", () => {
   it("behaves like the sqlite store", () => {
     const store = createMemoryStore()
-    store.create({ id: "dev_1", name: "Phone", createdAt: 1, lastUsedAt: 1 })
+    store.create({ id: "dev_1", name: "Phone", installID: null, createdAt: 1, lastUsedAt: 1 })
     store.touch("dev_1", 5)
     expect(store.get("dev_1")?.lastUsedAt).toBe(5)
     store.remove("dev_1")
     expect(store.list()).toHaveLength(0)
+    store.close()
+  })
+
+  it("looks devices up by install id", () => {
+    const store = createMemoryStore()
+    store.create({ id: "dev_1", name: "Phone", installID: "install-1", createdAt: 1, lastUsedAt: 1 })
+    expect(store.getByInstallID("install-1")).toMatchObject({ id: "dev_1" })
+    expect(store.getByInstallID("missing")).toBeNull()
+    expect(() =>
+      store.create({ id: "dev_2", name: "Clone", installID: "install-1", createdAt: 2, lastUsedAt: 2 }),
+    ).toThrow(/UNIQUE/)
     store.close()
   })
 })
@@ -70,7 +101,7 @@ describe("private data permissions", () => {
       ensureDataDir(dir)
       const store = createSqliteStore(source)
       try {
-        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
         backupDatabase(source, destination)
         expect(modeOf(source)).toBe(0o600)
         expect(modeOf(`${source}-wal`)).toBe(0o600)
@@ -96,7 +127,7 @@ describe("private data permissions", () => {
 
       const store = createSqliteStore(source)
       try {
-        store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+        store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
         expect(modeOf(source)).toBe(0o600)
         expect(modeOf(`${source}-wal`)).toBe(0o600)
         expect(modeOf(`${source}-shm`)).toBe(0o600)
@@ -116,7 +147,7 @@ describe("sqlite integrity and backup", () => {
     const store = createSqliteStore(source)
     try {
       expect(store.ping()).toBe(true)
-      store.create({ id: "dev_1", name: "Laptop", createdAt: 1, lastUsedAt: 1 })
+      store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
 
       const destination = join(dir, "backup.sqlite")
       backupDatabase(source, destination)
@@ -207,6 +238,54 @@ describe("sqlite schema migrations", () => {
         expect(
           db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get(),
         ).toBeUndefined()
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("upgrades a v1 database to the install id schema without losing data", () => {
+    const dir = tempDir()
+    const file = join(dir, "v1.sqlite")
+    try {
+      // A real v1 database: every baseline statement already applied and the
+      // version stamped. The obsolete table is re-created on top to prove the
+      // upgrade cleans it instead of trusting the old baseline's drop.
+      const v1 = new Database(file)
+      try {
+        for (const statement of MIGRATIONS[0]!.statements) v1.exec(statement)
+        v1.exec("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY)")
+        v1.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+        v1.exec(
+          "INSERT INTO workspaces (id, name, path, created_at) VALUES ('ws_1', 'App', '/workspace/app', 1)",
+        )
+        v1.pragma("user_version = 1")
+      } finally {
+        v1.close()
+      }
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop", installID: null })
+        expect(store.getWorkspace("ws_1")).toMatchObject({ name: "App", path: "/workspace/app" })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        const columns = db.pragma("table_info(devices)") as { name: string }[]
+        expect(columns.map((column) => column.name)).toContain("install_id")
+        expect(
+          db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get(),
+        ).toBeUndefined()
+        const index = db
+          .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_devices_install_id'")
+          .get() as { sql: string } | undefined
+        expect(index?.sql).toMatch(/UNIQUE/i)
       } finally {
         db.close()
       }

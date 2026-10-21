@@ -54,6 +54,7 @@ import {
   clearDevice,
   clearToken,
   clearWorkspaceID,
+  getOrCreateInstallID,
   loadAutoAcceptSessions,
   loadDevice,
   loadServerUrl,
@@ -158,7 +159,10 @@ function Root() {
       const normalized = url.replace(/\/+$/, "")
       const candidate = createClient({ baseUrl: normalized, fetchImpl })
       const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
-      const result = await candidate.auth.loginDevice(password, deviceName)
+      // Stable identity across logins (the SecureStore entry survives sign-out);
+      // the display name is only a label (issue #193).
+      const installID = await getOrCreateInstallID()
+      const result = await candidate.auth.loginDevice(password, deviceName, installID)
       try {
         await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
       } catch {

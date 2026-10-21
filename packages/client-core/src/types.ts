@@ -102,7 +102,10 @@ export interface FinishSessionResult {
 
 export interface DeviceRecord {
   id: string
+  /** Editable display label; identity comes from `installID`. */
   name: string
+  /** Stable install id sent by the client, or null for older clients. */
+  installID: string | null
   createdAt: number
   lastUsedAt: number
 }

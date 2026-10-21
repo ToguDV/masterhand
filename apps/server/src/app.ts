@@ -66,6 +66,7 @@ import {
   type SchedulerOpencode,
 } from "./scheduler.js"
 import type {
+  DeviceRecord,
   IsolatedSessionRecord,
   ScheduleSpec,
   ScheduledTask,
@@ -136,6 +137,8 @@ export interface AppWithScheduler extends Hono {
 
 const KEEPALIVE_MS = 25_000
 const MAX_DEVICE_NAME_LENGTH = 64
+/** A UUID fits comfortably; the cap only stops client-controlled bloat. */
+const MAX_INSTALL_ID_LENGTH = 128
 /** Login/device bodies are tiny JSON documents; anything larger is abusive. */
 const AUTH_BODY_LIMIT_BYTES = 64 * 1024
 /** Proxied prompts can be large, but must still be bounded. */
@@ -1017,7 +1020,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.post("/api/devices", authBodyLimit, async (c) => {
     const ip = clientIp(c)
-    let body: { password?: unknown; name?: unknown }
+    let body: { password?: unknown; name?: unknown; installID?: unknown }
     try {
       body = await c.req.json()
     } catch {
@@ -1040,14 +1043,31 @@ export function createApp(deps: AppDeps): Hono {
       typeof body.name === "string" && body.name.trim()
         ? body.name.trim().slice(0, MAX_DEVICE_NAME_LENGTH)
         : "Device"
-    // One row per device name: a login from a known device refreshes its
-    // record instead of accumulating duplicates (issue #87c).
-    const existing = deps.store.list().find((record) => record.name === name)
-    const device = existing
-      ? { ...existing, lastUsedAt: now }
-      : { id: randomUUID(), name, createdAt: now, lastUsedAt: now }
-    if (existing) deps.store.touch(existing.id, now)
-    else deps.store.create(device)
+    const installID =
+      typeof body.installID === "string" && body.installID.trim()
+        ? body.installID.trim().slice(0, MAX_INSTALL_ID_LENGTH)
+        : null
+    // Identity is the stable install id, never the mutable display label
+    // (issue #193). Clients without one keep the pre-#87c behavior: a new row
+    // per login. A known install id keeps its existing label.
+    const existing = installID === null ? null : deps.store.getByInstallID(installID)
+    let device: DeviceRecord
+    if (existing) {
+      deps.store.touch(existing.id, now)
+      device = { ...existing, lastUsedAt: now }
+    } else {
+      device = { id: randomUUID(), name, installID, createdAt: now, lastUsedAt: now }
+      try {
+        deps.store.create(device)
+      } catch (error) {
+        // Two concurrent logins can race past the lookup; the unique index
+        // rejects the loser, which then re-reads the winner (idempotent).
+        const raced = installID !== null && isStorageConflict(error) ? deps.store.getByInstallID(installID) : null
+        if (!raced) throw error
+        deps.store.touch(raced.id, now)
+        device = { ...raced, lastUsedAt: now }
+      }
+    }
     const token = createDeviceToken(config.sessionSecret, device.id, config.sessionTtlHours * 3600)
     return c.json({ token, device }, 201)
   })

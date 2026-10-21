@@ -650,11 +650,16 @@ export interface IssuedDevice {
   device: DeviceRecord
 }
 
-export async function createDevice(baseUrl: string, name = "Test device", password = "secret"): Promise<IssuedDevice> {
+export async function createDevice(
+  baseUrl: string,
+  name = "Test device",
+  password = "secret",
+  installID?: string,
+): Promise<IssuedDevice> {
   const response = await fetch(`${baseUrl}/api/devices`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name, password }),
+    body: JSON.stringify({ name, password, ...(installID === undefined ? {} : { installID }) }),
   })
   if (!response.ok) throw new Error(`device creation failed: HTTP ${response.status}`)
   return (await response.json()) as IssuedDevice

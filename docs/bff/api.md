@@ -10,7 +10,7 @@ MasterHand accepts two credential types on protected routes:
 
 - **Web / desktop:** `POST /api/login` validates the password and sets a session cookie.
   - Cookie `mh_session`: `HttpOnly`, `Secure` (configurable with `COOKIE_SECURE`), `SameSite=Strict`, HMAC-signed (`SESSION_SECRET`), TTL `SESSION_TTL_HOURS` (30 days by default).
-- **Native (mobile):** `POST /api/devices` validates the password and returns a signed Bearer token plus a device record. Clients send `Authorization: Bearer <token>` on every request. Tokens are revoked by deleting the device.
+- **Native (mobile):** `POST /api/devices` validates the password and returns a signed Bearer token plus a device record. Clients send `Authorization: Bearer <token>` on every request. Tokens are revoked by deleting the device. Device **identity is the stable, client-generated `installID`**; `name` is only an editable display label (two phones with the same default name stay separate devices and are revoked independently).
 
 Other rules:
 
@@ -25,10 +25,10 @@ Other rules:
 |---|---|---|---|
 | `GET` | `/api/health` | `{ ok: true }` or `503 { ok: false, error: "storage_unavailable" }` | BFF healthcheck (no auth). Readiness includes the database (`SELECT 1`); Docker marks the container unhealthy on a 503 but does **not** restart it (only a crash triggers `restart: unless-stopped`) |
 | `POST` | `/api/login` | `{ ok: true }` + `Set-Cookie` | Body: `{ "password": "..." }`; `400` without body or password > 1024 chars, `401` wrong password, `413 payload_too_large` (> 64 KiB), `429` after 5 failed attempts |
-| `POST` | `/api/devices` | `201 { token, device }` | Body: `{ "password": "...", "name": "Pixel 9" }`; issues a device token. `400` invalid, `401` wrong password, `413 payload_too_large` (> 64 KiB), `429` after 5 failed attempts |
+| `POST` | `/api/devices` | `201 { token, device }` | Body: `{ "password": "...", "name": "Pixel 9", "installID": "<uuid>" }` (`installID` optional). A known `installID` reuses its row and **keeps its existing label**; an absent/empty `installID` creates a new row per login (pre-#87c behavior). A concurrent duplicate `installID` is coalesced through the unique index. `400` invalid, `401` wrong password, `413 payload_too_large` (> 64 KiB), `429` after 5 failed attempts |
 | `POST` | `/api/logout` | `{ ok: true }` | Clears the session cookie |
 
-`device` shape: `{ id, name, createdAt, lastUsedAt }`.
+`device` shape: `{ id, name, installID, createdAt, lastUsedAt }` (`installID` is `null` for clients that did not send one).
 
 `SlashCommand` shape: `{ name, description?, arguments }` where each argument is `{ position, freeForm, suggestions }` (`position` `0` = free-form `$ARGUMENTS`, `1..N` = `$1..$N`). Hints are derived from the command's own template and description only — never generated.
 
@@ -255,9 +255,10 @@ curl -X POST https://your-origin.example/api/oc/api/session/<id>/form/<formID>/r
   -H 'content-type: application/json' -d '{"answer":{"q0":"Postgres"}}'
 # list pending permissions for a workspace (to reconcile missed SSE events)
 curl 'https://your-origin.example/api/oc/api/permission/request?location%5Bdirectory%5D=/workspace/my-app'
-# native login (device token)
+# native login (device token); installID is the stable per-installation identity
 curl -X POST https://your-origin.example/api/devices \
-  -H 'content-type: application/json' -d '{"password":"...","name":"Pixel 9"}'
+  -H 'content-type: application/json' \
+  -d '{"password":"...","name":"Pixel 9","installID":"6f1c2e9a-..."}'
 ```
 
 ## Error shapes

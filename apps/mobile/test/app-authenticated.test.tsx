@@ -31,6 +31,7 @@ jest.mock("../src/storage", () => ({
   loadServerUrl: jest.fn(async () => null),
   loadToken: jest.fn(async () => null),
   loadDevice: jest.fn(async () => null),
+  getOrCreateInstallID: jest.fn(async () => "install-test"),
   loadWorkspaceID: jest.fn(async () => null),
   loadAutoAcceptSessions: jest.fn(async () => []),
   loadSessionPreferences: jest.fn(async () => ({})),
