@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
+import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrations.js"
+import type { Migration } from "../src/migrations.js"
 import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
 import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
@@ -136,10 +138,189 @@ describe("sqlite integrity and backup", () => {
     try {
       const corrupt = join(dir, "corrupt.sqlite")
       writeFileSync(corrupt, "this is not a sqlite database")
-      expect(() => createSqliteStore(corrupt)).toThrow()
+      let error: unknown
+      try {
+        createSqliteStore(corrupt)
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(/failed its integrity check/)
+      expect((error as Error).message).toContain("docs/runbooks/backups.md")
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("sqlite schema migrations", () => {
+  const tempDir = (): string => mkdtempSync(join(tmpdir(), "masterhand-migrations-"))
+
+  it("stamps a fresh database with the latest schema version", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    try {
+      const store = createSqliteStore(file)
+      store.close()
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("adopts a pre-versioning database without losing its data", () => {
+    const dir = tempDir()
+    const file = join(dir, "legacy.sqlite")
+    try {
+      // A database created before versioning existed: no user_version, but a
+      // populated table and the obsolete push_subscriptions one.
+      const legacy = new Database(file)
+      legacy.exec(`
+        CREATE TABLE devices (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER NOT NULL
+        )
+      `)
+      legacy.exec("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY)")
+      legacy.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+      expect(legacy.pragma("user_version", { simple: true })).toBe(0)
+      legacy.close()
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        expect(
+          db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get(),
+        ).toBeUndefined()
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("does not re-run migrations that were already applied", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    const applied: Migration[] = [
+      {
+        version: 1,
+        description: "create the counter table",
+        statements: ["CREATE TABLE counter (value INTEGER NOT NULL)", "INSERT INTO counter (value) VALUES (1)"],
+      },
+    ]
+    // If reopening replayed the applied version, this statement would throw:
+    // there is no missing_table.
+    const replay: Migration[] = [
+      {
+        version: 1,
+        description: "must never run twice",
+        statements: ["INSERT INTO missing_table (value) VALUES (1)"],
+      },
+    ]
+    try {
+      const first = new Database(file)
+      runMigrations(first, applied)
+      expect(first.pragma("user_version", { simple: true })).toBe(1)
+      first.close()
+
+      const reopened = new Database(file)
+      try {
+        expect(() => runMigrations(reopened, replay)).not.toThrow()
+        expect(reopened.prepare("SELECT value FROM counter").pluck().get()).toBe(1)
+      } finally {
+        reopened.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a database written by a newer schema with the restore pointer", () => {
+    const dir = tempDir()
+    const file = join(dir, "future.sqlite")
+    const newer = LATEST_SCHEMA_VERSION + 1
+    try {
+      const future = new Database(file)
+      future.pragma(`user_version = ${newer}`)
+      future.close()
+
+      let error: unknown
+      try {
+        createSqliteStore(file)
+      } catch (caught) {
+        error = caught
+      }
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toMatch(new RegExp(`schema version ${newer} is newer`))
+      expect((error as Error).message).toContain("docs/runbooks/backups.md")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("rolls back a failed migration and keeps the previous version", () => {
+    const dir = tempDir()
+    const file = join(dir, "test.sqlite")
+    const migrations: Migration[] = [
+      { version: 1, description: "baseline", statements: ["CREATE TABLE applied (id INTEGER)"] },
+      {
+        version: 2,
+        description: "broken",
+        statements: [
+          "CREATE TABLE partial (id INTEGER)",
+          "ALTER TABLE applied ADD COLUMN extra TEXT",
+          "INSERT INTO missing_table (id) VALUES (1)",
+        ],
+      },
+    ]
+    try {
+      const db = new Database(file)
+      try {
+        let error: unknown
+        try {
+          runMigrations(db, migrations)
+        } catch (caught) {
+          error = caught
+        }
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/migration 2/)
+        expect((error as Error).message).toContain("docs/runbooks/backups.md")
+
+        expect(db.pragma("user_version", { simple: true })).toBe(1)
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'partial'").get()).toBeUndefined()
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'applied'").get()).toBeDefined()
+        const columns = db.pragma("table_info(applied)") as { name: string }[]
+        expect(columns.map((column) => column.name)).not.toContain("extra")
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("exposes ordered, unique migration versions up to the latest", () => {
+    expect(MIGRATIONS.length).toBeGreaterThan(0)
+    expect(MIGRATIONS.map((migration) => migration.version)).toEqual(
+      Array.from({ length: LATEST_SCHEMA_VERSION }, (_, index) => index + 1),
+    )
   })
 })
 
