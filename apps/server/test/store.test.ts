@@ -410,6 +410,14 @@ describe("sqlite workspace store", () => {
     try {
       store.createWorkspace({ id: "ws_1", name: "App", path: "/workspace/app", createdAt: 1 })
       store.createWorkspace({ id: "ws_2", name: "Lib", path: "/workspace/lib", createdAt: 2 })
+      store.saveWorkspaceRun({
+        workspaceID: "ws_1",
+        command: "npm",
+        args: ["run", "dev"],
+        cwd: null,
+        source: "user",
+        updatedAt: 1,
+      })
 
       expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws_1", "ws_2"])
       expect(store.getWorkspace("ws_1")).toMatchObject({ name: "App" })
@@ -418,6 +426,7 @@ describe("sqlite workspace store", () => {
 
       store.removeWorkspace("ws_1")
       expect(store.getWorkspace("ws_1")).toBeNull()
+      expect(store.getWorkspaceRun("ws_1")).toBeNull()
       expect(store.listWorkspaces()).toHaveLength(1)
     } finally {
       store.close()
@@ -431,11 +440,20 @@ describe("memory workspace store", () => {
     const store = createMemoryStore()
     store.createWorkspace({ id: "ws_1", name: "App", path: "/workspace/app", createdAt: 1 })
     store.createWorkspace({ id: "ws_2", name: "Lib", path: "/workspace/lib", createdAt: 2 })
+    store.saveWorkspaceRun({
+      workspaceID: "ws_2",
+      command: "npm",
+      args: ["run", "dev"],
+      cwd: null,
+      source: "user",
+      updatedAt: 1,
+    })
 
     expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws_1", "ws_2"])
     expect(store.getWorkspaceByPath("/workspace/lib")?.id).toBe("ws_2")
     store.removeWorkspace("ws_2")
     expect(store.listWorkspaces()).toHaveLength(1)
+    expect(store.getWorkspaceRun("ws_2")).toBeNull()
     store.close()
   })
 })

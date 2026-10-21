@@ -969,8 +969,12 @@ describe("/api/workspaces", () => {
   })
 
   it("deletes the folder when deleteFiles is set", async () => {
+    upstream = await startMockOpencode()
     const removedPaths: string[] = []
-    app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      removeDir: async (path) => { removedPaths.push(path) },
+    })
     const cookie = await login(app.url)
     const created = await fetch(`${app.url}/api/workspaces`, {
       method: "POST",
@@ -987,11 +991,41 @@ describe("/api/workspaces", () => {
     expect(removedPaths).toEqual([workspace.path])
   })
 
-  it("refuses to delete files outside the root but still forgets the workspace", async () => {
+  it("fails closed when the destructive-delete busy guard cannot be evaluated", async () => {
     const removedPaths: string[] = []
     app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
     const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+
+    const response = await fetch(`${app.url}/api/workspaces/ws?deleteFiles=1`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: "busy_check_failed" })
+    expect(removedPaths).toEqual([])
+    expect(app.store.getWorkspace("ws")).not.toBeNull()
+  })
+
+  it("refuses to delete files outside the root before touching any child resource", async () => {
+    const removedPaths: string[] = []
+    const worktrees = createFakeWorktreeManager()
+    app = await startTestApp({
+      worktrees,
+      removeDir: async (path) => { removedPaths.push(path) },
+    })
+    const cookie = await login(app.url)
     app.store.createWorkspace({ id: "legacy", name: "legacy", path: "/etc", createdAt: Date.now() })
+    app.store.createIsolatedSession({
+      sessionID: "ses_legacy",
+      workspaceID: "legacy",
+      path: "/tmp/masterhand-worktrees/legacy/abc",
+      branch: "masterhand/legacy-abc",
+      baseRef: "main",
+      pushed: false,
+      prUrl: null,
+      createdAt: 1,
+    })
 
     const refused = await fetch(`${app.url}/api/workspaces/legacy?deleteFiles=1`, {
       method: "DELETE",
@@ -999,6 +1033,9 @@ describe("/api/workspaces", () => {
     })
     expect(refused.status).toBe(403)
     expect(removedPaths).toEqual([])
+    // The 403 must win before the worktree/record cleanup.
+    expect(worktrees.calls).toEqual([])
+    expect(app.store.getIsolatedSession("ses_legacy")).not.toBeNull()
 
     const forgotten = await fetch(`${app.url}/api/workspaces/legacy`, {
       method: "DELETE",

@@ -860,12 +860,13 @@ export function createSqliteStore(file: string): Store {
       createWorkspaceStatement.run(record)
     },
     removeWorkspace(id) {
-      const removeBoardRows = db.transaction(() => {
+      const removeWorkspaceRows = db.transaction(() => {
         deleteBoardCardsOfWorkspaceStatement.run(id)
         deleteBoardColumnsOfWorkspaceStatement.run(id)
+        removeWorkspaceRunStatement.run(id)
         removeWorkspaceStatement.run(id)
       })
-      removeBoardRows()
+      removeWorkspaceRows()
     },
     listIsolatedSessions(workspaceID) {
       const rows = workspaceID
@@ -1286,6 +1287,7 @@ export function createMemoryStore(): Store {
     },
     removeWorkspace(id) {
       workspaces.delete(id)
+      workspaceRuns.delete(id)
       for (const column of [...boardColumns.values()]) {
         if (column.workspaceID !== id) continue
         for (const card of [...boardCards.values()]) {

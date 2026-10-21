@@ -157,9 +157,15 @@ interface Harness {
   iso: (ms: number) => string
 }
 
+/** Every task points at a real workspace row; deletion is what removes it. */
+function seedWorkspace(store: Store, path = "/workspace/app"): void {
+  store.createWorkspace({ id: "ws_app", name: "app", path, createdAt: BASE })
+}
+
 function harness(options: { tasks?: ScheduledTask[] } = {}): Harness {
   clockMs = BASE
   const store = createMemoryStore()
+  seedWorkspace(store)
   const opencode = new FakeOpencode()
   const events: Harness["events"] = []
   const manager = createScheduler({
@@ -682,6 +688,7 @@ describe("scheduler boot reconciliation", () => {
   it("marks firing runs interrupted and queued runs skipped, then recomputes nextRunAt", async () => {
     clockMs = BASE
     const store = createMemoryStore()
+    seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const firing: ScheduledRun = {
       id: "run_firing",
@@ -728,6 +735,7 @@ describe("scheduler boot reconciliation", () => {
   it("keeps an already-future nextRunAt and a completed history stable across reconciliations", async () => {
     clockMs = BASE
     const store = createMemoryStore()
+    seedWorkspace(store)
     store.createScheduledTask(makeTask({ nextRunAt: new Date(clockMs + 30 * MINUTE).toISOString() }))
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
     manager.reconcileTasks()
@@ -737,6 +745,7 @@ describe("scheduler boot reconciliation", () => {
   it("never auto-fires after the boot reconciliation", async () => {
     clockMs = BASE
     const store = createMemoryStore()
+    seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const opencode = new FakeOpencode()
     const manager = createScheduler({ store, opencode, tickMs: 0, now: () => clockMs })
@@ -754,6 +763,52 @@ describe("scheduler boot reconciliation", () => {
     await manager.tick()
     expect(opencode.creates).toHaveLength(0)
     manager.stop()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Workspace deletion revalidation (#188)
+// ---------------------------------------------------------------------------
+
+describe("scheduler workspace revalidation", () => {
+  it("pauses a due task instead of firing when its workspace was deleted", async () => {
+    const h = harness()
+    h.store.removeWorkspace("ws_app")
+
+    await h.manager.tick()
+
+    expect(h.opencode.creates).toHaveLength(0)
+    expect(h.store.listScheduledRuns("task_1")).toHaveLength(0)
+    expect(liveTask(h).paused).toBe(true)
+  })
+
+  it("pauses an orphaned task during boot reconciliation", () => {
+    const h = harness()
+    h.store.removeWorkspace("ws_app")
+
+    h.manager.reconcileTasks()
+
+    expect(liveTask(h).paused).toBe(true)
+  })
+
+  it("skips a queued run and pauses the task when its workspace disappears mid-run", async () => {
+    const h = harness()
+    await h.manager.tick()
+    const running = onlyRun(h)
+    h.opencode.activeSet.add(running.sessionID!)
+
+    // A second due slot during the active run becomes one queued envelope.
+    h.store.saveScheduledTask({ ...liveTask(h), nextRunAt: new Date(clockMs - 1000).toISOString() })
+    await h.manager.tick()
+    const queued = h.store.listScheduledRuns("task_1").find((run) => run.status === "queued")
+    expect(queued).toBeDefined()
+
+    h.store.removeWorkspace("ws_app")
+    await settleIdle(h, running.sessionID!)
+
+    expect(h.store.getScheduledRun(queued!.id)?.status).toBe("skipped")
+    expect(h.store.getScheduledRun(queued!.id)?.error).toContain("workspace")
+    expect(liveTask(h).paused).toBe(true)
   })
 })
 

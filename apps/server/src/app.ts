@@ -1492,26 +1492,52 @@ export function createApp(deps: AppDeps): Hono {
   api.delete("/workspaces/:id", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
+    const deleteFiles = c.req.query("deleteFiles") === "1"
 
-    // Isolated worktrees live outside the workspace folder, so they always
-    // have to be cleaned up explicitly.
-    for (const record of deps.store.listIsolatedSessions(workspace.id)) {
+    // A refused destructive delete must never have touched a child resource.
+    if (deleteFiles && !isInsideRoot(config.workspacesRoot, workspace.path)) {
+      return c.json({ error: "outside_root" }, 403)
+    }
+
+    const records = deps.store.listIsolatedSessions(workspace.id)
+
+    // Deleting the folder under a running turn is destructive: refuse it while
+    // any session of the base folder or an isolated worktree is active. The
+    // guard fails closed (see `activeSessionGuard`).
+    if (deleteFiles) {
+      const busy = await activeSessionGuard(c, [
+        workspace.path,
+        ...records.map((record) => record.path),
+      ])
+      if (busy) return busy
+    }
+
+    // Isolated worktrees live outside the workspace folder, and each session
+    // owns lifecycles that outlive the folder (an in-flight finish, a managed
+    // PTY, a goal run, a preview). Release them in order before the parent.
+    for (const record of records) {
+      await awaitFinish(record.sessionID)
+      // `stop` (not `forget`) also adopts an orphan PTY by title and waits for
+      // an in-flight start, so no dev server survives its deleted worktree.
+      await runs.stop(record.sessionID, record.path).catch((error) => {
+        console.warn(`[masterhand] could not stop run for ${record.sessionID}:`, error)
+      })
+      await goals.forget(record.sessionID).catch((error) => {
+        console.warn(`[masterhand] could not forget goal for ${record.sessionID}:`, error)
+      })
+      preview.forget(record.sessionID)
       try {
         await worktrees.remove(workspace.path, record.path, record.branch)
       } catch {
         // best effort: the folder may already be gone
       }
       deps.store.removeIsolatedSession(record.sessionID)
-      preview.forget(record.sessionID)
     }
 
-    if (c.req.query("deleteFiles") === "1") {
-      if (!isInsideRoot(config.workspacesRoot, workspace.path)) {
-        return c.json({ error: "outside_root" }, 403)
-      }
-      await removeDir(workspace.path)
-    }
+    if (deleteFiles) await removeDir(workspace.path)
 
+    // Atomic with the workspace row in both stores: no run config survives its
+    // workspace, and the scheduler pauses orphaned tasks on its next tick.
     deps.store.removeWorkspace(workspace.id)
     invalidateSessionsCache()
     return c.json({ ok: true })
@@ -1540,20 +1566,15 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /**
-   * A branch switch under a running turn would move the files beneath it, and
-   * a branch operation on a dirty tree can lose the user's work: refuse both.
-   * The busy check fails closed — when it cannot confirm, the mutation is not
-   * attempted.
+   * Refuses a destructive change while any session in the given directories is
+   * active. The check is fresh (never the 5 s aggregation cache): a session
+   * created moments ago may already be running. It fails closed — when
+   * opencode cannot confirm, the mutation is not attempted.
    */
-  async function branchGuard(
-    c: Context,
-    workspacePath: string,
-    options: { requireClean: boolean },
-  ): Promise<Response | null> {
+  async function activeSessionGuard(c: Context, directories: string[]): Promise<Response | null> {
     try {
-      // Fresh list: a session created moments ago (not yet in the 5 s cache)
-      // may already be running, and a branch switch under it would corrupt it.
-      const sessions = await fetchSessionsInDirectory(workspacePath)
+      const lists = await Promise.all(directories.map((directory) => fetchSessionsInDirectory(directory)))
+      const sessions = lists.flat()
       if (sessions.length > 0) {
         const response = await callOpencode("/api/session/active")
         if (!response.ok) throw new Error(`opencode ${response.status}`)
@@ -1569,6 +1590,20 @@ export function createApp(deps: AppDeps): Hono {
         502,
       )
     }
+    return null
+  }
+
+  /**
+   * A branch switch under a running turn would move the files beneath it, and
+   * a branch operation on a dirty tree can lose the user's work: refuse both.
+   */
+  async function branchGuard(
+    c: Context,
+    workspacePath: string,
+    options: { requireClean: boolean },
+  ): Promise<Response | null> {
+    const busy = await activeSessionGuard(c, [workspacePath])
+    if (busy) return busy
     if (options.requireClean) {
       try {
         if (await worktrees.isDirty(workspacePath)) {

@@ -388,6 +388,21 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /**
+   * A task whose workspace row is gone has no directory to run in (#188).
+   * Deletion never writes to the scheduler store, so this revalidation runs on
+   * the serialized fire path and at boot: pause the task (persisted) instead of
+   * firing it forever into a removed folder. Returns true when it paused.
+   */
+  function pauseWithoutWorkspace(task: ScheduledTask): boolean {
+    if (store.getWorkspaceByPath(task.directory)) return false
+    if (!task.paused) {
+      console.warn(`[scheduler] pausing ${task.id}: workspace ${task.directory} no longer exists`)
+      patchTask(task.id, { paused: true })
+    }
+    return true
+  }
+
+  /**
    * The next slot for a task: an already-future `nextRunAt` is kept (terminal
    * recomputes are idempotent); a stale or missing one advances from itself —
    * so the schedule phase is preserved and missed slots are skipped silently.
@@ -521,6 +536,15 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     if (!queued) return
     const live = store.getScheduledTask(taskId)
     if (!live) return // cascaded away with its runs
+    if (pauseWithoutWorkspace(live)) {
+      persistRun({
+        ...queued,
+        status: "skipped",
+        error: "the workspace no longer exists",
+        endedAt: iso(),
+      })
+      return
+    }
     if (live.paused) {
       persistRun({
         ...queued,
@@ -546,6 +570,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   async function processDue(taskId: string): Promise<void> {
     const task = store.getScheduledTask(taskId)
     if (!task || task.paused) return
+    // Serialized revalidation immediately before the fire path: the workspace
+    // may have been deleted since the tick selected this task.
+    if (pauseWithoutWorkspace(task)) return
     const slot = parseMs(task.nextRunAt)
     if (slot === null || slot > now()) return
     const active = store.listActiveScheduledRuns().filter((run) => run.taskId === taskId)
@@ -650,6 +677,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
       }
     }
     for (const task of store.listScheduledTasks()) {
+      // Boot pass: a directory removed while MasterHand was down must not
+      // resume firing just because the task row survived.
+      if (pauseWithoutWorkspace(task)) continue
       const next = computeNextRunAt(task, current)
       if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next })
     }

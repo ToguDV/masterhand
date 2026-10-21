@@ -67,8 +67,11 @@ interface OpencodeCall {
 /** Minimal opencode v2 stand-in for the session endpoints the BFF calls. */
 function createOpencodeMock(options: { pageSize?: number } = {}) {
   const sessions = new Map<string, MockSession[]>()
+  const ptys: Array<{ id: string; title: string; status: string; pid: number; command: string; args: string[]; cwd: string }> = []
+  const active = new Set<string>()
   const calls: OpencodeCall[] = []
   let counter = 0
+  let ptyCounter = 0
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
@@ -109,10 +112,46 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     if (method === "DELETE" && url.pathname.startsWith("/api/session/")) {
       return new Response(null, { status: 204 })
     }
+    if (method === "GET" && url.pathname === "/api/session/active") {
+      return Response.json({
+        data: Object.fromEntries([...active].map((id) => [id, { type: "running" }])),
+      })
+    }
+    if (url.pathname === "/api/pty") {
+      if (method === "GET") return Response.json({ data: ptys.filter((pty) => pty.status === "running") })
+      if (method === "POST") {
+        const pty = {
+          id: `pty_mock_${++ptyCounter}`,
+          pid: 5000 + ptyCounter,
+          status: "running",
+          title: "",
+          command: "",
+          args: [] as string[],
+          cwd: "",
+        }
+        ptys.push(pty)
+        return Response.json({ data: pty })
+      }
+    }
+    if (method === "DELETE" && url.pathname.startsWith("/api/pty/")) {
+      const ptyID = decodeURIComponent(url.pathname.slice("/api/pty/".length))
+      const index = ptys.findIndex((pty) => pty.id === ptyID)
+      if (index >= 0) ptys.splice(index, 1)
+      return new Response(null, { status: 204 })
+    }
     return new Response("not found", { status: 404 })
   }) as typeof fetch
 
-  return { fetchImpl, sessions, calls }
+  return {
+    fetchImpl,
+    sessions,
+    ptys,
+    calls,
+    setActive(sessionIDs: string[]) {
+      active.clear()
+      for (const id of sessionIDs) active.add(id)
+    },
+  }
 }
 
 async function setupApp(
@@ -833,6 +872,154 @@ describe("DELETE /api/workspaces/:id", () => {
       expect(response.status).toBe(200)
       expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
       expect(app.store.listIsolatedSessions()).toHaveLength(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("stops the managed run, forgets the goal and cascades the run config", async () => {
+    const { app, opencode, headers, workspace } = await setupApp()
+    try {
+      const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await created.json()) as { session: { id: string } }
+      app.store.saveWorkspaceRun({
+        workspaceID: workspace.id,
+        command: "npm",
+        args: ["run", "dev"],
+        cwd: null,
+        source: "user",
+        updatedAt: 1,
+      })
+      app.store.saveGoalRun(goalRun({ sessionID: session.id }))
+
+      const started = await fetch(`${app.url}/api/sessions/${session.id}/run?workspace=${workspace.id}`, {
+        method: "POST",
+        headers,
+      })
+      expect(started.status).toBe(200)
+      expect(opencode.ptys).toHaveLength(1)
+      const ptyID = opencode.ptys[0]!.id
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(200)
+
+      // The PTY was stopped through opencode before its worktree disappeared.
+      expect(
+        opencode.calls.some((call) => call.method === "DELETE" && call.path === `/api/pty/${ptyID}`),
+      ).toBe(true)
+      expect(opencode.ptys).toHaveLength(0)
+      expect(app.store.getGoalRun(session.id)).toBeNull()
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
+      expect(app.store.getWorkspaceRun(workspace.id)).toBeNull()
+      expect(app.store.getWorkspace(workspace.id)).toBeNull()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("refuses a destructive delete while an isolated session is active and deletes nothing", async () => {
+    const removedPaths: string[] = []
+    const opencode = createOpencodeMock()
+    const worktrees = createFakeWorktreeManager()
+    const app = await startTestApp({
+      worktrees,
+      fetchImpl: opencode.fetchImpl,
+      removeDir: async (path) => {
+        removedPaths.push(path)
+      },
+    })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string; path: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+      opencode.setActive([session.id])
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: "workspace_busy" })
+      expect(removedPaths).toEqual([])
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(false)
+      expect(app.store.getIsolatedSession(session.id)).not.toBeNull()
+      expect(app.store.getWorkspace(workspace.id)).not.toBeNull()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("waits for an in-flight finish before removing the worktree", async () => {
+    const gate = deferred()
+    let commits = 0
+    const commitAll = vi.fn(async () => {
+      commits += 1
+      await gate.promise
+      return true
+    })
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      commitAll,
+      push: async () => {},
+      pullRequest: async () => "https://github.com/org/repo/pull/9",
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      const finish = fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      await waitFor(() => commits === 1)
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      const early = await Promise.race([
+        deletion.then(() => "deleted" as const),
+        new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 100)),
+      ])
+      gate.resolve()
+      expect(early).toBe("waiting")
+
+      const [finishResponse, deletionResponse] = await Promise.all([finish, deletion])
+      expect(finishResponse.status).toBe(200)
+      expect(deletionResponse.status).toBe(200)
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
     } finally {
       await app.close()
     }
