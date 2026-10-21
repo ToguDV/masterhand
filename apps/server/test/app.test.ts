@@ -1035,6 +1035,19 @@ describe("/api/workspaces", () => {
     app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })
     const cookie = await login(app.url)
     app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    app.store.createScheduledTask({
+      id: "task_guard",
+      name: "Guarded task",
+      prompt: "check",
+      model: { providerID: "test", id: "test-model" },
+      schedule: { kind: "interval", intervalMinutes: 60 },
+      timezone: "",
+      directory: "/tmp/masterhand-workspaces/ws",
+      paused: false,
+      lastRunAt: null,
+      nextRunAt: new Date(Date.now() + 3_600_000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
 
     const response = await fetch(`${app.url}/api/workspaces/ws?deleteFiles=1`, {
       method: "DELETE",
@@ -1044,6 +1057,9 @@ describe("/api/workspaces", () => {
     expect(await response.json()).toMatchObject({ error: "busy_check_failed" })
     expect(removedPaths).toEqual([])
     expect(app.store.getWorkspace("ws")).not.toBeNull()
+    // The workspace survives a refused delete: the task this request paused
+    // must be resumed instead of staying disabled forever.
+    expect(app.store.getScheduledTask("task_guard")?.paused).toBe(false)
   })
 
   it("refuses to delete files outside the root before touching any child resource", async () => {

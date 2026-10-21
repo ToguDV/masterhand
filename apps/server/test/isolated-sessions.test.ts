@@ -873,8 +873,10 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
         method: "POST",
         headers,
       })
-      expect(finish.status).toBe(409)
-      expect(await finish.json()).toEqual({ error: "workspace_busy" })
+      // The release is in flight, so the session is being removed: a finish
+      // cannot be answered as "busy but retryable" (there is nothing to retry).
+      expect(finish.status).toBe(404)
+      expect(await finish.json()).toEqual({ error: "not_found" })
       expect(commitAll).not.toHaveBeenCalled()
       expect(push).not.toHaveBeenCalled()
       expect(worktrees.calls.some((call) => call.startsWith("commit:"))).toBe(false)
@@ -884,6 +886,104 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
       expect(app.store.getIsolatedSession(session.id)).toBeNull()
     } finally {
       removeGate.resolve()
+      await app.close()
+    }
+  })
+
+  it("coalesces overlapping releases so a finish cannot start while the first removes the worktree", async () => {
+    const removeStarted = deferred()
+    const removeGate = deferred()
+    let removals = 0
+    const commitAll = vi.fn(async () => true)
+    const push = vi.fn(async () => {})
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      commitAll,
+      push,
+      pullRequest: async () => "https://github.com/org/repo/pull/14",
+    })
+    const originalRemove = worktrees.remove
+    worktrees.remove = async (repo, path, branch) => {
+      removals += 1
+      removeStarted.resolve()
+      await removeGate.promise
+      await originalRemove(repo, path, branch)
+    }
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      // First release: the route DELETE. Its worktree removal is held so the
+      // release marker is observably still active.
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      await removeStarted.promise
+
+      // Second release: opencode reports the same session deleted. It must join
+      // the first release instead of clearing its marker while the worktree is
+      // still being removed, which would let a finish start.
+      app.hub.emit({ type: "session.deleted", data: { sessionID: session.id } })
+
+      const finish = await fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      expect(finish.status).toBe(404)
+      expect(await finish.json()).toEqual({ error: "not_found" })
+      expect(commitAll).not.toHaveBeenCalled()
+      expect(push).not.toHaveBeenCalled()
+
+      removeGate.resolve()
+      expect((await deletion).status).toBe(200)
+      expect(removals).toBe(1)
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
+    } finally {
+      removeGate.resolve()
+      await app.close()
+    }
+  })
+
+  it("answers 200 when dropping the isolated record fails after the cleanup ran", async () => {
+    const { app, worktrees, headers, workspace } = await setupApp()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await created.json()) as { session: { id: string } }
+      app.store.removeIsolatedSession = () => {
+        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" })
+      }
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions/${session.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true })
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
       await app.close()
     }
   })
@@ -1186,6 +1286,41 @@ describe("DELETE /api/workspaces/:id", () => {
     }
   })
 
+  it("keeps releasing the other children when one cleanup fails after the row removal", async () => {
+    const { app, worktrees, headers, workspace } = await setupApp()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const created = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await created.json()) as { session: { id: string } }
+
+      // The row is already gone when cleanup runs. A storage failure in one
+      // child release must not become a 503 with no retry path: the remaining
+      // worktree/record cleanup still runs and the delete answers 200.
+      app.preview.forget = vi.fn(async () => {
+        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" })
+      })
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true })
+      expect(app.preview.forget).toHaveBeenCalledWith(session.id)
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(true)
+      expect(app.store.getIsolatedSession(session.id)).toBeNull()
+      expect(app.store.getWorkspace(workspace.id)).toBeNull()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      await app.close()
+    }
+  })
+
   it("stops the managed run, forgets the goal and cascades the run config", async () => {
     const { app, opencode, headers, workspace } = await setupApp()
     try {
@@ -1312,6 +1447,72 @@ describe("DELETE /api/workspaces/:id", () => {
       ).toBe(true)
     } finally {
       gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("removes the worktree directory directly when a deleteFiles rollback lost its repo", async () => {
+    const gate = deferred()
+    const worktrees = createFakeWorktreeManager()
+    let worktreePath = ""
+    const originalCreate = worktrees.create
+    worktrees.create = async (repo, path, branch, baseRef) => {
+      worktreePath = path
+      await originalCreate(repo, path, branch, baseRef)
+    }
+    const removedPaths: string[] = []
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({
+      worktrees,
+      fetchImpl: opencode.fetchImpl,
+      removeDir: async (path) => {
+        removedPaths.push(path)
+      },
+    })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string; path: string } }
+
+      // With deleteFiles=1 the repo folder disappears during the create. Git can
+      // no longer remove the worktree, and reconcile only walks existing
+      // workspaces, so the directory itself must be removed.
+      worktrees.remove = async () => {
+        throw new Error("not a git repository")
+      }
+      opencode.holdNextCreate(gate.promise)
+      const creating = fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      await waitFor(() =>
+        opencode.calls.some((call) => call.method === "POST" && call.path === "/api/session"),
+      )
+
+      const deletion = await fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(deletion.status).toBe(200)
+      expect(removedPaths).toContain(workspace.path)
+
+      gate.resolve()
+      const response = await creating
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ error: "workspace_busy" })
+      expect(worktreePath).not.toBe("")
+      expect(removedPaths).toContain(worktreePath)
+      expect(app.store.listIsolatedSessions()).toHaveLength(0)
+    } finally {
+      gate.resolve()
+      warn.mockRestore()
       await app.close()
     }
   })
@@ -1482,7 +1683,11 @@ describe("DELETE /api/workspaces/:id", () => {
       expect(await response.json()).toEqual({ error: "workspace_busy" })
       expect(removedPaths).toEqual([])
       expect(app.store.getWorkspace(workspace.id)).not.toBeNull()
-      expect(app.store.getScheduledTask("task_due")?.paused).toBe(true)
+      // The refusal did not delete the workspace, so the task it paused must be
+      // resumed (with a recomputed future slot), not silently left disabled.
+      const task = app.store.getScheduledTask("task_due")
+      expect(task?.paused).toBe(false)
+      expect(new Date(task!.nextRunAt!).getTime()).toBeGreaterThan(Date.now())
     } finally {
       createGate.resolve()
       await app.close()

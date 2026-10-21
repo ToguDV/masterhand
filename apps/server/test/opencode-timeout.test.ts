@@ -299,6 +299,33 @@ describe("internal opencode call deadline", () => {
     expect(started.calls.some((call) => call.startsWith("remove:"))).toBe(false)
   })
 
+  it("rejects an adopted record that belongs to another worktree", { timeout: 3000 }, async () => {
+    const opencode = isolatedCreateMock({ create: "stall", landed: true })
+    const store = createMemoryStore()
+    let attempt: IsolatedSessionRecord | null = null
+    store.createIsolatedSession = (record) => {
+      attempt = record
+      throw Object.assign(new Error("UNIQUE constraint failed: isolated_sessions.session_id"), {
+        code: "SQLITE_CONSTRAINT_PRIMARYKEY",
+      })
+    }
+    // Defensive mismatch: the row must not be adopted for a different path or
+    // workspace (a real retry uses a new token/worktree, so this is a guard).
+    store.getIsolatedSession = (sessionID) =>
+      attempt && attempt.sessionID === sessionID ? { ...attempt, path: "/tmp/other-worktree" } : null
+    const started = await isolatedApp(opencode.fetchImpl, { store })
+    app = started.app
+
+    const response = await fetch(`${started.app.url}/api/workspaces/ws_1/sessions`, {
+      method: "POST",
+      headers: { cookie: started.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ isolated: true, marker: "marker_12345" }),
+    })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: "storage_unavailable" })
+    expect(started.calls.some((call) => call.startsWith("remove:"))).toBe(false)
+  })
+
   it("answers 500 and rolls the worktree back on a non-timeout opencode error", { timeout: 3000 }, async () => {
     const opencode = isolatedCreateMock({ create: "error", landed: false })
     const started = await isolatedApp(opencode.fetchImpl)
