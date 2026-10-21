@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream"
 import type { AddressInfo } from "node:net"
 import type { ChildProcess } from "node:child_process"
 import { serve } from "@hono/node-server"
-import { createApp } from "../src/app.js"
+import { createApp, type AppWithScheduler } from "../src/app.js"
 import type { Config } from "../src/config.js"
 import { createEventHub, type EventHub } from "../src/events.js"
 import { createPreviewManager, type PreviewManager } from "../src/preview.js"
@@ -34,6 +34,8 @@ export interface MockOpencode {
   emit(event: unknown): void
   /** Makes the next `times` requests whose path contains `fragment` answer `status`. */
   failNext(fragment: string, times: number, status?: number): void
+  /** Holds the next `times` requests whose path contains `fragment` until `gate` resolves. */
+  holdNext(fragment: string, gate: Promise<void>, times?: number): void
   /** Registers a session the adapter can resolve with `GET /api/session/:id`. */
   addSession(input: { id: string; directory?: string; model?: string | null }): void
   /** Appends an assistant reply to a session's history (no event emitted). */
@@ -60,6 +62,7 @@ export async function startMockOpencode(): Promise<MockOpencode> {
   const instructions = new Map<string, Map<string, string>>()
   const active = new Set<string>()
   const failures: Array<{ fragment: string; remaining: number; status: number }> = []
+  const holds: Array<{ fragment: string; remaining: number; gate: Promise<void> }> = []
   let sessionCounter = 0
   let ptyCounter = 0
   let messageCounter = 0
@@ -69,7 +72,7 @@ export async function startMockOpencode(): Promise<MockOpencode> {
     req.on("data", (chunk) => {
       body += chunk
     })
-    req.on("end", () => {
+    req.on("end", async () => {
       const [path = "/", search] = (req.url ?? "").split("?")
       const headers: Record<string, string> = {}
       for (const [name, value] of Object.entries(req.headers)) {
@@ -83,6 +86,14 @@ export async function startMockOpencode(): Promise<MockOpencode> {
         headers,
         body: body || undefined,
       })
+
+      // A held request is recorded first (so tests can observe it) and then
+      // awaits the gate, keeping the BFF route in its in-flight window.
+      const hold = holds.find((entry) => entry.remaining > 0 && path.includes(entry.fragment))
+      if (hold) {
+        hold.remaining -= 1
+        await hold.gate
+      }
 
       const failure = failures.find((entry) => entry.remaining > 0 && path.includes(entry.fragment))
       if (failure) {
@@ -364,6 +375,9 @@ export async function startMockOpencode(): Promise<MockOpencode> {
     failNext(fragment, times, status = 503) {
       failures.push({ fragment, remaining: times, status })
     },
+    holdNext(fragment, gate, times = 1) {
+      holds.push({ fragment, remaining: times, gate })
+    },
     addSession(input) {
       const [providerID = "", id = ""] = input.model ? input.model.split("/") : []
       sessions.set(input.id, {
@@ -488,6 +502,8 @@ export interface TestApp {
   store: Store
   hub: EventHub
   preview: PreviewManager
+  /** The manager the app built, so tests can drive a tick deterministically. */
+  scheduler: NonNullable<AppWithScheduler["scheduler"]>
   close(): Promise<void>
 }
 
@@ -627,6 +643,7 @@ export async function startTestApp(
     store,
     hub,
     preview,
+    scheduler: (app as AppWithScheduler).scheduler!,
     close: async () => {
       preview.stopAll()
       hub.stop()

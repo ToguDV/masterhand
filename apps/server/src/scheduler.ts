@@ -97,6 +97,15 @@ export interface SchedulerManagerOptions {
   retry?: { attempts?: number; baseDelayMs?: number; jitter?: boolean }
 }
 
+/**
+ * The fields a PATCH may write. Lifecycle fields (`paused`, `lastRunAt`,
+ * `createdAt`, `id`) are deliberately absent: pause/resume have their own
+ * serialized operations and the fire path owns the run timestamps.
+ */
+export type SchedulerTaskPatch = Partial<
+  Pick<ScheduledTask, "name" | "prompt" | "model" | "directory" | "schedule" | "timezone" | "nextRunAt">
+>
+
 export interface SchedulerManager {
   /** One tick pass: repair lost-idle runs, then process due tasks once. */
   tick(): Promise<void>
@@ -104,6 +113,11 @@ export interface SchedulerManager {
   handleEvent(event: unknown): void
   /** Manual run of a task through the same single-slot fire path. */
   taskRunNow(taskId: string): Promise<ScheduledRun>
+  /**
+   * Writes only the provided fields over the LIVE task, inside the task's
+   * chain. Returns null when the task no longer exists (never resurrects).
+   */
+  updateTask(taskId: string, patch: SchedulerTaskPatch): Promise<ScheduledTask | null>
   /** Pause is serialized per task so it cannot race the fire path. */
   pauseTask(taskId: string): Promise<ScheduledTask>
   /** Resume recomputes nextRunAt (no immediate catch-up fire). */
@@ -712,6 +726,32 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     })
   }
 
+  /**
+   * Applies a PATCH to the live task inside its chain (#189). Only the fields
+   * the caller provided are written: the record is re-read immediately before
+   * the write, so a fire that advanced `lastRunAt`/`nextRunAt` (or a pause that
+   * landed meanwhile) is never overwritten by an earlier snapshot.
+   */
+  function updateTask(taskId: string, patch: SchedulerTaskPatch): Promise<ScheduledTask | null> {
+    return runExclusive(taskId, async () => {
+      const live = store.getScheduledTask(taskId)
+      if (!live) return null
+      if (!Object.values(patch).some((value) => value !== undefined)) return live
+      const updated: ScheduledTask = {
+        ...live,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
+        ...(patch.model !== undefined ? { model: patch.model } : {}),
+        ...(patch.directory !== undefined ? { directory: patch.directory } : {}),
+        ...(patch.schedule !== undefined ? { schedule: patch.schedule } : {}),
+        ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}),
+        ...(patch.nextRunAt !== undefined ? { nextRunAt: patch.nextRunAt } : {}),
+      }
+      persistTask(updated)
+      return updated
+    })
+  }
+
   function pauseTask(taskId: string): Promise<ScheduledTask> {
     return runExclusive(taskId, async () => {
       const live = store.getScheduledTask(taskId)
@@ -746,6 +786,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     tick,
     handleEvent,
     taskRunNow,
+    updateTask,
     pauseTask,
     resumeTask,
     reconcileTasks,

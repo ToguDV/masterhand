@@ -64,6 +64,7 @@ import {
   validateTaskInput,
   type SchedulerManager,
   type SchedulerOpencode,
+  type SchedulerTaskPatch,
 } from "./scheduler.js"
 import type {
   DeviceRecord,
@@ -2519,26 +2520,33 @@ export function createApp(deps: AppDeps): Hono {
       }
       // Only a schedule/timezone change re-arms the cadence; anything else
       // keeps the pending slot (resuming recomputes it manager-side).
-      let savedTask: ScheduledTask | null = null
-      if (validated || touchesSchedule) {
-        const spec = touchesSchedule
-          ? schedulerSpec(body.schedule !== undefined ? body.schedule : existing.schedule)
-          : existing.schedule
-        savedTask = {
-          ...existing,
-          ...(validated ? { name: validated.name, prompt: validated.prompt, model: validated.model, directory: validated.directory } : {}),
-          ...(touchesSchedule
-            ? { schedule: spec, timezone, nextRunAt: nextScheduledRunAt(spec, Date.now(), Date.now(), timezone) }
-            : {}),
-        }
-        deps.store.saveScheduledTask(savedTask)
-        emitSchedulerUpdated(savedTask.id)
+      // Only fields present in the body are sent. The manager re-reads the
+      // live task inside the per-task chain, so a fire (lastRunAt/nextRunAt) or
+      // a pause that landed while this route awaited the model catalog is
+      // never overwritten by the snapshot read above.
+      const patch: SchedulerTaskPatch = {}
+      if (validated) {
+        if (body.name !== undefined) patch.name = validated.name
+        if (body.prompt !== undefined) patch.prompt = validated.prompt
+        if (body.model !== undefined) patch.model = validated.model
+        if (body.directory !== undefined) patch.directory = validated.directory
       }
+      if (touchesSchedule) {
+        const spec =
+          body.schedule !== undefined ? schedulerSpec(body.schedule) : existing.schedule
+        const nowMs = Date.now()
+        patch.nextRunAt = nextScheduledRunAt(spec, nowMs, nowMs, timezone)
+        if (body.schedule !== undefined) patch.schedule = spec
+        if (body.timezone !== undefined) patch.timezone = timezone
+      }
+      const updated = await scheduler.updateTask(id, patch)
+      // Deleted while awaiting validation: answer 404 instead of resurrecting.
+      if (!updated) return c.json({ error: "task_not_found" }, 404)
       // Pause/resume ride the manager so the flag change is serialized with
       // any transition in progress (one chain per task id).
       if (body.paused === true) return c.json({ task: await scheduler.pauseTask(id) })
       if (body.paused === false) return c.json({ task: await scheduler.resumeTask(id) })
-      return c.json({ task: deps.store.getScheduledTask(id) ?? savedTask ?? existing })
+      return c.json({ task: deps.store.getScheduledTask(id) ?? updated })
     } catch (error) {
       return schedulerFailure(c, error)
     }

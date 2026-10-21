@@ -141,7 +141,7 @@ The BFF owns a small task scheduler (`apps/server/src/scheduler.ts`, ADR-36): a 
 |---|---|---|
 | `GET` | `/api/scheduled-tasks` | `{ tasks: ScheduledTask[] }` — every task with its `nextRunAt`/`lastRunAt` |
 | `POST` | `/api/scheduled-tasks` | `201 { task }`. Body: `{ name, prompt, model, schedule, directory, timezone? }`; `nextRunAt` is computed at create |
-| `PATCH` | `/api/scheduled-tasks/:id` | `{ task }`. Body: any subset `{ name, prompt, model, schedule, directory, timezone, paused }` — edits and pause/resume. An already-future `nextRunAt` is kept when the schedule still fits; resume recomputes it strictly in the future, so resuming late never fires at once |
+| `PATCH` | `/api/scheduled-tasks/:id` | `{ task }`. Body: any subset `{ name, prompt, model, schedule, directory, timezone, paused }` — edits and pause/resume. Only the provided fields are written, inside the task's serialized chain over a fresh read (a fire's `lastRunAt`/`nextRunAt` or a concurrent pause is never overwritten); a task deleted while the request validates answers `404 task_not_found` (never resurrected). An already-future `nextRunAt` is kept when the schedule still fits; resume recomputes it strictly in the future, so resuming late never fires at once |
 | `DELETE` | `/api/scheduled-tasks/:id` | `{ ok: true }` — idempotent; drops the task, its runs (including a queued envelope) and nothing else |
 | `POST` | `/api/scheduled-tasks/:id/run` | `202 { run }` — "Run now": a manual fire through the same serialized path (`source: "manual"`), otherwise identical to a scheduled fire. `409 task_paused` while paused, `404 task_not_found` |
 | `GET` | `/api/scheduled-tasks/:id/runs` | `{ runs: ScheduledRun[] }` — newest first, cap 50 |
@@ -152,7 +152,7 @@ Run state machine: `queued → firing → running → completed | failed`, with 
 
 Reliability (see ADR-36 and `docs/past-mistakes.md`):
 
-- Every transition (tick pass, opencode event, manual run) is serialized through a per-task in-flight chain, so two devices or a retry can never double-fire a task (rule 12); "Run now" goes through the same chain, so double taps coalesce into one run.
+- Every transition (tick pass, opencode event, manual run) is serialized through a per-task in-flight chain, so two devices or a retry can never double-fire a task (rule 12); "Run now" goes through the same chain, so double taps coalesce into one run. Route patches go through `updateTask` on that same chain: only the changed fields are written over a fresh read, so an edit or pause cannot clobber a slot a fire just advanced (and a task deleted meanwhile is not resurrected).
 - The fire path is non-idempotent and reuses ADR-32: run + markers are persisted **before** each mutation (`masterhand.scheduler` = `<taskId>#<runId>#create` / `#prompt`), the create reconciles by directory (the pinned opencode drops `parentID`), and an unresolved ambiguity marks the run `failed` — no blind retries, no destructively deleted sessions.
 - `running` runs self-heal: each tick checks opencode's active sessions (goal-watchdog pattern) and settles the run `completed` when the session is idle; `session.idle`/`session.execution.succeeded` complete it, `session.execution.failed`/`session.error` fail it, and an outage leaves the run for a later tick instead of failing it.
 
