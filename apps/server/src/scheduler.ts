@@ -141,6 +141,16 @@ const MINUTE_MS = 60_000
 export const DEFAULT_TICK_MS = 20_000
 /** Bounds the look-ahead walk so garbage schedules can never stall a tick. */
 const MAX_SLOT_STEPS = 100_000
+/**
+ * Bounds the CRON walk only (issue #212): the interval kind is O(1)
+ * arithmetic, but the cron kind walks one croner step per missed slot — a
+ * 5-minute task anchored a year back performs ~105k steps, blocking the loop
+ * for hundreds of ms or seconds. A few thousand steps cover ~17 days of
+ * 5-minute slots (years for daily ones); anything older returns null and the
+ * caller surfaces it. The interval cap stays untouched: lowering it would
+ * change behavior for stale interval tasks.
+ */
+const MAX_CRON_SLOT_STEPS = 5_000
 
 const COMPLETED_EVENTS = new Set(["session.idle", "session.execution.succeeded"])
 const FAILED_EVENTS = new Set([
@@ -223,7 +233,7 @@ export function nextScheduledRunAt(
     }
     let slot = job.nextRun(new Date(anchorMs))
     for (let steps = 0; slot && slot.getTime() <= nowMs; steps += 1) {
-      if (steps >= MAX_SLOT_STEPS) return null
+      if (steps >= MAX_CRON_SLOT_STEPS) return null
       slot = job.nextRun(slot)
     }
     return slot ? slot.toISOString() : null
@@ -433,7 +443,14 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     const prev = parseMs(task.nextRunAt)
     if (prev !== null && prev > currentMs) return task.nextRunAt
     const anchor = prev ?? parseMs(task.createdAt) ?? currentMs
-    return nextScheduledRunAt(task.schedule, anchor, currentMs, task.timezone)
+    const next = nextScheduledRunAt(task.schedule, anchor, currentMs, task.timezone)
+    if (next === null) {
+      // Surfacing only (#212): an impossible schedule or a walk that hit the
+      // bound parks the task (the tick skips a null slot) — log the task id
+      // instead of silently returning null. Never a new error field.
+      console.warn(`[scheduler] ${task.id} has no schedulable slot; leaving nextRunAt unset`)
+    }
+    return next
   }
 
   /** One bounded opencode call; `includeTimeouts` only for reconcilable paths. */

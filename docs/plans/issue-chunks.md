@@ -73,7 +73,7 @@ in the sessions options box per #136/#137).
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | 🟡 Implemented 2026-10-28 on `fix/c20-shutdown-reliability` (4 commits, one per issue) — pending reviewer pass, PR not yet opened |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | 🟡 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #197 #198 #201 #203 #211 remain |
-| C22 — Architecture and test debt | #205 #206 #207 #212 | 🟡 3/4 implemented 2026-10-28 on `fix/c22-debt` (#207 route tests on in-memory SQLite → #205 extracted opencode adapters → #206 projected goal-run contract; pending reviewer pass, PR not yet opened) |
+| C22 — Architecture and test debt | #205 #206 #207 #212 | 🟡 4/4 implemented 2026-10-28 on `fix/c22-debt` (#207 route tests on in-memory SQLite → #205 extracted opencode adapters → #206 projected goal-run contract → #212 dead helper + bounded cron walk; pending reviewer pass, PR not yet opened) |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,

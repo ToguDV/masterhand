@@ -717,6 +717,36 @@ describe("scheduler validation", () => {
     expect(nextScheduledRunAt({ kind: "interval" as never }, BASE, BASE)).toBeNull()
     expect(nextScheduledRunAt({ kind: "cron", cron: "nope" }, BASE, BASE)).toBeNull()
   })
+
+  it("bounds the cron catch-up walk for a year-old anchor", () => {
+    // A 5-minute task anchored a year back misses ~105k slots. The walk must
+    // stop after a few thousand steps (reporting null) instead of blocking
+    // the event loop for hundreds of ms or seconds (#212).
+    const nextRun = vi.spyOn(Cron.prototype, "nextRun")
+    try {
+      const yearAgo = BASE - 365 * 24 * 60 * MINUTE
+      expect(nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, yearAgo, BASE)).toBeNull()
+      expect(nextRun.mock.calls.length).toBeLessThanOrEqual(5001)
+    } finally {
+      nextRun.mockRestore()
+    }
+  })
+
+  it("warns with the task id when a task cannot be scheduled", () => {
+    // Feb 30 never fires: route validation rejects it, but a row that reaches
+    // the manager this way must surface a visible warning (log-only, never a
+    // new error field) instead of parking silently (#212).
+    const task = makeTask({ id: "task_impossible", schedule: { kind: "cron", cron: "0 0 30 2 *" } })
+    const h = harness({ tasks: [task] })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      h.manager.reconcileTasks()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("task_impossible"))
+      expect(h.store.getScheduledTask("task_impossible")?.nextRunAt).toBeNull()
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------

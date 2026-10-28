@@ -462,7 +462,7 @@ describe("createWorktreeManager", () => {
     expect(await clean.commitAll("/worktree", "message")).toBe(false)
   })
 
-  it("detects remotes and pushes the branch", async () => {
+  it("resolves remote URLs and pushes the branch", async () => {
     const calls: string[][] = []
     const run = gitStub((args) => {
       calls.push(args)
@@ -471,7 +471,6 @@ describe("createWorktreeManager", () => {
       return ok()
     })
     const manager = createWorktreeManager({ run })
-    expect(await manager.hasRemote("/worktree")).toBe(true)
     expect(await manager.remoteUrl("/worktree")).toBe("git@github.com:org/repo.git")
     await manager.push("/worktree", "masterhand/app-x")
     expect(calls.at(-1)).toEqual(["push", "--no-verify", "-u", "origin", "masterhand/app-x"])
@@ -532,7 +531,6 @@ describe("reconcileWorktrees", () => {
       remove,
       quarantine,
       commitAll: async () => true,
-      hasRemote: async () => false,
       remoteUrl: async () => null,
       push: async () => {},
       pullRequest: async () => null,

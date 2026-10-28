@@ -484,7 +484,6 @@ export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = 
       calls.push(`commit:${path}`)
       return true
     },
-    hasRemote: async () => false,
     remoteUrl: async () => null,
     push: async (path, branch) => {
       calls.push(`push:${path}:${branch}`)
