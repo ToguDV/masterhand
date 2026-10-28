@@ -926,13 +926,33 @@ export function createSqliteStore(file: string): Store {
   }
 
   function readBoardSnapshot(workspaceID: string): BoardSnapshot {
+    // One column query plus ONE card query (#211, step 1): the old path ran a
+    // card query per column (N+1) on every GET and every board.updated frame.
+    // Cards arrive ordered by (column_id, position) and group in JS; an empty
+    // board skips the card query entirely. Internal only — the snapshot shape
+    // is unchanged. Step 2 (per-card frames instead of full snapshots) is out
+    // of scope: it needs #196 settled further and changes the frame contract.
     const columns = listBoardColumnsStatement.all(workspaceID) as BoardColumnRecord[]
+    if (columns.length === 0) return { workspaceID, columns: [] }
+    const placeholders = columns.map(() => "?").join(", ")
+    // Per-call prepare: the IN list length varies per board; prepare cost is
+    // trivial next to the N queries this replaces.
+    const cards = db
+      .prepare(
+        `SELECT id, column_id AS columnID, title, description, position,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM board_cards WHERE column_id IN (${placeholders}) ORDER BY column_id, position ASC`,
+      )
+      .all(...columns.map((column) => column.id)) as BoardCardRecord[]
+    const byColumn = new Map<string, BoardCardRecord[]>()
+    for (const card of cards) {
+      const list = byColumn.get(card.columnID)
+      if (list) list.push(card)
+      else byColumn.set(card.columnID, [card])
+    }
     return {
       workspaceID,
-      columns: columns.map((column) => ({
-        ...column,
-        cards: listBoardCardsStatement.all(column.id) as BoardCardRecord[],
-      })),
+      columns: columns.map((column) => ({ ...column, cards: byColumn.get(column.id) ?? [] })),
     }
   }
 
