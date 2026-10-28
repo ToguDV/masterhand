@@ -200,10 +200,13 @@ export const MIGRATIONS: readonly Migration[] = [
     statements: [
       // #203: the audit route sorts the whole table newest-first behind a
       // display cap, so the timestamp ordering gets its own index.
-      "CREATE INDEX idx_audit_events_at ON audit_events (at DESC, id DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_audit_events_at ON audit_events (at DESC, id DESC)",
       // #201: every hub/session event resolves its goal run through the
-      // critic/judge member columns, so those share one composite index.
-      "CREATE INDEX idx_goal_runs_member_sessions ON goal_runs (critic_session_id, judge_session_id)",
+      // critic/judge member columns. Two single-column indexes, not one
+      // composite: SQLite serves a composite only by leftmost prefix, so the
+      // judge arm (WHERE judge_session_id = ?) would still scan.
+      "CREATE INDEX IF NOT EXISTS idx_goal_runs_critic_session ON goal_runs (critic_session_id)",
+      "CREATE INDEX IF NOT EXISTS idx_goal_runs_judge_session ON goal_runs (judge_session_id)",
     ],
   },
 ]

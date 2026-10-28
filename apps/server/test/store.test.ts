@@ -334,7 +334,7 @@ describe("sqlite schema migrations", () => {
       const db = new Database(file)
       try {
         expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
-        for (const name of ["idx_audit_events_at", "idx_goal_runs_member_sessions"]) {
+        for (const name of ["idx_audit_events_at", "idx_goal_runs_critic_session", "idx_goal_runs_judge_session"]) {
           expect(
             db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name),
             `missing index ${name}`,

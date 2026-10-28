@@ -771,7 +771,7 @@ export function createSqliteStore(file: string): Store {
   const getGoalRunStatement = db.prepare(`${goalRunColumns} WHERE session_id = ?`)
   const listGoalRunsStatement = db.prepare(`${goalRunColumns} ORDER BY created_at ASC`)
   // Narrow member projection (#201): ids only, served by
-  // idx_goal_runs_member_sessions (migration v3) — no blob I/O, no parsing.
+  // idx_goal_runs_critic_session / idx_goal_runs_judge_session (migration v3) — no blob I/O, no parsing.
   // Two single-column statements instead of one OR: the composite index
   // serves the critic arm by prefix, while the judge arm scans narrow rows
   // (goal runs are few; the win is skipping the blobs, not the seek).
@@ -1176,6 +1176,7 @@ export function createSqliteStore(file: string): Store {
     },
     clearAudit() {
       clearAuditStatement.run()
+      auditCount = 0
     },
     getWorkspaceRun(workspaceID) {
       const row = getWorkspaceRunStatement.get(workspaceID) as
@@ -1862,6 +1863,15 @@ export function createMemoryStore(): Store {
     },
     saveScheduledRun(record) {
       scheduledRuns.set(record.id, record)
+      // Same retention as createScheduledRun above: the fire path persists
+      // through save, so pruning only on create would leak one row per fire.
+      const tail = [...scheduledRuns.values()]
+        .filter((run) => run.taskId === record.taskId)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
+      for (const pruned of tail.slice(SCHEDULED_RUNS_KEEP_PER_TASK)) scheduledRuns.delete(pruned.id)
     },
     getScheduledRun(id) {
       return scheduledRuns.get(id) ?? null

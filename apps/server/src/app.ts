@@ -1477,7 +1477,14 @@ export function createApp(deps: AppDeps): Hono {
     const task = (async (): Promise<OpencodeSession[]> => {
       const sessions: OpencodeSession[] = []
       let cursor: string | undefined
+      // Upstream cap, not the BFF page contract: exhausting all 50 pages
+      // (>10k sessions) still truncates silently here — the BFF-level
+      // `truncated` flag only covers `?limit=`/`?cursor=` paging. Loud enough
+      // to notice in the logs; scheduler retention keeps the realistic case
+      // small, but a >10k user directory would lose sessions without signal.
+      let pages = 0
       for (let page = 0; page < 50; page += 1) {
+        pages = page + 1
         const target = new URL("/api/session", config.opencodeUrl)
         target.searchParams.set("directory", directory)
         target.searchParams.set("limit", "200")
@@ -1494,6 +1501,11 @@ export function createApp(deps: AppDeps): Hono {
         const next = body.cursor?.next
         if (!next) break
         cursor = next
+      }
+      if (pages >= 50) {
+        console.warn(
+          `[masterhand] session list for ${directory} hit the 50-page upstream cap; sessions beyond 10k are dropped without a truncated flag`,
+        )
       }
       return sessions
     })()
