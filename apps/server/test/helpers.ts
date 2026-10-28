@@ -8,7 +8,7 @@ import { createApp, type AppWithScheduler } from "../src/app.js"
 import type { Config } from "../src/config.js"
 import { createEventHub, type EventHub } from "../src/events.js"
 import { createPreviewManager, type PreviewManager } from "../src/preview.js"
-import { createMemoryStore, type DeviceRecord, type Store } from "../src/store.js"
+import { createSqliteStore, type DeviceRecord, type Store } from "../src/store.js"
 import type { CustomProviderStore } from "../src/providers.js"
 import type { WorktreeManager } from "../src/worktrees.js"
 
@@ -610,7 +610,11 @@ export async function startTestApp(
   } = {},
 ): Promise<TestApp> {
   const config = testConfig(options.config)
-  const store = options.store ?? createMemoryStore()
+  // Route tests run against a real SQLite store in memory (#207): the old
+  // duplicate in-memory implementation returned the same object references
+  // it held, so mutating a fetched record without saving passed in tests
+  // and lost data in production. SQLite returns copies, like production.
+  const store = options.store ?? createSqliteStore(":memory:")
   const hub = createEventHub({
     url: new URL("/api/event", config.opencodeUrl).toString(),
     authHeader: config.opencodeAuth,

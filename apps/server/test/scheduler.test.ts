@@ -13,7 +13,7 @@ import {
   type SchedulerManager,
   type SchedulerOpencode,
 } from "../src/scheduler.js"
-import { createMemoryStore, type Store } from "../src/store.js"
+import { createSqliteStore, type Store } from "../src/store.js"
 
 // ---------------------------------------------------------------------------
 // Scripted fake opencode + injectable clock, modeled on goal.test.ts. Tests
@@ -171,7 +171,7 @@ function seedWorkspace(store: Store, path = "/workspace/app"): void {
 
 function harness(options: { tasks?: ScheduledTask[] } = {}): Harness {
   clockMs = BASE
-  const store = createMemoryStore()
+  const store = createSqliteStore(":memory:")
   seedWorkspace(store)
   const opencode = new FakeOpencode()
   const events: Harness["events"] = []
@@ -787,7 +787,7 @@ describe("scheduler nextRunAt", () => {
 describe("scheduler boot reconciliation", () => {
   it("marks firing runs interrupted and queued runs skipped, then recomputes nextRunAt", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const firing: ScheduledRun = {
@@ -834,7 +834,7 @@ describe("scheduler boot reconciliation", () => {
 
   it("keeps an already-future nextRunAt and a completed history stable across reconciliations", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask({ nextRunAt: new Date(clockMs + 30 * MINUTE).toISOString() }))
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
@@ -844,7 +844,7 @@ describe("scheduler boot reconciliation", () => {
 
   it("never auto-fires after the boot reconciliation", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const opencode = new FakeOpencode()
@@ -982,14 +982,14 @@ describe("scheduler plumbing", () => {
 
   it("stops its interval repeatedly", () => {
     clockMs = BASE
-    const manager = createScheduler({ store: createMemoryStore(), opencode: new FakeOpencode(), tickMs: 1000 })
+    const manager = createScheduler({ store: createSqliteStore(":memory:"), opencode: new FakeOpencode(), tickMs: 1000 })
     manager.stop()
     manager.stop()
   })
 
   it("surfaces storage write failures from run-now instead of swallowing them", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     store.createWorkspace({ id: "ws_app", name: "app", path: "/workspace/app", createdAt: BASE })
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
     store.createScheduledTask(makeTask())

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createMemoryStore, type ScheduledRun, type ScheduledTask } from "../src/store.js"
+import { createSqliteStore, type ScheduledRun, type ScheduledTask } from "../src/store.js"
 import {
   login,
   readUntil,
@@ -215,7 +215,7 @@ describe("scheduled task routes", () => {
   it("lets a storage failure while persisting a task reach the typed 503 mapping", async () => {
     mock = await startMockOpencode()
     const store = {
-      ...createMemoryStore(),
+      ...createSqliteStore(":memory:"),
       createScheduledTask: () => {
         throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
       },

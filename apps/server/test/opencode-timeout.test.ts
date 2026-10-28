@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { reconcileWorktrees } from "../src/worktrees.js"
 import {
-  createMemoryStore,
+  createSqliteStore,
   type IsolatedSessionRecord,
   type Store,
 } from "../src/store.js"
@@ -298,7 +298,7 @@ describe("internal opencode call deadline", () => {
 
   it("adopts the record a previous reconciliation of the same marker persisted", { timeout: 3000 }, async () => {
     const opencode = isolatedCreateMock({ create: "stall", landed: true })
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     let winner: IsolatedSessionRecord | null = null
     store.createIsolatedSession = (record) => {
       // The first reconciliation of this marker already committed the row; the
@@ -336,7 +336,7 @@ describe("internal opencode call deadline", () => {
 
   it("rejects an adopted record that belongs to another worktree", { timeout: 3000 }, async () => {
     const opencode = isolatedCreateMock({ create: "stall", landed: true })
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     let attempt: IsolatedSessionRecord | null = null
     store.createIsolatedSession = (record) => {
       attempt = record

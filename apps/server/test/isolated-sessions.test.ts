@@ -3,7 +3,7 @@ import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, wait
 import { mapLimit } from "../src/app.js"
 import { pullRequestUrl } from "../src/worktrees.js"
 import type { RunManager } from "../src/runs.js"
-import { createMemoryStore, type GoalRunRecord } from "../src/store.js"
+import { createSqliteStore, type GoalRunRecord } from "../src/store.js"
 
 /** Promise a test can resolve explicitly to hold a request mid-operation. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -343,7 +343,7 @@ describe("POST /api/workspaces/:id/sessions", () => {
     const opencode = createOpencodeMock()
     const worktrees = createFakeWorktreeManager()
     const store = {
-      ...createMemoryStore(),
+      ...createSqliteStore(":memory:"),
       createIsolatedSession: () => {
         throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
       },
@@ -1844,7 +1844,7 @@ describe("DELETE /api/workspaces/:id", () => {
 
   it("pauses scheduled tasks for the folder before removing it and refuses a later run", async () => {
     let pausedAtRemove: boolean | null = null
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const opencode = createOpencodeMock()
     const app = await startTestApp({
       store,

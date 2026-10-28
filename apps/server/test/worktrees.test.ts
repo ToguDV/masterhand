@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { createMemoryStore } from "../src/store.js"
+import { createSqliteStore, type Store } from "../src/store.js"
 import {
   createPullRequest,
   createWorktreeManager,
@@ -546,7 +546,7 @@ describe("reconcileWorktrees", () => {
   }
 
   function seedRecord(
-    store: ReturnType<typeof createMemoryStore>,
+    store: Store,
     sessionID: string,
     path: string,
     createdAt: number,
@@ -569,7 +569,7 @@ describe("reconcileWorktrees", () => {
       const root = join(dir, "root")
       mkdirSync(root, { recursive: true })
       writeFileSync(join(root, SENTINEL), "ok")
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
       seedRecord(store, "ses_gone", join(dir, "missing"), 1)
       seedRecord(store, "ses_alive", join(dir, "alive"), 2)
@@ -601,7 +601,7 @@ describe("reconcileWorktrees", () => {
   it("skips reconciliation when the worktrees root is not mounted", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
     try {
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
       seedRecord(store, "ses_gone", join(dir, "missing"), 1)
       const { manager, quarantine, remove } = fakeManager()
@@ -620,7 +620,7 @@ describe("reconcileWorktrees", () => {
   it("does nothing on a fresh install (no root, no records)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-reconcile-"))
     try {
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       const { manager, quarantine, remove } = fakeManager()
       const result = await reconcileWorktrees(store, manager, join(dir, "root"))
       expect(result.skipped).toBeNull()
@@ -638,7 +638,7 @@ describe("reconcileWorktrees", () => {
     try {
       const root = join(dir, "root")
       mkdirSync(root, { recursive: true })
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
       seedRecord(store, "ses_gone", join(dir, "missing"), 1)
       const { manager, quarantine, remove } = fakeManager()
@@ -659,7 +659,7 @@ describe("reconcileWorktrees", () => {
     try {
       const root = join(dir, "root")
       mkdirSync(root, { recursive: true })
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
       seedRecord(store, "ses_alive", join(dir, "alive"), 1)
       seedRecord(store, "ses_gone", join(dir, "missing"), 2)
@@ -680,7 +680,7 @@ describe("reconcileWorktrees", () => {
     try {
       const root = join(dir, "root")
       mkdirSync(root, { recursive: true })
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       const { manager, quarantine } = fakeManager()
       const result = await reconcileWorktrees(store, manager, root)
       expect(result.skipped).toBeNull()
@@ -699,7 +699,7 @@ describe("reconcileWorktrees", () => {
       const root = join(dir, "root")
       mkdirSync(root, { recursive: true })
       writeFileSync(join(root, SENTINEL), "ok")
-      const store = createMemoryStore()
+      const store = createSqliteStore(":memory:")
       store.createWorkspace({ id: "ws_1", name: "app", path: join(dir, "app"), createdAt: 1 })
       const quarantined = join(root, "app", "dead.orphaned-1700000000000")
       const orphanPath = join(root, "app", "live-orphan")
@@ -741,7 +741,7 @@ describe("launchBackgroundReconcile", () => {
     const gated = gatedReconcile()
     const settled: unknown[] = []
     const bg = launchBackgroundReconcile({
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       manager: createWorktreeManager({ run: gitStub(() => ok()) }),
       root: join(tmpdir(), "mh-never"),
       budgetMs: 0,
@@ -761,7 +761,7 @@ describe("launchBackgroundReconcile", () => {
   it("warns when the pass exceeds its budget but still flips readiness on settle", async () => {
     const gated = gatedReconcile()
     const bg = launchBackgroundReconcile({
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       manager: createWorktreeManager({ run: gitStub(() => ok()) }),
       root: join(tmpdir(), "mh-never"),
       budgetMs: 10,
@@ -781,7 +781,7 @@ describe("launchBackgroundReconcile", () => {
   it("contains a failing pass: readiness still flips and settled never rejects", async () => {
     const warnings: Array<{ message: string; detail?: unknown }> = []
     const bg = launchBackgroundReconcile({
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       manager: createWorktreeManager({ run: gitStub(() => ok()) }),
       root: join(tmpdir(), "mh-never"),
       budgetMs: 0,
