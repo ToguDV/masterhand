@@ -519,6 +519,20 @@ describe("preview routes", () => {
     expect(permissions).toContainEqual({ action: "edit", resource: "/*", effect: "deny" })
     expect(permissions).toContainEqual({ action: "shell", resource: "pkill*", effect: "deny" })
     expect(permissions).toContainEqual({ action: "shell", resource: "kill $*", effect: "deny" })
+    // #219: engine read tools run as the engine uid, so absolute reads of
+    // /proc and the engine credential store are denied (reads inside the
+    // workspace stay relative and unaffected).
+    expect(permissions).toContainEqual({ action: "read", resource: "/proc/*", effect: "deny" })
+    expect(permissions).toContainEqual({
+      action: "read",
+      resource: "/home/node/.local/share/opencode/*",
+      effect: "deny",
+    })
+    expect(permissions).toContainEqual({
+      action: "external_directory",
+      resource: "/home/node/.config/opencode/*",
+      effect: "deny",
+    })
 
     const instruction = upstream.requests.find((request) =>
       request.path.endsWith("/instructions/entries/masterhand.process"),

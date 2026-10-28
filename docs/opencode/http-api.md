@@ -12,7 +12,7 @@ Verified on **2026-10-01** against a live **opencode v2.0.6** server and the gen
 
 ## Endpoints MasterHand uses
 
-Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/model` → `GET /api/model`). Since #179 that passthrough is a **method-exact allowlist** of the routes the clients use (`docs/bff/api.md` §Proxy), not a general passthrough: PTY/shell/terminal, fs, config, plugin, mcp, session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and the credential list answer `404` without an upstream call. The BFF's own calls (`callOpencode`) are separate and unaffected. This allowlist protects the client boundary only; opencode's own read tools and project plugins run inside the engine as `node` (residual risks #218/#219).
+Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/model` → `GET /api/model`). Since #179 that passthrough is a **method-exact allowlist** of the routes the clients use (`docs/bff/api.md` §Proxy), not a general passthrough: PTY/shell/terminal, fs, config, plugin, mcp, session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and the credential list answer `404` without an upstream call. The BFF's own calls (`callOpencode`) are separate and unaffected. This allowlist protects the client boundary only; opencode's own read tools run inside the engine as `node` (confined by the session `read`/`external_directory` denies on `/proc` and the engine credential store since #219) while project plugins run unconfined there until [#218](https://github.com/ToguDV/masterhand/issues/218) lands.
 
 ### Health, locations and events
 
@@ -60,6 +60,12 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | `GET` | `/api/session/:id/permission` | Pending requests for one session (`{ data }`) |
 | `POST` | `/api/session/:id/permission/:requestID/reply` | Answer; body `{ decision: "once" \| "always" \| "reject", message? }`; `204` |
 | `GET` | `/api/permission/saved` | Persisted rules (after an `always` answer) |
+
+Permission rule semantics (verified against the pinned **2.0.6** source, `packages/core/src/permission.ts` + `file-access.ts` + `tool/plugin/*.ts`):
+
+- A rule is `{ action, resource, effect }`; evaluation is **last-match-wins** across agent permissions + the session PATCH ruleset, and one `deny` resource denies the whole assert. The session PATCH therefore appends its denies after the `external_directory: allow *` entry.
+- `read` asserts the resolved path: location-relative inside the session directory, absolute outside it. `grep`/`glob` assert the **search pattern** as their resource (never the path) and gate the path through `external_directory` first — path-shaped denies belong on `read`/`external_directory`, never on `grep`/`glob`.
+- `*` in a resource crosses `/` (`/proc/*` matches `/proc/self/environ`); matching is lexical (no `realpath`), so symlink escapes are not covered by rules.
 
 ### Agents, models, providers and config
 

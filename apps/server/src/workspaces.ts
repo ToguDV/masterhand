@@ -1,4 +1,5 @@
-import { basename, resolve, sep } from "node:path"
+import { homedir } from "node:os"
+import { basename, join, resolve, sep } from "node:path"
 import { mkdir, rm } from "node:fs/promises"
 
 const MAX_SLUG_LENGTH = 64
@@ -90,6 +91,60 @@ export function externalWriteGuardRules(): PermissionRule[] {
     { action: "edit", resource: "?:/*", effect: "deny" },
     { action: "edit", resource: "../*", effect: "deny" },
   ]
+}
+
+/**
+ * Engine data/config layout from `deploy/opencode.Dockerfile`: the credential
+ * store (`opencode.db`) and the provider config live here, owner-only, while
+ * the agent's workspace is group-writable for a different uid.
+ */
+export const ENGINE_DATA_DIR = "/home/node/.local/share/opencode"
+export const ENGINE_CONFIG_DIR = "/home/node/.config/opencode"
+
+/**
+ * Denies engine-side reads outside the workspace (#219). The read tool runs in
+ * the opencode engine process (`node`, uid 1000), not through `agent-exec`
+ * (uid 1001), so without these rules it can reach `/proc/self/environ` (which
+ * carries `OPENCODE_SERVER_PASSWORD`), `opencode.db` and the provider config,
+ * then call the engine API directly — bypassing both the managed-run dropper
+ * and the `/api/oc/*` allowlist.
+ *
+ * Verified against the pinned 2.0.6 source (`packages/core/src/file-access.ts`,
+ * `tool/plugin/{read,grep,glob}.ts`):
+ *
+ * - `read` asserts `action: "read"` with the resolved path as its resource:
+ *   location-relative inside the workspace, absolute outside it. Denying `read`
+ *   on absolute engine paths blocks the read tool while workspace-relative
+ *   reads never match.
+ * - `grep`/`glob` assert `action: name` with the *search pattern* as their
+ *   resource — a path-shaped deny on those actions could never match a real
+ *   call, so there are deliberately no grep/glob rules here. Both gate their
+ *   path through `authorizeExternal` (`action: "external_directory"` with the
+ *   target directory as the resource) before that assert, so the
+ *   `external_directory` denies below confine them too.
+ * - Rule evaluation is last-match-wins, so these denies must stay *after* the
+ *   `external_directory: allow *` entry of `externalWriteGuardRules`.
+ * - The match is lexical (no `realpath`): a symlink inside the workspace that
+ *   points outside resolves to a relative resource and passes this guard. That
+ *   residual is documented in `docs/bff/api.md`; engine files stay owner-only
+ *   so the `agent` uid cannot follow such a link through shell/PTY paths.
+ */
+export function engineReadGuardRules(home: string = homedir()): PermissionRule[] {
+  const dataDirs = new Set([ENGINE_DATA_DIR, join(home, ".local/share/opencode")])
+  const configDirs = new Set([ENGINE_CONFIG_DIR, join(home, ".config/opencode")])
+  const resources = ["/proc", "/proc/*"]
+  for (const dir of [...dataDirs, ...configDirs]) {
+    resources.push(dir, `${dir}/*`)
+  }
+  const rules: PermissionRule[] = []
+  for (const resource of resources) {
+    for (const action of ["read", "external_directory"] as const) {
+      if (!rules.some((rule) => rule.action === action && rule.resource === resource)) {
+        rules.push({ action, resource, effect: "deny" })
+      }
+    }
+  }
+  return rules
 }
 
 /**
