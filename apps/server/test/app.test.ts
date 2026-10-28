@@ -289,6 +289,24 @@ describe("storage resilience", () => {
       expect(reads).toBe(2)
     })
 
+    it("shares one probe across concurrent misses", async () => {
+      let reads = 0
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const read = createCachedDiskFree(async () => {
+        reads += 1
+        await gate
+        return 1234
+      }, 10_000)
+      const pending = [read(), read(), read()]
+      release()
+      const results = await Promise.all(pending)
+      expect(results).toEqual([1234, 1234, 1234])
+      expect(reads).toBe(1)
+    })
+
     it("stays best-effort null when the volume cannot be read", async () => {
       const read = createCachedDiskFree(async () => null)
       expect(await read()).toBeNull()

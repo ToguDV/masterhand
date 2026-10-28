@@ -555,7 +555,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       const active = running.get(sessionID)
       if (active) {
         kill(active.child)
-        untrack(active.child)
+        await untrack(active.child)
         running.delete(sessionID)
       }
       failures.delete(sessionID)

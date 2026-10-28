@@ -1147,6 +1147,12 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     }
     reconcileRunning = true
     try {
+      // Skip the upstream listing when no run awaits a session: an idle BFF
+      // must not poll opencode every 30 s for nothing.
+      const waiting = store
+        .listGoalRuns()
+        .filter((run) => !TERMINAL_STATES.has(run.state) && run.state !== "paused" && run.awaitingSessionID && run.awaitingKind)
+      if (waiting.length === 0) return
       // One upstream listing per pass, not one per run awaiting a session:
       // every run reconciles its lost-idle heuristic against the same snapshot.
       let active: Set<string>
@@ -1155,7 +1161,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       } catch {
         return // leave the runs for the next pass; an outage must not fail them
       }
-      for (const run of store.listGoalRuns()) {
+      for (const run of waiting) {
         if (TERMINAL_STATES.has(run.state) || run.state === "paused") continue
         if (!run.awaitingSessionID || !run.awaitingKind) continue
         await enqueue(run.sessionID, async () => {
@@ -1170,6 +1176,18 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
             const current = store.getGoalRun(live.sessionID)
             if (!current || TERMINAL_STATES.has(current.state) || current.state === "paused") return
             if (current.awaitingSessionID !== awaited) return
+            // The shared snapshot may be stale after awaiting per-run work: a
+            // session that went busy mid-pass would otherwise receive a retry
+            // prompt while occupied. Revalidate just this one (rare path).
+            let stillIdle: boolean
+            try {
+              stillIdle = !(await retryable(() => opencode.activeSessions(), { includeTimeouts: true })).includes(
+                awaited,
+              )
+            } catch {
+              return // leave it for the next pass; an outage must not fail it
+            }
+            if (!stillIdle) return
             await retryPhase(current, kind, "the turn ended without a reply")
           }
         })

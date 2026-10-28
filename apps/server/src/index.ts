@@ -96,12 +96,22 @@ const drainInFlight = (app as AppWithScheduler).drainInFlight
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist
   // Read once at boot (issue #200): the catch-all served it synchronously on
-  // every SPA navigation, freezing the event loop each time.
-  const indexHtml = readFileSync(join(webDist, "index.html"), "utf8")
+  // every SPA navigation, freezing the event loop each time. A missing asset
+  // must degrade to API-only, never crash the boot (rule 14): before this
+  // change only the SPA fallback answered 500 while the API stayed healthy.
+  let indexHtml: string | null = null
+  try {
+    indexHtml = readFileSync(join(webDist, "index.html"), "utf8")
+  } catch (error) {
+    console.warn("[masterhand] web index.html unreadable, serving API only:", error)
+  }
   app.use("*", serveStatic({ root: webDist }))
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api/")) {
       return c.json({ error: "not_found" }, 404)
+    }
+    if (indexHtml === null) {
+      return c.json({ error: "web_unavailable" }, 500)
     }
     return c.html(indexHtml)
   })

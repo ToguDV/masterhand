@@ -598,8 +598,11 @@ describe("goal manager", () => {
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
   })
 
-  it("skips an overlapping watchdog pass and lists active sessions once per pass", async () => {
+  it("skips an overlapping watchdog pass with one snapshot per pass", async () => {
     // The watchdog fires every 30 s while a pass can outlive it (issue #202):
+    // a second pass must skip instead of stacking, and one pass takes a
+    // single snapshot — plus at most one revalidation when a quiet turn is
+    // actually retried (issue #202 review: the snapshot may be stale by then).    // The watchdog fires every 30 s while a pass can outlive it (issue #202):
     // a second pass must skip instead of stacking, and one pass must ask
     // upstream once, not once per run.
     const h = harness()
@@ -624,10 +627,45 @@ describe("goal manager", () => {
       expect(debug).toHaveBeenCalledWith(expect.stringContaining("already running"))
       release()
       await Promise.all([first, second])
-      expect(activeCalls).toBe(1)
+      // One snapshot for the pass plus the revalidation before the retry of
+      // this quiet turn (no second snapshot: the overlapping pass skipped).
+      expect(activeCalls).toBe(2)
     } finally {
       debug.mockRestore()
     }
+  })
+
+  it("skips the upstream listing when no run awaits a session", async () => {
+    const h = harness()
+    let activeCalls = 0
+    const inner = h.opencode.activeSessions.bind(h.opencode)
+    h.opencode.activeSessions = async () => {
+      activeCalls += 1
+      return inner()
+    }
+    await h.manager.reconcile()
+    expect(activeCalls).toBe(0)
+  })
+
+  it("revalidates the awaited session before retrying a quiet turn", async () => {
+    // The shared snapshot can go stale while the pass awaits per-run work: a
+    // session that went busy mid-pass must not receive a retry prompt.
+    const h = harness()
+    await start(h)
+    const promptsBefore = h.opencode.prompts.length
+    let activeCalls = 0
+    const inner = h.opencode.activeSessions.bind(h.opencode)
+    h.opencode.activeSessions = async () => {
+      activeCalls += 1
+      // Snapshot sees it idle; by the time the retry is considered it is busy.
+      if (activeCalls === 1) return []
+      return ["ses_main"]
+    }
+    await h.manager.reconcile()
+    await h.manager.flush()
+    expect(activeCalls).toBe(2)
+    expect(h.opencode.prompts).toHaveLength(promptsBefore)
+    expect(h.manager.status("ses_main")?.attempt).toBe(0)
   })
 
   it("also wakes on execution.succeeded (servers that skip idle)", async () => {

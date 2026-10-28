@@ -266,17 +266,20 @@ export function createCachedDiskFree(
   ttlMs = DISK_FREE_TTL_MS,
 ): () => Promise<number | null> {
   let cached: { at: number; value: number | null } | null = null
+  let inFlight: Promise<number | null> | null = null
   return async () => {
     const now = Date.now()
     if (cached && now - cached.at < ttlMs) return cached.value
-    let value: number | null
-    try {
-      value = await read()
-    } catch {
-      value = null
-    }
-    cached = { at: now, value }
-    return value
+    // Concurrent misses share one probe: without this every simultaneous
+    // /api/status poll would statfs on its own.
+    inFlight ??= read()
+      .catch(() => null)
+      .then((value) => {
+        cached = { at: Date.now(), value }
+        inFlight = null
+        return value
+      })
+    return inFlight
   }
 }
 
