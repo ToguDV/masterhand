@@ -129,12 +129,13 @@ export interface AppDeps {
 }
 
 /**
- * `createApp` exposes the scheduler it built (or received) so `index.ts` can
- * run the boot reconciliation and stop it on shutdown without widening the
+ * `createApp` exposes the managers it built (or received) so `index.ts` can
+ * run the boot reconciliation and stop them on shutdown without widening the
  * return shape beyond Hono (tests inject managers like `goals`).
  */
 export interface AppWithScheduler extends Hono {
   scheduler?: SchedulerManager
+  goals?: GoalManager
 }
 
 const KEEPALIVE_MS = 25_000
@@ -2968,6 +2969,7 @@ export function createApp(deps: AppDeps): Hono {
   // Exposed for index.ts boot/shutdown wiring (reconcile/stop/flush) without
   // widening createApp's return shape; tests inject managers like `goals`.
   ;(app as AppWithScheduler).scheduler = scheduler
+  ;(app as AppWithScheduler).goals = goals
 
   return app
 }
