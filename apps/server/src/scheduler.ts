@@ -233,7 +233,11 @@ export function nextScheduledRunAt(
     }
     let slot = job.nextRun(new Date(anchorMs))
     for (let steps = 0; slot && slot.getTime() <= nowMs; steps += 1) {
-      if (steps >= MAX_CRON_SLOT_STEPS) return null
+      // A stale anchor (long-offline BFF) must not walk hundreds of thousands
+      // of slots on the event loop: after the bound, fall back to one O(1)
+      // step from now instead of stranding the task on null. Only an
+      // impossible expression (e.g. Feb 30) still resolves to null below.
+      if (steps >= MAX_CRON_SLOT_STEPS) return job.nextRun(new Date(nowMs))?.toISOString() ?? null
       slot = job.nextRun(slot)
     }
     return slot ? slot.toISOString() : null

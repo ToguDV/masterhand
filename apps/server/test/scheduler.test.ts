@@ -720,16 +720,29 @@ describe("scheduler validation", () => {
 
   it("bounds the cron catch-up walk for a year-old anchor", () => {
     // A 5-minute task anchored a year back misses ~105k slots. The walk must
-    // stop after a few thousand steps (reporting null) instead of blocking
-    // the event loop for hundreds of ms or seconds (#212).
+    // stop after a few thousand steps (one O(1) fallback step from now)
+    // instead of blocking the event loop for hundreds of ms or seconds (#212).
     const nextRun = vi.spyOn(Cron.prototype, "nextRun")
     try {
       const yearAgo = BASE - 365 * 24 * 60 * MINUTE
-      expect(nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, yearAgo, BASE)).toBeNull()
-      expect(nextRun.mock.calls.length).toBeLessThanOrEqual(5001)
+      const recovered = nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, yearAgo, BASE)
+      expect(recovered).not.toBeNull()
+      expect(Date.parse(recovered!)).toBeGreaterThanOrEqual(BASE)
+      // 1 initial + 5000 walk steps + 1 O(1) fallback, never ~105k.
+      expect(nextRun.mock.calls.length).toBeLessThanOrEqual(5002)
     } finally {
       nextRun.mockRestore()
     }
+  })
+
+  it("recovers (not strands) a cron task stale past the walk bound", () => {
+    // 20 days at a 5-minute cadence (≈5.7k slots) exceeds the 5k walk bound:
+    // the task must resolve its next slot from now instead of nulling its
+    // anchor forever (review follow-up on #212).
+    const stale = BASE - 20 * 24 * 60 * MINUTE
+    const recovered = nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, stale, BASE)
+    expect(recovered).not.toBeNull()
+    expect(Date.parse(recovered!)).toBeGreaterThanOrEqual(BASE)
   })
 
   it("warns with the task id when a task cannot be scheduled", () => {

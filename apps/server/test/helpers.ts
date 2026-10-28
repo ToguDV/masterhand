@@ -682,6 +682,9 @@ export async function startTestApp(
       await preview.stopAll()
       hub.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))
+      // Since #207 the default test store is a real SQLite handle
+      // (":memory:"): leave no open database per started app.
+      store.close()
     },
   }
 }
