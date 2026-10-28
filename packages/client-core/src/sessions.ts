@@ -21,6 +21,21 @@ export function sessionCreateMarker(session: Session): string | null {
 
 export type SessionFilter = "all" | "isolated" | "standard"
 
+/** One page of a workspace's session list (#197). */
+export interface SessionPage {
+  sessions: Session[]
+  /** Present (true) only when the page was truncated: more rows follow. */
+  truncated?: boolean
+  /** Opaque offset for the next page (`?cursor=`); absent on the last page. */
+  nextCursor?: string
+}
+
+/** Paging knobs for the session list; absent means the full list (today's behavior). */
+export interface SessionListOptions {
+  limit?: number
+  cursor?: string
+}
+
 /** Filters a workspace session list by isolation mode (shared by web/mobile). */
 export function filterSessions(sessions: Session[], filter: SessionFilter): Session[] {
   if (filter === "all") return sessions

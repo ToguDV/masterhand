@@ -20,6 +20,7 @@ import { opencodeErrorMessage } from "./errors"
 import { goalPayloadOf, type GoalRun } from "./goal"
 import { boardPayloadOf, type BoardSnapshot } from "./board"
 import { schedulerEventOf, type ScheduledTaskInput, type ScheduledTaskPatch } from "./scheduler"
+import type { SessionListOptions } from "./sessions"
 import type {
   ChatMessage,
   FormInfo,
@@ -88,10 +89,22 @@ export function useSessions(
   enabled: boolean,
   refetchInterval: number | false = 10_000,
   workspaceID?: string | null,
+  options?: SessionListOptions,
 ) {
   return useQuery({
-    queryKey: queryKeys.sessionsFor(workspaceID),
-    queryFn: () => client.api.sessions.list(workspaceID!),
+    // A paged list is its own cache entry; the bare workspace prefix still
+    // invalidates every page (prefix match), so reconnects stay correct.
+    queryKey:
+      options === undefined ? queryKeys.sessionsFor(workspaceID) : [...queryKeys.sessionsFor(workspaceID), options],
+    queryFn: async () => {
+      // No options → exactly one argument (yesterday's call shape); the hook
+      // unwraps the page so data stays `Session[]` for every consumer.
+      const page =
+        options === undefined
+          ? await client.api.sessions.list(workspaceID!)
+          : await client.api.sessions.list(workspaceID!, options)
+      return page.sessions
+    },
     enabled: enabled && Boolean(workspaceID),
     refetchInterval,
   })

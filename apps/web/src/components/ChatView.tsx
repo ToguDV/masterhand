@@ -128,8 +128,8 @@ export function ChatView({
     for (const delay of [0, 1500, 3000]) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
       try {
-        const sessions = await client.api.sessions.list(workspaceID)
-        const isolation = sessions.find((session) => session.id === sessionID)?.isolation
+        const page = await client.api.sessions.list(workspaceID)
+        const isolation = page.sessions.find((session) => session.id === sessionID)?.isolation
         if (finishResultFromIsolation(isolation)) return isolation ?? null
       } catch {
         // keep polling: a transient failure must not hide the confirmation

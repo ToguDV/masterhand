@@ -243,6 +243,8 @@ export {
   sessionCreateMarker,
   shouldAutoAccept,
   type SessionFilter,
+  type SessionListOptions,
+  type SessionPage,
 } from "./sessions"
 export { reconcilePermissions } from "./permissions"
 export {

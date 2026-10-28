@@ -62,10 +62,24 @@ describe("createClient", () => {
     const client = createClient({ baseUrl: "https://mh.example/", fetchImpl })
 
     const sessions = await client.api.sessions.list("ws_1")
-    expect(sessions).toEqual([{ id: "ses_1" }])
+    expect(sessions).toEqual({ sessions: [{ id: "ses_1" }] })
     expect(client.baseUrl).toBe("https://mh.example")
     expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/sessions")
     expect(calls[0]?.init?.credentials).toBe("same-origin")
+  })
+
+  it("pages the session list with limit/cursor and keeps the default shape", async () => {
+    const { calls, fetchImpl } = recordingFetch(() =>
+      jsonResponse({ sessions: [{ id: "ses_1" }], truncated: true, nextCursor: "1" }),
+    )
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    const page = await client.api.sessions.list("ws_1")
+    expect(page).toEqual({ sessions: [{ id: "ses_1" }], truncated: true, nextCursor: "1" })
+    expect(calls[0]?.url).toBe("/api/workspaces/ws_1/sessions")
+
+    await client.api.sessions.list("ws_1", { limit: 1, cursor: "1" })
+    expect(calls[1]?.url).toBe("/api/workspaces/ws_1/sessions?limit=1&cursor=1")
   })
 
   it("sends a Bearer token when getToken returns one", async () => {

@@ -968,6 +968,42 @@ describe("scheduled run history limits", () => {
   it("retains only the newest 200 runs per task in memory", () => {
     retentionScenario(createMemoryStore())
   })
+
+  it("prunes run rows on status-update saves too", () => {
+    // The fire path persists its firing row through saveScheduledRun, not
+    // createScheduledRun: without a prune there the history grows past the
+    // keep-N policy on every fire.
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      for (let index = 0; index < 200; index += 1) {
+        store.createScheduledRun(
+          scheduledRun({
+            id: `run_${index}`,
+            taskId: "task_s",
+            startedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, index)).toISOString(),
+          }),
+        )
+      }
+      store.saveScheduledRun(
+        scheduledRun({
+          id: "run_firing",
+          taskId: "task_s",
+          status: "firing",
+          startedAt: new Date(Date.UTC(2026, 5, 2)).toISOString(),
+        }),
+      )
+      const rows = store.listScheduledRuns("task_s", { limit: 1000 })
+      expect(rows).toHaveLength(200)
+      expect(rows[0]?.id).toBe("run_firing")
+      // A 201st row would hide behind the 200-page cap: the second page tells
+      // whether the save pruned (empty) or not ([run_0]).
+      expect(store.listScheduledRuns("task_s", { limit: 200, offset: 200 })).toEqual([])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("scheduled task store", () => {

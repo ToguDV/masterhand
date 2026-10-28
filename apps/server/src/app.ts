@@ -390,6 +390,32 @@ async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promis
   await Promise.all(workers)
 }
 
+/**
+ * Maps `task` over `items` with at most `limit` in flight, keeping result
+ * order (#197): the session list fans out over the base folder plus every
+ * worktree, and an unbounded `Promise.all` bursts into dozens of upstream
+ * listings at once. Unlike `eachLimit` (fire-and-log releases), a rejection
+ * propagates to the caller — the sessions route maps it to 502 like before.
+ */
+export async function mapLimit<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next
+      next += 1
+      results[index] = await task(items[index] as T, index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/** Upstream listings in flight while aggregating one session list (#197). */
+const SESSION_LIST_FANOUT = 4
+/** Largest `?limit=` page the session list serves (#197). */
+const SESSION_LIST_MAX_LIMIT = 1000
+
 /** One frame queued for an SSE client. */
 export interface SseFrame {
   event?: string
@@ -860,6 +886,20 @@ export function createApp(deps: AppDeps): Hono {
       if (!response.ok) throw new UpstreamStatusError(response.status, response)
       const body = (await response.json()) as { data?: Record<string, unknown> }
       return Object.keys(body.data ?? {})
+    },
+    async deleteSession(sessionID) {
+      // Scheduler retention (#197): drop one scheduler-owned session. A
+      // missing session (404) counts as pruned; anything else throws so the
+      // scheduler logs it and still prunes the row.
+      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
+        method: "DELETE",
+        retry: false,
+      })
+      if (response.ok || response.status === 404) {
+        invalidateSessionsCache()
+        return
+      }
+      throw new UpstreamStatusError(response.status, response)
     },
     async modelExists(model) {
       // Same catalog check the goal settings route's model list uses.
@@ -1420,29 +1460,49 @@ export function createApp(deps: AppDeps): Hono {
     }
   }
 
+  /**
+   * In-flight upstream listings per directory (#197): concurrent cache misses
+   * for the same directory share one fetch instead of each paginating fully
+   * (the `preview.available()` pattern). Registered synchronously before the
+   * first await; a failure removes the entry so the next caller retries.
+   * `findSessionByCreateMarker` joins it too — an in-flight fetch is fresh by
+   * definition — while still bypassing the 5 s aggregation cache.
+   */
+  const sessionsInflight = new Map<string, Promise<OpencodeSession[]>>()
+
   /** Lists every session in a directory, following opencode's v2 cursor pagination. */
   async function fetchSessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
-    const sessions: OpencodeSession[] = []
-    let cursor: string | undefined
-    for (let page = 0; page < 50; page += 1) {
-      const target = new URL("/api/session", config.opencodeUrl)
-      target.searchParams.set("directory", directory)
-      target.searchParams.set("limit", "200")
-      if (cursor) target.searchParams.set("cursor", cursor)
-      const response = await fetchOpencode(target, {
-        headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
-      })
-      if (!response.ok) throw new Error(`opencode ${response.status}`)
-      const body = (await response.json()) as {
-        data?: OpencodeSession[]
-        cursor?: { next?: string | null }
+    const inflight = sessionsInflight.get(directory)
+    if (inflight) return inflight
+    const task = (async (): Promise<OpencodeSession[]> => {
+      const sessions: OpencodeSession[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < 50; page += 1) {
+        const target = new URL("/api/session", config.opencodeUrl)
+        target.searchParams.set("directory", directory)
+        target.searchParams.set("limit", "200")
+        if (cursor) target.searchParams.set("cursor", cursor)
+        const response = await fetchOpencode(target, {
+          headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
+        })
+        if (!response.ok) throw new Error(`opencode ${response.status}`)
+        const body = (await response.json()) as {
+          data?: OpencodeSession[]
+          cursor?: { next?: string | null }
+        }
+        sessions.push(...(body.data ?? []))
+        const next = body.cursor?.next
+        if (!next) break
+        cursor = next
       }
-      sessions.push(...(body.data ?? []))
-      const next = body.cursor?.next
-      if (!next) break
-      cursor = next
+      return sessions
+    })()
+    sessionsInflight.set(directory, task)
+    try {
+      return await task
+    } finally {
+      if (sessionsInflight.get(directory) === task) sessionsInflight.delete(directory)
     }
-    return sessions
   }
 
   async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
@@ -2184,7 +2244,9 @@ export function createApp(deps: AppDeps): Hono {
    */
   async function activeSessionGuard(c: Context, directories: string[]): Promise<Response | null> {
     try {
-      const lists = await Promise.all(directories.map((directory) => fetchSessionsInDirectory(directory)))
+      const lists = await mapLimit(directories, SESSION_LIST_FANOUT, (directory) =>
+        fetchSessionsInDirectory(directory),
+      )
       const sessions = lists.flat()
       if (sessions.length > 0) {
         const response = await callOpencode("/api/session/active")
@@ -2311,11 +2373,17 @@ export function createApp(deps: AppDeps): Hono {
     let lists: OpencodeSession[][]
     try {
       // The base folder must answer (502 otherwise); a missing/broken worktree
-      // only drops its own sessions.
-      lists = await Promise.all([
-        sessionsInDirectory(workspace.path),
-        ...records.map((record) => sessionsInDirectory(record.path).catch(() => [])),
-      ])
+      // only drops its own sessions. Bounded fan-out: base + every worktree
+      // share SESSION_LIST_FANOUT upstream listings, never an unbounded burst.
+      const directories = [workspace.path, ...records.map((record) => record.path)]
+      lists = await mapLimit(directories, SESSION_LIST_FANOUT, async (directory, index) => {
+        if (index === 0) return sessionsInDirectory(directory)
+        try {
+          return await sessionsInDirectory(directory)
+        } catch {
+          return []
+        }
+      })
     } catch (error) {
       return opencodeFailure(c, error)
     }
@@ -2348,7 +2416,23 @@ export function createApp(deps: AppDeps): Hono {
       const record = byID.get(session.id) ?? (session.parentID ? byID.get(session.parentID) : undefined)
       merged.set(session.id, record ? { ...annotated, isolation: isolationOf(record) } : annotated)
     }
-    return c.json({ sessions: [...merged.values()] })
+    // Optional client paging (#197): `?limit=` caps the page and `?cursor=` is
+    // the opaque offset the previous page's `nextCursor` carried. Garbage
+    // params fall back to the full list. The default response keeps the exact
+    // `{ sessions }` shape so old clients ignore the new fields; a truncated
+    // page adds `truncated: true` + `nextCursor`. Cursors are offsets over a
+    // live list — a session created between pages can shift them; clients that
+    // need consistency refetch from the start.
+    const all = [...merged.values()]
+    const limit = parseSessionListLimit(c.req.query("limit"))
+    if (limit === undefined) return c.json({ sessions: all })
+    const cursor = parseSessionListCursor(c.req.query("cursor"))
+    const page = all.slice(cursor, cursor + limit)
+    const next = cursor + page.length
+    return c.json({
+      sessions: page,
+      ...(next < all.length ? { truncated: true, nextCursor: String(next) } : {}),
+    })
   })
 
   api.post("/workspaces/:id/sessions", async (c) => {
@@ -3119,6 +3203,25 @@ export function createApp(deps: AppDeps): Hono {
     if (raw === undefined) return undefined
     const parsed = Number.parseInt(raw, 10)
     return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  /**
+   * Raw session-list page size (#197): absent/garbage means "the full list"
+   * (today's behavior); a positive integer caps the page at
+   * SESSION_LIST_MAX_LIMIT. Advisory like the history params — never a 400.
+   */
+  function parseSessionListLimit(raw: string | undefined): number | undefined {
+    if (raw === undefined) return undefined
+    const parsed = Number.parseInt(raw, 10)
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+    return Math.min(parsed, SESSION_LIST_MAX_LIMIT)
+  }
+
+  /** Raw session-list cursor (#197): an opaque offset; garbage means "from the start". */
+  function parseSessionListCursor(raw: string | undefined): number {
+    if (raw === undefined) return 0
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
   }
 
   function unknownDirectory(): SchedulerError {

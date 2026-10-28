@@ -55,6 +55,7 @@ import {
   type BoardSnapshot,
 } from "./board"
 import type { ScheduledRun, ScheduledTask, ScheduledTaskInput, ScheduledTaskPatch } from "./scheduler"
+import type { SessionListOptions, SessionPage } from "./sessions"
 import {
   normalizeWebsearchSelection,
   normalizeWebsearchSources,
@@ -133,7 +134,12 @@ export interface Client {
      * `isolation` (branch/worktree path) when it runs isolated.
      */
     sessions: {
-      list(workspaceID: string): Promise<Session[]>
+      /**
+       * One page of the workspace's sessions (#197). Without options the full
+       * list arrives as `{ sessions }` (today's shape); with `{ limit, cursor }`
+       * a truncated page also carries `truncated: true` + `nextCursor`.
+       */
+      list(workspaceID: string, options?: SessionListOptions): Promise<SessionPage>
       create(workspaceID: string, input?: CreateSessionInput): Promise<Session>
       remove(workspaceID: string, sessionID: string): Promise<void>
       finish(sessionID: string): Promise<FinishSessionResult>
@@ -503,10 +509,15 @@ export function createClient(options: ClientOptions = {}): Client {
     },
     api: {
       sessions: {
-        list: (workspaceID) =>
-          request<{ sessions: Session[] }>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/sessions`,
-          ).then((response) => response.sessions),
+        list: (workspaceID, options) => {
+          const params = new URLSearchParams()
+          if (options?.limit !== undefined) params.set("limit", String(options.limit))
+          if (options?.cursor !== undefined) params.set("cursor", options.cursor)
+          const query = params.toString()
+          return request<SessionPage>(
+            `/api/workspaces/${encodeURIComponent(workspaceID)}/sessions${query ? `?${query}` : ""}`,
+          )
+        },
         create: (workspaceID, input) =>
           request<{ session: Session }>(`/api/workspaces/${encodeURIComponent(workspaceID)}/sessions`, {
             method: "POST",

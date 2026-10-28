@@ -272,19 +272,21 @@ describe("ChatScreen", () => {
       },
       (client) => {
         client.api.sessions.finish.mockRejectedValue(new RequestTimeoutError())
-        client.api.sessions.list.mockResolvedValue([
-          {
-            id: "s1",
-            isolation: {
-              isolated: true,
-              worktreePath: "/workspaces/.worktrees/demo/abc",
-              branch: "masterhand/abc",
-              baseRef: "HEAD",
-              pushed: true,
-              prUrl: null,
+        client.api.sessions.list.mockResolvedValue({
+          sessions: [
+            {
+              id: "s1",
+              isolation: {
+                isolated: true,
+                worktreePath: "/workspaces/.worktrees/demo/abc",
+                branch: "masterhand/abc",
+                baseRef: "HEAD",
+                pushed: true,
+                prUrl: null,
+              },
             },
-          },
-        ])
+          ],
+        })
       },
     )
 
@@ -308,7 +310,7 @@ describe("ChatScreen", () => {
       },
       (client) => {
         client.api.sessions.finish.mockRejectedValue(new RequestTimeoutError())
-        client.api.sessions.list.mockResolvedValue([])
+        client.api.sessions.list.mockResolvedValue({ sessions: [] })
       },
     )
 

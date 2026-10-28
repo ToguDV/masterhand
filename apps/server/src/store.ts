@@ -453,7 +453,8 @@ export interface ScheduledRun {
  * Scheduled-run history policy (#198, failure class A → rule 13): history is
  * a diagnostic buffer, not an archive. Reads page in SQL with a default
  * newest-50 page (the route's historical cap); writes keep the newest
- * `SCHEDULED_RUNS_KEEP_PER_TASK` runs per task, pruned on every create.
+ * `SCHEDULED_RUNS_KEEP_PER_TASK` runs per task, pruned on every write
+ * (creates and fire-path saves).
  * Retention deletes rows — documented in `docs/bff/api.md`, never silent —
  * and rollback is a database backup restore (`docs/runbooks/backups.md`).
  */
@@ -1386,11 +1387,14 @@ export function createSqliteStore(file: string): Store {
     createScheduledRun(record) {
       saveScheduledRunStatement.run(record)
       // Retention on the growth path: a new run row prunes its task's tail.
-      // Status updates (`saveScheduledRun`) never grow the table, so they skip it.
       pruneScheduledRunsStatement.run(record.taskId, record.taskId, SCHEDULED_RUNS_KEEP_PER_TASK)
     },
     saveScheduledRun(record) {
       saveScheduledRunStatement.run(record)
+      // The fire path persists its firing row through this upsert (#197), so
+      // it prunes too: status updates of existing rows only re-run a cheap
+      // no-op delete (the 200-row subquery stops at the cap).
+      pruneScheduledRunsStatement.run(record.taskId, record.taskId, SCHEDULED_RUNS_KEEP_PER_TASK)
     },
     getScheduledRun(id) {
       const row = getScheduledRunStatement.get(id) as Record<string, unknown> | undefined

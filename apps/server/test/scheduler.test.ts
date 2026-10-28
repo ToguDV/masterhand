@@ -138,6 +138,13 @@ class FakeOpencode implements SchedulerOpencode {
     return [...this.activeSet]
   }
 
+  deletedSessions: string[] = []
+
+  async deleteSession(sessionID: string): Promise<void> {
+    this.deletedSessions.push(sessionID)
+    this.sessions.delete(sessionID)
+  }
+
   async modelExists(model: ModelRef): Promise<boolean> {
     return this.modelCatalog.includes(`${model.providerID}/${model.id}`)
   }
@@ -327,6 +334,41 @@ describe("scheduler fire path", () => {
 
     expect(onlyRun(h).status).toBe("running")
     expect(h.events).toHaveLength(2)
+  })
+
+  it("prunes scheduler-owned sessions past retention when firing", async () => {
+    // Run rows pruned from history leave their opencode sessions behind: the
+    // fire drops the sessions of runs that will not survive retention first.
+    // Only session ids recorded in this task's own history are touched —
+    // never user sessions — and a missing session counts as pruned.
+    const h = harness()
+    for (let index = 0; index < 200; index += 1) {
+      // Strictly older than the fire about to happen (clock is at BASE), so
+      // the displaced row is deterministically the oldest seeded one.
+      const startedAt = h.iso(BASE - (200 - index) * 1000)
+      h.store.createScheduledRun({
+        id: `run_old_${index}`,
+        taskId: "task_1",
+        sessionID: `ses_old_${index}`,
+        status: "completed",
+        source: "schedule",
+        error: null,
+        startedAt,
+        endedAt: startedAt,
+      })
+    }
+    await h.manager.tick()
+
+    const rows = h.store.listScheduledRuns("task_1", { limit: 1000 })
+    expect(rows).toHaveLength(200)
+    // The oldest run fell out of retention: its session is gone, its row too.
+    expect(h.opencode.deletedSessions).toEqual(["ses_old_0"])
+    expect(rows.some((run) => run.id === "run_old_0")).toBe(false)
+    // The retained window (and the just-fired run) keeps its sessions.
+    expect(h.opencode.deletedSessions).not.toContain("ses_old_199")
+    const running = rows.find((run) => run.status === "running")!
+    expect(running.sessionID).not.toBeNull()
+    expect(h.opencode.deletedSessions).not.toContain(running.sessionID!)
   })
 
   it("closes a running run as completed on session.idle and as failed on session.error", async () => {
