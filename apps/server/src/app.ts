@@ -118,6 +118,8 @@ export interface AppDeps {
   scheduler?: SchedulerManager
   /** Overridable for tests: proxy retry tuning (attempts/backoff/sleep). */
   proxyRetry?: ProxyRetryOptions
+  /** Overridable for tests: whole-loop budget of the custom-provider key connect. */
+  connectKeyBudgetMs?: number
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
@@ -156,6 +158,15 @@ const IDEMPOTENT_OPENCODE_METHODS = new Set(["GET", "HEAD", "PUT", "PATCH", "DEL
 /** Internal opencode retries for idempotent calls (transient statuses/network). */
 const OPENCODE_RETRY_ATTEMPTS = 4
 const OPENCODE_RETRY_BASE_MS = 250
+/**
+ * Whole-loop deadline for connecting a custom provider key (issue #194): 10
+ * attempts × the per-call upstream timeout could otherwise stack past 100 s
+ * against the client's 30 s deadline. Expiry answers `connected: false`
+ * (best effort); the provider write already landed.
+ */
+const CONNECT_KEY_BUDGET_MS = 8_000
+/** Delay between key-connect attempts while opencode reloads the config. */
+const CONNECT_KEY_RETRY_MS = 400
 
 interface OpencodeSession {
   id: string
@@ -974,11 +985,14 @@ export function createApp(deps: AppDeps): Hono {
   /**
    * Bounded fetch to opencode: a stalled upstream (TCP accepted, no response)
    * must never hold the route forever. The timeout is normalized so routes can
-   * answer 504 `opencode_timeout` instead of an opaque 500.
+   * answer 504 `opencode_timeout` instead of an opaque 500. An outer signal
+   * (e.g. a whole-operation budget) joins the per-call timeout: whichever
+   * fires first aborts the fetch.
    */
-  async function fetchOpencode(target: URL, init: RequestInit = {}): Promise<Response> {
+  async function fetchOpencode(target: URL, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
+    const timeout = AbortSignal.timeout(config.opencodeTimeoutMs)
     try {
-      return await fetchImpl(target, { ...init, signal: AbortSignal.timeout(config.opencodeTimeoutMs) })
+      return await fetchImpl(target, { ...init, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
     } catch (error) {
       if ((error as { name?: string } | null)?.name === "TimeoutError") throw new OpencodeTimeoutError()
       throw error
@@ -1020,6 +1034,8 @@ export function createApp(deps: AppDeps): Hono {
       body?: unknown
       /** `false` opts out of the default idempotent-method retries (the caller owns the policy). */
       retry?: boolean
+      /** Aborts the fetch (e.g. a whole-operation budget owns the deadline). */
+      signal?: AbortSignal
     } = {},
   ): Promise<Response> {
     const method = options.method ?? "GET"
@@ -1036,11 +1052,15 @@ export function createApp(deps: AppDeps): Hono {
       target.searchParams.set("location[directory]", options.location)
     }
     const request = (): Promise<Response> =>
-      fetchOpencode(target, {
-        method,
-        headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      })
+      fetchOpencode(
+        target,
+        {
+          method,
+          headers,
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        },
+        options.signal,
+      )
 
     if (options.retry === false || !IDEMPOTENT_OPENCODE_METHODS.has(method)) return request()
 
@@ -1076,25 +1096,45 @@ export function createApp(deps: AppDeps): Hono {
    * Connects a stored key to a freshly written custom provider. opencode only
    * registers the integration after it reloads the config, and `connect/key`
    * answers `404` until then, so a bounded retry is safe (a 404 created
-   * nothing). A failure never fails the create: the provider stays and the card
-   * offers Connect.
+   * nothing). The whole loop owns one budget (issue #194): attempts stack
+   * per-call timeouts otherwise, and the route must answer inside the
+   * client's deadline. A failure never fails the create: the provider stays
+   * and the card offers Connect. The key travels only in the request body and
+   * is never logged.
    */
   async function connectCustomProviderKey(id: string, key: string, label?: string): Promise<boolean> {
     const path = `/api/integration/${encodeURIComponent(id)}/connect/key`
+    const budget = AbortSignal.timeout(deps.connectKeyBudgetMs ?? CONNECT_KEY_BUDGET_MS)
     for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (budget.aborted) return false
       try {
         const response = await callOpencode(path, {
           method: "POST",
           body: { key, ...(label ? { label } : {}) },
+          signal: budget,
         })
         if (response.ok) return true
         if (response.status !== 404) return false
       } catch {
         return false
       }
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      await sleepUnlessAborted(CONNECT_KEY_RETRY_MS, budget)
     }
     return false
+  }
+
+  /** Settles early when the operation budget expires instead of oversleeping it. */
+  function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(cleanup, ms)
+      function cleanup(): void {
+        clearTimeout(timer)
+        signal.removeEventListener("abort", cleanup)
+        resolve()
+      }
+      signal.addEventListener("abort", cleanup, { once: true })
+    })
   }
 
   /** Removes every stored credential of a custom provider (best effort). */

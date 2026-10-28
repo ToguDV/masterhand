@@ -584,6 +584,7 @@ export async function startTestApp(
     providers?: CustomProviderStore
     goals?: import("../src/goal.js").GoalManager
     proxyRetry?: import("../src/proxy.js").ProxyRetryOptions
+    connectKeyBudgetMs?: number
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
@@ -635,6 +636,7 @@ export async function startTestApp(
     providers: options.providers,
     goals: options.goals,
     proxyRetry: options.proxyRetry ?? { baseDelayMs: 1, jitter: false },
+    connectKeyBudgetMs: options.connectKeyBudgetMs,
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
