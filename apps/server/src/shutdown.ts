@@ -17,6 +17,8 @@ export interface ShutdownResources {
     close(callback: (err?: Error) => void): unknown
     closeAllConnections?: () => void
   }
+  /** Single-instance lock (issue #208): released after the managers stop. */
+  lock?: { release(): void | Promise<void> } | null
 }
 
 export interface ShutdownOptions {
@@ -103,6 +105,11 @@ export async function shutdownServer(
     resources.hub.stop()
   } catch {
     // best effort
+  }
+  try {
+    await resources.lock?.release()
+  } catch {
+    // best effort: the bind dies with the process either way
   }
   try {
     resources.store.close()

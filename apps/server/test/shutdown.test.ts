@@ -173,4 +173,57 @@ describe("shutdownServer (issue #192)", () => {
     expect(SHUTDOWN_FLUSH_MS).toBe(5_000)
     expect(SHUTDOWN_FORCED_EXIT_MS).toBe(10_000)
   })
+
+  it("still exits when close steps throw (best effort)", async () => {
+    const { resources, options, scheduled, exits } = setup({
+      server: {
+        close: () => {
+          throw new Error("already closed")
+        },
+        closeAllConnections: () => {
+          throw new Error("no connections")
+        },
+      },
+      store: {
+        close: () => {
+          throw new Error("disk gone")
+        },
+      },
+    })
+    const error = console.error
+    console.error = () => {}
+    try {
+      const pending = shutdownServer(resources, 2, options)
+      await tick()
+      for (const call of scheduled.filter((entry) => entry.ms !== SHUTDOWN_FORCED_EXIT_MS)) call.fn()
+      await pending
+      expect(exits).toEqual([2])
+    } finally {
+      console.error = error
+    }
+  })
+
+  it("releases the instance lock before closing the store (issue #208)", async () => {
+    const { order, resources, options, scheduled, exits } = setup()
+    let releaseResolve!: () => void
+    const releaseGate = new Promise<void>((resolve) => {
+      releaseResolve = resolve
+    })
+    resources.lock = {
+      release: async () => {
+        order.push("lock.release")
+        await releaseGate
+      },
+    }
+    const pending = shutdownServer(resources, 0, options)
+    await tick()
+    // The shutdown parks on the lock release: the store must not close first.
+    expect(order).toContain("lock.release")
+    expect(order).not.toContain("store.close")
+    releaseResolve()
+    for (const call of scheduled.filter((entry) => entry.ms !== SHUTDOWN_FORCED_EXIT_MS)) call.fn()
+    await pending
+    expect(order.indexOf("lock.release")).toBeLessThan(order.indexOf("store.close"))
+    expect(exits).toEqual([0])
+  })
 })

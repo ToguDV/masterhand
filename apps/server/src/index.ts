@@ -8,11 +8,22 @@ import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
 import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchDefault } from "./providers.js"
 import { shutdownServer } from "./shutdown.js"
-import { createSqliteStore, ensureDataDir } from "./store.js"
+import { acquireDataDirLock, createSqliteStore, ensureDataDir, type DataDirLock } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
 const config = loadConfig()
 ensureDataDir(config.dataDir)
+
+// One BFF instance over one data directory (ARCHITECTURE.md ADR-26): a
+// second process would own its own tunnels/PTYs while sharing the SQLite
+// file. Refuse loudly instead of corrupting in-process state (issue #208).
+let dataDirLock: DataDirLock
+try {
+  dataDirLock = await acquireDataDirLock(config.dataDir)
+} catch (error) {
+  console.error("[masterhand] refusing to boot:", error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 
 let store: ReturnType<typeof createSqliteStore>
 try {
@@ -111,7 +122,7 @@ async function shutdown(code = 0): Promise<void> {
   // otherwise hold `server.close` open), then the managers drain against a
   // live store, and the store closes last. The forced-exit backstop installs
   // first so a stalled step can never hang a SIGTERM.
-  await shutdownServer({ scheduler, goals, preview, hub, store, server })
+  await shutdownServer({ scheduler, goals, preview, hub, store, server, lock: dataDirLock })
 }
 
 let shuttingDown = false

@@ -71,7 +71,7 @@ in the sessions options box per #136/#137).
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, PR pending) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
-| C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
+| C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | 🟡 Implemented 2026-10-28 on `fix/c20-shutdown-reliability` (4 commits, one per issue) — pending reviewer pass, PR not yet opened |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ⬜ Pending |
 
@@ -183,6 +183,11 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   established by #186.
 - **Notes:** test shutdown with an in-flight write; never trade the bounded budget for a longer
   client deadline.
+- **Status:** 4/4 implemented 2026-10-28 on `fix/c20-shutdown-reliability` (#192 → #194 → #204 → #208,
+  one commit per issue with red → green evidence each): ordered/bounded shutdown with goal drain
+  (`shutdown.ts`), whole-loop connect-key budget, finish/delete operation budgets with abort threaded
+  into git plus ambiguous 504s, and the single-instance data-dir lock. Pending reviewer pass; PR not
+  yet opened.
 
 ### C21 — Transport, memory and growth
 
