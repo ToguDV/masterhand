@@ -97,7 +97,10 @@ export interface ProxyRetryOptions {
  */
 const SANITIZED_CATALOG_PATHS = new Set(["/api/model", "/api/model/default", "/api/provider"])
 
-/** Case-insensitive `apiKey`/`api_key`/`APIKEY` shapes; everything else is kept. */
+/** Case-insensitive `apiKey`/`api_key`/`APIKEY` shapes; everything else is kept.
+ * Denylist, not allowlist: a future `token`/`secret`-shaped key would pass.
+ * Acceptable because no client reads `settings` at all — if the catalog ever
+ * grows new secret shapes, drop `settings` wholesale instead of extending this. */
 const SENSITIVE_KEY_PATTERN = /^api[_-]?key$/i
 
 /**
@@ -305,16 +308,19 @@ export function createOpencodeProxy(
 
     // #217: the provider/model catalogs echo `settings.apiKey` verbatim.
     // Sanitize those three paths before they reach a client; anything that is
-    // not a JSON success passes through exactly like before.
+    // not a JSON success passes through exactly like before. The body is read
+    // once as text: re-reading `upstream.body` after a failed `json()` parse
+    // would throw on the consumed stream.
     if (
       method === "GET" &&
       SANITIZED_CATALOG_PATHS.has(path) &&
       upstream.status >= 200 &&
       upstream.status < 300 &&
-      upstream.headers.get("content-type")?.includes("application/json")
+      upstream.headers.get("content-type")?.toLowerCase().includes("application/json")
     ) {
+      const raw = await upstream.text()
       try {
-        const payload: unknown = await upstream.json()
+        const payload: unknown = JSON.parse(raw)
         const responseHeaders = new Headers()
         for (const name of FORWARD_RESPONSE_HEADERS) {
           const value = upstream.headers.get(name)
@@ -326,7 +332,14 @@ export function createOpencodeProxy(
           headers: responseHeaders,
         })
       } catch {
-        // Not decodable JSON: nothing structured to leak, keep the old path.
+        // Not decodable JSON: nothing structured to leak, keep the old path
+        // with the bytes already read.
+        const responseHeaders = new Headers()
+        for (const name of FORWARD_RESPONSE_HEADERS) {
+          const value = upstream.headers.get(name)
+          if (value) responseHeaders.set(name, value)
+        }
+        return new Response(raw, { status: upstream.status, headers: responseHeaders })
       }
     }
 

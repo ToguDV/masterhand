@@ -122,8 +122,14 @@ export const ENGINE_CONFIG_DIR = "/home/node/.config/opencode"
  *   path through `authorizeExternal` (`action: "external_directory"` with the
  *   target directory as the resource) before that assert, so the
  *   `external_directory` denies below confine them too.
- * - Rule evaluation is last-match-wins, so these denies must stay *after* the
- *   `external_directory: allow *` entry of `externalWriteGuardRules`.
+ * - Rule evaluation is last-match-wins (`findLast` over the merged ruleset in
+ *   `permission.ts`), so these denies must stay *after* the
+ *   `external_directory: allow *` entry of `externalWriteGuardRules`. A session
+ *   deny beats any saved/project `allow` (`denied()` is checked on the session
+ *   ruleset before saved rules are even consulted).
+ * - Patterns compile with `*` as `.*` (`util/wildcard.ts`), so one `*`
+ *   crosses `/`: `/proc/*` also matches `/proc/self/environ` at any depth.
+ *   No `/**` forms needed.
  * - The match is lexical (no `realpath`): a symlink inside the workspace that
  *   points outside resolves to a relative resource and passes this guard. That
  *   residual is documented in `docs/bff/api.md`; engine files stay owner-only

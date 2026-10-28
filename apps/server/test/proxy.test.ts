@@ -266,6 +266,63 @@ describe("catalog sanitization (#217)", () => {
     expect(response.status).toBe(200)
     expect(JSON.stringify(await response.json())).toContain(FAKE_KEY)
   })
+
+  it("forwards undecodable catalog bodies byte-identical instead of throwing", async () => {
+    const raw = "{not valid json"
+    const stub: typeof fetch = async () =>
+      new Response(raw, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    const proxy = createOpencodeProxy(
+      { opencodeUrl: "http://127.0.0.1:4096", opencodeAuth: null } as unknown as Config,
+      stub,
+    )
+    const context = {
+      req: {
+        url: "http://test/api/oc/api/provider",
+        path: "/api/oc/api/provider",
+        method: "GET",
+        header: () => undefined,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      },
+      json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+    }
+
+    const response = await proxy(context as never)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe(raw)
+  })
+
+  it.each([["application/json"], ["Application/JSON; charset=utf-8"]] as Array<[string]>)(
+    "sanitizes catalog responses with content-type %s",
+    async (contentType) => {
+      const upstreamBody = { data: [{ id: "acme", settings: { apiKey: FAKE_KEY } }] }
+      const stub: typeof fetch = async () =>
+        new Response(JSON.stringify(upstreamBody), {
+          status: 200,
+          headers: { "content-type": contentType },
+        })
+      const proxy = createOpencodeProxy(
+        { opencodeUrl: "http://127.0.0.1:4096", opencodeAuth: null } as unknown as Config,
+        stub,
+      )
+      const context = {
+        req: {
+          url: "http://test/api/oc/api/provider",
+          path: "/api/oc/api/provider",
+          method: "GET",
+          header: () => undefined,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        },
+        json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+      }
+
+      const response = await proxy(context as never)
+      expect(response.status).toBe(200)
+      expect(JSON.stringify(await response.json())).not.toContain(FAKE_KEY)
+    },
+  )
 })
 
 describe("opencode proxy", () => {

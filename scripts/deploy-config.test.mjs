@@ -9,10 +9,9 @@ const compose = readFileSync(join(repoRoot, "deploy", "docker-compose.yml"), "ut
 
 // #218: project-level opencode plugins/config execute as the engine user
 // (verified with a marker plugin against the pinned 2.0.6 image: it ran on
-// session creation; with the flag it never loads). The flag is the only
-// supported disable (opencode 2.0.6 `ServerOptions.config.project`, fed by
-// `OPENCODE_CONFIG_PROJECT_DISABLE`/`OPENCODE_DISABLE_PROJECT_CONFIG`), so
-// pin it here; the runtime probe is recorded in the PR, not in this file.
+// session creation; with the flag it never loads). The flag feeds opencode
+// 2.0.6 `ServerOptions.config.project`, so pin it here; the runtime probe is
+// recorded in the PR, not in this file.
 test("the opencode service disables project-level config/plugin discovery (#218)", () => {
   assert.match(compose, /OPENCODE_CONFIG_PROJECT_DISABLE:\s*["']?true["']?/)
 })
