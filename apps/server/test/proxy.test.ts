@@ -1,7 +1,7 @@
 import { get as httpGet, request as httpRequest, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
-import { createOpencodeProxy, isAllowedOpencodePath } from "../src/proxy.js"
+import { createOpencodeProxy, isAllowedOpencodePath, sanitizeCatalogPayload } from "../src/proxy.js"
 import { login, readUntil, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
 
 const TEST_AUTH = `Basic ${Buffer.from("opencode:oc-secret").toString("base64")}`
@@ -160,21 +160,128 @@ describe("opencode proxy allowlist at the HTTP boundary (#179)", () => {
     const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(200)
     const body = (await response.json()) as { data: Array<Record<string, unknown>> }
-    expect(body.data).toContainEqual({ id: "test-model", providerID: "test" })
+    // #217: the mock serves a fake settings.apiKey; the proxy strips it while
+    // keeping the other settings keys.
+    expect(body.data).toContainEqual({
+      id: "test-model",
+      providerID: "test",
+      settings: { baseURL: "https://api.test.example/v1" },
+    })
+    expect(JSON.stringify(body)).not.toContain("sk-test-fake-key")
     expect(upstream.requests.filter((request) => request.path === "/api/model")).toHaveLength(1)
   })
 })
 
+describe("catalog sanitization (#217)", () => {
+  // A realistic-but-fake key: the shape a real secret would have, never one.
+  const FAKE_KEY = "sk-test-fake-key-9f8e7d6c5b4a"
+
+  it("strips apiKey-like keys at any depth while keeping sibling keys", () => {
+    expect(
+      sanitizeCatalogPayload({
+        location: { directory: "/w" },
+        data: [
+          {
+            id: "acme",
+            settings: { apiKey: FAKE_KEY, baseURL: "https://api.acme.example/v1" },
+            variants: [{ id: "high", settings: { reasoningEffort: "high", api_key: FAKE_KEY } }],
+          },
+        ],
+      }),
+    ).toEqual({
+      location: { directory: "/w" },
+      data: [
+        {
+          id: "acme",
+          settings: { baseURL: "https://api.acme.example/v1" },
+          variants: [{ id: "high", settings: { reasoningEffort: "high" } }],
+        },
+      ],
+    })
+  })
+
+  it("leaves payloads without secrets byte-identical", () => {
+    const payload = { data: [{ id: "m", providerID: "p", settings: { baseURL: "https://x.example" } }] }
+    expect(sanitizeCatalogPayload(payload)).toEqual(payload)
+  })
+
+  it.each([["GET", "/api/oc/api/provider"], ["GET", "/api/oc/api/model"], ["GET", "/api/oc/api/model/default"]] as Array<[string, string]> )(
+    "strips settings.apiKey from proxied %s %s but keeps the other keys",
+    async (method, path) => {
+      const upstreamBody = {
+        location: { directory: "/w" },
+        data: [{ id: "acme", settings: { apiKey: FAKE_KEY, baseURL: "https://api.acme.example/v1" } }],
+      }
+      const stub: typeof fetch = async () =>
+        new Response(JSON.stringify(upstreamBody), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      const proxy = createOpencodeProxy(
+        { opencodeUrl: "http://127.0.0.1:4096", opencodeAuth: null } as unknown as Config,
+        stub,
+      )
+      const context = {
+        req: {
+          url: `http://test${path}`,
+          path,
+          method,
+          header: () => undefined,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        },
+        json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+      }
+
+      const response = await proxy(context as never)
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { data: Array<{ settings?: Record<string, unknown> }> }
+      expect(JSON.stringify(body)).not.toContain(FAKE_KEY)
+      expect(body.data[0]?.settings).toEqual({ baseURL: "https://api.acme.example/v1" })
+    },
+  )
+
+  it("passes non-catalog routes through untouched", async () => {
+    const upstreamBody = { data: [{ id: "x", settings: { apiKey: FAKE_KEY } }] }
+    const stub: typeof fetch = async () =>
+      new Response(JSON.stringify(upstreamBody), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    const proxy = createOpencodeProxy(
+      { opencodeUrl: "http://127.0.0.1:4096", opencodeAuth: null } as unknown as Config,
+      stub,
+    )
+    const context = {
+      req: {
+        url: "http://test/api/oc/api/agent",
+        path: "/api/oc/api/agent",
+        method: "GET",
+        header: () => undefined,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      },
+      json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+    }
+
+    const response = await proxy(context as never)
+    expect(response.status).toBe(200)
+    expect(JSON.stringify(await response.json())).toContain(FAKE_KEY)
+  })
+})
+
 describe("opencode proxy", () => {
-  it("proxies GET and injects basic auth", async () => {
-    upstream = await startMockOpencode()
+  it("proxies GET and injects basic auth", async () => {    upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
     const cookie = await login(app.url)
 
     const response = await fetch(`${app.url}/api/oc/api/model`, { headers: { cookie } })
     expect(response.status).toBe(200)
     const body = (await response.json()) as { data: Array<Record<string, unknown>> }
-    expect(body.data).toContainEqual({ id: "test-model", providerID: "test" })
+    expect(body.data).toContainEqual({
+      id: "test-model",
+      providerID: "test",
+      settings: { baseURL: "https://api.test.example/v1" },
+    })
+    expect(JSON.stringify(body)).not.toContain("sk-test-fake-key")
 
     const proxied = upstream.requests.find((request) => request.path === "/api/model")
     expect(proxied?.authorization).toBe(TEST_AUTH)

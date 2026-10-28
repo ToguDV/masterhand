@@ -88,8 +88,7 @@ test("renders the original provider logos in the list (#128)", async ({ page }) 
   await expect(github.getByTestId("provider-avatar").locator("svg")).toHaveCount(0)
 })
 
-test("paginates the provider list and searches it (#128)", async ({ page }) => {
-  await login(page)
+test("paginates the provider list and searches it (#128)", async ({ page }) => {  await login(page)
   const settings = await openSettings(page)
 
   // Only the first five are rendered; OpenCode Go is pinned first.
@@ -111,4 +110,16 @@ test("paginates the provider list and searches it (#128)", async ({ page }) => {
 
   await settings.getByLabel("Search providers").fill("nope-nothing")
   await expect(settings.getByText("No provider matches that search.")).toBeVisible()
+})
+
+// The mock catalog carries a realistic-but-fake `settings.apiKey` (#217):
+// the proxy must strip it before any client — page or API response — sees it.
+test("never exposes catalog settings.apiKey to clients (#217)", async ({ page }) => {
+  await login(page)
+  for (const path of ["/api/oc/api/provider", "/api/oc/api/model", "/api/oc/api/model/default"]) {
+    const response = await page.request.get(path)
+    expect(response.ok()).toBe(true)
+    expect(JSON.stringify(await response.json())).not.toContain("sk-test-fake-key")
+  }
+  await expect(page.getByText("sk-test-fake-key")).toHaveCount(0)
 })

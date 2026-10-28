@@ -74,7 +74,7 @@ Permission rule semantics (verified against the pinned **2.0.6** source, `packag
 | `GET` | `/api/agent` | Agents (`{ location, data: Agent.Info[] }`); `id`, `name`, `mode` (`primary`/`subagent`/`all`), `hidden` |
 | `GET` | `/api/model` | Model catalog (`{ location, data: Model.Info[] }`); each model has `id`, `providerID`, `name`, `variants: Model.Variant[]` and `enabled` |
 | `GET` | `/api/model/default` | Server default model (`{ location, data: Model.Info \| null }`) |
-| `GET` | `/api/provider` | Providers (`{ location, data: Provider.Info[] }`), no nested models |
+| `GET` | `/api/provider` | Providers (`{ location, data: Provider.Info[] }`), no nested models. `settings.apiKey` echoes verbatim on the pinned 2.0.6 for providers that configure one (verified with a custom provider); the BFF proxy strips apiKey-like keys from all three catalog routes before clients see them (#217) |
 | `GET` | `/api/command` | Slash commands (`{ location, data: Command.Info[] }`); each item only has `name` and `description` — no argument metadata |
 | `GET` | `/api/config` | Configuration documents (`ConfigEntry[]`). Used by the BFF to read each command's `template` and derive argument hints (`$ARGUMENTS`, `$1..$N`); the raw config is never sent to clients |
 

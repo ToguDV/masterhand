@@ -89,6 +89,36 @@ export interface ProxyRetryOptions {
   sleep?: (ms: number) => Promise<void>
 }
 
+/**
+ * Catalog routes whose payloads may carry provider/model settings (#217). A
+ * custom provider's `settings.apiKey` is echoed verbatim by the pinned 2.0.6
+ * through both `/api/provider` and `/api/model`, so every proxied response on
+ * these paths is sanitized before it reaches a client.
+ */
+const SANITIZED_CATALOG_PATHS = new Set(["/api/model", "/api/model/default", "/api/provider"])
+
+/** Case-insensitive `apiKey`/`api_key`/`APIKEY` shapes; everything else is kept. */
+const SENSITIVE_KEY_PATTERN = /^api[_-]?key$/i
+
+/**
+ * Deep-strips apiKey-like keys from a decoded JSON payload, keeping every
+ * other key (including sibling `settings` entries such as `baseURL`).
+ * Clients only read catalog identity fields (`id`, `name`, `providerID`,
+ * `variants`, `enabled`), never `settings`, so the shrink breaks nothing.
+ */
+export function sanitizeCatalogPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeCatalogPayload)
+  if (value && typeof value === "object") {
+    const sanitized: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value)) {
+      if (SENSITIVE_KEY_PATTERN.test(key)) continue
+      sanitized[key] = sanitizeCatalogPayload(entry)
+    }
+    return sanitized
+  }
+  return value
+}
+
 function deliveryMarkerOf(body: ArrayBuffer | undefined): string | null {
   if (!body) return null
   try {
@@ -271,6 +301,33 @@ export function createOpencodeProxy(
     // never relay its 401 (it would sign the user out of MasterHand).
     if (upstream.status === 401 || upstream.status === 403) {
       return c.json({ error: "opencode_unauthorized" }, 502)
+    }
+
+    // #217: the provider/model catalogs echo `settings.apiKey` verbatim.
+    // Sanitize those three paths before they reach a client; anything that is
+    // not a JSON success passes through exactly like before.
+    if (
+      method === "GET" &&
+      SANITIZED_CATALOG_PATHS.has(path) &&
+      upstream.status >= 200 &&
+      upstream.status < 300 &&
+      upstream.headers.get("content-type")?.includes("application/json")
+    ) {
+      try {
+        const payload: unknown = await upstream.json()
+        const responseHeaders = new Headers()
+        for (const name of FORWARD_RESPONSE_HEADERS) {
+          const value = upstream.headers.get(name)
+          if (value) responseHeaders.set(name, value)
+        }
+        responseHeaders.set("content-type", "application/json")
+        return new Response(JSON.stringify(sanitizeCatalogPayload(payload)), {
+          status: upstream.status,
+          headers: responseHeaders,
+        })
+      } catch {
+        // Not decodable JSON: nothing structured to leak, keep the old path.
+      }
     }
 
     const responseHeaders = new Headers()

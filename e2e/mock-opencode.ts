@@ -1000,7 +1000,16 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
 }
 
 const MODELS = [
-  { id: "test-model", providerID: "test", name: "Test Model", variants: [{ id: "low" }, { id: "high" }] },
+  // The first entry carries a realistic-but-fake secret, like a custom
+  // provider's `settings.apiKey` on the pinned 2.0.6: the proxy must strip it
+  // before any client sees it (#217).
+  {
+    id: "test-model",
+    providerID: "test",
+    name: "Test Model",
+    variants: [{ id: "low" }, { id: "high" }],
+    settings: { apiKey: "sk-test-fake-key-9f8e7d6c5b4a", baseURL: "https://api.test.example/v1" },
+  },
   { id: "alpha", providerID: "test", name: "Alpha", variants: [] },
   { id: "beta", providerID: "test", name: "Beta", variants: [] },
   { id: "gamma", providerID: "test", name: "Gamma", variants: [] },
@@ -1021,7 +1030,7 @@ const MODELS = [
 }))
 
 const PROVIDERS = [
-  { id: "test", name: "Test", activation: "auto", package: "" },
+  { id: "test", name: "Test", activation: "auto", package: "", settings: { apiKey: "sk-test-fake-key-9f8e7d6c5b4a" } },
   { id: "other", name: "Other", activation: "auto", package: "" },
 ]
 
