@@ -117,6 +117,26 @@ describe("createPullRequest", () => {
     expect(runCommand.mock.calls[0]?.[0]).toBe("gh")
   })
 
+  it("passes the operation signal to the provider CLI runner (issue #204)", async () => {
+    const seen: Array<unknown> = []
+    const runCommand = vi.fn(async (_command: string, _args: string[], _cwd: string, options?: unknown) => {
+      seen.push(options)
+      return fail("not logged in")
+    })
+    const signal = AbortSignal.abort()
+    const url = await createPullRequest({
+      cwd: "/worktree",
+      remoteUrl: "git@github.com:org/repo.git",
+      branch: "masterhand/app-x",
+      baseRef: "main",
+      runCommand,
+      signal,
+    })
+    expect(url).toBeNull()
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((options) => (options as { signal?: AbortSignal } | undefined)?.signal === signal)).toBe(true)
+  })
+
   it("returns the MR URL when glab succeeds", async () => {
     const runCommand = vi.fn(async (_command: string, _args: string[], _cwd: string) =>
       ok("https://gitlab.com/org/repo/-/merge_requests/3"),
@@ -344,6 +364,25 @@ describe("createWorktreeManager", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it("threads the operation signal through to the git runner (issue #204)", async () => {
+    const seen: Array<{ args: string[]; signal: AbortSignal | undefined }> = []
+    const manager = createWorktreeManager({
+      run: async (args, _cwd, options) => {
+        seen.push({ args, signal: options?.signal })
+        return ok()
+      },
+    })
+    const signal = AbortSignal.abort()
+    // `add`/`commit` run the local-config preflight through a real git first;
+    // a non-repo cwd reports nothing unsafe, so the stubbed run still lands.
+    await manager.commitAll("/tmp/mh-signal-commit", "msg", { signal })
+    await manager.push("/tmp/mh-signal-push", "main", { signal })
+    await manager.remove("/tmp/mh-signal-repo", "/tmp/mh-signal-wt", "main", { signal })
+    await manager.remoteUrl("/tmp/mh-signal-remote", { signal })
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((entry) => entry.signal === signal)).toBe(true)
   })
 
   it("quarantines an orphan worktree by renaming it and pruning the repo", async () => {

@@ -180,6 +180,8 @@ curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/experi
 
 Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading).
 
+Only one BFF may own a data directory: a second instance refuses to boot with `another instance owns <dataDir>` (exit 1). Never delete `masterhand.lock` by hand while an instance might be alive — a crashed holder's lock is reclaimed automatically on the next boot.
+
 ## 8. Disk headroom, logs and resource limits
 
 Agent workspaces, opencode data and `masterhand_data` (SQLite + audit) share the host disk, so a runaway build or `npm install` can fill it and take SQLite and git down with it. Compose already bounds the most common causes:

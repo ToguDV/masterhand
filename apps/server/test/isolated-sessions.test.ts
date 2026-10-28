@@ -1330,6 +1330,55 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
     }
   })
 
+  it("answers ambiguous 504 when the finish budget expires instead of hanging (issue #204)", async () => {
+    const pushGate = deferred()
+    const push = vi.fn(async () => {
+      await pushGate.promise
+    })
+    const worktrees = createFakeWorktreeManager({
+      hasRemote: async () => true,
+      remoteUrl: async () => "git@github.com:org/repo.git",
+      push,
+      pullRequest: async () => null,
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl, finishBudgetMs: 200 })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      const { session } = (await sessionResponse.json()) as { session: { id: string } }
+
+      // The push stays held past the budget; the gate opens later so the
+      // background operation can still land for the record reconciliation.
+      setTimeout(() => pushGate.resolve(), 1000)
+      const response = await fetch(`${app.url}/api/isolated-sessions/${session.id}/finish`, {
+        method: "POST",
+        headers,
+      })
+      // Ambiguous, never a hard failure: the push may still have applied.
+      expect(response.status).toBe(504)
+      expect(await response.json()).toEqual({ error: "finish_timeout" })
+      // No auto-retry: the push ran exactly once, and the record still
+      // reconciles once the background operation settles.
+      await waitFor(() => app.store.getIsolatedSession(session.id)?.pushed === true)
+      expect(push).toHaveBeenCalledTimes(1)
+    } finally {
+      pushGate.resolve()
+      await app.close()
+    }
+  })
+
   it("returns 404 for a session without isolation", async () => {
     const { app, headers } = await setupApp()
     try {
@@ -1345,6 +1394,64 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 })
 
 describe("DELETE /api/workspaces/:id", () => {
+  it("releases worktrees in parallel and answers ambiguous 504 past its budget (issue #204)", async () => {
+    const removeGate = deferred()
+    const started: string[] = []
+    const finished: string[] = []
+    const worktrees = createFakeWorktreeManager({
+      remove: async (_repo, _path, branch) => {
+        started.push(branch)
+        await removeGate.promise
+        finished.push(branch)
+      },
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({ worktrees, fetchImpl: opencode.fetchImpl, workspaceDeleteBudgetMs: 200 })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      for (let i = 0; i < 2; i += 1) {
+        await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ isolated: true }),
+        })
+      }
+
+      // The removals stay held past the budget; the gate opens later so the
+      // background releases can still finish.
+      setTimeout(() => removeGate.resolve(), 1000)
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      // Parallel, not sequential: both releases start while neither finished.
+      await waitFor(() => started.length === 2, 5000)
+      expect(finished).toEqual([])
+      const response = await deletion
+      // Ambiguous, never a hard failure: the row is already gone, so the
+      // client reconciles by refetching the workspace list.
+      expect(response.status).toBe(504)
+      expect(await response.json()).toEqual({ error: "delete_timeout" })
+      const list = (await (await fetch(`${app.url}/api/workspaces`, { headers })).json()) as {
+        workspaces: Array<{ id: string }>
+      }
+      expect(list.workspaces.some((entry) => entry.id === workspace.id)).toBe(false)
+      // The background releases still complete: nothing is stranded.
+      await waitFor(() => finished.length === 2)
+      expect(app.store.listIsolatedSessions()).toHaveLength(0)
+    } finally {
+      removeGate.resolve()
+      await app.close()
+    }
+  })
+
   it("cleans up worktrees and records when the workspace goes away", async () => {
     const { app, worktrees, headers, workspace } = await setupApp()
     try {

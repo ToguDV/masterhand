@@ -1,4 +1,6 @@
-import { chmodSync, closeSync, mkdirSync, openSync } from "node:fs"
+import { chmodSync, closeSync, mkdirSync, openSync, unlinkSync } from "node:fs"
+import { createConnection, createServer } from "node:net"
+import { join } from "node:path"
 import Database from "better-sqlite3"
 import { runMigrations } from "./migrations.js"
 
@@ -14,6 +16,107 @@ const PRIVATE_FILE_MODE = 0o600
 export function ensureDataDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR_MODE })
   chmodSync(dir, PRIVATE_DIR_MODE)
+}
+
+/** Rendezvous file of the single-instance lock inside the data directory. */
+export const DATA_DIR_LOCK_FILE = "masterhand.lock"
+
+export interface DataDirLock {
+  /** Releases the lock (idempotent): the kernel bind goes away with the close. */
+  release(): Promise<void>
+}
+
+/**
+ * Single-instance lock for a data directory (issue #208; ARCHITECTURE ADR-26
+ * declares one BFF per SQLite file but nothing enforced it).
+ *
+ * The lock is a held Unix-domain listener at `<dir>/masterhand.lock`, not a
+ * PID file: PIDs are unsafe here because containers restart in a fresh PID
+ * namespace, so a stale PID can match a live, unrelated process and refuse a
+ * healthy boot forever. Node core exposes no `flock(2)`, and a lock held by a
+ * `flock(1)` child would itself go stale on SIGKILL (the child outlives the
+ * crash) — the opposite of safe. The kernel arbitrates the bind instead:
+ *
+ * - A connect that succeeds means a live holder: refuse.
+ * - `ECONNREFUSED`/`ENOENT` means a stale or missing rendezvous (crash,
+ *   previous shutdown): unlink it and bind.
+ * - `EADDRINUSE` on bind means a racer just won: refuse.
+ *
+ * Every race fails closed (at worst a spurious refusal the operator retries);
+ * a crash needs no cleanup because only a live listener owns the directory.
+ * The socket file is created under umask 077, inside the 0700 data dir.
+ */
+export async function acquireDataDirLock(dir: string): Promise<DataDirLock> {
+  const file = join(dir, DATA_DIR_LOCK_FILE)
+  if (await lockHolderAlive(file)) {
+    throw new Error(
+      `another instance owns ${dir} (lock: ${file}); refusing to boot a second BFF against one data directory — one instance per SQLite file (see ARCHITECTURE.md ADR-26)`,
+    )
+  }
+  // Stale rendezvous (crash, or a previous shutdown): reclaim it.
+  try {
+    unlinkSync(file)
+  } catch {
+    // Absent or reclaimed meanwhile; the bind below arbitrates either way.
+  }
+  const previousUmask = process.umask(0o077)
+  const server = createServer()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(file, () => {
+        server.removeListener("error", reject)
+        resolve()
+      })
+    })
+  } catch (error) {
+    process.umask(previousUmask)
+    if ((error as NodeJS.ErrnoException | null)?.code === "EADDRINUSE") {
+      throw new Error(
+        `another instance owns ${dir} (lock: ${file}); refusing to boot a second BFF against one data directory — one instance per SQLite file (see ARCHITECTURE.md ADR-26)`,
+      )
+    }
+    throw error
+  }
+  process.umask(previousUmask)
+  server.on("error", (error) => console.error("[masterhand] instance lock error:", error))
+  // The bind (not a timer or handle) owns the directory; never keep the
+  // process alive for it (tests acquire and release many locks).
+  server.unref()
+  let released = false
+  return {
+    async release(): Promise<void> {
+      if (released) return
+      released = true
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      // Tidy the rendezvous only when nobody rebound it meanwhile: a
+      // successful connect means a live successor whose file must stay. A
+      // leftover file is harmless either way — the next boot reclaims it as
+      // stale (connect fails) instead of trusting it.
+      if (!(await lockHolderAlive(file))) {
+        try {
+          unlinkSync(file)
+        } catch {
+          // Reclaimed meanwhile; the close above already released the lock.
+        }
+      }
+    },
+  }
+}
+
+/** True when a live lock holder answers at `file`. */
+function lockHolderAlive(file: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection(file)
+    socket.once("connect", () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once("error", () => {
+      socket.destroy()
+      resolve(false)
+    })
+  })
 }
 
 /**

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrations.js"
 import type { Migration } from "../src/migrations.js"
 import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
+import { DATA_DIR_LOCK_FILE, acquireDataDirLock } from "../src/store.js"
 import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
 describe("sqlite device store", () => {
@@ -860,6 +861,71 @@ describe("scheduled task store", () => {
       expect(reopened.listActiveScheduledRuns()).toEqual([])
     } finally {
       reopened.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("data directory lock (issue #208)", () => {
+  it("refuses a second holder while the first is live", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-lock-"))
+    try {
+      const first = await acquireDataDirLock(dir)
+      try {
+        await expect(acquireDataDirLock(dir)).rejects.toThrow(
+          new RegExp(`another instance owns ${dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+        )
+      } finally {
+        await first.release()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("re-acquires after release", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-lock-"))
+    try {
+      const first = await acquireDataDirLock(dir)
+      await first.release()
+      const second = await acquireDataDirLock(dir)
+      try {
+        await expect(acquireDataDirLock(dir)).rejects.toThrow(/another instance owns/)
+      } finally {
+        await second.release()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("reclaims a stale rendezvous left by a crash", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-lock-"))
+    try {
+      // No listener behind it, like a lock file surviving SIGKILL.
+      writeFileSync(join(dir, DATA_DIR_LOCK_FILE), "stale\n")
+      const lock = await acquireDataDirLock(dir)
+      try {
+        await expect(acquireDataDirLock(dir)).rejects.toThrow(/another instance owns/)
+      } finally {
+        await lock.release()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the rendezvous owner-only", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-lock-"))
+    try {
+      const lock = await acquireDataDirLock(dir)
+      try {
+        const mode = statSync(join(dir, DATA_DIR_LOCK_FILE)).mode & 0o777
+        expect(mode & 0o077).toBe(0)
+      } finally {
+        await lock.release()
+      }
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })

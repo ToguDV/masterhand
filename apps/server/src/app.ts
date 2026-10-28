@@ -118,6 +118,12 @@ export interface AppDeps {
   scheduler?: SchedulerManager
   /** Overridable for tests: proxy retry tuning (attempts/backoff/sleep). */
   proxyRetry?: ProxyRetryOptions
+  /** Overridable for tests: whole-loop budget of the custom-provider key connect. */
+  connectKeyBudgetMs?: number
+  /** Overridable for tests: per-operation budget of finish (commit + push + PR). */
+  finishBudgetMs?: number
+  /** Overridable for tests: whole-request budget of workspace deletion. */
+  workspaceDeleteBudgetMs?: number
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
@@ -129,12 +135,15 @@ export interface AppDeps {
 }
 
 /**
- * `createApp` exposes the scheduler it built (or received) so `index.ts` can
- * run the boot reconciliation and stop it on shutdown without widening the
+ * `createApp` exposes the managers it built (or received) so `index.ts` can
+ * run the boot reconciliation and stop them on shutdown without widening the
  * return shape beyond Hono (tests inject managers like `goals`).
  */
 export interface AppWithScheduler extends Hono {
   scheduler?: SchedulerManager
+  goals?: GoalManager
+  /** Settles in-flight finishes and releases (issue #192 shutdown drain). */
+  drainInFlight?: () => Promise<void>
 }
 
 const KEEPALIVE_MS = 25_000
@@ -155,6 +164,35 @@ const IDEMPOTENT_OPENCODE_METHODS = new Set(["GET", "HEAD", "PUT", "PATCH", "DEL
 /** Internal opencode retries for idempotent calls (transient statuses/network). */
 const OPENCODE_RETRY_ATTEMPTS = 4
 const OPENCODE_RETRY_BASE_MS = 250
+/**
+ * Whole-loop deadline for connecting a custom provider key (issue #194): 10
+ * attempts × the per-call upstream timeout could otherwise stack past 100 s
+ * against the client's 30 s deadline. Expiry answers `connected: false`
+ * (best effort); the provider write already landed.
+ */
+const CONNECT_KEY_BUDGET_MS = 8_000
+/** Delay between key-connect attempts while opencode reloads the config. */
+const CONNECT_KEY_RETRY_MS = 400
+/**
+ * Per-operation budget for finish (commit + push + PR, issue #204): each git
+ * step can take up to the 60 s child deadline, so an unlucky run outlives the
+ * client's 240 s `FINISH_TIMEOUT_MS`. Expiry aborts the in-flight children
+ * and answers ambiguous `504 finish_timeout` — the client reconciles against
+ * the isolated-session record and retries only after checking the branch.
+ */
+const FINISH_BUDGET_MS = 225_000
+/**
+ * Whole-request budget for workspace deletion (issue #204): child releases
+ * are individually bounded, but their sum is not. Expiry aborts the in-flight
+ * git/file work, lets the remaining releases continue in the background (the
+ * row is already gone) and answers ambiguous `504 delete_timeout` — the
+ * client reconciles by refetching the workspace list. Kept below the client's
+ * 30 s deadline with headroom, so the 504 body is actually readable (a budget
+ * tied with the client deadline would lose the race on any network latency).
+ */
+const WORKSPACE_DELETE_BUDGET_MS = 25_000
+/** Parallel worktree releases on workspace delete: faster without an unbounded git burst. */
+const DELETE_RELEASE_CONCURRENCY = 4
 
 interface OpencodeSession {
   id: string
@@ -260,6 +298,7 @@ function isolatedSessionRecord(
 type FinishOutcome =
   | { ok: false; error: "not_found" }
   | { ok: false; error: "commit_failed"; detail: string }
+  | { ok: false; error: "timed_out" }
   | {
       ok: true
       committed: boolean
@@ -280,6 +319,31 @@ function isolationOf(record: IsolatedSessionRecord) {
     pushed: record.pushed,
     prUrl: record.prUrl,
   }
+}
+
+/**
+ * Runs `task` over `items` with at most `limit` in flight (issue #204):
+ * workspace deletion releases worktrees in parallel instead of one by one,
+ * without fanning out to an unbounded burst of git children. Order of
+ * completion is not guaranteed. One item's failure is logged and the rest
+ * still release: with the workspace row already gone there is nothing to
+ * retry, so a single failing release must not turn the delete into a 500
+ * (or strand the remaining worktrees unawaited).
+ */
+async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+  let next = 0
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const item = items[next] as T
+      next += 1
+      try {
+        await task(item)
+      } catch (error) {
+        console.warn("[masterhand] bounded release failed, continuing with the rest:", error)
+      }
+    }
+  })
+  await Promise.all(workers)
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -650,6 +714,8 @@ export function createApp(deps: AppDeps): Hono {
      * the usual lookup cannot resolve it.
      */
     repoPath?: string
+    /** Aborts the in-flight git removal when the delete budget expires. */
+    signal?: AbortSignal
     /**
      * Log a cleanup failure and keep releasing the remaining children
      * (workspace deletion, the out-of-band `session.deleted` event: once the
@@ -711,7 +777,7 @@ export function createApp(deps: AppDeps): Hono {
    * rethrown to the shared `503` mapping and a retry can still clean it.
    */
   function releaseSession(sessionID: string, options: ReleaseOptions = {}): Promise<void> {
-    const { directory, repoPath } = options
+    const { directory, repoPath, signal } = options
     const bestEffort = options.bestEffort ?? true
     const existing = releasing.get(sessionID)
     if (existing) {
@@ -796,7 +862,7 @@ export function createApp(deps: AppDeps): Hono {
       }
       if (repo) {
         try {
-          await worktrees.remove(repo, record.path, record.branch)
+          await worktrees.remove(repo, record.path, record.branch, { signal })
         } catch (error) {
           // best effort: never block dropping the record
           console.warn(`[masterhand] could not remove the worktree for ${sessionID}:`, error)
@@ -973,11 +1039,14 @@ export function createApp(deps: AppDeps): Hono {
   /**
    * Bounded fetch to opencode: a stalled upstream (TCP accepted, no response)
    * must never hold the route forever. The timeout is normalized so routes can
-   * answer 504 `opencode_timeout` instead of an opaque 500.
+   * answer 504 `opencode_timeout` instead of an opaque 500. An outer signal
+   * (e.g. a whole-operation budget) joins the per-call timeout: whichever
+   * fires first aborts the fetch.
    */
-  async function fetchOpencode(target: URL, init: RequestInit = {}): Promise<Response> {
+  async function fetchOpencode(target: URL, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
+    const timeout = AbortSignal.timeout(config.opencodeTimeoutMs)
     try {
-      return await fetchImpl(target, { ...init, signal: AbortSignal.timeout(config.opencodeTimeoutMs) })
+      return await fetchImpl(target, { ...init, signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
     } catch (error) {
       if ((error as { name?: string } | null)?.name === "TimeoutError") throw new OpencodeTimeoutError()
       throw error
@@ -1019,6 +1088,8 @@ export function createApp(deps: AppDeps): Hono {
       body?: unknown
       /** `false` opts out of the default idempotent-method retries (the caller owns the policy). */
       retry?: boolean
+      /** Aborts the fetch (e.g. a whole-operation budget owns the deadline). */
+      signal?: AbortSignal
     } = {},
   ): Promise<Response> {
     const method = options.method ?? "GET"
@@ -1035,11 +1106,15 @@ export function createApp(deps: AppDeps): Hono {
       target.searchParams.set("location[directory]", options.location)
     }
     const request = (): Promise<Response> =>
-      fetchOpencode(target, {
-        method,
-        headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      })
+      fetchOpencode(
+        target,
+        {
+          method,
+          headers,
+          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        },
+        options.signal,
+      )
 
     if (options.retry === false || !IDEMPOTENT_OPENCODE_METHODS.has(method)) return request()
 
@@ -1075,25 +1150,46 @@ export function createApp(deps: AppDeps): Hono {
    * Connects a stored key to a freshly written custom provider. opencode only
    * registers the integration after it reloads the config, and `connect/key`
    * answers `404` until then, so a bounded retry is safe (a 404 created
-   * nothing). A failure never fails the create: the provider stays and the card
-   * offers Connect.
+   * nothing). The whole loop owns one budget (issue #194): attempts stack
+   * per-call timeouts otherwise, and the route must answer inside the
+   * client's deadline. A failure never fails the create: the provider stays
+   * and the card offers Connect. The key travels only in the request body and
+   * is never logged.
    */
   async function connectCustomProviderKey(id: string, key: string, label?: string): Promise<boolean> {
     const path = `/api/integration/${encodeURIComponent(id)}/connect/key`
+    const budget = AbortSignal.timeout(deps.connectKeyBudgetMs ?? CONNECT_KEY_BUDGET_MS)
     for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (budget.aborted) return false
       try {
         const response = await callOpencode(path, {
           method: "POST",
           body: { key, ...(label ? { label } : {}) },
+          signal: budget,
         })
         if (response.ok) return true
         if (response.status !== 404) return false
       } catch {
         return false
       }
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      await sleepUnlessAborted(CONNECT_KEY_RETRY_MS, budget)
     }
     return false
+  }
+
+  /** Settles early when the operation budget expires instead of oversleeping it. */
+  function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve()
+    return new Promise((resolve) => {
+      const timer = setTimeout(cleanup, ms)
+      timer.unref?.()
+      function cleanup(): void {
+        clearTimeout(timer)
+        signal.removeEventListener("abort", cleanup)
+        resolve()
+      }
+      signal.addEventListener("abort", cleanup, { once: true })
+    })
   }
 
   /** Removes every stored credential of a custom provider (best effort). */
@@ -1828,25 +1924,62 @@ export function createApp(deps: AppDeps): Hono {
     // inserted its record during the guard/pause awaits is still reachable
     // here (its own pre-insert re-check now fails), so no record is stranded.
     // The repo path is passed explicitly because the workspace row (the usual
-    // lookup) is already gone.
-    for (const record of deps.store.listIsolatedSessions(workspace.id)) {
-      await releaseSession(record.sessionID, { directory: record.path, repoPath: workspace.path })
-    }
+    // lookup) is already gone. Releases run with bounded concurrency under one
+    // budget (issue #204): sequentially they outlive the client's deadline,
+    // and unbounded they fan out to a burst of git children.
+    const deleteBudget = new AbortController()
+    const deleteBudgetMs = deps.workspaceDeleteBudgetMs ?? WORKSPACE_DELETE_BUDGET_MS
+    const releaseWork: Promise<void> = (async () => {
+      await eachLimit(deps.store.listIsolatedSessions(workspace.id), DELETE_RELEASE_CONCURRENCY, (record) =>
+        releaseSession(record.sessionID, {
+          directory: record.path,
+          repoPath: workspace.path,
+          signal: deleteBudget.signal,
+        }),
+      )
 
-    // Base-folder sessions own the same lifecycles (`sessionRunContext`
-    // resolves them too): stop their PTY/preview/goal run before the folder
-    // disappears. Best effort: a delete must not fail because opencode is
-    // unreachable.
-    try {
-      const sessions = await fetchSessionsInDirectory(workspace.path)
-      for (const session of sessions) {
-        await releaseSession(session.id, { directory: workspace.path })
+      // Base-folder sessions own the same lifecycles (`sessionRunContext`
+      // resolves them too): stop their PTY/preview/goal run before the folder
+      // disappears. Best effort: a delete must not fail because opencode is
+      // unreachable.
+      try {
+        const sessions = await fetchSessionsInDirectory(workspace.path)
+        await eachLimit(sessions, DELETE_RELEASE_CONCURRENCY, (session) =>
+          releaseSession(session.id, { directory: workspace.path, signal: deleteBudget.signal }),
+        )
+      } catch (error) {
+        console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
       }
-    } catch (error) {
-      console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
-    }
 
-    if (deleteFiles) await removeDir(workspace.path)
+      // `rm` has no abort channel, so the budget race below bounds the wait:
+      // on expiry the removal continues detached while the route answers.
+      if (deleteFiles) await removeDir(workspace.path)
+    })()
+    let deleteTimer: ReturnType<typeof setTimeout> | undefined
+    const budgetHit = new Promise<false>((resolve) => {
+      deleteTimer = setTimeout(() => {
+        deleteBudget.abort()
+        resolve(false)
+      }, deleteBudgetMs)
+      deleteTimer.unref?.()
+    })
+    let released: boolean
+    try {
+      released = await Promise.race([releaseWork.then(() => true as const), budgetHit])
+    } finally {
+      if (deleteTimer) clearTimeout(deleteTimer)
+    }
+    if (!released) {
+      // The row is already gone, so the delete did apply — but the remaining
+      // child releases are still running. Answer ambiguous (never a hard
+      // failure, never an auto-retry): the client reconciles by refetching
+      // the workspace list, and the releases continue in the background
+      // (docs/past-mistakes.md rules 1/2/4).
+      releaseWork.catch((error) => {
+        console.warn(`[masterhand] workspace ${workspace.id} background release failed:`, error)
+      })
+      return c.json({ error: "delete_timeout" }, 504)
+    }
 
     invalidateSessionsCache()
     return c.json({ ok: true })
@@ -2239,7 +2372,7 @@ export function createApp(deps: AppDeps): Hono {
   // precedent). The map is app-scoped: one BFF instance per process.
   const finishing = new Map<string, Promise<FinishOutcome>>()
 
-  async function finishOnce(sessionID: string): Promise<FinishOutcome> {
+  async function finishOnce(sessionID: string, signal: AbortSignal): Promise<FinishOutcome> {
     // Re-read after acquiring the slot: an earlier attempt may have persisted
     // the push/PR while this request was queued.
     const record = deps.store.getIsolatedSession(sessionID)
@@ -2249,7 +2382,7 @@ export function createApp(deps: AppDeps): Hono {
 
     let committed = false
     try {
-      committed = await worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`)
+      committed = await worktrees.commitAll(record.path, `MasterHand session ${record.sessionID}`, { signal })
     } catch (error) {
       return {
         ok: false,
@@ -2260,7 +2393,7 @@ export function createApp(deps: AppDeps): Hono {
 
     let pushed = false
     let pushError: string | null = null
-    const remoteUrl = await worktrees.remoteUrl(record.path)
+    const remoteUrl = await worktrees.remoteUrl(record.path, { signal })
     // A compare URL is a response-only convenience, never proof of a PR. A
     // stored value equal to it is a legacy row written by an older build and
     // is treated as non-authoritative so the next finish can replace it.
@@ -2269,7 +2402,7 @@ export function createApp(deps: AppDeps): Hono {
     let prUrl = record.prUrl && !legacyCompare ? record.prUrl : null
     if (remoteUrl) {
       try {
-        await worktrees.push(record.path, record.branch)
+        await worktrees.push(record.path, record.branch, { signal })
         pushed = true
       } catch (error) {
         pushError = error instanceof Error ? error.message : "push_failed"
@@ -2277,7 +2410,7 @@ export function createApp(deps: AppDeps): Hono {
       if (pushed && !prUrl) {
         // pullRequest reconciles an existing PR/MR when create reports a
         // duplicate, so a retry never loses the real URL to the fallback.
-        prUrl = await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef)
+        prUrl = await worktrees.pullRequest(record.path, remoteUrl, record.branch, record.baseRef, { signal })
       }
     }
 
@@ -2307,9 +2440,24 @@ export function createApp(deps: AppDeps): Hono {
     if (releasing.has(sessionID)) return Promise.resolve({ ok: false, error: "not_found" })
     const pending = finishing.get(sessionID)
     if (pending) return pending
-    const task = finishOnce(sessionID).finally(() => {
-      if (finishing.get(sessionID) === task) finishing.delete(sessionID)
-    })
+    // One budget per operation (issue #204), not per request: joiners share
+    // the first request's deadline. Expiry aborts the in-flight git children;
+    // the outcome maps to `timed_out` below, never to a hard failure, and the
+    // server never retries the push/PR itself.
+    const operation = new AbortController()
+    const budgetMs = deps.finishBudgetMs ?? FINISH_BUDGET_MS
+    const budget = setTimeout(() => operation.abort(), budgetMs)
+    // Never keep the process alive for a coalesced operation (tests hold
+    // gates past their budgets; production exits through shutdown anyway).
+    budget.unref?.()
+    const task = finishOnce(sessionID, operation.signal)
+      .then(
+        (outcome): FinishOutcome => (operation.signal.aborted ? { ok: false, error: "timed_out" } : outcome),
+      )
+      .finally(() => {
+        clearTimeout(budget)
+        if (finishing.get(sessionID) === task) finishing.delete(sessionID)
+      })
     finishing.set(sessionID, task)
     return task
   }
@@ -2327,6 +2475,10 @@ export function createApp(deps: AppDeps): Hono {
     const outcome = await finish(c.req.param("sessionID"))
     if (!outcome.ok) {
       if (outcome.error === "not_found") return c.json({ error: "not_found" }, 404)
+      // The operation may still have applied (a push killed mid-flight can
+      // land): ambiguous, so the client reconciles against the record instead
+      // of seeing a failure (docs/past-mistakes.md rules 1/2/4).
+      if (outcome.error === "timed_out") return c.json({ error: "finish_timeout" }, 504)
       return c.json({ error: "commit_failed", detail: outcome.detail }, 500)
     }
     return c.json({
@@ -2968,6 +3120,15 @@ export function createApp(deps: AppDeps): Hono {
   // Exposed for index.ts boot/shutdown wiring (reconcile/stop/flush) without
   // widening createApp's return shape; tests inject managers like `goals`.
   ;(app as AppWithScheduler).scheduler = scheduler
+  ;(app as AppWithScheduler).goals = goals
+  // In-flight finishes and releases drain against a live store on shutdown
+  // (issue #192): a finish that wakes from git after `store.close()` would
+  // otherwise write to a closed database handle. Never rejects.
+  ;(app as AppWithScheduler).drainInFlight = () =>
+    Promise.allSettled([
+      ...finishing.values(),
+      ...[...releasing.values()].map((entry) => entry.promise),
+    ]).then(() => {})
 
   return app
 }

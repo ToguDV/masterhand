@@ -7,11 +7,23 @@ import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
 import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchDefault } from "./providers.js"
-import { createSqliteStore, ensureDataDir } from "./store.js"
+import { shutdownServer } from "./shutdown.js"
+import { acquireDataDirLock, createSqliteStore, ensureDataDir, type DataDirLock } from "./store.js"
 import { createWorktreeManager, reconcileWorktrees } from "./worktrees.js"
 
 const config = loadConfig()
 ensureDataDir(config.dataDir)
+
+// One BFF instance over one data directory (ARCHITECTURE.md ADR-26): a
+// second process would own its own tunnels/PTYs while sharing the SQLite
+// file. Refuse loudly instead of corrupting in-process state (issue #208).
+let dataDirLock: DataDirLock
+try {
+  dataDirLock = await acquireDataDirLock(config.dataDir)
+} catch (error) {
+  console.error("[masterhand] refusing to boot:", error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 
 let store: ReturnType<typeof createSqliteStore>
 try {
@@ -84,6 +96,11 @@ const app = createApp({
 // interrupted, queued → skipped) and recomputes every pending slot.
 const scheduler = (app as AppWithScheduler).scheduler
 scheduler?.reconcileTasks()
+// Goal runs never auto-resume after a restart either; both managers stop and
+// drain on shutdown (issue #192).
+const goals = (app as AppWithScheduler).goals
+// In-flight finishes/releases settle against a live store while shutting down.
+const drainInFlight = (app as AppWithScheduler).drainInFlight
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist
@@ -103,22 +120,11 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
 })
 
 async function shutdown(code = 0): Promise<void> {
-  // The scheduler goes first so its in-flight transitions settle against a
-  // live store and no more manager frames are produced once the other
-  // resources wind down; `flush` waits for the per-task chains to drain.
-  scheduler?.stop()
-  try {
-    await scheduler?.flush()
-  } catch {
-    // best effort: the store close below still runs
-  }
-  preview.stopAll()
-  hub.stop()
-  store.close()
-  server.close(() => process.exit(code))
-  // `server.close` waits for open connections, and the SSE stream to every
-  // connected client is long-lived; never hang a SIGTERM (docker stop, tests).
-  setTimeout(() => process.exit(code), 3000).unref()
+  // Ordered, bounded (issue #192): HTTP first (long-lived SSE streams would
+  // otherwise hold `server.close` open), then the managers drain against a
+  // live store, and the store closes last. The forced-exit backstop installs
+  // first so a stalled step can never hang a SIGTERM.
+  await shutdownServer({ scheduler, goals, preview, hub, store, server, lock: dataDirLock, drainInFlight })
 }
 
 let shuttingDown = false

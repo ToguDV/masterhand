@@ -222,3 +222,84 @@ describe("/api/providers/custom/models ", () => {
     }
   })
 })
+
+describe("connect-key budget (issue #194)", () => {
+  /** opencode answers 404 slowly: each attempt can burn the whole per-call timeout. */
+  function slow404Fetch(latencyMs: number, onAttempt: () => void): typeof fetch {
+    return ((input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const url = new URL(String(input))
+        if (url.pathname.endsWith("/connect/key") && (init?.method ?? "GET") === "POST") {
+          onAttempt()
+          const timer = setTimeout(() => resolve(new Response(null, { status: 404 })), latencyMs)
+          const abort = (): void => {
+            clearTimeout(timer)
+            reject(new DOMException("The operation was aborted.", "AbortError"))
+          }
+          if (init?.signal?.aborted) {
+            abort()
+            return
+          }
+          init?.signal?.addEventListener("abort", abort, { once: true })
+          return
+        }
+        resolve(new Response(null, { status: 404 }))
+      })) as typeof fetch
+  }
+
+  it(
+    "bounds the whole connect loop instead of stacking per-attempt timeouts",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "masterhand-connect-budget-"))
+      dirs.push(dir)
+      const providers = createCustomProviderStore({ file: join(dir, "providers.json") })
+      let attempts = 0
+      const app = await startTestApp({
+        providers,
+        fetchImpl: slow404Fetch(1000, () => void (attempts += 1)),
+        connectKeyBudgetMs: 1500,
+      })
+      const cookie = await login(app.url)
+      try {
+        const started = Date.now()
+        const response = await fetch(`${app.url}/api/providers/custom`, {
+          method: "POST",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify({ ...input, key: "sk-secret" }),
+        })
+        const elapsed = Date.now() - started
+        // The provider write is the mutation; the shape is unchanged.
+        expect(response.status).toBe(201)
+        expect(await response.json()).toMatchObject({ connected: false })
+        // 10 attempts × (1 s + 0.4 s sleep) ≈ 14 s without the budget.
+        expect(attempts).toBeLessThan(10)
+        expect(elapsed).toBeLessThan(8000)
+      } finally {
+        await app.close()
+      }
+    },
+    30_000,
+  )
+
+  it("never logs the provider key while connecting", async () => {
+    const { app, headers } = await setup()
+    const logged: string[] = []
+    const warn = console.warn
+    const error = console.error
+    console.warn = (...args: unknown[]) => void logged.push(args.map(String).join(" "))
+    console.error = (...args: unknown[]) => void logged.push(args.map(String).join(" "))
+    try {
+      const response = await fetch(`${app.url}/api/providers/custom`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ...input, key: "sk-never-log-me" }),
+      })
+      expect(response.status).toBe(201)
+      expect(logged.join("\n")).not.toContain("sk-never-log-me")
+    } finally {
+      console.warn = warn
+      console.error = error
+      await app.close()
+    }
+  })
+})
