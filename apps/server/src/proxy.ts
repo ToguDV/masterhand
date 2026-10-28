@@ -89,6 +89,39 @@ export interface ProxyRetryOptions {
   sleep?: (ms: number) => Promise<void>
 }
 
+/**
+ * Catalog routes whose payloads may carry provider/model settings (#217). A
+ * custom provider's `settings.apiKey` is echoed verbatim by the pinned 2.0.6
+ * through both `/api/provider` and `/api/model`, so every proxied response on
+ * these paths is sanitized before it reaches a client.
+ */
+const SANITIZED_CATALOG_PATHS = new Set(["/api/model", "/api/model/default", "/api/provider"])
+
+/** Case-insensitive `apiKey`/`api_key`/`APIKEY` shapes; everything else is kept.
+ * Denylist, not allowlist: a future `token`/`secret`-shaped key would pass.
+ * Acceptable because no client reads `settings` at all — if the catalog ever
+ * grows new secret shapes, drop `settings` wholesale instead of extending this. */
+const SENSITIVE_KEY_PATTERN = /^api[_-]?key$/i
+
+/**
+ * Deep-strips apiKey-like keys from a decoded JSON payload, keeping every
+ * other key (including sibling `settings` entries such as `baseURL`).
+ * Clients only read catalog identity fields (`id`, `name`, `providerID`,
+ * `variants`, `enabled`), never `settings`, so the shrink breaks nothing.
+ */
+export function sanitizeCatalogPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeCatalogPayload)
+  if (value && typeof value === "object") {
+    const sanitized: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value)) {
+      if (SENSITIVE_KEY_PATTERN.test(key)) continue
+      sanitized[key] = sanitizeCatalogPayload(entry)
+    }
+    return sanitized
+  }
+  return value
+}
+
 function deliveryMarkerOf(body: ArrayBuffer | undefined): string | null {
   if (!body) return null
   try {
@@ -271,6 +304,43 @@ export function createOpencodeProxy(
     // never relay its 401 (it would sign the user out of MasterHand).
     if (upstream.status === 401 || upstream.status === 403) {
       return c.json({ error: "opencode_unauthorized" }, 502)
+    }
+
+    // #217: the provider/model catalogs echo `settings.apiKey` verbatim.
+    // Sanitize those three paths before they reach a client; anything that is
+    // not a JSON success passes through exactly like before. The body is read
+    // once as text: re-reading `upstream.body` after a failed `json()` parse
+    // would throw on the consumed stream.
+    if (
+      method === "GET" &&
+      SANITIZED_CATALOG_PATHS.has(path) &&
+      upstream.status >= 200 &&
+      upstream.status < 300 &&
+      upstream.headers.get("content-type")?.toLowerCase().includes("application/json")
+    ) {
+      const raw = await upstream.text()
+      try {
+        const payload: unknown = JSON.parse(raw)
+        const responseHeaders = new Headers()
+        for (const name of FORWARD_RESPONSE_HEADERS) {
+          const value = upstream.headers.get(name)
+          if (value) responseHeaders.set(name, value)
+        }
+        responseHeaders.set("content-type", "application/json")
+        return new Response(JSON.stringify(sanitizeCatalogPayload(payload)), {
+          status: upstream.status,
+          headers: responseHeaders,
+        })
+      } catch {
+        // Not decodable JSON: nothing structured to leak, keep the old path
+        // with the bytes already read.
+        const responseHeaders = new Headers()
+        for (const name of FORWARD_RESPONSE_HEADERS) {
+          const value = upstream.headers.get(name)
+          if (value) responseHeaders.set(name, value)
+        }
+        return new Response(raw, { status: upstream.status, headers: responseHeaders })
+      }
     }
 
     const responseHeaders = new Headers()

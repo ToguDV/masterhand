@@ -50,7 +50,7 @@ Fill in `deploy/.env`:
 >
 > **Client proxy:** `/api/oc/*` is a method-exact allowlist (see `docs/bff/api.md`); PTY/shell/fs/config/session-create/info/event and the credential list answer `404` before any upstream call. MasterHand's own BFF calls are not affected.
 >
-> **Engine-side residual:** `#179` isolates shell/PTY code, managed dev servers and the client proxy. opencode's own read/grep tools and project-level plugins/config still execute as `node` (uid 1000), so a malicious workspace may reach the engine credential store through those paths. Tracked in [#218](https://github.com/ToguDV/masterhand/issues/218) and [#219](https://github.com/ToguDV/masterhand/issues/219); do not treat `#179` as a full engine sandbox.
+> **Engine-side residual:** `#179` isolates shell/PTY code, managed dev servers and the client proxy. opencode's own read tools run as `node` (uid 1000) but are confined by the session `read`/`external_directory` denies on `/proc` and the credential store (#219, lexical match only). Project-level plugins/config are disabled or run as the engine: Compose sets `OPENCODE_CONFIG_PROJECT_DISABLE=true` (#218, below), so a workspace's `.opencode/` dir or `opencode.json(c)` can no longer load plugins, tools, MCP servers, commands or instructions that execute as `node` with access to `opencode.db`. Do not treat `#179` as a full engine sandbox.
 >
 > **Data directory permissions:** the BFF creates `/data` as `0700` and keeps `masterhand.sqlite`, its `-wal`/`-shm` files, backups and the preview PID file at `0600` (even when they were created by an older release). If a bind mount is not owned by uid 1000, the boot `chmod` fails closed — fix ownership rather than weakening the mode.
 

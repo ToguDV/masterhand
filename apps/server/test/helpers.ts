@@ -196,7 +196,14 @@ export async function startMockOpencode(): Promise<MockOpencode> {
         res.end(
           JSON.stringify({
             data: [
-              { id: "test-model", providerID: "test" },
+              // The first entry carries a realistic-but-fake secret, like a
+              // custom provider's `settings.apiKey` on the pinned 2.0.6: the
+              // proxy must strip it before any client sees it (#217).
+              {
+                id: "test-model",
+                providerID: "test",
+                settings: { apiKey: "sk-test-fake-key-9f8e7d6c5b4a", baseURL: "https://api.test.example/v1" },
+              },
               { id: "critic-model", providerID: "test" },
               { id: "judge-model", providerID: "test" },
             ],

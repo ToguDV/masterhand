@@ -585,8 +585,7 @@ describe("opencode session operations", () => {
     expect(await client.api.agents()).toEqual([{ id: "build", name: "build" }])
   })
 
-  it("assembles the models, providers and default model catalog", async () => {
-    const model = { id: "m1", providerID: "p", name: "M1" }
+  it("assembles the models, providers and default model catalog", async () => {    const model = { id: "m1", providerID: "p", name: "M1" }
     const provider = { id: "p", name: "Provider" }
     const { calls, fetchImpl } = recordingFetch(
       () => jsonResponse({ data: [model] }),
@@ -601,6 +600,25 @@ describe("opencode session operations", () => {
       "https://mh.example/api/oc/api/provider",
       "https://mh.example/api/oc/api/model/default",
     ])
+  })
+
+  it("derives stored credentials from the integration list (#216)", async () => {
+    // The pinned 2.0.6 has no GET /api/credential (404, and not allowlisted):
+    // credentials come from the connections of the allowlisted integration
+    // list, never from credential.list().
+    const integration = {
+      id: "opencode-go",
+      name: "OpenCode Go",
+      methods: [{ type: "key", label: "API key" }],
+      connections: [{ type: "credential", id: "cred_1", label: "Personal", method: "key" }],
+    }
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ data: [integration] }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    expect(await client.api.credentials()).toEqual([
+      { id: "cred_1", integrationID: "opencode-go", label: "Personal", active: true },
+    ])
+    expect(calls.map((call) => call.url)).toEqual(["https://mh.example/api/oc/api/integration"])
   })
 
   it("requests the active-session map", async () => {

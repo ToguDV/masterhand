@@ -212,3 +212,31 @@ export function normalizeCredentials(raw: unknown): ProviderCredential[] {
   }
   return credentials
 }
+
+/**
+ * Derives the stored credentials from an integration list (#216). The pinned
+ * opencode 2.0.6 has no `GET /api/credential` (it answers `404`, and the BFF
+ * proxy does not allowlist it), but every credential shows up as a
+ * `type: "credential"` connection on its integration — with its id and label,
+ * and without any secret value. `active` is approximated as the first
+ * credential connection per integration (the store exposes no active flag on
+ * connections): switching still works through `activateCredential`, and a
+ * wrong badge is cosmetic, never a secret leak.
+ */
+export function credentialsFromIntegrations(raw: unknown): ProviderCredential[] {
+  const credentials: ProviderCredential[] = []
+  for (const integration of normalizeIntegrations(raw)) {
+    let first = true
+    for (const connection of integration.connections) {
+      if (connection.type !== "credential" || !connection.credentialID) continue
+      credentials.push({
+        id: connection.credentialID,
+        integrationID: integration.id,
+        label: connection.label ?? connection.credentialID,
+        active: first,
+      })
+      first = false
+    }
+  }
+  return credentials
+}

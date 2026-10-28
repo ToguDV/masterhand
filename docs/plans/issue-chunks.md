@@ -69,7 +69,7 @@ in the sessions options box per #136/#137).
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — #186 landed; add v3+ migrations |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #218/#219 |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, PR pending) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ⬜ Pending |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
@@ -120,6 +120,18 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   `deploy/agent-exec-drill.sh` green. Every fix records its failure class in `docs/past-mistakes.md`
   (rules 13/15/22 and the security section). Residual catalog/credential behavior is tracked in
   #216–#219 (catalog/credential drift and engine-side tool/plugin residuals).
+- **Status:** 4/4 residuals resolved 2026-10-28 in the C18-residuals session batch (one branch, one
+  commit per issue, #219 → #218 → #217 → #216): #219 appends `engineReadGuardRules()` (`read` +
+  `external_directory` denies on `/proc` and the engine data/config dirs) to the session permission
+  PATCH — verified against the 2.0.6 source (`read` asserts the path, `grep`/`glob` assert the
+  pattern and gate the path through `external_directory`; last-match-wins); #218 sets
+  `OPENCODE_CONFIG_PROJECT_DISABLE=true` on the opencode service (plus the native `dev.mjs`
+  default) — verified in the 2.0.6 source and at runtime (a marker plugin executed without the
+  flag, never loaded with it); #217 deep-strips apiKey-like keys from the proxied
+  `/api/model{,/default}` + `/api/provider` responses — verified live (a custom provider's
+  `settings.apiKey` echoed verbatim); #216 derives `client.api.credentials()` from the
+  allowlisted `GET /api/integration` connections and drops the mock's `GET /api/credential`, so
+  the suite is exactly as strict as the pinned 2.0.6 (which 404s that route).
 
 ### C19 — Persistence and mutation integrity
 

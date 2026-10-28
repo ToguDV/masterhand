@@ -85,6 +85,7 @@ import {
 } from "./worktrees.js"
 import {
   createWorkspaceDir,
+  engineReadGuardRules,
   externalWriteGuardRules,
   isInsideRoot,
   normalizeWorkspaceSlug,
@@ -1226,14 +1227,17 @@ export function createApp(deps: AppDeps): Hono {
    * Sets the session permission guards in one PATCH (the field replaces the
    * whole ruleset): writes outside the session directory are blocked while
    * reads stay allowed, and dangerous process-killing shell commands are
-   * denied so a broad kill cannot take down the agent engine. Best effort: it
-   * must never block session creation.
+   * denied so a broad kill cannot take down the agent engine. The engine read
+   * denies come last: opencode evaluates last-match-wins, so they must stay
+   * after the `external_directory: allow *` entry to confine engine-side reads
+   * of /proc and the credential store (#219). Best effort: it must never block
+   * session creation.
    */
   async function ensurePermissionGuards(sessionID: string): Promise<void> {
     try {
       const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
         method: "PATCH",
-        body: { permissions: [...externalWriteGuardRules(), ...processGuardRules()] },
+        body: { permissions: [...externalWriteGuardRules(), ...processGuardRules(), ...engineReadGuardRules()] },
       })
       if (!response.ok) {
         console.warn(`[workspace] could not set the session permission guards for ${sessionID} (HTTP ${response.status})`)

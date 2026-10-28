@@ -130,6 +130,7 @@ export {
 } from "./hooks"
 export {
   compareIntegrations,
+  credentialsFromIntegrations,
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,

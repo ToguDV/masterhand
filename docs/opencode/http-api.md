@@ -12,7 +12,7 @@ Verified on **2026-10-01** against a live **opencode v2.0.6** server and the gen
 
 ## Endpoints MasterHand uses
 
-Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/model` → `GET /api/model`). Since #179 that passthrough is a **method-exact allowlist** of the routes the clients use (`docs/bff/api.md` §Proxy), not a general passthrough: PTY/shell/terminal, fs, config, plugin, mcp, session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and the credential list answer `404` without an upstream call. The BFF's own calls (`callOpencode`) are separate and unaffected. This allowlist protects the client boundary only; opencode's own read tools and project plugins run inside the engine as `node` (residual risks #218/#219).
+Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, so `client-core` calls opencode through `/api/oc/api/...` (e.g. `/api/oc/api/model` → `GET /api/model`). Since #179 that passthrough is a **method-exact allowlist** of the routes the clients use (`docs/bff/api.md` §Proxy), not a general passthrough: PTY/shell/terminal, fs, config, plugin, mcp, session create/list/get/patch, `/api/info`, `/api/event`, `/api/command` and the credential list answer `404` without an upstream call. The BFF's own calls (`callOpencode`) are separate and unaffected. This allowlist protects the client boundary only; opencode's own read tools run inside the engine as `node` (confined by the session `read`/`external_directory` denies on `/proc` and the engine credential store since #219) and project-level plugin/config discovery is disabled in deployment (`OPENCODE_CONFIG_PROJECT_DISABLE=true`, #218).
 
 ### Health, locations and events
 
@@ -61,6 +61,12 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | `POST` | `/api/session/:id/permission/:requestID/reply` | Answer; body `{ decision: "once" \| "always" \| "reject", message? }`; `204` |
 | `GET` | `/api/permission/saved` | Persisted rules (after an `always` answer) |
 
+Permission rule semantics (verified against the pinned **2.0.6** source, `packages/core/src/permission.ts` + `file-access.ts` + `tool/plugin/*.ts`):
+
+- A rule is `{ action, resource, effect }`; evaluation is **last-match-wins** across agent permissions + the session PATCH ruleset, and one `deny` resource denies the whole assert. The session PATCH therefore appends its denies after the `external_directory: allow *` entry.
+- `read` asserts the resolved path: location-relative inside the session directory, absolute outside it. `grep`/`glob` assert the **search pattern** as their resource (never the path) and gate the path through `external_directory` first — path-shaped denies belong on `read`/`external_directory`, never on `grep`/`glob`.
+- `*` in a resource crosses `/` (`/proc/*` matches `/proc/self/environ`); matching is lexical (no `realpath`), so symlink escapes are not covered by rules.
+
 ### Agents, models, providers and config
 
 | Method | Route | Usage |
@@ -68,7 +74,7 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 | `GET` | `/api/agent` | Agents (`{ location, data: Agent.Info[] }`); `id`, `name`, `mode` (`primary`/`subagent`/`all`), `hidden` |
 | `GET` | `/api/model` | Model catalog (`{ location, data: Model.Info[] }`); each model has `id`, `providerID`, `name`, `variants: Model.Variant[]` and `enabled` |
 | `GET` | `/api/model/default` | Server default model (`{ location, data: Model.Info \| null }`) |
-| `GET` | `/api/provider` | Providers (`{ location, data: Provider.Info[] }`), no nested models |
+| `GET` | `/api/provider` | Providers (`{ location, data: Provider.Info[] }`), no nested models. `settings.apiKey` echoes verbatim on the pinned 2.0.6 for providers that configure one (verified with a custom provider); the BFF proxy strips apiKey-like keys from all three catalog routes before clients see them (#217) |
 | `GET` | `/api/command` | Slash commands (`{ location, data: Command.Info[] }`); each item only has `name` and `description` — no argument metadata |
 | `GET` | `/api/config` | Configuration documents (`ConfigEntry[]`). Used by the BFF to read each command's `template` and derive argument hints (`$ARGUMENTS`, `$1..$N`); the raw config is never sent to clients |
 
@@ -80,12 +86,24 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 - After a config write on the watched global config dir, `/api/model` and `/api/integration` include the provider without a restart.
 - A registered custom provider exposes an `api`/`key` method: `POST /api/integration/{id}/connect/key` succeeds (204). Before opencode reloads the config it answers `404 IntegrationNotFoundError`; a 404 creates nothing, so retrying is safe.
 - Provider credentials are stored in opencode's credential store (`opencode.db` in 2.0.6; the older `auth.json` does not exist there).
-- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential` — that route is not available in the pinned **2.0.6** (it answers `404`) while clients still call it; tracked as [#216](https://github.com/ToguDV/masterhand/issues/216) and implemented by the E2E mock.
+- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`). There is **no** `GET /api/credential` in the pinned **2.0.6** (it answers `404`): MasterHand clients derive the credential list from those connections (#216), and the mocks stay faithful by not implementing the missing route.
+
+### Project config and plugin discovery (disabled in MasterHand, #218)
+
+Upstream, opencode walks up from the session directory and loads every `opencode.json(c)` plus every `.opencode/` dir it finds (config documents, `plugin`/`plugins` subdirs, MCP/tools/commands/skills/agents, instruction files). A workspace can therefore execute JavaScript in the engine process as `node` — verified on the pinned **2.0.6**: a marker plugin under `<workspace>/.opencode/plugin/` ran its top-level code on session creation (even with a malformed export shape; it was reported `failed` only after executing).
+
+MasterHand disables all of it in deployment: the `opencode` service sets `OPENCODE_CONFIG_PROJECT_DISABLE=true` (the native `dev.mjs` fallback defaults the same variable), which feeds `ServerOptions.config.project = false` and skips project documents, project `.opencode` dirs and project instruction discovery (verified in the 2.0.6 source: `server-process.ts`, `config/discovery.ts`, `config/plugin/source.ts`, `instruction-discovery.ts`). What keeps working:
+
+- Explicit config: `OPENCODE_CONFIG` (MasterHand-owned providers + websearch) and `OPENCODE_CONFIG_CONTENT` (the `agent-exec` shell) still apply — the shell dropper is unaffected.
+- Global config (`~/.config/opencode/opencode.json`, global plugins) still loads by design.
+- The per-session `masterhand.workspace` instruction still pins the agent to its directory; workspace files remain explicitly readable.
+
+Consequence: a workspace's own `AGENTS.md` is no longer auto-injected into the context (only the BFF-written instruction entries are). `GET /api/plugin` on a workspace session therefore lists built-ins only.
 
 ### Web search (verified against 2.0.6)
 
 - Five built-in sources: **Exa, Firecrawl, Parallel, Tavily, TinyFish**. `GET /api/websearch/provider` lists them (`{ location, data: [{ id, name }] }`); `POST /api/websearch` runs a search (`{ query, providerID? }` → `{ location, data: { providerID, results: [{ url, title?, content?, time: { published? } }] } }`). `400 websearch_provider_required` / `websearch_provider_not_found` / `websearch_disabled`, `503` when the source request fails.
-- The selection lives in the config key `websearch`: `{ "provider": "<id>" | "random" }`, or `false` to remove the tool. `Config.latest` gives the last-loaded document precedence, and a project `opencode.json(c)` outranks the `OPENCODE_CONFIG` file. When the config has no selection, opencode remembers a TUI choice in its KV (`websearch:provider`) and otherwise asks a form (`metadata.kind = "websearch.provider"`) on the first search — **MasterHand clients do not render that form** (only `question` forms), which is why the BFF seeds the keyless default.
+- The selection lives in the config key `websearch`: `{ "provider": "<id>" | "random" }`, or `false` to remove the tool. `Config.latest` gives the last-loaded document precedence. In MasterHand deployment project-level discovery is disabled (`OPENCODE_CONFIG_PROJECT_DISABLE=true`, #218), so no workspace `opencode.json(c)` can outrank the `OPENCODE_CONFIG` file; upstream, a project file would outrank it. When the config has no selection, opencode remembers a TUI choice in its KV (`websearch:provider`) and otherwise asks a form (`metadata.kind = "websearch.provider"`) on the first search — **MasterHand clients do not render that form** (only `question` forms), which is why the BFF seeds the keyless default.
 - Each source registers as an integration with a `key` method plus an `env` method (`EXA_API_KEY`, `FIRECRAWL_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `TINYFISH_API_KEY`), so API keys connect through `POST /api/integration/{id}/connect/key` exactly like model providers.
 - **Keyless modes** (from the pinned source): TinyFish sends `X-TinyFish-Access-Mode: keyless` and Tavily `X-Tavily-Access-Mode: keyless` when no credential is connected; Exa appends its key only when present, and Firecrawl/Parallel send no auth header keyless. TinyFish is the source opencode documents as optional-key, so it is MasterHand's seeded default.
 - `random` picks an available source per query and retries another only on HTTP 429 (the rate-limited source cools down for its `Retry-After` or 60 s); a rate-limited provider is remembered per session until the session moves or the server restarts.

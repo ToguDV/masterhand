@@ -190,20 +190,6 @@ function initialIntegrations(): MockIntegration[] {
 }
 let integrations: MockIntegration[] = initialIntegrations()
 
-function credentialsOf(): Array<Record<string, unknown>> {
-  return integrations.flatMap((integration) =>
-    integration.connections
-      .filter((connection) => connection.type === "credential")
-      .map((connection, index) => ({
-        id: connection.id,
-        integrationID: integration.id,
-        label: connection.label ?? "API key",
-        active: index === 0,
-        value: { type: "key" },
-      })),
-  )
-}
-
 // E2E controls for session-creation reconciliation: `stall-create` holds the
 // response after creating (the response is lost), `stall-create-before` holds
 // before creating (nothing exists to reconcile). `/e2e/release-create` flushes.
@@ -1000,7 +986,16 @@ async function runPrompt(sessionID: string, text: string): Promise<void> {
 }
 
 const MODELS = [
-  { id: "test-model", providerID: "test", name: "Test Model", variants: [{ id: "low" }, { id: "high" }] },
+  // The first entry carries a realistic-but-fake secret, like a custom
+  // provider's `settings.apiKey` on the pinned 2.0.6: the proxy must strip it
+  // before any client sees it (#217).
+  {
+    id: "test-model",
+    providerID: "test",
+    name: "Test Model",
+    variants: [{ id: "low" }, { id: "high" }],
+    settings: { apiKey: "sk-test-fake-key-9f8e7d6c5b4a", baseURL: "https://api.test.example/v1" },
+  },
   { id: "alpha", providerID: "test", name: "Alpha", variants: [] },
   { id: "beta", providerID: "test", name: "Beta", variants: [] },
   { id: "gamma", providerID: "test", name: "Gamma", variants: [] },
@@ -1021,7 +1016,7 @@ const MODELS = [
 }))
 
 const PROVIDERS = [
-  { id: "test", name: "Test", activation: "auto", package: "" },
+  { id: "test", name: "Test", activation: "auto", package: "", settings: { apiKey: "sk-test-fake-key-9f8e7d6c5b4a" } },
   { id: "other", name: "Other", activation: "auto", package: "" },
 ]
 
@@ -1335,9 +1330,9 @@ const server = createServer((req, res) => {
       })
       return empty(res, 204)
     }
-    if (req.method === "GET" && path === "/api/credential") {
-      return json(res, 200, { data: credentialsOf() })
-    }
+    // The pinned 2.0.6 has no GET /api/credential (404): the mock stays
+    // faithful and does not implement it either (#216). Clients derive the
+    // list from the integration connections above.
     if (req.method === "DELETE" && /^\/api\/credential\/[^/]+$/.test(path)) {
       const credentialID = decodeURIComponent(path.split("/")[3] ?? "")
       for (const integration of integrations) {

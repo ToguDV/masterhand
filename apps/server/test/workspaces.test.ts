@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   createWorkspaceDir,
+  engineReadGuardRules,
   externalWriteGuardRules,
   isInsideRoot,
   normalizeWorkspaceSlug,
@@ -88,6 +89,79 @@ describe("processGuardRules", () => {
       "edit",
       "edit",
     ])
+  })
+})
+
+describe("engineReadGuardRules (#219)", () => {
+  it("denies read and external_directory on /proc and the engine credential store", () => {
+    const rules = engineReadGuardRules("/home/tester")
+    expect(rules.length).toBeGreaterThan(0)
+    expect(rules.every((rule) => rule.effect === "deny")).toBe(true)
+    // /proc/self/environ carries OPENCODE_SERVER_PASSWORD in the engine process.
+    expect(rules).toContainEqual({ action: "read", resource: "/proc/*", effect: "deny" })
+    expect(rules).toContainEqual({ action: "external_directory", resource: "/proc/*", effect: "deny" })
+    // opencode.db (the credential store) and the provider config file.
+    expect(rules).toContainEqual({
+      action: "read",
+      resource: "/home/tester/.local/share/opencode/*",
+      effect: "deny",
+    })
+    expect(rules).toContainEqual({
+      action: "read",
+      resource: "/home/tester/.config/opencode/*",
+      effect: "deny",
+    })
+    expect(rules).toContainEqual({
+      action: "external_directory",
+      resource: "/home/tester/.local/share/opencode/*",
+      effect: "deny",
+    })
+    // The Docker engine paths are covered even when the BFF resolves a
+    // different home (the BFF and the engine are different containers).
+    expect(rules).toContainEqual({
+      action: "read",
+      resource: "/home/node/.local/share/opencode/*",
+      effect: "deny",
+    })
+    expect(rules).toContainEqual({
+      action: "read",
+      resource: "/home/node/.config/opencode/*",
+      effect: "deny",
+    })
+  })
+
+  it("has no grep/glob rules: their resource is the search pattern, never the path", () => {
+    // Verified against the pinned 2.0.6 source: grep/glob assert
+    // `action: name, resources: [input.pattern]` and gate the path through
+    // `authorizeExternal` (action `external_directory`). A path-shaped deny on
+    // the grep/glob actions could therefore never match a real call, while the
+    // external_directory denies above do gate their path.
+    const actions = engineReadGuardRules("/home/tester").map((rule) => rule.action)
+    expect(actions).not.toContain("grep")
+    expect(actions).not.toContain("glob")
+    expect(new Set(actions)).toEqual(new Set(["read", "external_directory"]))
+  })
+
+  it("only matches absolute resources, so workspace-relative reads stay allowed", () => {
+    // opencode tags workspace files with a plain relative resource and engine
+    // paths with an absolute one (verified against 2.0.6 file-access.ts). Every
+    // deny here is absolute, so `notes.md` or `sub/dir` never match one.
+    const resources = engineReadGuardRules("/home/tester").map((rule) => rule.resource)
+    expect(resources.length).toBeGreaterThan(0)
+    for (const resource of resources) {
+      expect(resource.startsWith("/") || resource.startsWith("?:")).toBe(true)
+    }
+    // Residual, documented in docs/bff/api.md: the match is lexical, so a
+    // symlink inside the workspace pointing outside still resolves to a
+    // relative resource and passes this guard. Permission rules cannot cover
+    // that escape; the engine uid boundary (agent-exec) is the mitigation for
+    // shell/PTY paths, and the engine data/config files stay owner-only.
+  })
+
+  it("dedupes the Docker paths when home already resolves to them", () => {
+    const rules = engineReadGuardRules("/home/node")
+    const seen = rules.map((rule) => `${rule.action} ${rule.resource}`)
+    expect(new Set(seen).size).toBe(seen.length)
   })
 })
 

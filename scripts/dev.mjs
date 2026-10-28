@@ -166,6 +166,9 @@ async function main() {
     // Point opencode at the MasterHand-owned custom-provider file the BFF
     // writes ; both processes share the same HOME here.
     process.env.OPENCODE_CONFIG ??= join(homedir(), ".config", "opencode", "masterhand-providers.json")
+    // Same project-discovery disable as the Docker stack (#218): a workspace's
+    // `.opencode/` dir or `opencode.json(c)` must not load engine-side plugins.
+    process.env.OPENCODE_CONFIG_PROJECT_DISABLE ??= "true"
     spawnChild("opencode", "opencode", ["serve", "--hostname", opencodeHost, "--port", String(opencodePort)])
   }
 

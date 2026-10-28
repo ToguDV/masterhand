@@ -30,7 +30,7 @@ import type {
 } from "./types"
 import { toChatMessage } from "./chat"
 import {
-  normalizeCredentials,
+  credentialsFromIntegrations,
   normalizeIntegrations,
   type Integration,
   type ProviderCredential,
@@ -205,9 +205,12 @@ export interface Client {
       integrationID: string,
       input: { key: string; label?: string; answer?: Record<string, string | number | boolean | string[]> },
     ): Promise<void>
-    /** Stored credentials across integrations (to disconnect or activate one). */
-    credentials(): Promise<ProviderCredential[]>
-    /** Removes a stored credential (non-idempotent; never auto-retried). */
+    /**
+     * Stored credentials across integrations (to disconnect or activate one).
+     * Derived from the integration list's credential connections: the pinned
+     * 2.0.6 has no `GET /api/credential` (#216).
+     */
+    credentials(): Promise<ProviderCredential[]>    /** Removes a stored credential (non-idempotent; never auto-retried). */
     removeCredential(credentialID: string): Promise<void>
     /** Marks one stored credential as the active one. */
     activateCredential(credentialID: string): Promise<void>
@@ -629,7 +632,9 @@ export function createClient(options: ClientOptions = {}): Client {
           }),
         ),
       credentials: () =>
-        opencodeRequest(() => opencode.credential.list().then(normalizeCredentials)),
+        opencodeRequest(() =>
+          opencode.integration.list().then((response) => credentialsFromIntegrations(response.data)),
+        ),
       removeCredential: (credentialID) => opencodeRequest(() => opencode.credential.remove({ credentialID })),
       activateCredential: (credentialID) => opencodeRequest(() => opencode.credential.activate({ credentialID })),
       customProviders: () =>
