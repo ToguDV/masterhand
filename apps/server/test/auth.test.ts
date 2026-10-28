@@ -13,7 +13,7 @@ describe("cookie auth", () => {
     app = await startTestApp()
     const response = await fetch(`${app.url}/api/health`)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true })
+    expect(await response.json()).toEqual({ ok: true, ready: true })
   })
 
   it("rejects protected routes without credentials", async () => {

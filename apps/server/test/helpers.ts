@@ -591,6 +591,9 @@ export async function startTestApp(
     preview?: PreviewManager
     sessionsCacheMs?: number
     sseQueueMax?: number
+    sseBytesMax?: number
+    /** Overridable for tests: boot readiness reported by `/api/health`. */
+    isReady?: () => boolean
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
     /** Test-only request observer, e.g. to signal that a request arrived. */
@@ -645,6 +648,8 @@ export async function startTestApp(
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
+    sseBytesMax: options.sseBytesMax,
+    isReady: options.isReady,
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
@@ -669,7 +674,7 @@ export async function startTestApp(
     preview,
     scheduler: (app as AppWithScheduler).scheduler!,
     close: async () => {
-      preview.stopAll()
+      await preview.stopAll()
       hub.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     },

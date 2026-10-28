@@ -8,6 +8,7 @@ import { createMemoryStore, createSqliteStore } from "../src/store.js"
 import type { Store } from "../src/store.js"
 import {
   cleanupOrphanTunnels,
+  createPidFileStore,
   createPreviewManager,
   PreviewError,
   previewSystemPrompt,
@@ -223,7 +224,11 @@ describe("preview tunnel lifecycle", () => {
     const { manager, tunnel, store } = setup()
     await manager.start("ses_1")
 
-    manager.stop("ses_1")
+    // Contract pin for issue #200: stopping touches the PID file, so it is
+    // asynchronous and never blocks the event loop.
+    const stopped = manager.stop("ses_1")
+    expect(stopped).toBeInstanceOf(Promise)
+    await stopped
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
     expect(manager.status("ses_1").status).toBe("stopped")
     // stop keeps the reserved port: the tunnel can be restarted.
@@ -269,7 +274,7 @@ describe("preview tunnel lifecycle", () => {
     await manager.start("ses_1")
     await manager.start("ses_2")
 
-    manager.stopAll()
+    await manager.stopAll()
     expect(tunnel.children).toHaveLength(2)
     for (const child of tunnel.children) expect(child.signalCode).toBe("SIGTERM")
     expect(manager.status("ses_1").status).toBe("stopped")
@@ -277,8 +282,43 @@ describe("preview tunnel lifecycle", () => {
   })
 })
 
+describe("tunnel PID file store", () => {
+  it("serializes concurrent read-modify-writes so no tracking is lost", async () => {
+    // A track racing an untrack must not lose an update (issue #200): every
+    // RMW runs through one chain instead of touching the filesystem inline.
+    let file = "[]"
+    let reads = 0
+    let releaseRead!: () => void
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    const store = createPidFileStore("/data/preview-tunnels.json", {
+      readFile: async () => {
+        reads += 1
+        if (reads === 1) await readGate
+        return file
+      },
+      writeFile: async (_file: string, data: string, _mode: number) => {
+        file = data
+      },
+      chmod: async () => {},
+      rm: async () => {},
+    })
+
+    const first = store.add(111)
+    const second = store.add(222)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Serialized: the second add has not even read yet while the first is
+    // still inside its read. Unserialized RMWs would both read here.
+    expect(reads).toBe(1)
+    releaseRead()
+    await Promise.all([first, second])
+    expect(JSON.parse(file).sort()).toEqual([111, 222])
+  })
+})
+
 describe("orphan tunnel cleanup", () => {
-  it("kills only PIDs confirmed to be cloudflared and removes the pid file", () => {
+  it("kills only PIDs confirmed to be cloudflared and removes the pid file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
     const file = tunnelPidFile(dir)
     writeFileSync(file, JSON.stringify([111, 222, 333]))
@@ -289,7 +329,7 @@ describe("orphan tunnel cleanup", () => {
       [333, "cloudflared"],
     ])
     try {
-      const result = cleanupOrphanTunnels({
+      const result = await cleanupOrphanTunnels({
         pidFile: file,
         processName: (pid) => names.get(pid) ?? null,
         kill: (pid) => killed.push(pid),
@@ -302,12 +342,14 @@ describe("orphan tunnel cleanup", () => {
     }
   })
 
-  it("tolerates a missing or malformed pid file", () => {
+  it("tolerates a missing or malformed pid file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-tunnels-"))
     try {
-      expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
+      // Contract pin for issue #200: reaping never blocks the event loop.
+      expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toBeInstanceOf(Promise)
+      expect(await cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
       writeFileSync(tunnelPidFile(dir), "{not json")
-      expect(cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
+      expect(await cleanupOrphanTunnels({ pidFile: tunnelPidFile(dir) })).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -331,10 +373,10 @@ describe("orphan tunnel cleanup", () => {
     try {
       await manager.start("ses_1")
       expect(statSync(file).mode & 0o777).toBe(0o600)
-      manager.stop("ses_1")
+      await manager.stop("ses_1")
       expect(statSync(file).mode & 0o777).toBe(0o600)
     } finally {
-      manager.stopAll()
+      await manager.stopAll()
       rmSync(dir, { recursive: true, force: true })
     }
   })
@@ -354,11 +396,11 @@ describe("orphan tunnel cleanup", () => {
       await manager.start("ses_1")
       expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([4242])
 
-      manager.stop("ses_1")
+      await manager.stop("ses_1")
       expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([])
 
       await manager.start("ses_1")
-      manager.stopAll()
+      await manager.stopAll()
       expect(JSON.parse(readFileSync(tunnelPidFile(dir), "utf8"))).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })

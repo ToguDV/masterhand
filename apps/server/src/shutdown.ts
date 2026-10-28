@@ -10,7 +10,7 @@
 export interface ShutdownResources {
   scheduler?: { stop(): void; flush(): Promise<void> } | null
   goals?: { stop(): void; flush(): Promise<void> } | null
-  preview: { stopAll(): void }
+  preview: { stopAll(): Promise<void> }
   hub: { stop(): void }
   store: { close(): void }
   server: {
@@ -104,7 +104,7 @@ export async function shutdownServer(
   ])
 
   try {
-    resources.preview.stopAll()
+    await resources.preview.stopAll()
   } catch {
     // best effort
   }

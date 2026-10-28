@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { statfsSync } from "node:fs"
+import { statfs } from "node:fs/promises"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
@@ -128,6 +128,10 @@ export interface AppDeps {
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
   sseQueueMax?: number
+  /** Overridable for tests: unsent bytes an SSE client may hold before it is dropped. */
+  sseBytesMax?: number
+  /** Boot readiness reported by `/api/health` (issue #199); defaults to ready. */
+  isReady?: () => boolean
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
   /** Cap on proxied opencode request bodies (default 10 MiB). */
@@ -158,6 +162,15 @@ const DEFAULT_PROXY_BODY_LIMIT_BYTES = 10 * 1024 * 1024
 const MAX_PASSWORD_LENGTH = 1024
 /** Frames a single SSE client may fall behind before it is dropped. */
 const MAX_SSE_QUEUE = 1024
+/**
+ * Queued (unsent) bytes a single SSE client may hold before it is dropped
+ * (issue #196): the frame-count cap alone allows 1024 × ~1 MB ≈ 1 GB per
+ * stalled client against a 1 GB container. Frames stay verbatim — oversized
+ * `tool.success` outputs are NOT truncated, so clients keep rendering full
+ * outputs and the authoritative copy stays in the opencode message history
+ * the clients refetch on reconnect.
+ */
+const MAX_SSE_BYTES = 4 * 1024 * 1024
 
 /** Methods safe to retry outright: replaying them cannot duplicate state. */
 const IDEMPOTENT_OPENCODE_METHODS = new Set(["GET", "HEAD", "PUT", "PATCH", "DELETE"])
@@ -230,12 +243,43 @@ function clientIp(c: Context): string {
 }
 
 /** Free bytes on the filesystem holding `path`; null when it cannot be read. */
-function defaultDiskFreeBytes(path: string): number | null {
+async function defaultDiskFreeBytes(path: string): Promise<number | null> {
   try {
-    const stats = statfsSync(path)
+    const stats = await statfs(path)
     return Number(stats.bavail) * Number(stats.bsize)
   } catch {
     return null
+  }
+}
+
+/** `/api/status` polls behind this cache so the volume pays one `statfs` per window, not per poll. */
+const DISK_FREE_TTL_MS = 15_000
+
+/**
+ * Caches one asynchronous disk-free read behind a TTL (issue #200). A
+ * throwing read degrades to a cached null — best effort, never a 500 — so a
+ * dead volume does not fail every status poll, only slows it to one probe
+ * per window.
+ */
+export function createCachedDiskFree(
+  read: () => Promise<number | null>,
+  ttlMs = DISK_FREE_TTL_MS,
+): () => Promise<number | null> {
+  let cached: { at: number; value: number | null } | null = null
+  let inFlight: Promise<number | null> | null = null
+  return async () => {
+    const now = Date.now()
+    if (cached && now - cached.at < ttlMs) return cached.value
+    // Concurrent misses share one probe: without this every simultaneous
+    // /api/status poll would statfs on its own.
+    inFlight ??= read()
+      .catch(() => null)
+      .then((value) => {
+        cached = { at: Date.now(), value }
+        inFlight = null
+        return value
+      })
+    return inFlight
   }
 }
 
@@ -346,6 +390,162 @@ async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promis
   await Promise.all(workers)
 }
 
+/** One frame queued for an SSE client. */
+export interface SseFrame {
+  event?: string
+  data: string
+}
+
+/** The slice of Hono's SSE stream one client pump drives (injectable for tests). */
+export interface SsePumpStream {
+  writeSSE(frame: SseFrame): Promise<unknown>
+  abort(): void
+  onAbort(listener: () => void): void
+}
+
+/** Why an SSE client was dropped (reconnect-and-reconcile contract). */
+export type SseDropReason = "overflow" | "write-failure" | "byte-budget"
+
+export interface SsePumpOptions {
+  stream: SsePumpStream
+  /** Hub subscription; the returned function must remove the listener. */
+  subscribe: (listener: (frame: SseFrame) => void) => () => void
+  /** Frames a client may fall behind before it is dropped. */
+  maxQueue?: number
+  /** Queued (unsent) bytes a client may hold before it is dropped. */
+  maxBytes?: number
+  /** Observed when the client is dropped (overflow, write failure, budget). */
+  onDrop?: (reason: SseDropReason) => void
+}
+
+export interface SsePump {
+  enqueue(frame: SseFrame): void
+  /** Removes the hub subscription and drops every queued frame. Idempotent. */
+  dispose(): void
+  isClosed(): boolean
+  pendingFrames(): number
+}
+
+/**
+ * Serializes each hub emission once and shares the string across every
+ * subscriber (issue #196): `goal.updated` (up to 50 rounds of history),
+ * `board.updated` (full snapshots) and tool outputs are unbounded, and a
+ * per-subscriber `JSON.stringify` multiplies that cost by the client count.
+ * The hub notifies synchronously, so every subscriber of one emission sees
+ * the identical object and hits the memo. Only the latest emission is
+ * retained, so the cache itself is bounded to one frame.
+ */
+export function createSharedSerializer(
+  serialize: (event: unknown) => string = (event) => JSON.stringify(event),
+): (event: unknown) => string {
+  let lastEvent: unknown
+  let lastJson: string | null = null
+  return (event) => {
+    if (lastJson !== null && event === lastEvent) return lastJson
+    const json = serialize(event)
+    lastEvent = event
+    lastJson = json
+    return json
+  }
+}
+
+/**
+ * One SSE client's serialized write queue (issue #83, hardened by #190):
+ * each frame awaits the stream, so a slow client applies natural backpressure
+ * to the queue instead of forking an unbounded promise chain, and a client
+ * that falls behind is dropped so it can reconnect and reconcile.
+ */
+export function createSsePump(options: SsePumpOptions): SsePump {
+  const { stream, subscribe, onDrop } = options
+  const maxQueue = options.maxQueue ?? MAX_SSE_QUEUE
+  const maxBytes = options.maxBytes ?? MAX_SSE_BYTES
+  let closed = false
+  let draining = false
+  const queue: SseFrame[] = []
+  /** Unsent bytes held for this client (queued frames plus the in-flight write). */
+  let queuedBytes = 0
+
+  function dispose(): void {
+    if (closed) return
+    closed = true
+    queue.length = 0
+    queuedBytes = 0
+    unsubscribe()
+  }
+
+  function frameBytes(frame: SseFrame): number {
+    return (
+      (frame.event === undefined ? 0 : Buffer.byteLength(frame.event, "utf8")) +
+      Buffer.byteLength(frame.data, "utf8")
+    )
+  }
+
+  function drop(reason: SseDropReason): void {
+    // Drop + abort under the shared reconnect-and-reconcile contract: the
+    // client reconnects (SSE has no replay) and refetches state.
+    dispose()
+    stream.abort()
+    onDrop?.(reason)
+  }
+
+  // One writer per client: each frame awaits the stream, so a slow client
+  // applies natural backpressure to the queue instead of forking an
+  // unbounded promise chain.
+  async function drain(): Promise<void> {
+    if (draining) return
+    draining = true
+    try {
+      while (!closed) {
+        const frame = queue.shift()
+        if (!frame) break
+        await stream.writeSSE(frame)
+        queuedBytes = Math.max(0, queuedBytes - frameBytes(frame))
+      }
+    } catch {
+      // A failed write means the transport is gone (reset socket, half-open
+      // connection): tear the client down right here instead of waiting for
+      // the abort/keepalive path. Otherwise `closed` stays false, the hub
+      // subscription leaks, and every later frame is silently lost while the
+      // drain keeps failing (issue #190). The queue is cleared, the stream is
+      // aborted, and the failure is never retried or re-drained: the client
+      // reconnects (SSE has no replay) and reconciles state.
+      drop("write-failure")
+    } finally {
+      draining = false
+      if (!closed && queue.length > 0) void drain()
+    }
+  }
+
+  function enqueue(frame: SseFrame): void {
+    if (closed) return
+    if (queue.length >= maxQueue) {
+      // Zero-window/slow client: drop it instead of buffering every event in
+      // memory. It reconnects (SSE has no replay) and reconciles state.
+      drop("overflow")
+      return
+    }
+    // Byte budget (issue #196): the frame-count cap alone allows
+    // 1024 × ~1 MB ≈ 1 GB per stalled client against a 1 GB container.
+    if (queuedBytes + frameBytes(frame) > maxBytes) {
+      drop("byte-budget")
+      return
+    }
+    queuedBytes += frameBytes(frame)
+    queue.push(frame)
+    void drain()
+  }
+
+  const unsubscribe = subscribe(enqueue)
+  stream.onAbort(dispose)
+
+  return {
+    enqueue,
+    dispose,
+    isClosed: () => closed,
+    pendingFrames: () => queue.length,
+  }
+}
+
 export function createApp(deps: AppDeps): Hono {
   const { config } = deps
   const fetchImpl = deps.fetchImpl ?? fetch
@@ -362,6 +562,14 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: "internal_error" }, 500)
   })
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
+  // One serialization per hub emission, shared by every SSE subscriber
+  // (issue #196): without it each client pays its own `JSON.stringify` of
+  // unbounded `goal.updated`/`board.updated`/tool frames.
+  const serializeEvent = createSharedSerializer()
+  // One `statfs` per TTL window, shared by every status poll (issue #200).
+  // The `diskFreeBytes` injection stays synchronous: test doubles are cheap,
+  // only the real filesystem read needs the cache.
+  const cachedDiskFreeBytes = createCachedDiskFree(() => defaultDiskFreeBytes(config.dataDir))
   const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
   const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
@@ -1382,7 +1590,9 @@ export function createApp(deps: AppDeps): Hono {
     // Readiness includes storage: an unreachable/corrupt database means the
     // instance cannot serve, and Docker surfaces it as unhealthy.
     if (!deps.store.ping()) return c.json({ ok: false, error: "storage_unavailable" }, 503)
-    return c.json({ ok: true })
+    // Liveness answers immediately; `ready` flips only when the background
+    // boot pass settles (issue #199). Additive: old clients ignore it.
+    return c.json({ ok: true, ready: (deps.isReady ?? (() => true))() })
   })
 
   app.post("/api/login", authBodyLimit, async (c) => {
@@ -1482,7 +1692,9 @@ export function createApp(deps: AppDeps): Hono {
     }
     // Free space on the data volume: a full disk takes SQLite and git down
     // with it, so clients surface a warning before that happens (issue #78).
-    const freeBytes = (deps.diskFreeBytes ?? defaultDiskFreeBytes)(config.dataDir)
+    // Asynchronous behind a TTL cache (issue #200): a synchronous `statfs`
+    // per poll would freeze the event loop for every client.
+    const freeBytes = deps.diskFreeBytes ? deps.diskFreeBytes(config.dataDir) : await cachedDiskFreeBytes()
     const storage = {
       ok: deps.store.ping(),
       freeBytes,
@@ -1518,72 +1730,29 @@ export function createApp(deps: AppDeps): Hono {
     c.header("cache-control", "no-cache")
     c.header("x-accel-buffering", "no")
     const maxQueue = deps.sseQueueMax ?? MAX_SSE_QUEUE
+    const maxBytes = deps.sseBytesMax ?? MAX_SSE_BYTES
     return streamSSE(c, async (stream) => {
-      interface SseFrame {
-        event?: string
-        data: string
-      }
-
-      let closed = false
-      let draining = false
-      const queue: SseFrame[] = []
-      let unsubscribe = (): void => {}
-
-      const teardown = (): void => {
-        if (closed) return
-        closed = true
-        unsubscribe()
-      }
-
-      // One writer per client: each frame awaits the stream, so a slow client
-      // applies natural backpressure to the queue instead of forking an
-      // unbounded promise chain.
-      const drain = async (): Promise<void> => {
-        if (draining) return
-        draining = true
-        try {
-          while (!closed) {
-            const frame = queue.shift()
-            if (!frame) break
-            await stream.writeSSE(frame)
-          }
-        } catch {
-          // the client disconnected
-        } finally {
-          draining = false
-          if (!closed && queue.length > 0) void drain()
-        }
-      }
-
-      const enqueue = (frame: SseFrame): void => {
-        if (closed) return
-        if (queue.length >= maxQueue) {
-          // Zero-window/slow client: drop it instead of buffering every event in
-          // memory. It reconnects (SSE has no replay) and reconciles state.
-          teardown()
-          stream.abort()
-          return
-        }
-        queue.push(frame)
-        void drain()
-      }
-
-      unsubscribe = deps.hub.subscribe((event) => {
-        enqueue({ data: JSON.stringify(event) })
+      const pump = createSsePump({
+        stream,
+        subscribe: (enqueue) =>
+          deps.hub.subscribe((event) => {
+            enqueue({ data: serializeEvent(event) })
+          }),
+        maxQueue,
+        maxBytes,
       })
-      stream.onAbort(teardown)
 
       try {
-        enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
-        while (!closed) {
+        pump.enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
+        while (!pump.isClosed()) {
           await stream.sleep(KEEPALIVE_MS)
-          if (closed) break
-          enqueue({ event: "ping", data: "{}" })
+          if (pump.isClosed()) break
+          pump.enqueue({ event: "ping", data: "{}" })
         }
       } catch {
         // client disconnected
       } finally {
-        teardown()
+        pump.dispose()
       }
     })
   })
@@ -2522,10 +2691,10 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ run: record })
   })
 
-  api.post("/workspaces/:id/run/detect", (c) => {
+  api.post("/workspaces/:id/run/detect", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
-    const detected = readRunFile(workspace.path)
+    const detected = await readRunFile(workspace.path)
     if (!detected) return c.json({ error: "run_not_found" }, 404)
     if ("error" in detected) return c.json({ error: detected.error }, 400)
     return c.json({ run: { ...detected.config, source: "agent" } })
@@ -2614,9 +2783,9 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
-  api.delete("/sessions/:sessionID/preview", (c) => {
+  api.delete("/sessions/:sessionID/preview", async (c) => {
     if (!config.previewEnabled) return c.json({ error: "preview_disabled" }, 404)
-    preview.stop(c.req.param("sessionID"))
+    await preview.stop(c.req.param("sessionID"))
     return c.json({ ok: true })
   })
 

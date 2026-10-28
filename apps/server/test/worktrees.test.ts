@@ -8,6 +8,7 @@ import {
   createWorktreeManager,
   gitSlug,
   isValidBranchName,
+  launchBackgroundReconcile,
   pullRequestUrl,
   reconcileWorktrees,
   remoteProvider,
@@ -715,5 +716,82 @@ describe("reconcileWorktrees", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("launchBackgroundReconcile", () => {
+  function gatedReconcile() {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let calls = 0
+    const warnings: Array<{ message: string; detail?: unknown }> = []
+    const reconcile = async () => {
+      calls += 1
+      await gate
+      return { skipped: "volume_unconfirmed" as const, droppedRecords: [], quarantinedWorktrees: [] }
+    }
+    return { gate, release, calls: () => calls, warnings, reconcile }
+  }
+
+  it("starts the pass without waiting for it and flips readiness when it settles", async () => {
+    // Boot must listen before this pass settles (issue #199): the launch
+    // returns while the pass is still gated.
+    const gated = gatedReconcile()
+    const settled: unknown[] = []
+    const bg = launchBackgroundReconcile({
+      store: createMemoryStore(),
+      manager: createWorktreeManager({ run: gitStub(() => ok()) }),
+      root: join(tmpdir(), "mh-never"),
+      budgetMs: 0,
+      warn: (message, detail) => gated.warnings.push({ message, detail }),
+      reconcile: gated.reconcile,
+      onSettled: (result) => settled.push(result),
+    })
+    expect(gated.calls()).toBe(1)
+    expect(bg.isReady()).toBe(false)
+    gated.release()
+    await bg.settled
+    expect(bg.isReady()).toBe(true)
+    expect(settled).toHaveLength(1)
+    expect(gated.warnings).toEqual([])
+  })
+
+  it("warns when the pass exceeds its budget but still flips readiness on settle", async () => {
+    const gated = gatedReconcile()
+    const bg = launchBackgroundReconcile({
+      store: createMemoryStore(),
+      manager: createWorktreeManager({ run: gitStub(() => ok()) }),
+      root: join(tmpdir(), "mh-never"),
+      budgetMs: 10,
+      warn: (message, detail) => gated.warnings.push({ message, detail }),
+      reconcile: gated.reconcile,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(bg.isReady()).toBe(false)
+    expect(gated.warnings).toHaveLength(1)
+    expect(gated.warnings[0]?.message).toContain("already listening")
+    gated.release()
+    await bg.settled
+    expect(bg.isReady()).toBe(true)
+    expect(gated.warnings).toHaveLength(1)
+  })
+
+  it("contains a failing pass: readiness still flips and settled never rejects", async () => {
+    const warnings: Array<{ message: string; detail?: unknown }> = []
+    const bg = launchBackgroundReconcile({
+      store: createMemoryStore(),
+      manager: createWorktreeManager({ run: gitStub(() => ok()) }),
+      root: join(tmpdir(), "mh-never"),
+      budgetMs: 0,
+      warn: (message, detail) => warnings.push({ message, detail }),
+      reconcile: async () => {
+        throw new Error("git is on fire")
+      },
+    })
+    await expect(bg.settled).resolves.toBeUndefined()
+    expect(bg.isReady()).toBe(true)
+    expect(warnings.map((warning) => String(warning.detail))).toContain("Error: git is on fire")
   })
 })

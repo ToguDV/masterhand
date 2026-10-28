@@ -14,6 +14,7 @@ import {
   type TestApp,
 } from "./helpers.js"
 import { createMemoryStore, type Store } from "../src/store.js"
+import { createCachedDiskFree } from "../src/app.js"
 
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
@@ -225,6 +226,23 @@ describe("storage resilience", () => {
     expect(await response.json()).toEqual({ ok: false, error: "storage_unavailable" })
   })
 
+  it("answers liveness immediately while readiness follows the boot pass", async () => {
+    // The server listens before worktree reconciliation settles (issue #199):
+    // liveness is always 200 while the store answers, and `ready` flips only
+    // when the background pass is done.
+    let ready = false
+    app = await startTestApp({ isReady: () => ready })
+
+    const waiting = await fetch(`${app.url}/api/health`)
+    expect(waiting.status).toBe(200)
+    expect(await waiting.json()).toEqual({ ok: true, ready: false })
+
+    ready = true
+    const settled = await fetch(`${app.url}/api/health`)
+    expect(settled.status).toBe(200)
+    expect(await settled.json()).toEqual({ ok: true, ready: true })
+  })
+
   it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {
     const sqliteError = () => Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
     app = await startTestApp({
@@ -252,6 +270,51 @@ describe("storage resilience", () => {
 
     const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
     expect(await response.json()).toMatchObject({ storage: { ok: false } })
+  })
+
+  describe("cached disk-free reads", () => {
+    it("serves repeated status polls from the cache and re-reads after the TTL", async () => {
+      // /api/status polls frequently: the volume must not pay a `statfs` per
+      // poll (issue #200).
+      let reads = 0
+      const read = createCachedDiskFree(async () => {
+        reads += 1
+        return 1234
+      }, 20)
+      expect(await read()).toBe(1234)
+      expect(await read()).toBe(1234)
+      expect(reads).toBe(1)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(await read()).toBe(1234)
+      expect(reads).toBe(2)
+    })
+
+    it("shares one probe across concurrent misses", async () => {
+      let reads = 0
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const read = createCachedDiskFree(async () => {
+        reads += 1
+        await gate
+        return 1234
+      }, 10_000)
+      const pending = [read(), read(), read()]
+      release()
+      const results = await Promise.all(pending)
+      expect(results).toEqual([1234, 1234, 1234])
+      expect(reads).toBe(1)
+    })
+
+    it("stays best-effort null when the volume cannot be read", async () => {
+      const read = createCachedDiskFree(async () => null)
+      expect(await read()).toBeNull()
+      const failing = createCachedDiskFree(async () => {
+        throw new Error("dead volume")
+      })
+      expect(await failing()).toBeNull()
+    })
   })
 
   it("keeps authenticated reads working when the advisory device touch fails", async () => {

@@ -25,7 +25,9 @@ function setup(overrides: Partial<ShutdownResources> = {}) {
       stop: () => void order.push("goals.stop"),
       flush: async () => void order.push("goals.flush"),
     },
-    preview: { stopAll: () => void order.push("preview.stopAll") },
+    preview: {
+      stopAll: async () => void order.push("preview.stopAll"),
+    },
     hub: { stop: () => void order.push("hub.stop") },
     store: { close: () => void order.push("store.close") },
     server: {

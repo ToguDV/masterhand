@@ -1134,33 +1134,68 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     })
   }
 
+  /** Set while a watchdog pass runs; overlapping passes skip (issue #202). */
+  let reconcileRunning = false
+
   async function reconcile(): Promise<void> {
-    for (const run of store.listGoalRuns()) {
-      if (TERMINAL_STATES.has(run.state) || run.state === "paused") continue
-      if (!run.awaitingSessionID || !run.awaitingKind) continue
-      await enqueue(run.sessionID, async () => {
-        const live = store.getGoalRun(run.sessionID)
-        if (!live || TERMINAL_STATES.has(live.state) || live.state === "paused") return
-        const awaited = live.awaitingSessionID
-        const kind = live.awaitingKind
-        if (!awaited || !kind) return
-        let active: string[]
-        try {
-          active = await retryable(() => opencode.activeSessions(), { includeTimeouts: true })
-        } catch {
-          return
-        }
-        if (active.includes(awaited)) return
-        const processed = await processIdle(live.sessionID, awaited)
-        if (!processed) {
-          const current = store.getGoalRun(live.sessionID)
-          if (!current || TERMINAL_STATES.has(current.state) || current.state === "paused") return
-          if (current.awaitingSessionID !== awaited) return
-          await retryPhase(current, kind, "the turn ended without a reply")
-        }
-      })
+    // Overlapping passes must not stack: the watchdog fires every 30 s while
+    // a pass can outlive it on a slow upstream. The flag is set synchronously
+    // so two passes can never both enter; it clears in `finally`.
+    if (reconcileRunning) {
+      console.debug("[goal] reconcile already running; skipping overlapping pass")
+      return
     }
-    await flush()
+    reconcileRunning = true
+    try {
+      // Skip the upstream listing when no run awaits a session: an idle BFF
+      // must not poll opencode every 30 s for nothing.
+      const waiting = store
+        .listGoalRuns()
+        .filter((run) => !TERMINAL_STATES.has(run.state) && run.state !== "paused" && run.awaitingSessionID && run.awaitingKind)
+      if (waiting.length === 0) return
+      // One upstream listing per pass, not one per run awaiting a session:
+      // every run reconciles its lost-idle heuristic against the same snapshot.
+      let active: Set<string>
+      try {
+        active = new Set(await retryable(() => opencode.activeSessions(), { includeTimeouts: true }))
+      } catch {
+        return // leave the runs for the next pass; an outage must not fail them
+      }
+      for (const run of waiting) {
+        if (TERMINAL_STATES.has(run.state) || run.state === "paused") continue
+        if (!run.awaitingSessionID || !run.awaitingKind) continue
+        await enqueue(run.sessionID, async () => {
+          const live = store.getGoalRun(run.sessionID)
+          if (!live || TERMINAL_STATES.has(live.state) || live.state === "paused") return
+          const awaited = live.awaitingSessionID
+          const kind = live.awaitingKind
+          if (!awaited || !kind) return
+          if (active.has(awaited)) return
+          const processed = await processIdle(live.sessionID, awaited)
+          if (!processed) {
+            const current = store.getGoalRun(live.sessionID)
+            if (!current || TERMINAL_STATES.has(current.state) || current.state === "paused") return
+            if (current.awaitingSessionID !== awaited) return
+            // The shared snapshot may be stale after awaiting per-run work: a
+            // session that went busy mid-pass would otherwise receive a retry
+            // prompt while occupied. Revalidate just this one (rare path).
+            let stillIdle: boolean
+            try {
+              stillIdle = !(await retryable(() => opencode.activeSessions(), { includeTimeouts: true })).includes(
+                awaited,
+              )
+            } catch {
+              return // leave it for the next pass; an outage must not fail it
+            }
+            if (!stillIdle) return
+            await retryPhase(current, kind, "the turn ended without a reply")
+          }
+        })
+      }
+      await flush()
+    } finally {
+      reconcileRunning = false
+    }
   }
 
   function reconcileOnBoot(): void {
