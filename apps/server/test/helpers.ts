@@ -592,6 +592,8 @@ export async function startTestApp(
     sessionsCacheMs?: number
     sseQueueMax?: number
     sseBytesMax?: number
+    /** Overridable for tests: boot readiness reported by `/api/health`. */
+    isReady?: () => boolean
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
     /** Test-only request observer, e.g. to signal that a request arrived. */
@@ -647,6 +649,7 @@ export async function startTestApp(
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
     sseBytesMax: options.sseBytesMax,
+    isReady: options.isReady,
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })

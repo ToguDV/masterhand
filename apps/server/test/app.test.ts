@@ -226,6 +226,23 @@ describe("storage resilience", () => {
     expect(await response.json()).toEqual({ ok: false, error: "storage_unavailable" })
   })
 
+  it("answers liveness immediately while readiness follows the boot pass", async () => {
+    // The server listens before worktree reconciliation settles (issue #199):
+    // liveness is always 200 while the store answers, and `ready` flips only
+    // when the background pass is done.
+    let ready = false
+    app = await startTestApp({ isReady: () => ready })
+
+    const waiting = await fetch(`${app.url}/api/health`)
+    expect(waiting.status).toBe(200)
+    expect(await waiting.json()).toEqual({ ok: true, ready: false })
+
+    ready = true
+    const settled = await fetch(`${app.url}/api/health`)
+    expect(settled.status).toBe(200)
+    expect(await settled.json()).toEqual({ ok: true, ready: true })
+  })
+
   it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {
     const sqliteError = () => Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
     app = await startTestApp({

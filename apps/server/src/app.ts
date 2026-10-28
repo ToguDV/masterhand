@@ -130,6 +130,8 @@ export interface AppDeps {
   sseQueueMax?: number
   /** Overridable for tests: unsent bytes an SSE client may hold before it is dropped. */
   sseBytesMax?: number
+  /** Boot readiness reported by `/api/health` (issue #199); defaults to ready. */
+  isReady?: () => boolean
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
   /** Cap on proxied opencode request bodies (default 10 MiB). */
@@ -1585,7 +1587,9 @@ export function createApp(deps: AppDeps): Hono {
     // Readiness includes storage: an unreachable/corrupt database means the
     // instance cannot serve, and Docker surfaces it as unhealthy.
     if (!deps.store.ping()) return c.json({ ok: false, error: "storage_unavailable" }, 503)
-    return c.json({ ok: true })
+    // Liveness answers immediately; `ready` flips only when the background
+    // boot pass settles (issue #199). Additive: old clients ignore it.
+    return c.json({ ok: true, ready: (deps.isReady ?? (() => true))() })
   })
 
   app.post("/api/login", authBodyLimit, async (c) => {

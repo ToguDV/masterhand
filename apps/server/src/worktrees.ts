@@ -748,6 +748,80 @@ export interface ReconcileResult {
   quarantinedWorktrees: string[]
 }
 
+export type ReconcileStore = Pick<Store, "listWorkspaces" | "listIsolatedSessions" | "removeIsolatedSession">
+
+/** Slow-pass budget before the boot reconcile is reported as still running (issue #199). */
+export const RECONCILE_BUDGET_MS = 12_000
+
+export interface BackgroundReconcileOptions {
+  store: ReconcileStore
+  manager: WorktreeManager
+  root: string
+  /** Slow-pass budget; 0 disables the warning (tests). Defaults to `RECONCILE_BUDGET_MS`. */
+  budgetMs?: number
+  /** Slow-pass and failure reporting; defaults to a `[masterhand]` console warning. */
+  warn?: (message: string, detail?: unknown) => void
+  /** The pass itself; defaults to `reconcileWorktrees` (tests inject a gate). */
+  reconcile?: (store: ReconcileStore, manager: WorktreeManager, root: string) => Promise<ReconcileResult>
+  /** Observed with the pass outcome once it settles (null when it failed). */
+  onSettled?: (result: ReconcileResult | null) => void
+}
+
+export interface BackgroundReconcile {
+  /** Resolves when the pass settles. Never rejects: failures are warned, not thrown. */
+  settled: Promise<void>
+  /** False until the pass settles: readiness for `/api/health` (issue #199). */
+  isReady: () => boolean
+}
+
+/**
+ * Boot worktree reconciliation that never blocks `serve()` (issue #199): the
+ * pass starts synchronously but settles in the background, so the compose
+ * healthcheck (`GET /api/health`) stops restart-looping the container while
+ * git takes up to N×2×60 s. A pass past its budget only warns — it still
+ * runs to settle, and readiness flips in `finally`, so the volume-health
+ * gate and quarantine semantics are unchanged (rule 11).
+ */
+export function launchBackgroundReconcile(options: BackgroundReconcileOptions): BackgroundReconcile {
+  const {
+    store,
+    manager,
+    root,
+    budgetMs = RECONCILE_BUDGET_MS,
+    warn = (message: string, detail?: unknown) =>
+      detail === undefined ? console.warn(`[masterhand] ${message}`) : console.warn(`[masterhand] ${message}`, detail),
+    reconcile = reconcileWorktrees,
+    onSettled,
+  } = options
+  let ready = false
+  let budgetTimer: ReturnType<typeof setTimeout> | null = null
+  if (budgetMs > 0) {
+    budgetTimer = setTimeout(() => {
+      if (!ready) {
+        warn(
+          `worktree reconciliation is still running after ${budgetMs} ms; the server is already listening`,
+        )
+      }
+    }, budgetMs)
+    budgetTimer.unref?.()
+  }
+  const settled = (async () => {
+    try {
+      // Evaluate the pass before notifying: `onSettled?.(await ...)` would
+      // skip the call itself when no observer is registered.
+      const result = await reconcile(store, manager, root)
+      onSettled?.(result)
+    } catch (error) {
+      warn("worktree reconciliation skipped:", error)
+      onSettled?.(null)
+    } finally {
+      ready = true
+      if (budgetTimer) clearTimeout(budgetTimer)
+    }
+  })()
+  return { settled, isReady: () => ready }
+}
+
 /**
  * Startup cleanup, gated on a demonstrably healthy volume:
  * - Skips entirely when the worktree root is missing (late/failed mount) or no
@@ -757,7 +831,7 @@ export interface ReconcileResult {
  *   branch kept) instead of deleted, so uncommitted agent work stays recoverable.
  */
 export async function reconcileWorktrees(
-  store: Pick<Store, "listWorkspaces" | "listIsolatedSessions" | "removeIsolatedSession">,
+  store: ReconcileStore,
   manager: WorktreeManager,
   root: string,
 ): Promise<ReconcileResult> {
