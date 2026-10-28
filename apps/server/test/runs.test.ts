@@ -114,27 +114,38 @@ describe("isInsideOrEqual", () => {
 })
 
 describe("readRunFile", () => {
-  it("returns null when the file does not exist", () => {
+  it("reads asynchronously without blocking the event loop", () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-run-"))
     try {
-      expect(readRunFile(dir)).toBeNull()
+      // Contract pin for issue #200: the run file must be readable without a
+      // synchronous filesystem call on the request path.
+      expect(readRunFile(dir)).toBeInstanceOf(Promise)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  it("reads and validates .masterhand/run.json", () => {
+  it("returns null when the file does not exist", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mh-run-"))
+    try {
+      expect(await readRunFile(dir)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("reads and validates .masterhand/run.json", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mh-run-"))
     try {
       mkdirSync(join(dir, ".masterhand"))
       writeFileSync(join(dir, ".masterhand", "run.json"), JSON.stringify({ command: "npm", args: ["run", "dev"] }))
-      expect(readRunFile(dir)).toEqual({ config: { command: "npm", args: ["run", "dev"], cwd: null } })
+      expect(await readRunFile(dir)).toEqual({ config: { command: "npm", args: ["run", "dev"], cwd: null } })
 
       writeFileSync(join(dir, ".masterhand", "run.json"), "{not json")
-      expect(readRunFile(dir)).toEqual({ error: "invalid_json" })
+      expect(await readRunFile(dir)).toEqual({ error: "invalid_json" })
 
       writeFileSync(join(dir, ".masterhand", "run.json"), JSON.stringify({ command: "pkill", args: ["-f", "vite"] }))
-      expect(readRunFile(dir)).toEqual({ error: "command_not_allowed" })
+      expect(await readRunFile(dir)).toEqual({ error: "command_not_allowed" })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

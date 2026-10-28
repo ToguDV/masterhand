@@ -37,7 +37,8 @@ try {
 
 // A hard crash (SIGKILL, power loss) can leave cloudflared running with its
 // tunnel publicly exposed; reap only PIDs still confirmed to be cloudflared.
-const orphanTunnels = cleanupOrphanTunnels({ pidFile: tunnelPidFile(config.dataDir) })
+// Asynchronous (issue #200): even `/proc` reads must not block the loop.
+const orphanTunnels = await cleanupOrphanTunnels({ pidFile: tunnelPidFile(config.dataDir) })
 if (orphanTunnels.length > 0) {
   console.log(`[masterhand] stopped ${orphanTunnels.length} orphaned preview tunnel(s)`)
 }
@@ -104,12 +105,15 @@ const drainInFlight = (app as AppWithScheduler).drainInFlight
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist
+  // Read once at boot (issue #200): the catch-all served it synchronously on
+  // every SPA navigation, freezing the event loop each time.
+  const indexHtml = readFileSync(join(webDist, "index.html"), "utf8")
   app.use("*", serveStatic({ root: webDist }))
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api/")) {
       return c.json({ error: "not_found" }, 404)
     }
-    return c.html(readFileSync(join(webDist, "index.html"), "utf8"))
+    return c.html(indexHtml)
   })
 }
 

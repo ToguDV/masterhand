@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { basename, join, resolve, sep } from "node:path"
 
 /**
@@ -145,12 +145,16 @@ export function renderRunArgs(args: string[], port: number): string[] {
 
 /**
  * Reads the agent-proposed run file (`<workspace>/.masterhand/run.json`).
+ * Asynchronous (issue #200): the detect route serves it per run start, and a
+ * synchronous read there would freeze the whole single-process BFF.
  * Returns `null` when it does not exist, `{ error }` when it is invalid.
  */
-export function readRunFile(workspacePath: string): { config: RunConfig } | { error: string } | null {
+export async function readRunFile(
+  workspacePath: string,
+): Promise<{ config: RunConfig } | { error: string } | null> {
   let raw: string
   try {
-    raw = readFileSync(join(workspacePath, ...RUN_FILE.split("/")), "utf8")
+    raw = await readFile(join(workspacePath, ...RUN_FILE.split("/")), "utf8")
   } catch {
     return null
   }

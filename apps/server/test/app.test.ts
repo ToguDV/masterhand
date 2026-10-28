@@ -14,6 +14,7 @@ import {
   type TestApp,
 } from "./helpers.js"
 import { createMemoryStore, type Store } from "../src/store.js"
+import { createCachedDiskFree } from "../src/app.js"
 
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
@@ -252,6 +253,33 @@ describe("storage resilience", () => {
 
     const response = await fetch(`${app.url}/api/status`, { headers: { cookie } })
     expect(await response.json()).toMatchObject({ storage: { ok: false } })
+  })
+
+  describe("cached disk-free reads", () => {
+    it("serves repeated status polls from the cache and re-reads after the TTL", async () => {
+      // /api/status polls frequently: the volume must not pay a `statfs` per
+      // poll (issue #200).
+      let reads = 0
+      const read = createCachedDiskFree(async () => {
+        reads += 1
+        return 1234
+      }, 20)
+      expect(await read()).toBe(1234)
+      expect(await read()).toBe(1234)
+      expect(reads).toBe(1)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(await read()).toBe(1234)
+      expect(reads).toBe(2)
+    })
+
+    it("stays best-effort null when the volume cannot be read", async () => {
+      const read = createCachedDiskFree(async () => null)
+      expect(await read()).toBeNull()
+      const failing = createCachedDiskFree(async () => {
+        throw new Error("dead volume")
+      })
+      expect(await failing()).toBeNull()
+    })
   })
 
   it("keeps authenticated reads working when the advisory device touch fails", async () => {

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process"
-import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmod, readFile, rm, writeFile } from "node:fs/promises"
 import { connect } from "node:net"
 import { join } from "node:path"
 import type { Config } from "./config.js"
@@ -18,8 +18,8 @@ export interface PreviewManager {
   status(sessionID: string): PreviewState
   portFor(sessionID: string): number
   start(sessionID: string): Promise<PreviewState>
-  stop(sessionID: string): void
-  stopAll(): void
+  stop(sessionID: string): Promise<void>
+  stopAll(): Promise<void>
   /** Port mappings are removed when the session disappears. */
   /**
    * Kills the tunnel (waiting for an in-flight start first, so a child that
@@ -128,30 +128,88 @@ export function tunnelPidFile(dataDir: string): string {
   return join(dataDir, "preview-tunnels.json")
 }
 
-function readTrackedPids(file: string): number[] {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"))
-    return Array.isArray(parsed) ? parsed.filter((pid): pid is number => Number.isInteger(pid) && pid > 1) : []
-  } catch {
-    return []
-  }
+/** Asynchronous file I/O behind the tunnel PID file (injectable for tests). */
+export interface PidFileIo {
+  readFile(file: string): Promise<string>
+  writeFile(file: string, data: string, mode: number): Promise<void>
+  chmod(file: string, mode: number): Promise<void>
+  rm(file: string): Promise<void>
 }
 
-function writeTrackedPids(file: string, pids: number[]): void {
-  try {
-    writeFileSync(file, JSON.stringify(pids), { encoding: "utf8", mode: PID_FILE_MODE })
+const defaultPidFileIo: PidFileIo = {
+  readFile: (file) => readFile(file, "utf8"),
+  writeFile: async (file, data, mode) => {
+    await writeFile(file, data, { encoding: "utf8", mode })
     // `mode` only applies when the file is created; tighten a legacy file too.
-    chmodSync(file, PID_FILE_MODE)
-  } catch {
-    // best effort: a read-only data dir must not break previews
+    await chmod(file, mode)
+  },
+  chmod: (file, mode) => chmod(file, mode),
+  rm: (file) => rm(file, { force: true }),
+}
+
+export interface PidFileStore {
+  list(): Promise<number[]>
+  add(pid: number): Promise<void>
+  remove(pid: number): Promise<void>
+  clear(): Promise<void>
+}
+
+/**
+ * Tunnel PIDs persisted for crash recovery (issue #200). Every
+ * read-modify-write runs through one promise chain, so a track racing an
+ * untrack cannot interleave into a lost update — and no synchronous
+ * filesystem call ever freezes the event loop on a preview start/stop.
+ * Operations throw; the manager treats them as best effort (a read-only
+ * data dir must not break previews).
+ */
+export function createPidFileStore(file: string, io: PidFileIo = defaultPidFileIo): PidFileStore {
+  let chain: Promise<unknown> = Promise.resolve()
+
+  function run<T>(op: () => Promise<T>): Promise<T> {
+    const next = chain.then(op, op)
+    // A rejected op must not break the chain for the operations behind it.
+    chain = next.then(
+      () => {},
+      () => {},
+    )
+    return next
+  }
+
+  function validPids(value: unknown): number[] {
+    return Array.isArray(value) ? value.filter((pid): pid is number => Number.isInteger(pid) && pid > 1) : []
+  }
+
+  async function current(): Promise<number[]> {
+    try {
+      return validPids(JSON.parse(await io.readFile(file)))
+    } catch {
+      return []
+    }
+  }
+
+  return {
+    list: () => run(() => current()),
+    add: (pid) =>
+      run(async () => {
+        const pids = await current()
+        if (!pids.includes(pid)) await io.writeFile(file, JSON.stringify([...pids, pid]), PID_FILE_MODE)
+      }),
+    remove: (pid) =>
+      run(async () => {
+        const pids = await current()
+        if (pids.includes(pid)) {
+          await io.writeFile(file, JSON.stringify(pids.filter((value) => value !== pid)), PID_FILE_MODE)
+        }
+      }),
+    clear: () => run(() => io.rm(file)),
   }
 }
 
 /** Reads a live process's executable name; null when it cannot be confirmed. */
-function defaultProcessName(pid: number): string | null {
+async function defaultProcessName(pid: number): Promise<string | null> {
   if (process.platform !== "linux") return null
   try {
-    return readFileSync(`/proc/${pid}/comm`, "utf8").trim() || null
+    return (await readFile(`/proc/${pid}/comm`, "utf8")).trim() || null
   } catch {
     return null
   }
@@ -160,9 +218,11 @@ function defaultProcessName(pid: number): string | null {
 export interface OrphanCleanupOptions {
   pidFile: string
   /** Overridable for tests: executable name of a live PID (null if unknown). */
-  processName?: (pid: number) => string | null
+  processName?: (pid: number) => string | null | Promise<string | null>
   /** Overridable for tests; defaults to SIGTERM via `process.kill`. */
   kill?: (pid: number) => void
+  /** Overridable for tests: PID-file I/O (defaults to `fs/promises`). */
+  io?: PidFileIo
 }
 
 /**
@@ -172,14 +232,15 @@ export interface OrphanCleanupOptions {
  * Non-Linux hosts cannot verify the executable and skip — systemd's cgroup
  * reaping and Docker's container teardown already cover the common cases.
  */
-export function cleanupOrphanTunnels(options: OrphanCleanupOptions): number[] {
+export async function cleanupOrphanTunnels(options: OrphanCleanupOptions): Promise<number[]> {
+  const store = createPidFileStore(options.pidFile, options.io)
   const readName = options.processName ?? defaultProcessName
   const kill = options.kill ?? ((pid: number) => process.kill(pid, "SIGTERM"))
   const killed: number[] = []
-  for (const pid of readTrackedPids(options.pidFile)) {
+  for (const pid of await store.list()) {
     let name: string | null = null
     try {
-      name = readName(pid)
+      name = await readName(pid)
     } catch {
       name = null
     }
@@ -192,7 +253,7 @@ export function cleanupOrphanTunnels(options: OrphanCleanupOptions): number[] {
     }
   }
   try {
-    rmSync(options.pidFile, { force: true })
+    await store.clear()
   } catch {
     // best effort
   }
@@ -213,21 +274,21 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   let availableCache: boolean | null = null
   let availableInFlight: Promise<boolean> | null = null
   const pidFile = tunnelPidFile(config.dataDir)
+  const pidStore = createPidFileStore(pidFile)
 
   // Persist live tunnel PIDs so the next process can reap them after a crash
   // (see `cleanupOrphanTunnels`). Tests with fake children (no pid) skip it.
-  function track(child: ChildProcess): void {
+  // Best effort: a read-only data dir must not break previews.
+  function track(child: ChildProcess): Promise<void> {
     const pid = child.pid
-    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 1) return
-    const pids = readTrackedPids(pidFile)
-    if (!pids.includes(pid)) writeTrackedPids(pidFile, [...pids, pid])
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 1) return Promise.resolve()
+    return pidStore.add(pid).catch(() => {})
   }
 
-  function untrack(child: ChildProcess): void {
+  function untrack(child: ChildProcess): Promise<void> {
     const pid = child.pid
-    if (typeof pid !== "number") return
-    const pids = readTrackedPids(pidFile)
-    if (pids.includes(pid)) writeTrackedPids(pidFile, pids.filter((value) => value !== pid))
+    if (typeof pid !== "number") return Promise.resolve()
+    return pidStore.remove(pid).catch(() => {})
   }
 
   /** Async `spawn` probe with a kill timeout; never blocks the event loop. */
@@ -417,7 +478,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     child.once("error", (error) => {
       failure = error.message
     })
-    track(child)
+    await track(child)
     // Keep cloudflared diagnostics flowing to the BFF logs for the whole
     // lifetime: post-URL connection failures are otherwise invisible.
     const logCloudflared = (chunk: Buffer): void => {
@@ -429,7 +490,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     child.stderr?.on("data", logCloudflared)
     // Persist the reason once the tunnel was live: status flips to `error`.
     child.once("exit", (code, signal) => {
-      untrack(child)
+      void untrack(child)
       failure = failure ?? `cloudflared exited (${signal ?? code ?? "unknown"})`
       if (running.get(sessionID)?.child === child) {
         running.delete(sessionID)
@@ -471,19 +532,19 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       const active = running.get(sessionID)
       if (active) {
         kill(active.child)
-        untrack(active.child)
         running.delete(sessionID)
       }
       failures.delete(sessionID)
+      // State flips synchronously (as before); only the PID-file write waits.
+      return active ? untrack(active.child) : Promise.resolve()
     },
     stopAll() {
-      for (const active of running.values()) {
-        kill(active.child)
-        untrack(active.child)
-      }
+      const children = [...running.values()].map((active) => active.child)
+      for (const child of children) kill(child)
       running.clear()
       starting.clear()
       failures.clear()
+      return Promise.all(children.map((child) => untrack(child))).then(() => {})
     },
     async forget(sessionID) {
       // An in-flight `start` is not tracked in `running` until its readiness

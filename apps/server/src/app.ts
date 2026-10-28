@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { statfsSync } from "node:fs"
+import { statfs } from "node:fs/promises"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
@@ -241,12 +241,40 @@ function clientIp(c: Context): string {
 }
 
 /** Free bytes on the filesystem holding `path`; null when it cannot be read. */
-function defaultDiskFreeBytes(path: string): number | null {
+async function defaultDiskFreeBytes(path: string): Promise<number | null> {
   try {
-    const stats = statfsSync(path)
+    const stats = await statfs(path)
     return Number(stats.bavail) * Number(stats.bsize)
   } catch {
     return null
+  }
+}
+
+/** `/api/status` polls behind this cache so the volume pays one `statfs` per window, not per poll. */
+const DISK_FREE_TTL_MS = 15_000
+
+/**
+ * Caches one asynchronous disk-free read behind a TTL (issue #200). A
+ * throwing read degrades to a cached null — best effort, never a 500 — so a
+ * dead volume does not fail every status poll, only slows it to one probe
+ * per window.
+ */
+export function createCachedDiskFree(
+  read: () => Promise<number | null>,
+  ttlMs = DISK_FREE_TTL_MS,
+): () => Promise<number | null> {
+  let cached: { at: number; value: number | null } | null = null
+  return async () => {
+    const now = Date.now()
+    if (cached && now - cached.at < ttlMs) return cached.value
+    let value: number | null
+    try {
+      value = await read()
+    } catch {
+      value = null
+    }
+    cached = { at: now, value }
+    return value
   }
 }
 
@@ -533,6 +561,10 @@ export function createApp(deps: AppDeps): Hono {
   // (issue #196): without it each client pays its own `JSON.stringify` of
   // unbounded `goal.updated`/`board.updated`/tool frames.
   const serializeEvent = createSharedSerializer()
+  // One `statfs` per TTL window, shared by every status poll (issue #200).
+  // The `diskFreeBytes` injection stays synchronous: test doubles are cheap,
+  // only the real filesystem read needs the cache.
+  const cachedDiskFreeBytes = createCachedDiskFree(() => defaultDiskFreeBytes(config.dataDir))
   const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
   const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
@@ -1653,7 +1685,9 @@ export function createApp(deps: AppDeps): Hono {
     }
     // Free space on the data volume: a full disk takes SQLite and git down
     // with it, so clients surface a warning before that happens (issue #78).
-    const freeBytes = (deps.diskFreeBytes ?? defaultDiskFreeBytes)(config.dataDir)
+    // Asynchronous behind a TTL cache (issue #200): a synchronous `statfs`
+    // per poll would freeze the event loop for every client.
+    const freeBytes = deps.diskFreeBytes ? deps.diskFreeBytes(config.dataDir) : await cachedDiskFreeBytes()
     const storage = {
       ok: deps.store.ping(),
       freeBytes,
@@ -2650,10 +2684,10 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ run: record })
   })
 
-  api.post("/workspaces/:id/run/detect", (c) => {
+  api.post("/workspaces/:id/run/detect", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
-    const detected = readRunFile(workspace.path)
+    const detected = await readRunFile(workspace.path)
     if (!detected) return c.json({ error: "run_not_found" }, 404)
     if ("error" in detected) return c.json({ error: detected.error }, 400)
     return c.json({ run: { ...detected.config, source: "agent" } })
@@ -2742,9 +2776,9 @@ export function createApp(deps: AppDeps): Hono {
     }
   })
 
-  api.delete("/sessions/:sessionID/preview", (c) => {
+  api.delete("/sessions/:sessionID/preview", async (c) => {
     if (!config.previewEnabled) return c.json({ error: "preview_disabled" }, 404)
-    preview.stop(c.req.param("sessionID"))
+    await preview.stop(c.req.param("sessionID"))
     return c.json({ ok: true })
   })
 

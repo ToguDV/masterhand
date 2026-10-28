@@ -671,7 +671,7 @@ export async function startTestApp(
     preview,
     scheduler: (app as AppWithScheduler).scheduler!,
     close: async () => {
-      preview.stopAll()
+      await preview.stopAll()
       hub.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     },
