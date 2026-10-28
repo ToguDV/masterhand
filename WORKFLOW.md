@@ -318,9 +318,10 @@ Only skip this when the user explicitly asked for a plan, an analysis or a revie
 `.github/workflows/ci.yml` runs on PRs to `main`, pushes to `main` and manual dispatches. A `changes` job classifies the diff (`scripts/ci-changes.mjs`, covered by `npm run test:scripts`; three-dot `base...head` on PRs, `before..after` on pushes) and the pipeline adapts:
 
 - **Docs-only** (`**.md`, `docs/**`, `design/**`, `LICENSE`): only the gate runs — the required check passes in seconds.
-- **Client changes**: typecheck, unit/coverage of the affected workspaces, dev-script tests when `scripts/` changed, the E2E **smoke** project and the builds.
-- **Critical changes** (`apps/server/**`, `packages/client-core/**`, `e2e/**`, dependency manifests, `.github/**`) and every push to `main`: the full pipeline (all unit suites + the complete E2E suite) plus the builds.
+- **Client changes**: typecheck, unit/coverage of the affected workspaces, dev-script tests when `scripts/` changed, the E2E **smoke** project for web/desktop changes, and the builds of the affected workspaces.
+- **Critical changes** (`apps/server/**`, `packages/client-core/**`, `e2e/**`, dependency manifests, `.github/**`) and every push to `main`: the full pipeline (all unit suites + the complete E2E suite) plus the affected builds (`client-core` and dependency changes build every workspace; `e2e`-only and CI-only changes skip the build job — the E2E harness builds the web app itself).
 - Any PR can force the full pipeline with the **`ci:full` label** (applies to an open PR without a new push).
+- Every job restores `node_modules` from a single cache keyed by `package-lock.json` (one `npm ci` only on a miss) and the E2E jobs cache the Playwright browsers the same way — no repeated installs or downloads.
 
 The required status check is **`CI gate`**: it always runs and fails when any job failed or was cancelled (skipped jobs are green). The classifier fails **open** — a missing or undiffable range, an unknown event, an empty diff or an unrecognized file all fall back to the full pipeline. Coverage and E2E artifacts are uploaded on failure. Never add trigger `paths:` filters: a required check that never reports blocks the merge. `scripts/ci-workflow.test.mjs` guards the gate wiring, the no-path-filters rule and the smoke list.
 

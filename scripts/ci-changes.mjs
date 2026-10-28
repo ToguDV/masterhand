@@ -9,7 +9,7 @@
 //   node scripts/ci-changes.mjs >> "$GITHUB_OUTPUT"
 // with CI_EVENT_NAME, CI_BASE_SHA/CI_HEAD_SHA (pull_request),
 // CI_BEFORE_SHA/CI_AFTER_SHA (push) and CI_LABELS in the environment.
-// Prints `key=value` lines: docs_only, full, smoke, workspaces, scripts.
+// Prints `key=value` lines: docs_only, full, smoke, workspaces, scripts, builds.
 
 import { execFileSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
@@ -38,6 +38,12 @@ const DOCS_PATTERNS = [/^docs\//, /^design\//, /\.md$/, /^LICENSE$/]
 // diff cannot break it (mobile flows are covered by the manual Maestro run).
 const SMOKE_AREAS = ["web", "desktop"]
 
+// Areas with a production `build` script. client-core ships inside every
+// bundle and dependency changes can break any build, so both map to all of
+// them. The E2E harness builds the web app itself, so e2e-only, CI-only,
+// mobile-only and scripts-only diffs need no build job.
+const BUILDABLE_AREAS = ["server", "web", "desktop"]
+
 const SHA_RE = /^[0-9a-f]{40}$/i
 
 function isDocsFile(file) {
@@ -53,7 +59,7 @@ export function classify(files, { eventName = "", labels = [], forceAll = false 
   const changed = files.map((file) => file.trim()).filter(Boolean)
   const docsOnly = !forceAll && changed.length > 0 && changed.every(isDocsFile)
   if (docsOnly) {
-    return { docs_only: "true", full: "false", smoke: "false", workspaces: "", scripts: "false" }
+    return { docs_only: "true", full: "false", smoke: "false", workspaces: "", scripts: "false", builds: "" }
   }
 
   const areas = new Set()
@@ -76,6 +82,10 @@ export function classify(files, { eventName = "", labels = [], forceAll = false 
   const full = forceAll || eventName === "push" || labels.includes("ci:full") || critical
   const smoke = !full && SMOKE_AREAS.some((area) => areas.has(area))
   const workspaces = full ? TESTABLE_AREAS : TESTABLE_AREAS.filter((area) => areas.has(area))
+  const builds =
+    areas.has("deps") || areas.has("client-core")
+      ? [...BUILDABLE_AREAS]
+      : BUILDABLE_AREAS.filter((area) => areas.has(area))
 
   return {
     docs_only: "false",
@@ -83,6 +93,7 @@ export function classify(files, { eventName = "", labels = [], forceAll = false 
     smoke: String(smoke),
     workspaces: workspaces.join(" "),
     scripts: String(areas.has("scripts")),
+    builds: builds.join(" "),
   }
 }
 
@@ -140,7 +151,7 @@ export function main() {
   const outputs = classify(files, { eventName, labels, forceAll })
   console.error(
     `[ci-changes] event=${eventName || "?"} files=${files.length} docs_only=${outputs.docs_only} ` +
-      `full=${outputs.full} smoke=${outputs.smoke} workspaces="${outputs.workspaces}" scripts=${outputs.scripts}`,
+      `full=${outputs.full} smoke=${outputs.smoke} workspaces="${outputs.workspaces}" scripts=${outputs.scripts} builds="${outputs.builds}"`,
   )
   for (const [key, value] of Object.entries(outputs)) {
     console.log(`${key}=${value}`)
