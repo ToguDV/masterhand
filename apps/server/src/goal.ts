@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { AmbiguousMutationError, UpstreamStatusError, isTransientFailure, withRetry, type RetryOptions } from "./retry.js"
+import { createEntityChain } from "./serial.js"
 import {
   DEFAULT_GOAL_MAX_ROUNDS,
   type GoalCritique,
@@ -379,42 +380,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
   const defaultMaxRounds = options.defaultMaxRounds ?? DEFAULT_GOAL_MAX_ROUNDS
 
   /** Per-run transition queue: events and watchdog passes never interleave. */
-  const chains = new Map<string, Promise<void>>()
-
-  function enqueue(sessionID: string, task: () => Promise<void>): Promise<void> {
-    const tail = chains.get(sessionID) ?? Promise.resolve()
-    const next = tail.then(task).catch((error) => {
-      console.error(`[goal] ${sessionID} transition failed:`, error)
-    })
-    chains.set(sessionID, next)
-    void next.finally(() => {
-      if (chains.get(sessionID) === next) chains.delete(sessionID)
-    })
-    return next
-  }
-
-  /**
-   * Serialized check→create for a non-idempotent mutation (rule 12): two
-   * devices starting a goal at once must not create two runs. Unlike
-   * `enqueue`, failures propagate to the caller.
-   */
-  function runExclusive<T>(sessionID: string, task: () => Promise<T>): Promise<T> {
-    const tail = chains.get(sessionID) ?? Promise.resolve()
-    const next = tail.then(task)
-    const settled = next.then(
-      () => undefined,
-      () => undefined,
-    )
-    chains.set(sessionID, settled)
-    void settled.finally(() => {
-      if (chains.get(sessionID) === settled) chains.delete(sessionID)
-    })
-    return next
-  }
-
-  async function flush(): Promise<void> {
-    while (chains.size > 0) await Promise.allSettled([...chains.values()])
-  }
+  const { enqueue, runExclusive, flush } = createEntityChain("goal")
 
   function persist(run: GoalRunRecord): void {
     run.updatedAt = now()

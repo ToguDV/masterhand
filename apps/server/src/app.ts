@@ -25,13 +25,12 @@ import type { Config } from "./config.js"
 import type { EventHub } from "./events.js"
 import {
   createGoalManager,
-  GOAL_DELIVERY_MARKER_KEY,
   GOAL_INTERNAL_MARKER_KEY,
   GOAL_SESSION_MARKER_KEY,
   GoalError,
   type GoalManager,
-  type GoalOpencode,
 } from "./goal.js"
+import { createGoalOpencode, createSchedulerOpencode } from "./opencode.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
 import { createOpencodeProxy, type ProxyRetryOptions } from "./proxy.js"
 import { OpencodeTimeoutError, RetryExhaustedError, UpstreamStatusError, isTransientStatus, withRetry } from "./retry.js"
@@ -58,12 +57,10 @@ import {
 import {
   createScheduler,
   nextScheduledRunAt,
-  SCHEDULER_MARKER_KEY,
   SchedulerError,
   validateScheduleSpec,
   validateTaskInput,
   type SchedulerManager,
-  type SchedulerOpencode,
   type SchedulerTaskPatch,
 } from "./scheduler.js"
 import type {
@@ -139,15 +136,16 @@ export interface AppDeps {
 }
 
 /**
- * `createApp` exposes the managers it built (or received) so `index.ts` can
- * run the boot reconciliation and stop them on shutdown without widening the
- * return shape beyond Hono (tests inject managers like `goals`).
+ * What `createApp` builds: the routes plus the managers the boot entry owns.
+ * The boot reconciliation (`reconcileOnBoot`/`reconcileTasks`) is NOT a
+ * `createApp` side effect — `bootstrap.ts` runs it explicitly (issue #205).
  */
-export interface AppWithScheduler extends Hono {
-  scheduler?: SchedulerManager
-  goals?: GoalManager
+export interface CreatedApp {
+  app: Hono
+  goals: GoalManager
+  scheduler: SchedulerManager
   /** Settles in-flight finishes and releases (issue #192 shutdown drain). */
-  drainInFlight?: () => Promise<void>
+  drainInFlight: () => Promise<void>
 }
 
 const KEEPALIVE_MS = 25_000
@@ -301,21 +299,6 @@ function sessionCreateBody(directory: string, marker: string | null) {
     location: { directory },
     ...(marker ? { metadata: { [CREATE_MARKER_KEY]: marker } } : {}),
   }
-}
-
-/** Concatenates the text parts of a v2 assistant message (marker parsing). */
-function assistantMessageText(message: { content?: unknown }): string {
-  const parts = Array.isArray(message.content) ? message.content : []
-  return parts
-    .filter(
-      (part): part is { type: string; text: string } =>
-        Boolean(part) &&
-        typeof part === "object" &&
-        (part as { type?: unknown }).type === "text" &&
-        typeof (part as { text?: unknown }).text === "string",
-    )
-    .map((part) => part.text)
-    .join("\n")
 }
 
 /** The record persisted for a freshly created isolated session. */
@@ -572,7 +555,7 @@ export function createSsePump(options: SsePumpOptions): SsePump {
   }
 }
 
-export function createApp(deps: AppDeps): Hono {
+export function createApp(deps: AppDeps): CreatedApp {
   const { config } = deps
   const fetchImpl = deps.fetchImpl ?? fetch
   const createDir = deps.createDir ?? createWorkspaceDir
@@ -656,259 +639,14 @@ export function createApp(deps: AppDeps): Hono {
   const providers = deps.providers ?? createCustomProviderStore({ file: config.customProvidersFile })
 
   /**
-   * opencode adapter for Goal Mode. It translates HTTP outcomes into thrown
-   * typed errors; the retry policy (bounded backoff, marker reconciliation for
-   * non-idempotent calls) lives in the goal manager / shared retry engine.
+   * opencode adapters (issue #205): one parameterized factory per
+   * orchestrator (`opencode.ts`), sharing marker lookup, prompt, landed
+   * check, model switch and the active-session list. Only `createSession`
+   * keeps its own shape — the goal's `parentID` + role metadata is
+   * load-bearing, never unified with the scheduler's positional call.
    */
-  const goalOpencode: GoalOpencode = {
-    async sessionInfo(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, { retry: false })
-      if (response.status === 404) return null
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as {
-        data?: {
-          location?: { directory?: string }
-          parentID?: string
-          agent?: string
-          model?: { id?: string; providerID?: string; variant?: string }
-        }
-      }
-      const directory = body.data?.location?.directory
-      if (!body.data || !directory) return null
-      const model =
-        body.data.model?.providerID && body.data.model.id
-          ? {
-              providerID: body.data.model.providerID,
-              id: body.data.model.id,
-              variant: body.data.model.variant ?? null,
-            }
-          : null
-      return {
-        directory,
-        parentID: body.data.parentID,
-        model,
-        agent: typeof body.data.agent === "string" && body.data.agent ? body.data.agent : null,
-      }
-    },
-    async createSession({ directory, parentID, title, marker, role }) {
-      const response = await callOpencode("/api/session", {
-        method: "POST",
-        body: {
-          location: { directory },
-          parentID,
-          title,
-          metadata: { [GOAL_SESSION_MARKER_KEY]: marker, [GOAL_INTERNAL_MARKER_KEY]: role },
-        },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: { id?: string } }
-      const id = body.data?.id
-      if (!id) throw new Error("opencode did not return a session id")
-      invalidateSessionsCache()
-      return { id }
-    },
-    async findSessionByMarker(directory, marker) {
-      // Scoped by directory, NOT by parentID: the pinned opencode silently
-      // drops `parentID` on create, so the session is a root and a parentID
-      // filter would always miss it — the retry would replay the create and
-      // duplicate the internal session. The marker is unique per run, and the
-      // just-created session is the newest (desc order), so a single page wins.
-      const response = await callOpencode(
-        `/api/session?directory=${encodeURIComponent(directory)}&limit=200`,
-        { retry: false },
-      )
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as {
-        data?: Array<{ id?: string; metadata?: Record<string, unknown> }>
-      }
-      const found = (body.data ?? []).find((session) => session.metadata?.[GOAL_SESSION_MARKER_KEY] === marker)
-      return found?.id ? { id: found.id } : null
-    },
-    async prompt(sessionID, text, marker) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/prompt`, {
-        method: "POST",
-        body: { text, metadata: { [GOAL_DELIVERY_MARKER_KEY]: marker } },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async promptLanded(sessionID, marker) {
-      const response = await callOpencode(
-        `/api/session/${encodeURIComponent(sessionID)}/message?limit=20&order=desc`,
-        { retry: false },
-      )
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as {
-        data?: Array<{ type?: string; metadata?: Record<string, unknown> }>
-      }
-      return (body.data ?? []).some(
-        (message) => message.type === "user" && message.metadata?.[GOAL_DELIVERY_MARKER_KEY] === marker,
-      )
-    },
-    async writeInstruction(sessionID, key, value) {
-      const response = await callOpencode(
-        `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
-        { method: "PUT", body: { value }, retry: false },
-      )
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async removeInstruction(sessionID, key) {
-      const response = await callOpencode(
-        `/api/experimental/session/${encodeURIComponent(sessionID)}/instructions/entries/${encodeURIComponent(key)}`,
-        { method: "DELETE", retry: false },
-      )
-      if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
-    },
-    async switchModel(sessionID, model) {
-      const body: { id: string; providerID: string; variant?: string } = { id: model.id, providerID: model.providerID }
-      if (model.variant) body.variant = model.variant
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/model`, {
-        method: "POST",
-        body: { model: body },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async switchAgent(sessionID, agent) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/agent`, {
-        method: "POST",
-        body: { agent },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async interrupt(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/interrupt`, {
-        method: "POST",
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async removeSession(sessionID) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
-        method: "DELETE",
-        retry: false,
-      })
-      if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
-    },
-    async lastAssistant(sessionID) {
-      const response = await callOpencode(
-        `/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`,
-        { retry: false },
-      )
-      if (response.status === 404) return null
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Array<{ id?: string; type?: string; content?: unknown }> }
-      for (const message of body.data ?? []) {
-        if (message.type !== "assistant" || !message.id) continue
-        return { id: message.id, text: assistantMessageText(message) }
-      }
-      return null
-    },
-    async activeSessions() {
-      const response = await callOpencode("/api/session/active", { retry: false })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Record<string, unknown> }
-      return Object.keys(body.data ?? {})
-    },
-    async models() {
-      const response = await callOpencode("/api/model", { retry: false })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Array<{ id?: string; providerID?: string }> }
-      return (body.data ?? [])
-        .filter((model) => Boolean(model.id && model.providerID))
-        .map((model) => `${model.providerID}/${model.id}`)
-    },
-  }
-
-  /**
-   * opencode adapter for the Scheduler (issue #147): mirrors `goalOpencode`
-   * with the scheduler's own marker key. Creates and prompts carry
-   * `masterhand.scheduler` metadata so a lost response is reconciled against
-   * the persisted marker instead of a blind replay; the create lookup is
-   * scoped by DIRECTORY because the pinned opencode drops `parentID`.
-   */
-  const schedulerOpencode: SchedulerOpencode = {
-    async createSession(directory, marker, title) {
-      const response = await callOpencode("/api/session", {
-        method: "POST",
-        body: { location: { directory }, title, metadata: { [SCHEDULER_MARKER_KEY]: marker } },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: { id?: string } }
-      const id = body.data?.id
-      if (!id) throw new Error("opencode did not return a session id")
-      invalidateSessionsCache()
-      return { id }
-    },
-    async findSessionByMarker(directory, marker) {
-      // The marker is unique per run and the just-created session is the
-      // newest (desc order), so a single page wins — same page as goals.
-      const response = await callOpencode(
-        `/api/session?directory=${encodeURIComponent(directory)}&limit=200`,
-        { retry: false },
-      )
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as {
-        data?: Array<{ id?: string; metadata?: Record<string, unknown> }>
-      }
-      const found = (body.data ?? []).find((session) => session.metadata?.[SCHEDULER_MARKER_KEY] === marker)
-      return found?.id ? { id: found.id } : null
-    },
-    async prompt(sessionID, text, marker) {
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/prompt`, {
-        method: "POST",
-        body: { text, metadata: { [SCHEDULER_MARKER_KEY]: marker } },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async promptLanded(sessionID, marker) {
-      const response = await callOpencode(
-        `/api/session/${encodeURIComponent(sessionID)}/message?limit=20&order=desc`,
-        { retry: false },
-      )
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as {
-        data?: Array<{ type?: string; metadata?: Record<string, unknown> }>
-      }
-      return (body.data ?? []).some(
-        (message) => message.type === "user" && message.metadata?.[SCHEDULER_MARKER_KEY] === marker,
-      )
-    },
-    async switchModel(sessionID, model) {
-      const body: { id: string; providerID: string; variant?: string } = { id: model.id, providerID: model.providerID }
-      if (model.variant) body.variant = model.variant
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}/model`, {
-        method: "POST",
-        body: { model: body },
-      })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-    },
-    async activeSessions() {
-      // Same upstream call the goal watchdog uses to reconcile lost idle.
-      const response = await callOpencode("/api/session/active", { retry: false })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Record<string, unknown> }
-      return Object.keys(body.data ?? {})
-    },
-    async deleteSession(sessionID) {
-      // Scheduler retention (#197): drop one scheduler-owned session. A
-      // missing session (404) counts as pruned; anything else throws so the
-      // scheduler logs it and still prunes the row.
-      const response = await callOpencode(`/api/session/${encodeURIComponent(sessionID)}`, {
-        method: "DELETE",
-        retry: false,
-      })
-      if (response.ok || response.status === 404) {
-        invalidateSessionsCache()
-        return
-      }
-      throw new UpstreamStatusError(response.status, response)
-    },
-    async modelExists(model) {
-      // Same catalog check the goal settings route's model list uses.
-      const response = await callOpencode("/api/model", { retry: false })
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Array<{ id?: string; providerID?: string }> }
-      return (body.data ?? []).some((entry) => entry.providerID === model.providerID && entry.id === model.id)
-    },
-  }
+  const goalOpencode = createGoalOpencode({ call: callOpencode, invalidateSessionsCache })
+  const schedulerOpencode = createSchedulerOpencode({ call: callOpencode, invalidateSessionsCache })
 
   const goals: GoalManager =
     deps.goals ??
@@ -918,9 +656,6 @@ export function createApp(deps: AppDeps): Hono {
       emit: (event) => deps.hub.emit(event),
     })
   deps.hub.subscribe((event) => goals.handleEvent(event))
-  // In-flight runs never auto-resume after a restart: they surface as paused
-  // with a resumable reason instead (docs/past-mistakes.md).
-  goals.reconcileOnBoot()
 
   /**
    * Task scheduler (issue #147): the manager owns the loop and every fire
@@ -3421,20 +3156,16 @@ export function createApp(deps: AppDeps): Hono {
   })
 
   app.route("/api", api)
-  // Exposed for index.ts boot/shutdown wiring (reconcile/stop/flush) without
-  // widening createApp's return shape; tests inject managers like `goals`.
-  ;(app as AppWithScheduler).scheduler = scheduler
-  ;(app as AppWithScheduler).goals = goals
   // In-flight finishes and releases drain against a live store on shutdown
   // (issue #192): a finish that wakes from git after `store.close()` would
   // otherwise write to a closed database handle. Never rejects.
-  ;(app as AppWithScheduler).drainInFlight = () =>
+  const drainInFlight = (): Promise<void> =>
     Promise.allSettled([
       ...finishing.values(),
       ...[...releasing.values()].map((entry) => entry.promise),
     ]).then(() => {})
 
-  return app
+  return { app, goals, scheduler, drainInFlight }
 }
 
 export { SESSION_COOKIE }

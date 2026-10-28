@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
-import { createApp, type AppWithScheduler } from "./app.js"
+import { bootstrapApp } from "./bootstrap.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
@@ -72,7 +72,7 @@ try {
 // pass settles. Liveness answers immediately; only readiness waits.
 let worktreesReady = false
 
-const app = createApp({
+const built = bootstrapApp({
   config,
   store,
   hub,
@@ -82,16 +82,16 @@ const app = createApp({
   proxyBodyLimitBytes: config.proxyBodyLimitMb * 1024 * 1024,
   isReady: () => worktreesReady,
 })
+const app = built.app
 // Scheduled tasks (issue #147): the manager starts its loop with the app;
-// here the single boot pass settles what a restart orphaned (firing →
-// interrupted, queued → skipped) and recomputes every pending slot.
-const scheduler = (app as AppWithScheduler).scheduler
-scheduler?.reconcileTasks()
-// Goal runs never auto-resume after a restart either; both managers stop and
-// drain on shutdown (issue #192).
-const goals = (app as AppWithScheduler).goals
+// `bootstrapApp` already ran the single boot pass settling what a restart
+// orphaned (firing → interrupted, queued → skipped) and recomputed every
+// pending slot. Goal runs never auto-resume after a restart either; both
+// managers stop and drain on shutdown (issue #192).
+const scheduler = built.scheduler
+const goals = built.goals
 // In-flight finishes/releases settle against a live store while shutting down.
-const drainInFlight = (app as AppWithScheduler).drainInFlight
+const drainInFlight = built.drainInFlight
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist

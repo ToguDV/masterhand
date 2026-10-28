@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Cron } from "croner"
 import { AmbiguousMutationError, UpstreamStatusError, isTransientFailure, withRetry } from "./retry.js"
+import { createEntityChain } from "./serial.js"
 import { SCHEDULED_RUNS_KEEP_PER_TASK } from "./store.js"
 import {
   type ModelRef,
@@ -346,41 +347,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /** Per-task transition queue: events and tick passes never interleave. */
-  const chains = new Map<string, Promise<unknown>>()
-
-  function enqueue(taskId: string, task: () => Promise<void>): Promise<void> {
-    const tail = chains.get(taskId) ?? Promise.resolve()
-    const next = tail.then(task).catch((error) => {
-      console.error(`[scheduler] ${taskId} transition failed:`, error)
-    })
-    chains.set(taskId, next)
-    void next.finally(() => {
-      if (chains.get(taskId) === next) chains.delete(taskId)
-    })
-    return next
-  }
-
-  /**
-   * Serialized check→create for a non-idempotent mutation (rule 12): two
-   * devices running a task now must not create two runs. Failures propagate.
-   */
-  function runExclusive<T>(taskId: string, task: () => Promise<T>): Promise<T> {
-    const tail = chains.get(taskId) ?? Promise.resolve()
-    const next = tail.then(task)
-    const settled = next.then(
-      () => undefined,
-      () => undefined,
-    )
-    chains.set(taskId, settled)
-    void settled.finally(() => {
-      if (chains.get(taskId) === settled) chains.delete(taskId)
-    })
-    return next
-  }
-
-  async function flush(): Promise<void> {
-    while (chains.size > 0) await Promise.allSettled([...chains.values()])
-  }
+  const { enqueue, runExclusive, flush } = createEntityChain("scheduler")
 
   function persistTask(record: ScheduledTask, silent = false): void {
     store.saveScheduledTask(record)

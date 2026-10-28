@@ -4,10 +4,11 @@ import { PassThrough } from "node:stream"
 import type { AddressInfo } from "node:net"
 import type { ChildProcess } from "node:child_process"
 import { serve } from "@hono/node-server"
-import { createApp, type AppWithScheduler } from "../src/app.js"
+import { bootstrapApp } from "../src/bootstrap.js"
 import type { Config } from "../src/config.js"
 import { createEventHub, type EventHub } from "../src/events.js"
 import { createPreviewManager, type PreviewManager } from "../src/preview.js"
+import { type SchedulerManager } from "../src/scheduler.js"
 import { createSqliteStore, type DeviceRecord, type Store } from "../src/store.js"
 import type { CustomProviderStore } from "../src/providers.js"
 import type { WorktreeManager } from "../src/worktrees.js"
@@ -510,7 +511,7 @@ export interface TestApp {
   hub: EventHub
   preview: PreviewManager
   /** The manager the app built, so tests can drive a tick deterministically. */
-  scheduler: NonNullable<AppWithScheduler["scheduler"]>
+  scheduler: SchedulerManager
   close(): Promise<void>
 }
 
@@ -634,7 +635,7 @@ export async function startTestApp(
       readinessTimeoutMs: options.previewOptions?.readinessTimeoutMs,
       readinessIntervalMs: options.previewOptions?.readinessIntervalMs,
     })
-  const app = createApp({
+  const built = bootstrapApp({
     config,
     store,
     hub,
@@ -657,6 +658,7 @@ export async function startTestApp(
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
+  const app = built.app
   const server = serve({
     fetch: (request, ...rest) => {
       options.onRequest?.(request)
@@ -676,7 +678,7 @@ export async function startTestApp(
     store,
     hub,
     preview,
-    scheduler: (app as AppWithScheduler).scheduler!,
+    scheduler: built.scheduler,
     close: async () => {
       await preview.stopAll()
       hub.stop()
