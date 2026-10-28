@@ -311,6 +311,17 @@ export interface GoalSettingsRecord {
   judgeModel: string | null
 }
 
+/**
+ * Narrow goal-run member row (#201): session/critic/judge ids only. The hub
+ * loop and the session-list poll resolve runs through this instead of
+ * selecting the history/report/critique/verdict blobs and JSON.parsing each.
+ */
+export interface GoalRunMember {
+  sessionID: string
+  criticSessionID: string | null
+  judgeSessionID: string | null
+}
+
 /** Default round budget for a goal run before it pauses for a user decision. */
 export const DEFAULT_GOAL_MAX_ROUNDS = 5
 
@@ -526,6 +537,15 @@ export interface Store {
   removeGoalRun(sessionID: string): void
   /** Every persisted run (boot reconciliation). */
   listGoalRuns(): GoalRunRecord[]
+  /**
+   * Narrow member lookup for one session id (#201, hub hot path): ids only,
+   * never the history/report/critique/verdict blobs and never JSON parsing.
+   * Main sessions are NOT members — check `getGoalRun` first (as
+   * `runForSession` does).
+   */
+  findGoalRunByMemberSession(sessionID: string): GoalRunMember | null
+  /** Every run's member row (#201, session-list poll): ids only. */
+  listGoalRunMembers(): GoalRunMember[]
   getGoalSettings(): GoalSettingsRecord
   saveGoalSettings(settings: GoalSettingsRecord): void
   /** Board snapshot for a workspace (columns with nested cards, sorted by position). */
@@ -750,6 +770,18 @@ export function createSqliteStore(file: string): Store {
   `
   const getGoalRunStatement = db.prepare(`${goalRunColumns} WHERE session_id = ?`)
   const listGoalRunsStatement = db.prepare(`${goalRunColumns} ORDER BY created_at ASC`)
+  // Narrow member projection (#201): ids only, served by
+  // idx_goal_runs_member_sessions (migration v3) — no blob I/O, no parsing.
+  // Two single-column statements instead of one OR: the composite index
+  // serves the critic arm by prefix, while the judge arm scans narrow rows
+  // (goal runs are few; the win is skipping the blobs, not the seek).
+  const goalMemberColumns = `
+    SELECT session_id AS sessionID, critic_session_id AS criticSessionID, judge_session_id AS judgeSessionID
+    FROM goal_runs
+  `
+  const findGoalRunByCriticStatement = db.prepare(`${goalMemberColumns} WHERE critic_session_id = ? LIMIT 1`)
+  const findGoalRunByJudgeStatement = db.prepare(`${goalMemberColumns} WHERE judge_session_id = ? LIMIT 1`)
+  const listGoalRunMembersStatement = db.prepare(`${goalMemberColumns} ORDER BY created_at ASC`)
   const saveGoalRunStatement = db.prepare(`
     INSERT OR REPLACE INTO goal_runs (
       session_id, run_token, goal, state, round, max_rounds, main_model, critic_model, judge_model,
@@ -1156,6 +1188,16 @@ export function createSqliteStore(file: string): Store {
     },
     listGoalRuns() {
       return (listGoalRunsStatement.all() as Record<string, unknown>[]).map(normalizeGoalRun)
+    },
+    findGoalRunByMemberSession(sessionID) {
+      const critic =
+        findGoalRunByCriticStatement.get(sessionID) as GoalRunMember | undefined
+      if (critic) return critic
+      const judge = findGoalRunByJudgeStatement.get(sessionID) as GoalRunMember | undefined
+      return judge ?? null
+    },
+    listGoalRunMembers() {
+      return listGoalRunMembersStatement.all() as GoalRunMember[]
     },
     getGoalSettings() {
       const row = getGoalSettingsStatement.get() as GoalSettingsRecord | undefined
@@ -1590,6 +1632,27 @@ export function createMemoryStore(): Store {
     },
     listGoalRuns() {
       return [...goalRuns.values()].sort((a, b) => a.createdAt - b.createdAt)
+    },
+    findGoalRunByMemberSession(sessionID) {
+      for (const run of goalRuns.values()) {
+        if (run.criticSessionID === sessionID || run.judgeSessionID === sessionID) {
+          return {
+            sessionID: run.sessionID,
+            criticSessionID: run.criticSessionID,
+            judgeSessionID: run.judgeSessionID,
+          }
+        }
+      }
+      return null
+    },
+    listGoalRunMembers() {
+      return [...goalRuns.values()]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((run) => ({
+          sessionID: run.sessionID,
+          criticSessionID: run.criticSessionID,
+          judgeSessionID: run.judgeSessionID,
+        }))
     },
     getGoalSettings() {
       return goalSettings

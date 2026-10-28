@@ -7,7 +7,7 @@ import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrati
 import type { Migration } from "../src/migrations.js"
 import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
 import { DATA_DIR_LOCK_FILE, acquireDataDirLock } from "../src/store.js"
-import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
+import type { GoalRunRecord, ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
 describe("sqlite device store", () => {
   it("persists, touches and removes devices", () => {
@@ -898,6 +898,79 @@ function scheduledStoreScenario(store: Store): void {
   expect(store.getScheduledRun("run_queued")).toBeNull()
   expect(store.listScheduledRuns("task_b")).toEqual([])
 }
+
+describe("goal member projections", () => {
+  function bigRun(sessionID: string): GoalRunRecord {
+    const filler = (prefix: string): string => Array.from({ length: 50 }, (_, index) => `${prefix}-${index}`).join(",")
+    return {
+      sessionID,
+      runToken: `token_${sessionID}`,
+      goal: "Make the suite green",
+      state: "critiquing",
+      round: 2,
+      maxRounds: 5,
+      mainModel: "test/test-model",
+      criticModel: "test/critic-model",
+      judgeModel: "test/judge-model",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+      lastReport: { summary: filler("report") } as unknown as GoalRunRecord["lastReport"],
+      lastCritique: { summary: filler("critique") } as unknown as GoalRunRecord["lastCritique"],
+      lastVerdict: { approved: false, reasoning: filler("verdict") } as unknown as GoalRunRecord["lastVerdict"],
+      history: Array.from({ length: 200 }, (_, index) => ({
+        round: index,
+        critique: { summary: filler(`history-${index}`) },
+        verdict: { approved: false, reasoning: "because" },
+      })) as unknown as GoalRunRecord["history"],
+      error: null,
+      awaitingKind: "critic",
+      awaitingSessionID: "ses_critic",
+      awaitingAssistantID: "msg_1",
+      attempt: 0,
+      nudged: false,
+      lastError: null,
+      pausedPhase: null,
+      promptSerial: 3,
+      createdAt: 1,
+      updatedAt: 2,
+    }
+  }
+
+  function memberScenario(store: Store): void {
+    store.saveGoalRun(bigRun("ses_main"))
+    // Narrow member hits resolve without blobs or JSON parsing.
+    expect(store.findGoalRunByMemberSession("ses_critic")).toEqual({
+      sessionID: "ses_main",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+    })
+    expect(store.findGoalRunByMemberSession("ses_judge")).toEqual({
+      sessionID: "ses_main",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+    })
+    expect(store.findGoalRunByMemberSession("ses_main")).toBeNull()
+    expect(store.findGoalRunByMemberSession("ses_unknown")).toBeNull()
+    expect(store.listGoalRunMembers()).toEqual([
+      { sessionID: "ses_main", criticSessionID: "ses_critic", judgeSessionID: "ses_judge" },
+    ])
+  }
+
+  it("resolves members through narrow projections in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      memberScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolves members through narrow projections in memory", () => {
+    memberScenario(createMemoryStore())
+  })
+})
 
 describe("scheduled run history limits", () => {
   function seedRuns(store: Store, taskId: string, count: number): void {

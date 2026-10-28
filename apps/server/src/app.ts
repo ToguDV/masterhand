@@ -2395,8 +2395,9 @@ export function createApp(deps: AppDeps): Hono {
     // created before the stable role key existed. The pinned opencode drops
     // `parentID` on create, so the run store also supplies the link back to the
     // main session (the client uses it for the "Back to main agent" affordance).
+    // Narrow member rows (#201): the poll must not select the run blobs.
     const goalSessions = new Map<string, { role: GoalRole; parentID: string }>()
-    for (const run of deps.store.listGoalRuns()) {
+    for (const run of deps.store.listGoalRunMembers()) {
       if (run.criticSessionID) goalSessions.set(run.criticSessionID, { role: "critic", parentID: run.sessionID })
       if (run.judgeSessionID) goalSessions.set(run.judgeSessionID, { role: "judge", parentID: run.sessionID })
     }
