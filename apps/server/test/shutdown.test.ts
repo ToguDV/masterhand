@@ -174,6 +174,30 @@ describe("shutdownServer (issue #192)", () => {
     expect(SHUTDOWN_FORCED_EXIT_MS).toBe(10_000)
   })
 
+  it("drains in-flight finishes and releases before closing the store", async () => {
+    const { order, resources, options, scheduled } = setup({
+      drainInFlight: async () => void order.push("drainInFlight"),
+    })
+    const pending = shutdownServer(resources, 0, options)
+    await tick()
+    for (const call of scheduled.filter((entry) => entry.ms !== SHUTDOWN_FORCED_EXIT_MS)) call.fn()
+    await pending
+    expect(order).toContain("drainInFlight")
+    expect(order.indexOf("drainInFlight")).toBeLessThan(order.indexOf("store.close"))
+  })
+
+  it("still closes the store when the in-flight drain never settles", async () => {
+    const { resources, options, scheduled, exits } = setup({
+      drainInFlight: () => new Promise<void>(() => {}),
+    })
+    const pending = shutdownServer(resources, 0, { ...options, flushMs: 50 })
+    await tick()
+    expect(exits).toEqual([])
+    fire(scheduled, 50)
+    await pending
+    expect(exits).toEqual([0])
+  })
+
   it("still exits when close steps throw (best effort)", async () => {
     const { resources, options, scheduled, exits } = setup({
       server: {

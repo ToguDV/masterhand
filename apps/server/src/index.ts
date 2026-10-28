@@ -99,6 +99,8 @@ scheduler?.reconcileTasks()
 // Goal runs never auto-resume after a restart either; both managers stop and
 // drain on shutdown (issue #192).
 const goals = (app as AppWithScheduler).goals
+// In-flight finishes/releases settle against a live store while shutting down.
+const drainInFlight = (app as AppWithScheduler).drainInFlight
 
 if (config.webDist && existsSync(config.webDist)) {
   const webDist = config.webDist
@@ -122,7 +124,7 @@ async function shutdown(code = 0): Promise<void> {
   // otherwise hold `server.close` open), then the managers drain against a
   // live store, and the store closes last. The forced-exit backstop installs
   // first so a stalled step can never hang a SIGTERM.
-  await shutdownServer({ scheduler, goals, preview, hub, store, server, lock: dataDirLock })
+  await shutdownServer({ scheduler, goals, preview, hub, store, server, lock: dataDirLock, drainInFlight })
 }
 
 let shuttingDown = false

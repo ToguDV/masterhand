@@ -142,6 +142,8 @@ export interface AppDeps {
 export interface AppWithScheduler extends Hono {
   scheduler?: SchedulerManager
   goals?: GoalManager
+  /** Settles in-flight finishes and releases (issue #192 shutdown drain). */
+  drainInFlight?: () => Promise<void>
 }
 
 const KEEPALIVE_MS = 25_000
@@ -184,9 +186,11 @@ const FINISH_BUDGET_MS = 225_000
  * are individually bounded, but their sum is not. Expiry aborts the in-flight
  * git/file work, lets the remaining releases continue in the background (the
  * row is already gone) and answers ambiguous `504 delete_timeout` — the
- * client reconciles by refetching the workspace list.
+ * client reconciles by refetching the workspace list. Kept below the client's
+ * 30 s deadline with headroom, so the 504 body is actually readable (a budget
+ * tied with the client deadline would lose the race on any network latency).
  */
-const WORKSPACE_DELETE_BUDGET_MS = 30_000
+const WORKSPACE_DELETE_BUDGET_MS = 25_000
 /** Parallel worktree releases on workspace delete: faster without an unbounded git burst. */
 const DELETE_RELEASE_CONCURRENCY = 4
 
@@ -321,7 +325,10 @@ function isolationOf(record: IsolatedSessionRecord) {
  * Runs `task` over `items` with at most `limit` in flight (issue #204):
  * workspace deletion releases worktrees in parallel instead of one by one,
  * without fanning out to an unbounded burst of git children. Order of
- * completion is not guaranteed; a rejection rejects the whole pass.
+ * completion is not guaranteed. One item's failure is logged and the rest
+ * still release: with the workspace row already gone there is nothing to
+ * retry, so a single failing release must not turn the delete into a 500
+ * (or strand the remaining worktrees unawaited).
  */
 async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
   let next = 0
@@ -329,7 +336,11 @@ async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promis
     while (next < items.length) {
       const item = items[next] as T
       next += 1
-      await task(item)
+      try {
+        await task(item)
+      } catch (error) {
+        console.warn("[masterhand] bounded release failed, continuing with the rest:", error)
+      }
     }
   })
   await Promise.all(workers)
@@ -1171,6 +1182,7 @@ export function createApp(deps: AppDeps): Hono {
     if (signal.aborted) return Promise.resolve()
     return new Promise((resolve) => {
       const timer = setTimeout(cleanup, ms)
+      timer.unref?.()
       function cleanup(): void {
         clearTimeout(timer)
         signal.removeEventListener("abort", cleanup)
@@ -3109,6 +3121,14 @@ export function createApp(deps: AppDeps): Hono {
   // widening createApp's return shape; tests inject managers like `goals`.
   ;(app as AppWithScheduler).scheduler = scheduler
   ;(app as AppWithScheduler).goals = goals
+  // In-flight finishes and releases drain against a live store on shutdown
+  // (issue #192): a finish that wakes from git after `store.close()` would
+  // otherwise write to a closed database handle. Never rejects.
+  ;(app as AppWithScheduler).drainInFlight = () =>
+    Promise.allSettled([
+      ...finishing.values(),
+      ...[...releasing.values()].map((entry) => entry.promise),
+    ]).then(() => {})
 
   return app
 }

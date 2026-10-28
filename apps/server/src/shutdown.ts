@@ -19,6 +19,12 @@ export interface ShutdownResources {
   }
   /** Single-instance lock (issue #208): released after the managers stop. */
   lock?: { release(): void | Promise<void> } | null
+  /**
+   * In-flight request work (issue #192 follow-up): finishes and releases that
+   * started before the shutdown must settle against a live store instead of
+   * waking up after `store.close()` to a closed database handle.
+   */
+  drainInFlight?: () => Promise<void>
 }
 
 export interface ShutdownOptions {
@@ -92,6 +98,7 @@ export async function shutdownServer(
     Promise.allSettled([
       resources.scheduler ? resources.scheduler.flush().catch(() => {}) : undefined,
       resources.goals ? resources.goals.flush().catch(() => {}) : undefined,
+      resources.drainInFlight ? resources.drainInFlight().catch(() => {}) : undefined,
     ]),
     new Promise<void>((resolve) => schedule(resolve, flushMs)),
   ])
@@ -107,7 +114,10 @@ export async function shutdownServer(
     // best effort
   }
   try {
-    await resources.lock?.release()
+    await Promise.race([
+      Promise.resolve(resources.lock?.release()).catch(() => {}),
+      new Promise<void>((resolve) => schedule(resolve, flushMs)),
+    ])
   } catch {
     // best effort: the bind dies with the process either way
   }
