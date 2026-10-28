@@ -449,6 +449,36 @@ export interface ScheduledRun {
   endedAt: string | null
 }
 
+/**
+ * Scheduled-run history policy (#198, failure class A → rule 13): history is
+ * a diagnostic buffer, not an archive. Reads page in SQL with a default
+ * newest-50 page (the route's historical cap); writes keep the newest
+ * `SCHEDULED_RUNS_KEEP_PER_TASK` runs per task, pruned on every create.
+ * Retention deletes rows — documented in `docs/bff/api.md`, never silent —
+ * and rollback is a database backup restore (`docs/runbooks/backups.md`).
+ */
+export const SCHEDULED_RUNS_DEFAULT_LIMIT = 50
+export const SCHEDULED_RUNS_MAX_LIMIT = 200
+export const SCHEDULED_RUNS_KEEP_PER_TASK = 200
+
+export interface ScheduledRunPage {
+  limit?: number
+  offset?: number
+}
+
+/** Defensive paging: garbage in, default page out (never a throw, never unbounded). */
+export function normalizeRunPage(options?: ScheduledRunPage): { limit: number; offset: number } {
+  const limit = options?.limit
+  const offset = options?.offset
+  return {
+    limit:
+      Number.isInteger(limit) && (limit as number) > 0
+        ? Math.min(limit as number, SCHEDULED_RUNS_MAX_LIMIT)
+        : SCHEDULED_RUNS_DEFAULT_LIMIT,
+    offset: Number.isInteger(offset) && (offset as number) > 0 ? (offset as number) : 0,
+  }
+}
+
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
@@ -532,8 +562,12 @@ export interface Store {
   listScheduledTasks(): ScheduledTask[]
   /** Idempotent; removes the task's runs in the same transaction. */
   deleteScheduledTask(id: string): void
-  /** One task's run history, newest first. */
-  listScheduledRuns(taskId: string): ScheduledRun[]
+  /**
+   * One task's run history, newest first, paged in SQL (`LIMIT`/`OFFSET`).
+   * The default page keeps the route's historical cap (newest 50); callers
+   * pass explicit `{ limit, offset }` for deeper pages.
+   */
+  listScheduledRuns(taskId: string, options?: ScheduledRunPage): ScheduledRun[]
   createScheduledRun(record: ScheduledRun): void
   saveScheduledRun(record: ScheduledRun): void
   getScheduledRun(id: string): ScheduledRun | null
@@ -814,8 +848,13 @@ export function createSqliteStore(file: string): Store {
     FROM scheduled_runs
   `
   const listScheduledRunsOfTaskStatement = db.prepare(
-    `${scheduledRunColumns} WHERE task_id = ? ORDER BY started_at DESC, rowid DESC`,
+    `${scheduledRunColumns} WHERE task_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`,
   )
+  const pruneScheduledRunsStatement = db.prepare(`
+    DELETE FROM scheduled_runs WHERE task_id = ? AND id NOT IN (
+      SELECT id FROM scheduled_runs WHERE task_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ?
+    )
+  `)
   const listActiveScheduledRunsStatement = db.prepare(
     `${scheduledRunColumns} WHERE status IN ('queued', 'firing', 'running') ORDER BY started_at DESC, rowid DESC`,
   )
@@ -1338,11 +1377,17 @@ export function createSqliteStore(file: string): Store {
       })
       remove()
     },
-    listScheduledRuns(taskId) {
-      return (listScheduledRunsOfTaskStatement.all(taskId) as Record<string, unknown>[]).map(normalizeScheduledRun)
+    listScheduledRuns(taskId, options) {
+      const { limit, offset } = normalizeRunPage(options)
+      return (listScheduledRunsOfTaskStatement.all(taskId, limit, offset) as Record<string, unknown>[]).map(
+        normalizeScheduledRun,
+      )
     },
     createScheduledRun(record) {
       saveScheduledRunStatement.run(record)
+      // Retention on the growth path: a new run row prunes its task's tail.
+      // Status updates (`saveScheduledRun`) never grow the table, so they skip it.
+      pruneScheduledRunsStatement.run(record.taskId, record.taskId, SCHEDULED_RUNS_KEEP_PER_TASK)
     },
     saveScheduledRun(record) {
       saveScheduledRunStatement.run(record)
@@ -1707,16 +1752,26 @@ export function createMemoryStore(): Store {
         if (run.taskId === id) scheduledRuns.delete(run.id)
       }
     },
-    listScheduledRuns(taskId) {
+    listScheduledRuns(taskId, options) {
+      const { limit, offset } = normalizeRunPage(options)
       return [...scheduledRuns.values()]
         .filter((run) => run.taskId === taskId)
         .sort(
           (a, b) =>
             (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
         )
+        .slice(offset, offset + limit)
     },
     createScheduledRun(record) {
       scheduledRuns.set(record.id, record)
+      // Retention parity with the SQLite store: keep the newest N per task.
+      const tail = [...scheduledRuns.values()]
+        .filter((run) => run.taskId === record.taskId)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
+      for (const pruned of tail.slice(SCHEDULED_RUNS_KEEP_PER_TASK)) scheduledRuns.delete(pruned.id)
     },
     saveScheduledRun(record) {
       scheduledRuns.set(record.id, record)

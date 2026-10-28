@@ -100,6 +100,24 @@ describe("scheduler client", () => {
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ paused: true })
   })
 
+  it("pages run history with limit/offset query params", async () => {
+    const calls: Array<{ url: string }> = []
+    const fetchImpl = (async (url: string | URL | Request) => {
+      calls.push({ url: String(url) })
+      return jsonResponse({ runs: [] })
+    }) as typeof fetch
+
+    const { createClient } = await import("../src/client")
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    await client.api.scheduler.runs("st_1")
+    await client.api.scheduler.runs("st_1", { limit: 2, offset: 1 })
+    expect(calls.map((call) => call.url)).toEqual([
+      "/api/scheduled-tasks/st_1/runs",
+      "/api/scheduled-tasks/st_1/runs?limit=2&offset=1",
+    ])
+  })
+
   it("omits the optional timezone from the create body when absent", async () => {
     const calls: Array<{ init?: RequestInit }> = []
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {

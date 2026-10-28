@@ -3110,6 +3110,17 @@ export function createApp(deps: AppDeps): Hono {
     return Boolean(deps.store.getWorkspaceByPath(directory))
   }
 
+  /**
+   * Raw history page param: integers pass through (the store clamps them to
+   * the policy range), anything else means "absent" so the default page
+   * applies. Never throws, never answers 400 — pagination is advisory.
+   */
+  function parseRunPageParam(raw: string | undefined): number | undefined {
+    if (raw === undefined) return undefined
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
   function unknownDirectory(): SchedulerError {
     return new SchedulerError("invalid_directory", 400, "the task directory must be an existing workspace path")
   }
@@ -3281,8 +3292,16 @@ export function createApp(deps: AppDeps): Hono {
   api.get("/scheduled-tasks/:id/runs", (c) => {
     const id = c.req.param("id")
     if (!deps.store.getScheduledTask(id)) return c.json({ error: "task_not_found" }, 404)
-    // The store already orders newest-first; the cap bounds the response.
-    return c.json({ runs: deps.store.listScheduledRuns(id).slice(0, 50) })
+    // SQL-level pagination (newest first). Absent/garbage params fall back to
+    // the historical default page (newest 50); the store clamps the range.
+    const limit = parseRunPageParam(c.req.query("limit"))
+    const offset = parseRunPageParam(c.req.query("offset"))
+    return c.json({
+      runs: deps.store.listScheduledRuns(id, {
+        ...(limit !== undefined ? { limit } : {}),
+        ...(offset !== undefined ? { offset } : {}),
+      }),
+    })
   })
 
   app.route("/api", api)

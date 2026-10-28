@@ -899,6 +899,77 @@ function scheduledStoreScenario(store: Store): void {
   expect(store.listScheduledRuns("task_b")).toEqual([])
 }
 
+describe("scheduled run history limits", () => {
+  function seedRuns(store: Store, taskId: string, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      store.createScheduledRun(
+        scheduledRun({
+          id: `run_${index}`,
+          taskId,
+          startedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, index)).toISOString(),
+        }),
+      )
+    }
+  }
+
+  function historyScenario(store: Store): void {
+    seedRuns(store, "task_h", 5)
+    // SQL-level pagination: newest first, limit then offset.
+    expect(store.listScheduledRuns("task_h", { limit: 2 }).map((run) => run.id)).toEqual(["run_4", "run_3"])
+    expect(store.listScheduledRuns("task_h", { limit: 2, offset: 2 }).map((run) => run.id)).toEqual([
+      "run_2",
+      "run_1",
+    ])
+    expect(store.listScheduledRuns("task_h", { limit: 2, offset: 4 }).map((run) => run.id)).toEqual(["run_0"])
+    // The default keeps today's visible behavior: newest 50.
+    expect(store.listScheduledRuns("task_h").map((run) => run.id)).toEqual([
+      "run_4",
+      "run_3",
+      "run_2",
+      "run_1",
+      "run_0",
+    ])
+  }
+
+  it("pages run history with limit/offset in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      historyScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("pages run history with limit/offset in memory", () => {
+    historyScenario(createMemoryStore())
+  })
+
+  function retentionScenario(store: Store): void {
+    seedRuns(store, "task_r", 205)
+    const rows = store.listScheduledRuns("task_r", { limit: 1000 })
+    expect(rows).toHaveLength(200)
+    expect(rows[0]?.id).toBe("run_204")
+    expect(rows[rows.length - 1]?.id).toBe("run_5")
+  }
+
+  it("retains only the newest 200 runs per task in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      retentionScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("retains only the newest 200 runs per task in memory", () => {
+    retentionScenario(createMemoryStore())
+  })
+})
+
 describe("scheduled task store", () => {
   it("persists scheduled tasks and runs in sqlite", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))

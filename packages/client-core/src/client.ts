@@ -309,8 +309,8 @@ export interface Client {
       remove(taskID: string): Promise<void>
       /** Enqueues an immediate fire (async); returns the task. */
       runNow(taskID: string): Promise<ScheduledTask>
-      /** Run history of a task, newest first as served by the BFF. */
-      runs(taskID: string): Promise<ScheduledRun[]>
+      /** Run history of a task, newest first as served by the BFF (paged; default is the newest 50). */
+      runs(taskID: string, options?: { limit?: number; offset?: number }): Promise<ScheduledRun[]>
     }
   }
   workspaces: {
@@ -842,10 +842,15 @@ export function createClient(options: ClientOptions = {}): Client {
           request<{ task: ScheduledTask }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/run`, {
             method: "POST",
           }).then((response) => response.task),
-        runs: (taskID) =>
-          request<{ runs: ScheduledRun[] }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs`).then(
-            (response) => response.runs,
-          ),
+        runs: (taskID, options) => {
+          const params = new URLSearchParams()
+          if (options?.limit !== undefined) params.set("limit", String(options.limit))
+          if (options?.offset !== undefined) params.set("offset", String(options.offset))
+          const query = params.toString()
+          return request<{ runs: ScheduledRun[] }>(
+            `/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs${query ? `?${query}` : ""}`,
+          ).then((response) => response.runs)
+        },
       },
     },
     workspaces: {

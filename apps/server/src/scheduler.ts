@@ -376,14 +376,14 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     while (chains.size > 0) await Promise.allSettled([...chains.values()])
   }
 
-  function persistTask(record: ScheduledTask): void {
+  function persistTask(record: ScheduledTask, silent = false): void {
     store.saveScheduledTask(record)
-    emit({ type: "scheduler.updated", data: { taskID: record.id } })
+    if (!silent) emit({ type: "scheduler.updated", data: { taskID: record.id } })
   }
 
-  function persistRun(record: ScheduledRun): void {
+  function persistRun(record: ScheduledRun, silent = false): void {
     store.saveScheduledRun(record)
-    emit({ type: "scheduler.updated", data: { taskID: record.taskId } })
+    if (!silent) emit({ type: "scheduler.updated", data: { taskID: record.taskId } })
   }
 
   function createRun(record: ScheduledRun): void {
@@ -396,9 +396,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /** Re-reads the task right before the write so a pause cannot be clobbered. */
-  function patchTask(taskId: string, patch: Partial<ScheduledTask>): void {
+  function patchTask(taskId: string, patch: Partial<ScheduledTask>, silent = false): void {
     const live = store.getScheduledTask(taskId)
-    if (live) persistTask({ ...live, ...patch })
+    if (live) persistTask({ ...live, ...patch }, silent)
   }
 
   /**
@@ -467,9 +467,10 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
         }
     persistRun(run)
     // Schedule math anchors on the SCHEDULED slot (the stale nextRunAt), not
-    // on the actual (possibly late) fire time.
+    // on the actual (possibly late) fire time. Silent: the firing frame above
+    // already announced the transition; the running frame below refetches.
     const nextRunAt = computeNextRunAt(task, now())
-    patchTask(task.id, { lastRunAt: current, nextRunAt })
+    patchTask(task.id, { lastRunAt: current, nextRunAt }, true)
 
     const createMarker = `${task.id}#${run.id}#create`
     const promptMarker = `${task.id}#${run.id}#prompt`
@@ -484,9 +485,10 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
         },
       )
       sessionID = created.id
-      // Persisted as soon as the create reconciles (rule 6).
+      // Persisted as soon as the create reconciles (rule 6). Silent: same
+      // `firing` status, no settled transition — the running frame announces.
       run.sessionID = sessionID
-      persistRun(run)
+      persistRun(run, true)
     } catch (error) {
       return settleRun(run, "failed", failureNote(error, "the session create"))
     }
@@ -542,7 +544,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     const task = store.getScheduledTask(taskId)
     if (task) {
       const next = computeNextRunAt(task, now())
-      if (next !== task.nextRunAt) patchTask(taskId, { nextRunAt: next })
+      // Silent: the terminal frame from the caller already announced; this is
+      // derived schedule math, not a settled transition of its own.
+      if (next !== task.nextRunAt) patchTask(taskId, { nextRunAt: next }, true)
     }
     const queued = store
       .listActiveScheduledRuns()
@@ -712,7 +716,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
       // resume firing just because the task row survived.
       if (pauseWithoutWorkspace(task)) continue
       const next = computeNextRunAt(task, current)
-      if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next })
+      if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next }, true)
     }
   }
 

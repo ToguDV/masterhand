@@ -318,6 +318,17 @@ describe("scheduler fire path", () => {
     expect(task.nextRunAt).toBe(h.iso(clockMs - 1000 + 30 * MINUTE))
   })
 
+  it("emits one frame per settled transition of a fire, not one per write", async () => {
+    // A fire used to emit 4-5 scheduler.updated frames (firing, task patch,
+    // session attach, running, …) and every client refetched everything per
+    // frame: only the settled transitions (firing, running) announce.
+    const h = harness()
+    await h.manager.tick()
+
+    expect(onlyRun(h).status).toBe("running")
+    expect(h.events).toHaveLength(2)
+  })
+
   it("closes a running run as completed on session.idle and as failed on session.error", async () => {
     const h = harness()
     await h.manager.tick()

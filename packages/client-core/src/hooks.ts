@@ -434,10 +434,23 @@ export function useScheduledTasks(client: Client, enabled = true) {
 }
 
 /** Run history of one scheduled task; refreshed the same way as the task list. */
-export function useScheduledTaskRuns(client: Client, taskID: string | null, enabled = true) {
+export function useScheduledTaskRuns(
+  client: Client,
+  taskID: string | null,
+  enabled = true,
+  options?: { limit?: number; offset?: number },
+) {
   return useQuery({
-    queryKey: queryKeys.schedulerRuns(taskID ?? ""),
-    queryFn: () => client.api.scheduler.runs(taskID!),
+    // A paged history is its own cache entry; the bare task prefix still
+    // invalidates every page (prefix match), so frames stay correct.
+    queryKey:
+      options === undefined
+        ? queryKeys.schedulerRuns(taskID ?? "")
+        : [...queryKeys.schedulerRuns(taskID ?? ""), options],
+    queryFn: () =>
+      options === undefined
+        ? client.api.scheduler.runs(taskID!)
+        : client.api.scheduler.runs(taskID!, options),
     enabled: enabled && Boolean(taskID),
   })
 }
