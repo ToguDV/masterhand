@@ -86,7 +86,7 @@ Permission rule semantics (verified against the pinned **2.0.6** source, `packag
 - After a config write on the watched global config dir, `/api/model` and `/api/integration` include the provider without a restart.
 - A registered custom provider exposes an `api`/`key` method: `POST /api/integration/{id}/connect/key` succeeds (204). Before opencode reloads the config it answers `404 IntegrationNotFoundError`; a 404 creates nothing, so retrying is safe.
 - Provider credentials are stored in opencode's credential store (`opencode.db` in 2.0.6; the older `auth.json` does not exist there).
-- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`), but **not** in `GET /api/credential` — that route is not available in the pinned **2.0.6** (it answers `404`) while clients still call it; tracked as [#216](https://github.com/ToguDV/masterhand/issues/216) and implemented by the E2E mock.
+- Its connection state appears in `GET /api/integration/{id}` (`connections: [{ type: "credential", id, label }]`). There is **no** `GET /api/credential` in the pinned **2.0.6** (it answers `404`): MasterHand clients derive the credential list from those connections (#216), and the mocks stay faithful by not implementing the missing route.
 
 ### Project config and plugin discovery (disabled in MasterHand, #218)
 

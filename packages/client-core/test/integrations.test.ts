@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   compareIntegrations,
+  credentialsFromIntegrations,
   normalizeCredentials,
   normalizeIntegration,
   normalizeIntegrations,
@@ -72,6 +73,31 @@ describe("normalizeIntegrations (#128)", () => {
       { id: "cred_2", integrationID: "other", label: "cred_2", active: false },
     ])
     expect(normalizeCredentials("nope")).toEqual([])
+  })
+
+  it("derives credentials from integration connections (#216)", () => {
+    // The pinned 2.0.6 has no GET /api/credential (404): the list is derived
+    // from the allowlisted GET /api/integration connections instead.
+    expect(
+      credentialsFromIntegrations([
+        {
+          id: "opencode-go",
+          name: "OpenCode Go",
+          methods: [{ type: "key", label: "API key" }],
+          connections: [
+            { type: "credential", id: "cred_1", label: "Personal", method: "key" },
+            { type: "credential", id: "cred_2", method: "key" },
+            { type: "env", name: "OPENCODE_GO_KEY" },
+          ],
+        },
+        { id: "anthropic", name: "Anthropic", methods: [], connections: [] },
+        { id: "broken", name: "Broken", connections: [{ type: "credential" }] },
+      ]),
+    ).toEqual([
+      { id: "cred_1", integrationID: "opencode-go", label: "Personal", active: true },
+      { id: "cred_2", integrationID: "opencode-go", label: "cred_2", active: false },
+    ])
+    expect(credentialsFromIntegrations("nope")).toEqual([])
   })
 
   it("passes through an optional metadata icon and falls back to a monogram", () => {
