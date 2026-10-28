@@ -295,6 +295,59 @@ describe("sqlite schema migrations", () => {
     }
   })
 
+  it("upgrades a v2 database to the v3 data indexes without losing data", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "v2.sqlite")
+    try {
+      // A real v2 database: baseline + install-id statements applied and the
+      // version stamped, then populated on both tables v3 indexes.
+      const v2 = new Database(file)
+      try {
+        for (const statement of MIGRATIONS[0]!.statements) v2.exec(statement)
+        for (const statement of MIGRATIONS[1]!.statements) v2.exec(statement)
+        v2.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+        v2.exec(
+          "INSERT INTO audit_events (at, session_id, workspace_id, kind, command, reason, source) " +
+            `VALUES (${Date.now()}, 'ses_1', NULL, 'permission_denied', 'pkill -f node', 'denied', 'opencode')`,
+        )
+        v2.exec(
+          "INSERT INTO goal_runs (session_id, goal, state, round, max_rounds, critic_session_id, judge_session_id, history, created_at, updated_at) " +
+            "VALUES ('ses_goal', 'ship it', 'running', 1, 3, 'ses_critic', 'ses_judge', '[]', 1, 2)",
+        )
+        v2.pragma("user_version = 2")
+      } finally {
+        v2.close()
+      }
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+        expect(store.listAudit(10).map((entry) => entry.command)).toEqual(["pkill -f node"])
+        expect(store.getGoalRun("ses_goal")).toMatchObject({
+          criticSessionID: "ses_critic",
+          judgeSessionID: "ses_judge",
+        })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        for (const name of ["idx_audit_events_at", "idx_goal_runs_member_sessions"]) {
+          expect(
+            db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name),
+            `missing index ${name}`,
+          ).toBeDefined()
+        }
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("does not re-run migrations that were already applied", () => {
     const dir = tempDir()
     const file = join(dir, "test.sqlite")
@@ -526,8 +579,10 @@ describe("audit store", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
     const store = createSqliteStore(join(dir, "test.sqlite"))
     try {
-      store.recordAudit({ ...event, command: "first" })
-      store.recordAudit({ ...event, command: "second" })
+      // Fresh timestamps: the 30-day retention prunes ancient rows on write.
+      const now = Date.now()
+      store.recordAudit({ ...event, at: now, command: "first" })
+      store.recordAudit({ ...event, at: now, command: "second" })
 
       expect(store.listAudit().map((entry) => entry.command)).toEqual(["second", "first"])
       expect(store.listAudit(1)).toHaveLength(1)
@@ -547,6 +602,64 @@ describe("audit store", () => {
     expect(store.listAudit(1000)).toHaveLength(500)
     store.clearAudit()
     expect(store.listAudit()).toHaveLength(0)
+  })
+
+  it("serves the newest-first audit list through the timestamp index", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "test.sqlite")
+    const store = createSqliteStore(file)
+    try {
+      store.recordAudit({ ...event, at: Date.now() })
+    } finally {
+      store.close()
+    }
+    const db = new Database(file)
+    try {
+      const plan = (
+        db
+          .prepare("EXPLAIN QUERY PLAN SELECT id FROM audit_events ORDER BY at DESC, id DESC LIMIT ?")
+          .all(100) as { detail: string }[]
+      )
+        .map((row) => row.detail)
+        .join("\n")
+      expect(plan).toContain("idx_audit_events_at")
+    } finally {
+      db.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("retains only the newest 10000 audit rows on write", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const now = Date.now()
+      for (let index = 0; index < 10_050; index += 1) {
+        store.recordAudit({ ...event, at: now - 10_050 + index, command: `command-${index}` })
+      }
+      const rows = store.listAudit(20_000)
+      expect(rows).toHaveLength(10_000)
+      expect(rows[0]?.command).toBe("command-10049")
+      expect(rows[rows.length - 1]?.command).toBe("command-50")
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("prunes audit rows older than 30 days on write", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    const DAY_MS = 24 * 60 * 60 * 1000
+    try {
+      const now = Date.now()
+      store.recordAudit({ ...event, at: now - 31 * DAY_MS, command: "ancient" })
+      store.recordAudit({ ...event, at: now, command: "fresh" })
+      expect(store.listAudit(100).map((entry) => entry.command)).toEqual(["fresh"])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

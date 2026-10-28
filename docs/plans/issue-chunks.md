@@ -211,12 +211,11 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   after #196; #197 changes the sessions contract and must update web + mobile in the same session.
 - **Notes:** #197 is the largest (contract + two clients); split the client work if the session
   grows. Measure the SSE byte budget with a slow-client test, not by inspection.
-- **Status:** 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202,
-  one commit per issue with red → green evidence each; pending reviewer pass, PR not yet opened):
+- **Status:** 6/10 implemented 2026-10-28 on `fix/c21-data` (#203: audit timestamp index + write/boot retention in migration v3, batched with #201's goal member index; pending reviewer pass, PR not yet opened) plus the 5/10 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202, one commit per issue with red → green evidence each; pending reviewer pass, PR not yet opened):
   SSE write-failure teardown, the per-client SSE byte budget with shared serialization, sync fs off
   the request paths, listen-before-reconcile boot, and single-flight periodic passes. Remaining:
   #197 (session pagination + scheduler retention), #198 (scheduled-run history limit), #201
-  (goal-role projections), #203 (audit index + retention), #211 (board snapshot N+1).
+  (goal-role projections), #211 (board snapshot N+1).
 
 ### C22 — Architecture and test debt
 

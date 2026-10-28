@@ -358,6 +358,20 @@ export interface AuditEventRecord {
 }
 
 /**
+ * Audit retention (#203, failure class A → rule 13): the audit log is an
+ * advisory diagnostic buffer, not an archive. The store keeps the newest
+ * `AUDIT_RETENTION_MAX_ROWS` rows and drops anything older than
+ * `AUDIT_RETENTION_MAX_AGE_MS`, pruned on every write (exact in-memory
+ * counter, so the count probe is O(1)) and once at boot (a pre-existing
+ * oversized file is cut down on open). Manual `clearAudit` still wipes it.
+ * Rollback for the deleted rows is a database backup restore
+ * (`docs/runbooks/backups.md`); the memory store (a test double) keeps its
+ * smaller 500-row cap instead.
+ */
+export const AUDIT_RETENTION_MAX_ROWS = 10_000
+export const AUDIT_RETENTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
  * How to start a workspace's dev server. MasterHand runs it through opencode's
  * PTY API and stops it by killing that exact process, so agents never manage
  * (or kill) servers themselves. `source` records who proposed it: the agent
@@ -661,6 +675,22 @@ export function createSqliteStore(file: string): Store {
   `)
   const listAuditStatement = db.prepare(`${auditColumns} ORDER BY at DESC, id DESC LIMIT ?`)
   const clearAuditStatement = db.prepare("DELETE FROM audit_events")
+  const pruneAuditByAgeStatement = db.prepare("DELETE FROM audit_events WHERE at < ?")
+  const pruneAuditByCountStatement = db.prepare(`
+    DELETE FROM audit_events WHERE id NOT IN (
+      SELECT id FROM audit_events ORDER BY at DESC, id DESC LIMIT ?
+    )
+  `)
+  const countAuditStatement = db.prepare("SELECT COUNT(*) FROM audit_events").pluck()
+  const countAuditRows = (): number => countAuditStatement.get() as number
+  // Retention starts at boot: a file that grew past the policy before this
+  // build (or while it was down) is cut down on open, and the exact counter
+  // below keeps every later write O(1) — no COUNT(*) per insert.
+  pruneAuditByAgeStatement.run(Date.now() - AUDIT_RETENTION_MAX_AGE_MS)
+  if (countAuditRows() > AUDIT_RETENTION_MAX_ROWS) {
+    pruneAuditByCountStatement.run(AUDIT_RETENTION_MAX_ROWS)
+  }
+  let auditCount = countAuditRows()
   const workspaceRunColumns = `
     SELECT workspace_id AS workspaceID, command, args, cwd, source, updated_at AS updatedAt
     FROM workspace_runs
@@ -1036,6 +1066,18 @@ export function createSqliteStore(file: string): Store {
     },
     recordAudit(event) {
       recordAuditStatement.run(event)
+      // Advisory retention (see AUDIT_RETENTION_MAX_ROWS): the age delete is
+      // an indexed range and the count delete only runs past the cap, so a
+      // normal write stays cheap. `auditCount` is exact — this process is the
+      // only writer (single BFF per SQLite file, ADR-26) — and the age branch
+      // subtracts what it removed to stay exact.
+      auditCount += 1
+      const aged = pruneAuditByAgeStatement.run(Date.now() - AUDIT_RETENTION_MAX_AGE_MS)
+      auditCount -= Number(aged.changes)
+      if (auditCount > AUDIT_RETENTION_MAX_ROWS) {
+        pruneAuditByCountStatement.run(AUDIT_RETENTION_MAX_ROWS)
+        auditCount = countAuditRows()
+      }
     },
     listAudit(limit = 100) {
       return listAuditStatement.all(limit) as AuditEventRecord[]
