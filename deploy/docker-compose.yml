@@ -100,6 +100,18 @@ services:
       # explicitly keeps the user's own opencode.json(c) untouched and lets the
       # BFF add providers without a restart. See ARCHITECTURE.md ADR-30.
       OPENCODE_CONFIG: /home/node/.config/opencode/masterhand-providers.json
+      # Project-level config/plugin discovery is OFF: a workspace's
+      # `.opencode/` dir or `opencode.json(c)` would otherwise load plugins,
+      # tools, MCP servers, commands and instructions that execute as the
+      # engine user (`node`, uid 1000) with access to the credential store
+      # (#218, verified against the pinned 2.0.6: a marker plugin ran on
+      # session creation; with this flag it never loads). Explicit config
+      # (`OPENCODE_CONFIG`/`OPENCODE_CONFIG_CONTENT` above) still applies, so
+      # the shell dropper and MasterHand-owned providers are unaffected. Note:
+      # a workspace's own AGENTS.md is no longer auto-injected into the
+      # context; the per-session `masterhand.workspace` instruction still pins
+      # the agent to its directory, and files remain explicitly readable.
+      OPENCODE_CONFIG_PROJECT_DISABLE: "true"
     volumes:
       - opencode_config:/home/node/.config/opencode
       - opencode_data:/home/node/.local/share/opencode
