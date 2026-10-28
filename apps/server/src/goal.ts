@@ -4,6 +4,7 @@ import { createEntityChain } from "./serial.js"
 import {
   DEFAULT_GOAL_MAX_ROUNDS,
   type GoalCritique,
+  type GoalHistoryEntry,
   type GoalPhase,
   type GoalReport,
   type GoalRunRecord,
@@ -278,7 +279,7 @@ export interface GoalOpencode {
 
 export interface GoalEvent {
   type: "goal.updated"
-  data: { sessionID: string; goal: GoalRunRecord | null }
+  data: { sessionID: string; goal: GoalRunView | null }
 }
 
 export interface GoalManagerOptions {
@@ -320,6 +321,68 @@ export interface GoalManager {
 }
 
 const TERMINAL_STATES = new Set(["approved", "cancelled"])
+
+/**
+ * Wire contract of a goal run (issue #206): exactly the documented fields
+ * clients render. Internal orchestration state — `runToken`,
+ * `awaitingSessionID`, `awaitingAssistantID`, `nudged`, `promptSerial` —
+ * never leaves the server: the store keeps the full `GoalRunRecord`, every
+ * route and every `goal.updated` frame carries this projection. The field
+ * list mirrors `GoalRun` in `packages/client-core/src/goal.ts`; the
+ * duplication is deliberate (a shared package is more infrastructure than
+ * this repo needs) and pinned by `goal-contract.test.ts`. No server rename:
+ * renaming persisted columns is migration territory (rule 23).
+ */
+export interface GoalRunView {
+  sessionID: string
+  goal: string
+  state: GoalRunRecord["state"]
+  round: number
+  maxRounds: number
+  mainModel: string | null
+  criticModel: string | null
+  judgeModel: string | null
+  lastReport: GoalReport | null
+  lastCritique: GoalCritique | null
+  lastVerdict: GoalVerdict | null
+  criticSessionID: string | null
+  judgeSessionID: string | null
+  history: GoalHistoryEntry[]
+  error: string | null
+  awaitingKind: GoalRunRecord["awaitingKind"]
+  attempt: number
+  lastError: string | null
+  pausedPhase: GoalRunRecord["pausedPhase"]
+  createdAt: number
+  updatedAt: number
+}
+
+/** Project a stored run to its wire contract (see `GoalRunView`). */
+export function toGoalRun(record: GoalRunRecord): GoalRunView {
+  return {
+    sessionID: record.sessionID,
+    goal: record.goal,
+    state: record.state,
+    round: record.round,
+    maxRounds: record.maxRounds,
+    mainModel: record.mainModel,
+    criticModel: record.criticModel,
+    judgeModel: record.judgeModel,
+    lastReport: record.lastReport,
+    lastCritique: record.lastCritique,
+    lastVerdict: record.lastVerdict,
+    criticSessionID: record.criticSessionID,
+    judgeSessionID: record.judgeSessionID,
+    history: record.history.map((entry) => ({ round: entry.round, critique: entry.critique, verdict: entry.verdict })),
+    error: record.error,
+    awaitingKind: record.awaitingKind,
+    attempt: record.attempt,
+    lastError: record.lastError,
+    pausedPhase: record.pausedPhase,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  }
+}
 
 function normalizeRef(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null
@@ -385,7 +448,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
   function persist(run: GoalRunRecord): void {
     run.updatedAt = now()
     store.saveGoalRun(run)
-    emit({ type: "goal.updated", data: { sessionID: run.sessionID, goal: { ...run, history: [...run.history] } } })
+    emit({ type: "goal.updated", data: { sessionID: run.sessionID, goal: toGoalRun(run) } })
   }
 
   /** One bounded opencode call; `includeTimeouts` only for reconcilable paths. */

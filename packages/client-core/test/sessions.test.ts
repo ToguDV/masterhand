@@ -22,6 +22,12 @@ const isolated = session("ses_iso", {
 })
 
 describe("session create markers", () => {
+  it("pins the wire literal shared with the BFF", () => {
+    // Must match CREATE_MARKER_KEY in apps/server/src/app.ts: a typo on
+    // either side breaks create reconciliation (see goal-contract.test.ts).
+    expect(CREATE_MARKER_KEY).toBe("masterhand.create")
+  })
+
   it("creates unique, prefixed markers", () => {
     const first = createSessionMarker()
     const second = createSessionMarker()

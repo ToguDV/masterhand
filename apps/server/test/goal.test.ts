@@ -15,6 +15,7 @@ import {
   type GoalManager,
   type GoalModelRef,
   type GoalOpencode,
+  type GoalRunView,
 } from "../src/goal.js"
 import { OpencodeTimeoutError, UpstreamStatusError } from "../src/retry.js"
 import { createSqliteStore, type GoalRunRecord, type Store } from "../src/store.js"
@@ -273,7 +274,7 @@ interface Harness {
   store: Store
   opencode: FakeOpencode
   manager: GoalManager
-  events: Array<{ sessionID: string; goal: GoalRunRecord | null }>
+  events: Array<{ sessionID: string; goal: GoalRunView | null }>
   delays: number[]
 }
 

@@ -28,6 +28,7 @@ import {
   GOAL_INTERNAL_MARKER_KEY,
   GOAL_SESSION_MARKER_KEY,
   GoalError,
+  toGoalRun,
   type GoalManager,
 } from "./goal.js"
 import { createGoalOpencode, createSchedulerOpencode } from "./opencode.js"
@@ -286,7 +287,7 @@ export function createCachedDiskFree(
  * marker (must match `CREATE_MARKER_KEY` in `client-core`). opencode returns
  * it from the session list, so a lost create response can be reconciled.
  */
-const CREATE_MARKER_KEY = "masterhand.create"
+export const CREATE_MARKER_KEY = "masterhand.create"
 
 /** Opaque, bounded marker; anything else is ignored (best effort). */
 function normalizeCreateMarker(value: unknown): string | null {
@@ -2623,7 +2624,8 @@ export function createApp(deps: AppDeps): CreatedApp {
 
   /** Goal Mode: start a run, read its state, pause/resume/cancel it. */
   api.get("/sessions/:sessionID/goal", (c) => {
-    return c.json({ goal: goals.status(c.req.param("sessionID")) })
+    const run = goals.status(c.req.param("sessionID"))
+    return c.json({ goal: run ? toGoalRun(run) : null })
   })
 
   api.post("/sessions/:sessionID/goal", async (c) => {
@@ -2637,7 +2639,11 @@ export function createApp(deps: AppDeps): CreatedApp {
     const agent = typeof body.agent === "string" && body.agent.trim() ? body.agent.trim() : null
     try {
       return c.json(
-        { goal: await goals.start({ sessionID: c.req.param("sessionID"), goal, model: body.model ?? null, agent }) },
+        {
+          goal: toGoalRun(
+            await goals.start({ sessionID: c.req.param("sessionID"), goal, model: body.model ?? null, agent }),
+          ),
+        },
         201,
       )
     } catch (error) {
@@ -2647,7 +2653,7 @@ export function createApp(deps: AppDeps): CreatedApp {
 
   api.post("/sessions/:sessionID/goal/pause", async (c) => {
     try {
-      return c.json({ goal: await goals.pause(c.req.param("sessionID")) })
+      return c.json({ goal: toGoalRun(await goals.pause(c.req.param("sessionID"))) })
     } catch (error) {
       return goalFailure(c, error)
     }
@@ -2655,7 +2661,7 @@ export function createApp(deps: AppDeps): CreatedApp {
 
   api.post("/sessions/:sessionID/goal/resume", async (c) => {
     try {
-      return c.json({ goal: await goals.resume(c.req.param("sessionID")) })
+      return c.json({ goal: toGoalRun(await goals.resume(c.req.param("sessionID"))) })
     } catch (error) {
       return goalFailure(c, error)
     }
@@ -2663,7 +2669,7 @@ export function createApp(deps: AppDeps): CreatedApp {
 
   api.post("/sessions/:sessionID/goal/cancel", async (c) => {
     try {
-      return c.json({ goal: await goals.cancel(c.req.param("sessionID")) })
+      return c.json({ goal: toGoalRun(await goals.cancel(c.req.param("sessionID"))) })
     } catch (error) {
       return goalFailure(c, error)
     }
