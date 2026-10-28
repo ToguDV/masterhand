@@ -55,6 +55,7 @@ import {
   type BoardSnapshot,
 } from "./board"
 import type { ScheduledRun, ScheduledTask, ScheduledTaskInput, ScheduledTaskPatch } from "./scheduler"
+import type { SessionListOptions, SessionPage } from "./sessions"
 import {
   normalizeWebsearchSelection,
   normalizeWebsearchSources,
@@ -133,7 +134,12 @@ export interface Client {
      * `isolation` (branch/worktree path) when it runs isolated.
      */
     sessions: {
-      list(workspaceID: string): Promise<Session[]>
+      /**
+       * One page of the workspace's sessions (#197). Without options the full
+       * list arrives as `{ sessions }` (today's shape); with `{ limit, cursor }`
+       * a truncated page also carries `truncated: true` + `nextCursor`.
+       */
+      list(workspaceID: string, options?: SessionListOptions): Promise<SessionPage>
       create(workspaceID: string, input?: CreateSessionInput): Promise<Session>
       remove(workspaceID: string, sessionID: string): Promise<void>
       finish(sessionID: string): Promise<FinishSessionResult>
@@ -309,8 +315,8 @@ export interface Client {
       remove(taskID: string): Promise<void>
       /** Enqueues an immediate fire (async); returns the task. */
       runNow(taskID: string): Promise<ScheduledTask>
-      /** Run history of a task, newest first as served by the BFF. */
-      runs(taskID: string): Promise<ScheduledRun[]>
+      /** Run history of a task, newest first as served by the BFF (paged; default is the newest 50). */
+      runs(taskID: string, options?: { limit?: number; offset?: number }): Promise<ScheduledRun[]>
     }
   }
   workspaces: {
@@ -503,10 +509,15 @@ export function createClient(options: ClientOptions = {}): Client {
     },
     api: {
       sessions: {
-        list: (workspaceID) =>
-          request<{ sessions: Session[] }>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/sessions`,
-          ).then((response) => response.sessions),
+        list: (workspaceID, options) => {
+          const params = new URLSearchParams()
+          if (options?.limit !== undefined) params.set("limit", String(options.limit))
+          if (options?.cursor !== undefined) params.set("cursor", options.cursor)
+          const query = params.toString()
+          return request<SessionPage>(
+            `/api/workspaces/${encodeURIComponent(workspaceID)}/sessions${query ? `?${query}` : ""}`,
+          )
+        },
         create: (workspaceID, input) =>
           request<{ session: Session }>(`/api/workspaces/${encodeURIComponent(workspaceID)}/sessions`, {
             method: "POST",
@@ -842,10 +853,15 @@ export function createClient(options: ClientOptions = {}): Client {
           request<{ task: ScheduledTask }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/run`, {
             method: "POST",
           }).then((response) => response.task),
-        runs: (taskID) =>
-          request<{ runs: ScheduledRun[] }>(`/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs`).then(
-            (response) => response.runs,
-          ),
+        runs: (taskID, options) => {
+          const params = new URLSearchParams()
+          if (options?.limit !== undefined) params.set("limit", String(options.limit))
+          if (options?.offset !== undefined) params.set("offset", String(options.offset))
+          const query = params.toString()
+          return request<{ runs: ScheduledRun[] }>(
+            `/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs${query ? `?${query}` : ""}`,
+          ).then((response) => response.runs)
+        },
       },
     },
     workspaces: {

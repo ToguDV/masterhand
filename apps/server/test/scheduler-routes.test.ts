@@ -577,6 +577,28 @@ describe("scheduled task routes", () => {
     expect(runs[49]!.id).toBe("run_5")
   })
 
+  it("pages run history with limit/offset query params", async () => {
+    const cookie = await boot()
+    const created = await createTask(cookie)
+    for (let index = 0; index < 55; index += 1) {
+      app!.store.createScheduledRun(seededRun(created.id, index))
+    }
+    const page = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/runs?limit=2&offset=1`, {
+      headers: { cookie },
+    })
+    expect(page.status).toBe(200)
+    expect(((await page.json()) as { runs: ScheduledRun[] }).runs.map((run) => run.id)).toEqual([
+      "run_53",
+      "run_52",
+    ])
+    // Garbage params fall back to the default newest-50 page.
+    const fallback = await fetch(`${app!.url}/api/scheduled-tasks/${created.id}/runs?limit=nope&offset=-3`, {
+      headers: { cookie },
+    })
+    expect(fallback.status).toBe(200)
+    expect(((await fallback.json()) as { runs: ScheduledRun[] }).runs).toHaveLength(50)
+  })
+
   it("broadcasts a scheduler.updated frame on create, patch and delete", async () => {
     const cookie = await boot()
     const subset = (frames: string): string[] =>

@@ -311,6 +311,17 @@ export interface GoalSettingsRecord {
   judgeModel: string | null
 }
 
+/**
+ * Narrow goal-run member row (#201): session/critic/judge ids only. The hub
+ * loop and the session-list poll resolve runs through this instead of
+ * selecting the history/report/critique/verdict blobs and JSON.parsing each.
+ */
+export interface GoalRunMember {
+  sessionID: string
+  criticSessionID: string | null
+  judgeSessionID: string | null
+}
+
 /** Default round budget for a goal run before it pauses for a user decision. */
 export const DEFAULT_GOAL_MAX_ROUNDS = 5
 
@@ -356,6 +367,20 @@ export interface AuditEventRecord {
   reason: string | null
   source: "opencode" | "bff"
 }
+
+/**
+ * Audit retention (#203, failure class A → rule 13): the audit log is an
+ * advisory diagnostic buffer, not an archive. The store keeps the newest
+ * `AUDIT_RETENTION_MAX_ROWS` rows and drops anything older than
+ * `AUDIT_RETENTION_MAX_AGE_MS`, pruned on every write (exact in-memory
+ * counter, so the count probe is O(1)) and once at boot (a pre-existing
+ * oversized file is cut down on open). Manual `clearAudit` still wipes it.
+ * Rollback for the deleted rows is a database backup restore
+ * (`docs/runbooks/backups.md`); the memory store (a test double) keeps its
+ * smaller 500-row cap instead.
+ */
+export const AUDIT_RETENTION_MAX_ROWS = 10_000
+export const AUDIT_RETENTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
  * How to start a workspace's dev server. MasterHand runs it through opencode's
@@ -435,6 +460,37 @@ export interface ScheduledRun {
   endedAt: string | null
 }
 
+/**
+ * Scheduled-run history policy (#198, failure class A → rule 13): history is
+ * a diagnostic buffer, not an archive. Reads page in SQL with a default
+ * newest-50 page (the route's historical cap); writes keep the newest
+ * `SCHEDULED_RUNS_KEEP_PER_TASK` runs per task, pruned on every write
+ * (creates and fire-path saves).
+ * Retention deletes rows — documented in `docs/bff/api.md`, never silent —
+ * and rollback is a database backup restore (`docs/runbooks/backups.md`).
+ */
+export const SCHEDULED_RUNS_DEFAULT_LIMIT = 50
+export const SCHEDULED_RUNS_MAX_LIMIT = 200
+export const SCHEDULED_RUNS_KEEP_PER_TASK = 200
+
+export interface ScheduledRunPage {
+  limit?: number
+  offset?: number
+}
+
+/** Defensive paging: garbage in, default page out (never a throw, never unbounded). */
+export function normalizeRunPage(options?: ScheduledRunPage): { limit: number; offset: number } {
+  const limit = options?.limit
+  const offset = options?.offset
+  return {
+    limit:
+      Number.isInteger(limit) && (limit as number) > 0
+        ? Math.min(limit as number, SCHEDULED_RUNS_MAX_LIMIT)
+        : SCHEDULED_RUNS_DEFAULT_LIMIT,
+    offset: Number.isInteger(offset) && (offset as number) > 0 ? (offset as number) : 0,
+  }
+}
+
 export interface Store {
   create(record: DeviceRecord): void
   get(id: string): DeviceRecord | null
@@ -481,6 +537,15 @@ export interface Store {
   removeGoalRun(sessionID: string): void
   /** Every persisted run (boot reconciliation). */
   listGoalRuns(): GoalRunRecord[]
+  /**
+   * Narrow member lookup for one session id (#201, hub hot path): ids only,
+   * never the history/report/critique/verdict blobs and never JSON parsing.
+   * Main sessions are NOT members — check `getGoalRun` first (as
+   * `runForSession` does).
+   */
+  findGoalRunByMemberSession(sessionID: string): GoalRunMember | null
+  /** Every run's member row (#201, session-list poll): ids only. */
+  listGoalRunMembers(): GoalRunMember[]
   getGoalSettings(): GoalSettingsRecord
   saveGoalSettings(settings: GoalSettingsRecord): void
   /** Board snapshot for a workspace (columns with nested cards, sorted by position). */
@@ -518,8 +583,12 @@ export interface Store {
   listScheduledTasks(): ScheduledTask[]
   /** Idempotent; removes the task's runs in the same transaction. */
   deleteScheduledTask(id: string): void
-  /** One task's run history, newest first. */
-  listScheduledRuns(taskId: string): ScheduledRun[]
+  /**
+   * One task's run history, newest first, paged in SQL (`LIMIT`/`OFFSET`).
+   * The default page keeps the route's historical cap (newest 50); callers
+   * pass explicit `{ limit, offset }` for deeper pages.
+   */
+  listScheduledRuns(taskId: string, options?: ScheduledRunPage): ScheduledRun[]
   createScheduledRun(record: ScheduledRun): void
   saveScheduledRun(record: ScheduledRun): void
   getScheduledRun(id: string): ScheduledRun | null
@@ -661,6 +730,22 @@ export function createSqliteStore(file: string): Store {
   `)
   const listAuditStatement = db.prepare(`${auditColumns} ORDER BY at DESC, id DESC LIMIT ?`)
   const clearAuditStatement = db.prepare("DELETE FROM audit_events")
+  const pruneAuditByAgeStatement = db.prepare("DELETE FROM audit_events WHERE at < ?")
+  const pruneAuditByCountStatement = db.prepare(`
+    DELETE FROM audit_events WHERE id NOT IN (
+      SELECT id FROM audit_events ORDER BY at DESC, id DESC LIMIT ?
+    )
+  `)
+  const countAuditStatement = db.prepare("SELECT COUNT(*) FROM audit_events").pluck()
+  const countAuditRows = (): number => countAuditStatement.get() as number
+  // Retention starts at boot: a file that grew past the policy before this
+  // build (or while it was down) is cut down on open, and the exact counter
+  // below keeps every later write O(1) — no COUNT(*) per insert.
+  pruneAuditByAgeStatement.run(Date.now() - AUDIT_RETENTION_MAX_AGE_MS)
+  if (countAuditRows() > AUDIT_RETENTION_MAX_ROWS) {
+    pruneAuditByCountStatement.run(AUDIT_RETENTION_MAX_ROWS)
+  }
+  let auditCount = countAuditRows()
   const workspaceRunColumns = `
     SELECT workspace_id AS workspaceID, command, args, cwd, source, updated_at AS updatedAt
     FROM workspace_runs
@@ -685,6 +770,18 @@ export function createSqliteStore(file: string): Store {
   `
   const getGoalRunStatement = db.prepare(`${goalRunColumns} WHERE session_id = ?`)
   const listGoalRunsStatement = db.prepare(`${goalRunColumns} ORDER BY created_at ASC`)
+  // Narrow member projection (#201): ids only, served by
+  // idx_goal_runs_critic_session / idx_goal_runs_judge_session (migration v3) — no blob I/O, no parsing.
+  // Two single-column statements instead of one OR: the composite index
+  // serves the critic arm by prefix, while the judge arm scans narrow rows
+  // (goal runs are few; the win is skipping the blobs, not the seek).
+  const goalMemberColumns = `
+    SELECT session_id AS sessionID, critic_session_id AS criticSessionID, judge_session_id AS judgeSessionID
+    FROM goal_runs
+  `
+  const findGoalRunByCriticStatement = db.prepare(`${goalMemberColumns} WHERE critic_session_id = ? LIMIT 1`)
+  const findGoalRunByJudgeStatement = db.prepare(`${goalMemberColumns} WHERE judge_session_id = ? LIMIT 1`)
+  const listGoalRunMembersStatement = db.prepare(`${goalMemberColumns} ORDER BY created_at ASC`)
   const saveGoalRunStatement = db.prepare(`
     INSERT OR REPLACE INTO goal_runs (
       session_id, run_token, goal, state, round, max_rounds, main_model, critic_model, judge_model,
@@ -784,8 +881,13 @@ export function createSqliteStore(file: string): Store {
     FROM scheduled_runs
   `
   const listScheduledRunsOfTaskStatement = db.prepare(
-    `${scheduledRunColumns} WHERE task_id = ? ORDER BY started_at DESC, rowid DESC`,
+    `${scheduledRunColumns} WHERE task_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`,
   )
+  const pruneScheduledRunsStatement = db.prepare(`
+    DELETE FROM scheduled_runs WHERE task_id = ? AND id NOT IN (
+      SELECT id FROM scheduled_runs WHERE task_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ?
+    )
+  `)
   const listActiveScheduledRunsStatement = db.prepare(
     `${scheduledRunColumns} WHERE status IN ('queued', 'firing', 'running') ORDER BY started_at DESC, rowid DESC`,
   )
@@ -824,13 +926,33 @@ export function createSqliteStore(file: string): Store {
   }
 
   function readBoardSnapshot(workspaceID: string): BoardSnapshot {
+    // One column query plus ONE card query (#211, step 1): the old path ran a
+    // card query per column (N+1) on every GET and every board.updated frame.
+    // Cards arrive ordered by (column_id, position) and group in JS; an empty
+    // board skips the card query entirely. Internal only — the snapshot shape
+    // is unchanged. Step 2 (per-card frames instead of full snapshots) is out
+    // of scope: it needs #196 settled further and changes the frame contract.
     const columns = listBoardColumnsStatement.all(workspaceID) as BoardColumnRecord[]
+    if (columns.length === 0) return { workspaceID, columns: [] }
+    const placeholders = columns.map(() => "?").join(", ")
+    // Per-call prepare: the IN list length varies per board; prepare cost is
+    // trivial next to the N queries this replaces.
+    const cards = db
+      .prepare(
+        `SELECT id, column_id AS columnID, title, description, position,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM board_cards WHERE column_id IN (${placeholders}) ORDER BY column_id, position ASC`,
+      )
+      .all(...columns.map((column) => column.id)) as BoardCardRecord[]
+    const byColumn = new Map<string, BoardCardRecord[]>()
+    for (const card of cards) {
+      const list = byColumn.get(card.columnID)
+      if (list) list.push(card)
+      else byColumn.set(card.columnID, [card])
+    }
     return {
       workspaceID,
-      columns: columns.map((column) => ({
-        ...column,
-        cards: listBoardCardsStatement.all(column.id) as BoardCardRecord[],
-      })),
+      columns: columns.map((column) => ({ ...column, cards: byColumn.get(column.id) ?? [] })),
     }
   }
 
@@ -1036,12 +1158,25 @@ export function createSqliteStore(file: string): Store {
     },
     recordAudit(event) {
       recordAuditStatement.run(event)
+      // Advisory retention (see AUDIT_RETENTION_MAX_ROWS): the age delete is
+      // an indexed range and the count delete only runs past the cap, so a
+      // normal write stays cheap. `auditCount` is exact — this process is the
+      // only writer (single BFF per SQLite file, ADR-26) — and the age branch
+      // subtracts what it removed to stay exact.
+      auditCount += 1
+      const aged = pruneAuditByAgeStatement.run(Date.now() - AUDIT_RETENTION_MAX_AGE_MS)
+      auditCount -= Number(aged.changes)
+      if (auditCount > AUDIT_RETENTION_MAX_ROWS) {
+        pruneAuditByCountStatement.run(AUDIT_RETENTION_MAX_ROWS)
+        auditCount = countAuditRows()
+      }
     },
     listAudit(limit = 100) {
       return listAuditStatement.all(limit) as AuditEventRecord[]
     },
     clearAudit() {
       clearAuditStatement.run()
+      auditCount = 0
     },
     getWorkspaceRun(workspaceID) {
       const row = getWorkspaceRunStatement.get(workspaceID) as
@@ -1074,6 +1209,16 @@ export function createSqliteStore(file: string): Store {
     },
     listGoalRuns() {
       return (listGoalRunsStatement.all() as Record<string, unknown>[]).map(normalizeGoalRun)
+    },
+    findGoalRunByMemberSession(sessionID) {
+      const critic =
+        findGoalRunByCriticStatement.get(sessionID) as GoalRunMember | undefined
+      if (critic) return critic
+      const judge = findGoalRunByJudgeStatement.get(sessionID) as GoalRunMember | undefined
+      return judge ?? null
+    },
+    listGoalRunMembers() {
+      return listGoalRunMembersStatement.all() as GoalRunMember[]
     },
     getGoalSettings() {
       const row = getGoalSettingsStatement.get() as GoalSettingsRecord | undefined
@@ -1296,14 +1441,23 @@ export function createSqliteStore(file: string): Store {
       })
       remove()
     },
-    listScheduledRuns(taskId) {
-      return (listScheduledRunsOfTaskStatement.all(taskId) as Record<string, unknown>[]).map(normalizeScheduledRun)
+    listScheduledRuns(taskId, options) {
+      const { limit, offset } = normalizeRunPage(options)
+      return (listScheduledRunsOfTaskStatement.all(taskId, limit, offset) as Record<string, unknown>[]).map(
+        normalizeScheduledRun,
+      )
     },
     createScheduledRun(record) {
       saveScheduledRunStatement.run(record)
+      // Retention on the growth path: a new run row prunes its task's tail.
+      pruneScheduledRunsStatement.run(record.taskId, record.taskId, SCHEDULED_RUNS_KEEP_PER_TASK)
     },
     saveScheduledRun(record) {
       saveScheduledRunStatement.run(record)
+      // The fire path persists its firing row through this upsert (#197), so
+      // it prunes too: status updates of existing rows only re-run a cheap
+      // no-op delete (the 200-row subquery stops at the cap).
+      pruneScheduledRunsStatement.run(record.taskId, record.taskId, SCHEDULED_RUNS_KEEP_PER_TASK)
     },
     getScheduledRun(id) {
       const row = getScheduledRunStatement.get(id) as Record<string, unknown> | undefined
@@ -1500,6 +1654,27 @@ export function createMemoryStore(): Store {
     listGoalRuns() {
       return [...goalRuns.values()].sort((a, b) => a.createdAt - b.createdAt)
     },
+    findGoalRunByMemberSession(sessionID) {
+      for (const run of goalRuns.values()) {
+        if (run.criticSessionID === sessionID || run.judgeSessionID === sessionID) {
+          return {
+            sessionID: run.sessionID,
+            criticSessionID: run.criticSessionID,
+            judgeSessionID: run.judgeSessionID,
+          }
+        }
+      }
+      return null
+    },
+    listGoalRunMembers() {
+      return [...goalRuns.values()]
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((run) => ({
+          sessionID: run.sessionID,
+          criticSessionID: run.criticSessionID,
+          judgeSessionID: run.judgeSessionID,
+        }))
+    },
     getGoalSettings() {
       return goalSettings
     },
@@ -1665,19 +1840,38 @@ export function createMemoryStore(): Store {
         if (run.taskId === id) scheduledRuns.delete(run.id)
       }
     },
-    listScheduledRuns(taskId) {
+    listScheduledRuns(taskId, options) {
+      const { limit, offset } = normalizeRunPage(options)
       return [...scheduledRuns.values()]
         .filter((run) => run.taskId === taskId)
         .sort(
           (a, b) =>
             (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
         )
+        .slice(offset, offset + limit)
     },
     createScheduledRun(record) {
       scheduledRuns.set(record.id, record)
+      // Retention parity with the SQLite store: keep the newest N per task.
+      const tail = [...scheduledRuns.values()]
+        .filter((run) => run.taskId === record.taskId)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
+      for (const pruned of tail.slice(SCHEDULED_RUNS_KEEP_PER_TASK)) scheduledRuns.delete(pruned.id)
     },
     saveScheduledRun(record) {
       scheduledRuns.set(record.id, record)
+      // Same retention as createScheduledRun above: the fire path persists
+      // through save, so pruning only on create would leak one row per fire.
+      const tail = [...scheduledRuns.values()]
+        .filter((run) => run.taskId === record.taskId)
+        .sort(
+          (a, b) =>
+            (Date.parse(b.startedAt) || 0) - (Date.parse(a.startedAt) || 0) || b.id.localeCompare(a.id),
+        )
+      for (const pruned of tail.slice(SCHEDULED_RUNS_KEEP_PER_TASK)) scheduledRuns.delete(pruned.id)
     },
     getScheduledRun(id) {
       return scheduledRuns.get(id) ?? null

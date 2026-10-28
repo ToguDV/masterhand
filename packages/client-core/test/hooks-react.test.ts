@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Client } from "../src/client"
-import type { ChatMessage, SessionStatuses } from "../src/types"
+import type { SessionPage } from "../src/sessions"
+import type { ChatMessage, Session, SessionStatuses } from "../src/types"
 import {
   createEventHandler,
   queryKeys,
@@ -37,7 +38,7 @@ function makeEventStream() {
 function makeClient(stream = makeEventStream()) {
   const auth = { status: vi.fn(async () => ({ ok: true, opencode: { healthy: true } })) }
   const sessions = {
-    list: vi.fn(async () => []),
+    list: vi.fn(async (): Promise<SessionPage> => ({ sessions: [] })),
     create: vi.fn(async () => ({ id: "ses_new" })),
     remove: vi.fn(async () => {}),
     finish: vi.fn(async () => ({ committed: true })),
@@ -125,6 +126,23 @@ describe("query hooks", () => {
     await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
     expect(sessions.list).toHaveBeenCalledTimes(1)
     expect(sessions.list).toHaveBeenCalledWith("ws_1")
+  })
+
+  it("useSessions passes pagination options through and unwraps the page", async () => {
+    const qc = newQueryClient()
+    const { client, sessions } = makeClient()
+    sessions.list.mockResolvedValue({
+      sessions: [{ id: "ses_1" } as unknown as Session],
+      truncated: true,
+      nextCursor: "1",
+    })
+
+    const paged = renderHook(() => useSessions(client, true, false, "ws_1", { limit: 1 }), {
+      wrapper: wrapper(qc),
+    })
+    await waitFor(() => expect(paged.result.current.isSuccess).toBe(true))
+    expect(sessions.list).toHaveBeenCalledWith("ws_1", { limit: 1 })
+    expect(paged.result.current.data).toEqual([{ id: "ses_1" }])
   })
 
   it("useSessionStatuses adapts its polling to connectivity", async () => {

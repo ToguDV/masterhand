@@ -20,6 +20,7 @@ import { opencodeErrorMessage } from "./errors"
 import { goalPayloadOf, type GoalRun } from "./goal"
 import { boardPayloadOf, type BoardSnapshot } from "./board"
 import { schedulerEventOf, type ScheduledTaskInput, type ScheduledTaskPatch } from "./scheduler"
+import type { SessionListOptions } from "./sessions"
 import type {
   ChatMessage,
   FormInfo,
@@ -88,10 +89,22 @@ export function useSessions(
   enabled: boolean,
   refetchInterval: number | false = 10_000,
   workspaceID?: string | null,
+  options?: SessionListOptions,
 ) {
   return useQuery({
-    queryKey: queryKeys.sessionsFor(workspaceID),
-    queryFn: () => client.api.sessions.list(workspaceID!),
+    // A paged list is its own cache entry; the bare workspace prefix still
+    // invalidates every page (prefix match), so reconnects stay correct.
+    queryKey:
+      options === undefined ? queryKeys.sessionsFor(workspaceID) : [...queryKeys.sessionsFor(workspaceID), options],
+    queryFn: async () => {
+      // No options → exactly one argument (yesterday's call shape); the hook
+      // unwraps the page so data stays `Session[]` for every consumer.
+      const page =
+        options === undefined
+          ? await client.api.sessions.list(workspaceID!)
+          : await client.api.sessions.list(workspaceID!, options)
+      return page.sessions
+    },
     enabled: enabled && Boolean(workspaceID),
     refetchInterval,
   })
@@ -434,10 +447,23 @@ export function useScheduledTasks(client: Client, enabled = true) {
 }
 
 /** Run history of one scheduled task; refreshed the same way as the task list. */
-export function useScheduledTaskRuns(client: Client, taskID: string | null, enabled = true) {
+export function useScheduledTaskRuns(
+  client: Client,
+  taskID: string | null,
+  enabled = true,
+  options?: { limit?: number; offset?: number },
+) {
   return useQuery({
-    queryKey: queryKeys.schedulerRuns(taskID ?? ""),
-    queryFn: () => client.api.scheduler.runs(taskID!),
+    // A paged history is its own cache entry; the bare task prefix still
+    // invalidates every page (prefix match), so frames stay correct.
+    queryKey:
+      options === undefined
+        ? queryKeys.schedulerRuns(taskID ?? "")
+        : [...queryKeys.schedulerRuns(taskID ?? ""), options],
+    queryFn: () =>
+      options === undefined
+        ? client.api.scheduler.runs(taskID!)
+        : client.api.scheduler.runs(taskID!, options),
     enabled: enabled && Boolean(taskID),
   })
 }

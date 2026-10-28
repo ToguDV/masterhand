@@ -86,6 +86,18 @@ describe("scheduler queries", () => {
     await waitFor(() => expect(enabled.result.current.isSuccess).toBe(true))
     expect(scheduler.runs).toHaveBeenCalledWith("st_1")
   })
+
+  it("useScheduledTaskRuns passes pagination through with a per-page cache key", async () => {
+    const qc = newQueryClient()
+    const { client, scheduler } = makeSchedulerClient()
+
+    const paged = renderHook(() => useScheduledTaskRuns(client, "st_1", true, { limit: 2, offset: 1 }), {
+      wrapper: wrapper(qc),
+    })
+    await waitFor(() => expect(paged.result.current.isSuccess).toBe(true))
+    expect(scheduler.runs).toHaveBeenCalledWith("st_1", { limit: 2, offset: 1 })
+    expect(qc.getQueryData(queryKeys.schedulerRuns("st_1"))).toBeUndefined()
+  })
 })
 
 describe("scheduler mutations", () => {

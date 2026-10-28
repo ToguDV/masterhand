@@ -7,7 +7,7 @@ import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrati
 import type { Migration } from "../src/migrations.js"
 import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
 import { DATA_DIR_LOCK_FILE, acquireDataDirLock } from "../src/store.js"
-import type { ScheduledRun, ScheduledTask, Store } from "../src/store.js"
+import type { GoalRunRecord, ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
 describe("sqlite device store", () => {
   it("persists, touches and removes devices", () => {
@@ -295,6 +295,59 @@ describe("sqlite schema migrations", () => {
     }
   })
 
+  it("upgrades a v2 database to the v3 data indexes without losing data", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "v2.sqlite")
+    try {
+      // A real v2 database: baseline + install-id statements applied and the
+      // version stamped, then populated on both tables v3 indexes.
+      const v2 = new Database(file)
+      try {
+        for (const statement of MIGRATIONS[0]!.statements) v2.exec(statement)
+        for (const statement of MIGRATIONS[1]!.statements) v2.exec(statement)
+        v2.exec("INSERT INTO devices (id, name, created_at, last_used_at) VALUES ('dev_1', 'Laptop', 1, 1)")
+        v2.exec(
+          "INSERT INTO audit_events (at, session_id, workspace_id, kind, command, reason, source) " +
+            `VALUES (${Date.now()}, 'ses_1', NULL, 'permission_denied', 'pkill -f node', 'denied', 'opencode')`,
+        )
+        v2.exec(
+          "INSERT INTO goal_runs (session_id, goal, state, round, max_rounds, critic_session_id, judge_session_id, history, created_at, updated_at) " +
+            "VALUES ('ses_goal', 'ship it', 'running', 1, 3, 'ses_critic', 'ses_judge', '[]', 1, 2)",
+        )
+        v2.pragma("user_version = 2")
+      } finally {
+        v2.close()
+      }
+
+      const store = createSqliteStore(file)
+      try {
+        expect(store.get("dev_1")).toMatchObject({ name: "Laptop" })
+        expect(store.listAudit(10).map((entry) => entry.command)).toEqual(["pkill -f node"])
+        expect(store.getGoalRun("ses_goal")).toMatchObject({
+          criticSessionID: "ses_critic",
+          judgeSessionID: "ses_judge",
+        })
+      } finally {
+        store.close()
+      }
+
+      const db = new Database(file)
+      try {
+        expect(db.pragma("user_version", { simple: true })).toBe(LATEST_SCHEMA_VERSION)
+        for (const name of ["idx_audit_events_at", "idx_goal_runs_critic_session", "idx_goal_runs_judge_session"]) {
+          expect(
+            db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name),
+            `missing index ${name}`,
+          ).toBeDefined()
+        }
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it("does not re-run migrations that were already applied", () => {
     const dir = tempDir()
     const file = join(dir, "test.sqlite")
@@ -526,8 +579,10 @@ describe("audit store", () => {
     const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
     const store = createSqliteStore(join(dir, "test.sqlite"))
     try {
-      store.recordAudit({ ...event, command: "first" })
-      store.recordAudit({ ...event, command: "second" })
+      // Fresh timestamps: the 30-day retention prunes ancient rows on write.
+      const now = Date.now()
+      store.recordAudit({ ...event, at: now, command: "first" })
+      store.recordAudit({ ...event, at: now, command: "second" })
 
       expect(store.listAudit().map((entry) => entry.command)).toEqual(["second", "first"])
       expect(store.listAudit(1)).toHaveLength(1)
@@ -547,6 +602,64 @@ describe("audit store", () => {
     expect(store.listAudit(1000)).toHaveLength(500)
     store.clearAudit()
     expect(store.listAudit()).toHaveLength(0)
+  })
+
+  it("serves the newest-first audit list through the timestamp index", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const file = join(dir, "test.sqlite")
+    const store = createSqliteStore(file)
+    try {
+      store.recordAudit({ ...event, at: Date.now() })
+    } finally {
+      store.close()
+    }
+    const db = new Database(file)
+    try {
+      const plan = (
+        db
+          .prepare("EXPLAIN QUERY PLAN SELECT id FROM audit_events ORDER BY at DESC, id DESC LIMIT ?")
+          .all(100) as { detail: string }[]
+      )
+        .map((row) => row.detail)
+        .join("\n")
+      expect(plan).toContain("idx_audit_events_at")
+    } finally {
+      db.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("retains only the newest 10000 audit rows on write", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      const now = Date.now()
+      for (let index = 0; index < 10_050; index += 1) {
+        store.recordAudit({ ...event, at: now - 10_050 + index, command: `command-${index}` })
+      }
+      const rows = store.listAudit(20_000)
+      expect(rows).toHaveLength(10_000)
+      expect(rows[0]?.command).toBe("command-10049")
+      expect(rows[rows.length - 1]?.command).toBe("command-50")
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("prunes audit rows older than 30 days on write", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    const DAY_MS = 24 * 60 * 60 * 1000
+    try {
+      const now = Date.now()
+      store.recordAudit({ ...event, at: now - 31 * DAY_MS, command: "ancient" })
+      store.recordAudit({ ...event, at: now, command: "fresh" })
+      expect(store.listAudit(100).map((entry) => entry.command)).toEqual(["fresh"])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -785,6 +898,186 @@ function scheduledStoreScenario(store: Store): void {
   expect(store.getScheduledRun("run_queued")).toBeNull()
   expect(store.listScheduledRuns("task_b")).toEqual([])
 }
+
+describe("goal member projections", () => {
+  function bigRun(sessionID: string): GoalRunRecord {
+    const filler = (prefix: string): string => Array.from({ length: 50 }, (_, index) => `${prefix}-${index}`).join(",")
+    return {
+      sessionID,
+      runToken: `token_${sessionID}`,
+      goal: "Make the suite green",
+      state: "critiquing",
+      round: 2,
+      maxRounds: 5,
+      mainModel: "test/test-model",
+      criticModel: "test/critic-model",
+      judgeModel: "test/judge-model",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+      lastReport: { summary: filler("report") } as unknown as GoalRunRecord["lastReport"],
+      lastCritique: { summary: filler("critique") } as unknown as GoalRunRecord["lastCritique"],
+      lastVerdict: { approved: false, reasoning: filler("verdict") } as unknown as GoalRunRecord["lastVerdict"],
+      history: Array.from({ length: 200 }, (_, index) => ({
+        round: index,
+        critique: { summary: filler(`history-${index}`) },
+        verdict: { approved: false, reasoning: "because" },
+      })) as unknown as GoalRunRecord["history"],
+      error: null,
+      awaitingKind: "critic",
+      awaitingSessionID: "ses_critic",
+      awaitingAssistantID: "msg_1",
+      attempt: 0,
+      nudged: false,
+      lastError: null,
+      pausedPhase: null,
+      promptSerial: 3,
+      createdAt: 1,
+      updatedAt: 2,
+    }
+  }
+
+  function memberScenario(store: Store): void {
+    store.saveGoalRun(bigRun("ses_main"))
+    // Narrow member hits resolve without blobs or JSON parsing.
+    expect(store.findGoalRunByMemberSession("ses_critic")).toEqual({
+      sessionID: "ses_main",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+    })
+    expect(store.findGoalRunByMemberSession("ses_judge")).toEqual({
+      sessionID: "ses_main",
+      criticSessionID: "ses_critic",
+      judgeSessionID: "ses_judge",
+    })
+    expect(store.findGoalRunByMemberSession("ses_main")).toBeNull()
+    expect(store.findGoalRunByMemberSession("ses_unknown")).toBeNull()
+    expect(store.listGoalRunMembers()).toEqual([
+      { sessionID: "ses_main", criticSessionID: "ses_critic", judgeSessionID: "ses_judge" },
+    ])
+  }
+
+  it("resolves members through narrow projections in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      memberScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("resolves members through narrow projections in memory", () => {
+    memberScenario(createMemoryStore())
+  })
+})
+
+describe("scheduled run history limits", () => {
+  function seedRuns(store: Store, taskId: string, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      store.createScheduledRun(
+        scheduledRun({
+          id: `run_${index}`,
+          taskId,
+          startedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, index)).toISOString(),
+        }),
+      )
+    }
+  }
+
+  function historyScenario(store: Store): void {
+    seedRuns(store, "task_h", 5)
+    // SQL-level pagination: newest first, limit then offset.
+    expect(store.listScheduledRuns("task_h", { limit: 2 }).map((run) => run.id)).toEqual(["run_4", "run_3"])
+    expect(store.listScheduledRuns("task_h", { limit: 2, offset: 2 }).map((run) => run.id)).toEqual([
+      "run_2",
+      "run_1",
+    ])
+    expect(store.listScheduledRuns("task_h", { limit: 2, offset: 4 }).map((run) => run.id)).toEqual(["run_0"])
+    // The default keeps today's visible behavior: newest 50.
+    expect(store.listScheduledRuns("task_h").map((run) => run.id)).toEqual([
+      "run_4",
+      "run_3",
+      "run_2",
+      "run_1",
+      "run_0",
+    ])
+  }
+
+  it("pages run history with limit/offset in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      historyScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("pages run history with limit/offset in memory", () => {
+    historyScenario(createMemoryStore())
+  })
+
+  function retentionScenario(store: Store): void {
+    seedRuns(store, "task_r", 205)
+    const rows = store.listScheduledRuns("task_r", { limit: 1000 })
+    expect(rows).toHaveLength(200)
+    expect(rows[0]?.id).toBe("run_204")
+    expect(rows[rows.length - 1]?.id).toBe("run_5")
+  }
+
+  it("retains only the newest 200 runs per task in sqlite", () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      retentionScenario(store)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("retains only the newest 200 runs per task in memory", () => {
+    retentionScenario(createMemoryStore())
+  })
+
+  it("prunes run rows on status-update saves too", () => {
+    // The fire path persists its firing row through saveScheduledRun, not
+    // createScheduledRun: without a prune there the history grows past the
+    // keep-N policy on every fire.
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-store-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      for (let index = 0; index < 200; index += 1) {
+        store.createScheduledRun(
+          scheduledRun({
+            id: `run_${index}`,
+            taskId: "task_s",
+            startedAt: new Date(Date.UTC(2026, 5, 1, 0, 0, index)).toISOString(),
+          }),
+        )
+      }
+      store.saveScheduledRun(
+        scheduledRun({
+          id: "run_firing",
+          taskId: "task_s",
+          status: "firing",
+          startedAt: new Date(Date.UTC(2026, 5, 2)).toISOString(),
+        }),
+      )
+      const rows = store.listScheduledRuns("task_s", { limit: 1000 })
+      expect(rows).toHaveLength(200)
+      expect(rows[0]?.id).toBe("run_firing")
+      // A 201st row would hide behind the 200-page cap: the second page tells
+      // whether the save pruned (empty) or not ([run_0]).
+      expect(store.listScheduledRuns("task_s", { limit: 200, offset: 200 })).toEqual([])
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 describe("scheduled task store", () => {
   it("persists scheduled tasks and runs in sqlite", () => {

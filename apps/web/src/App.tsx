@@ -595,8 +595,8 @@ export default function App() {
     for (const delay of [0, 1000, 2500]) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
       try {
-        const sessions = await client.api.sessions.list(workspaceID)
-        const found = sessions.find((session) => sessionCreateMarker(session) === marker)
+        const page = await client.api.sessions.list(workspaceID)
+        const found = page.sessions.find((session) => sessionCreateMarker(session) === marker)
         if (found) return found.id
       } catch {
         // keep polling: a transient failure must not hide the confirmation

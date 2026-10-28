@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Cron } from "croner"
 import { AmbiguousMutationError, UpstreamStatusError, isTransientFailure, withRetry } from "./retry.js"
+import { SCHEDULED_RUNS_KEEP_PER_TASK } from "./store.js"
 import {
   type ModelRef,
   type ScheduledRun,
@@ -81,6 +82,11 @@ export interface SchedulerOpencode {
   activeSessions(): Promise<string[]>
   /** Optional catalog check for route-level model validation (goal parity). */
   modelExists?(model: ModelRef): Promise<boolean>
+  /**
+   * Deletes a scheduler-created session (#197 retention). Optional so scripted
+   * fakes stay small; a missing session (404) counts as pruned.
+   */
+  deleteSession?(sessionID: string): Promise<void>
 }
 
 export interface SchedulerManagerOptions {
@@ -376,19 +382,54 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     while (chains.size > 0) await Promise.allSettled([...chains.values()])
   }
 
-  function persistTask(record: ScheduledTask): void {
+  function persistTask(record: ScheduledTask, silent = false): void {
     store.saveScheduledTask(record)
-    emit({ type: "scheduler.updated", data: { taskID: record.id } })
+    if (!silent) emit({ type: "scheduler.updated", data: { taskID: record.id } })
   }
 
-  function persistRun(record: ScheduledRun): void {
+  function persistRun(record: ScheduledRun, silent = false): void {
     store.saveScheduledRun(record)
-    emit({ type: "scheduler.updated", data: { taskID: record.taskId } })
+    if (!silent) emit({ type: "scheduler.updated", data: { taskID: record.taskId } })
   }
 
-  function createRun(record: ScheduledRun): void {
+  async function createRun(record: ScheduledRun): Promise<void> {
+    // Retention first: the envelope grows the table, displacing the oldest row.
+    await pruneTaskSessions(record.taskId)
     store.createScheduledRun(record)
     emit({ type: "scheduler.updated", data: { taskID: record.taskId } })
+  }
+
+  /**
+   * Scheduler-owned session retention (#197, reusing #198's keep-N policy):
+   * run rows pruned from history leave their opencode sessions behind, so
+   * before every growth write the scheduler drops the sessions of the runs
+   * that write will displace. Only session ids recorded in this task's own
+   * run history are ever touched — proven scheduler-owned, never user
+   * sessions (rule 11) — and a delete failure is logged while the row prune
+   * still proceeds. Without the adapter hook (scripted fakes) this is a
+   * no-op and rows alone stay bounded. Rollback: deleted sessions are not
+   * restorable from a MasterHand database backup (rows are); a failed delete
+   * leaves an orphan the operator removes in opencode.
+   */
+  async function pruneTaskSessions(taskId: string): Promise<void> {
+    if (!opencode.deleteSession) return
+    for (let page = 0; ; page += 1) {
+      // The row at offset KEEP-1 is the oldest the next write keeps: it and
+      // everything older falls out of retention.
+      const doomed = store.listScheduledRuns(taskId, {
+        limit: SCHEDULED_RUNS_KEEP_PER_TASK,
+        offset: SCHEDULED_RUNS_KEEP_PER_TASK - 1 + page * SCHEDULED_RUNS_KEEP_PER_TASK,
+      })
+      for (const run of doomed) {
+        if (!run.sessionID) continue
+        try {
+          await opencode.deleteSession(run.sessionID)
+        } catch (error) {
+          console.warn(`[scheduler] could not prune session ${run.sessionID} of ${taskId}:`, error)
+        }
+      }
+      if (doomed.length < SCHEDULED_RUNS_KEEP_PER_TASK) return
+    }
   }
 
   function iso(ms = now()): string {
@@ -396,9 +437,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /** Re-reads the task right before the write so a pause cannot be clobbered. */
-  function patchTask(taskId: string, patch: Partial<ScheduledTask>): void {
+  function patchTask(taskId: string, patch: Partial<ScheduledTask>, silent = false): void {
     const live = store.getScheduledTask(taskId)
-    if (live) persistTask({ ...live, ...patch })
+    if (live) persistTask({ ...live, ...patch }, silent)
   }
 
   /**
@@ -465,11 +506,14 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
           startedAt: current,
           endedAt: null,
         }
+    // Retention first: the firing row grows the table, displacing the oldest.
+    await pruneTaskSessions(task.id)
     persistRun(run)
     // Schedule math anchors on the SCHEDULED slot (the stale nextRunAt), not
-    // on the actual (possibly late) fire time.
+    // on the actual (possibly late) fire time. Silent: the firing frame above
+    // already announced the transition; the running frame below refetches.
     const nextRunAt = computeNextRunAt(task, now())
-    patchTask(task.id, { lastRunAt: current, nextRunAt })
+    patchTask(task.id, { lastRunAt: current, nextRunAt }, true)
 
     const createMarker = `${task.id}#${run.id}#create`
     const promptMarker = `${task.id}#${run.id}#prompt`
@@ -484,9 +528,10 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
         },
       )
       sessionID = created.id
-      // Persisted as soon as the create reconciles (rule 6).
+      // Persisted as soon as the create reconciles (rule 6). Silent: same
+      // `firing` status, no settled transition — the running frame announces.
       run.sessionID = sessionID
-      persistRun(run)
+      persistRun(run, true)
     } catch (error) {
       return settleRun(run, "failed", failureNote(error, "the session create"))
     }
@@ -542,7 +587,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     const task = store.getScheduledTask(taskId)
     if (task) {
       const next = computeNextRunAt(task, now())
-      if (next !== task.nextRunAt) patchTask(taskId, { nextRunAt: next })
+      // Silent: the terminal frame from the caller already announced; this is
+      // derived schedule math, not a settled transition of its own.
+      if (next !== task.nextRunAt) patchTask(taskId, { nextRunAt: next }, true)
     }
     const queued = store
       .listActiveScheduledRuns()
@@ -593,7 +640,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     if (active.length > 0) {
       // Overlap = enqueue, one coalesced envelope, never a second slot.
       if (active.some((run) => run.status === "queued")) return
-      createRun({
+      await createRun({
         id: randomUUID(),
         taskId,
         sessionID: null,
@@ -712,7 +759,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
       // resume firing just because the task row survived.
       if (pauseWithoutWorkspace(task)) continue
       const next = computeNextRunAt(task, current)
-      if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next })
+      if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next }, true)
     }
   }
 
@@ -742,7 +789,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
           startedAt: iso(),
           endedAt: null,
         }
-        createRun(envelope)
+        await createRun(envelope)
         return envelope
       }
       return fire(live, undefined, "manual")

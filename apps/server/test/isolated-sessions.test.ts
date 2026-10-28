@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, waitFor } from "./helpers.js"
+import { mapLimit } from "../src/app.js"
 import { pullRequestUrl } from "../src/worktrees.js"
 import type { RunManager } from "../src/runs.js"
 import { createMemoryStore, type GoalRunRecord } from "../src/store.js"
@@ -75,6 +76,7 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
   let ptyCounter = 0
   let nextCreateGate: Promise<void> | null = null
   let nextActiveGate: Promise<void> | null = null
+  let nextListGate: Promise<void> | null = null
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
@@ -92,6 +94,11 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     calls.push({ method, path: url.pathname, directory, query: url.searchParams, body, parsedBody })
 
     if (method === "GET" && url.pathname === "/api/session") {
+      if (nextListGate) {
+        const gate = nextListGate
+        nextListGate = null
+        await gate
+      }
       const list = sessions.get(directory ?? "") ?? []
       const limit = options.pageSize ?? Number(url.searchParams.get("limit") ?? "200")
       const offset = Number(url.searchParams.get("cursor") ?? "0")
@@ -165,6 +172,9 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     },
     holdNextActive(gate: Promise<void>) {
       nextActiveGate = gate
+    },
+    holdNextList(gate: Promise<void>) {
+      nextListGate = gate
     },
     setActive(sessionIDs: string[]) {
       active.clear()
@@ -502,6 +512,93 @@ describe("GET /api/workspaces/:id/sessions", () => {
     } finally {
       await app.close()
     }
+  })
+
+  it("pages the aggregated list with limit/cursor and keeps the default shape", async () => {
+    const { app, opencode, headers, workspace } = await setupApp()
+    try {
+      opencode.sessions.set(workspace.path, [
+        { id: "ses_a", directory: workspace.path },
+        { id: "ses_b", directory: workspace.path },
+        { id: "ses_c", directory: workspace.path },
+      ])
+
+      const defaultResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, { headers })
+      const defaultBody = (await defaultResponse.json()) as Record<string, unknown>
+      expect(Object.keys(defaultBody)).toEqual(["sessions"])
+
+      const first = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions?limit=2`, { headers })
+      const firstBody = (await first.json()) as {
+        sessions: Array<{ id: string }>
+        truncated?: boolean
+        nextCursor?: string
+      }
+      expect(firstBody.sessions.map((session) => session.id)).toEqual(["ses_a", "ses_b"])
+      expect(firstBody.truncated).toBe(true)
+      expect(firstBody.nextCursor).toBe("2")
+
+      const second = await fetch(
+        `${app.url}/api/workspaces/${workspace.id}/sessions?limit=2&cursor=2`,
+        { headers },
+      )
+      const secondBody = (await second.json()) as {
+        sessions: Array<{ id: string }>
+        truncated?: boolean
+        nextCursor?: string
+      }
+      expect(secondBody.sessions.map((session) => session.id)).toEqual(["ses_c"])
+      expect(secondBody.truncated).toBeUndefined()
+      expect(secondBody.nextCursor).toBeUndefined()
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("coalesces concurrent misses into one upstream fetch per directory", async () => {
+    const { app, opencode, headers, workspace } = await setupApp()
+    try {
+      opencode.sessions.set(workspace.path, [{ id: "ses_a", directory: workspace.path }])
+      // Hold the first upstream list so the other four route handlers arrive
+      // while it is still in flight: without per-directory coalescing each
+      // misses the (not yet filled) cache and fetches on its own.
+      let release!: () => void
+      opencode.holdNextList(new Promise<void>((resolve) => (release = resolve)))
+      const list = () => fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, { headers })
+      const pending = Promise.all([list(), list(), list(), list(), list()])
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      release()
+      const bodies = await pending
+      for (const response of bodies) expect(response.status).toBe(200)
+
+      const lists = opencode.calls.filter((call) => call.method === "GET" && call.path === "/api/session")
+      expect(lists).toHaveLength(1)
+    } finally {
+      await app.close()
+    }
+  })
+
+  it("fans out across directories with a bounded pool", async () => {
+    // Ten slow directories through a pool of three: the peak in-flight count
+    // never exceeds the bound, results keep input order, and a rejection
+    // propagates (the route maps the base failure to 502 — unlike eachLimit's
+    // log-and-continue releases).
+    let inflight = 0
+    let peak = 0
+    const results = await mapLimit(Array.from({ length: 10 }, (_, index) => index), 3, async (index) => {
+      inflight += 1
+      peak = Math.max(peak, inflight)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      inflight -= 1
+      return index * 2
+    })
+    expect(results).toEqual([0, 2, 4, 6, 8, 10, 12, 14, 16, 18])
+    expect(peak).toBeLessThanOrEqual(3)
+    await expect(
+      mapLimit([1, 2, 3], 2, async (index) => {
+        if (index === 2) throw new Error("base unreachable")
+        return index
+      }),
+    ).rejects.toThrow("base unreachable")
   })
 
   it("serves repeated listings from a short-lived per-directory cache", async () => {

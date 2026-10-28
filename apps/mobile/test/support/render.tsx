@@ -170,7 +170,7 @@ export function fakeClient(): FakeClient & Client {
         ),
       },
       sessions: {
-        list: jest.fn(async () => []),
+        list: jest.fn(async () => ({ sessions: [] })),
         finish: jest.fn(async () => ({
           committed: true,
           pushed: false,

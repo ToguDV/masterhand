@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import {
   CRITIC_INSTRUCTION_KEY,
@@ -14,7 +17,7 @@ import {
   type GoalOpencode,
 } from "../src/goal.js"
 import { OpencodeTimeoutError, UpstreamStatusError } from "../src/retry.js"
-import { createMemoryStore, type GoalRunRecord, type Store } from "../src/store.js"
+import { createMemoryStore, createSqliteStore, type GoalRunRecord, type Store } from "../src/store.js"
 
 // ---------------------------------------------------------------------------
 // Scripted fake opencode: records calls and holds scripted failures per call.
@@ -906,6 +909,81 @@ describe("goal manager", () => {
     await expect(h.manager.start({ sessionID: "ghost", goal: "x" })).rejects.toMatchObject({
       code: "session_not_found",
     })
+  })
+})
+
+describe("goal member resolution", () => {
+  function bigRun(sessionID: string, member: string): GoalRunRecord {
+    const filler = (prefix: string): string =>
+      Array.from({ length: 50 }, (_, index) => `${prefix}-${index}`).join(",")
+    return {
+      sessionID,
+      runToken: `token_${sessionID}`,
+      goal: "Make the suite green",
+      state: "critiquing",
+      round: 2,
+      maxRounds: 5,
+      mainModel: "test/test-model",
+      criticModel: "test/critic-model",
+      judgeModel: "test/judge-model",
+      criticSessionID: `ses_critic_${member}`,
+      judgeSessionID: `ses_judge_${member}`,
+      lastReport: { summary: filler("report") } as unknown as GoalRunRecord["lastReport"],
+      lastCritique: { summary: filler("critique") } as unknown as GoalRunRecord["lastCritique"],
+      lastVerdict: { approved: false, reasoning: filler("verdict") } as unknown as GoalRunRecord["lastVerdict"],
+      history: Array.from({ length: 200 }, (_, index) => ({
+        round: index,
+        critique: { summary: filler(`history-${index}`) },
+        verdict: { approved: false, reasoning: "because" },
+      })) as unknown as GoalRunRecord["history"],
+      error: null,
+      awaitingKind: "critic",
+      awaitingSessionID: `ses_critic_${member}`,
+      awaitingAssistantID: "msg_1",
+      attempt: 0,
+      nudged: false,
+      lastError: null,
+      pausedPhase: null,
+      promptSerial: 3,
+      createdAt: 1,
+      updatedAt: 2,
+    }
+  }
+
+  it("resolves an unrelated-session event with zero blob parses and still finds members", async () => {
+    // Every hub/session event and session-list poll walks the goal runs: the
+    // old path selected history/last_report/last_critique/last_verdict per row
+    // and JSON.parsed each (4/row), so three fat runs cost 12+ parses for an
+    // event that concerns none of them. The member projection selects ids only.
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-goal-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      for (const member of ["a", "b", "c"]) store.saveGoalRun(bigRun(`ses_main_${member}`, member))
+      const manager = createGoalManager({ store, opencode: new FakeOpencode(), watchdogMs: 0 })
+
+      const realParse = JSON.parse
+      let parses = 0
+      JSON.parse = ((...args: Parameters<typeof JSON.parse>) => {
+        parses += 1
+        return realParse(...args)
+      }) as typeof JSON.parse
+      try {
+        manager.handleEvent({ type: "session.deleted", data: { sessionID: "ses_unrelated" } })
+      } finally {
+        JSON.parse = realParse
+      }
+      expect(parses).toBe(0)
+
+      // Correct resolution still holds: deleting a run's critic clears the
+      // reference and fails the awaiting run, while the other runs keep theirs.
+      manager.handleEvent({ type: "session.deleted", data: { sessionID: "ses_critic_a" } })
+      await manager.flush()
+      expect(store.getGoalRun("ses_main_a")).toMatchObject({ criticSessionID: null, state: "error" })
+      expect(store.getGoalRun("ses_main_b")).toMatchObject({ criticSessionID: "ses_critic_b" })
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

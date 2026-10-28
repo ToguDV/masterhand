@@ -817,10 +817,12 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
   function runForSession(sessionID: string): GoalRunRecord | null {
     const main = store.getGoalRun(sessionID)
     if (main) return main
-    for (const run of store.listGoalRuns()) {
-      if (run.criticSessionID === sessionID || run.judgeSessionID === sessionID) return run
-    }
-    return null
+    // Narrow member projection (#201): ids only, no blob selects and no
+    // JSON.parse per row on this hub-loop hot path. The match resolves to one
+    // full read instead of N.
+    const member = store.findGoalRunByMemberSession(sessionID)
+    if (!member) return null
+    return store.getGoalRun(member.sessionID)
   }
 
   function handleEvent(event: unknown): void {

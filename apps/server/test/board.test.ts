@@ -1,8 +1,46 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createMemoryStore, createSqliteStore, type Store } from "../src/store.js"
+
+/**
+ * Counts executions of the column-scoped card SELECTs (#211): the snapshot
+ * used to run one card query per column (N+1) and must now run exactly one.
+ * The mock subclasses the real Database, so every other test in this file
+ * keeps exercising the true engine.
+ */
+const boardCardReads = (): number =>
+  (globalThis as { __boardCardReads?: number }).__boardCardReads ?? 0
+const resetBoardCardReads = (): void => {
+  ;(globalThis as { __boardCardReads?: number }).__boardCardReads = 0
+}
+
+vi.mock("better-sqlite3", async (importOriginal) => {
+  const mod = (await importOriginal()) as unknown as {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    default: new (...args: never[]) => { prepare(source: string): any }
+  }
+  const Actual = mod.default
+  class CountingDatabase extends Actual {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    override prepare(source: string): any {
+      const statement = super.prepare(source)
+      if (/FROM\s+board_cards/i.test(source) && /column_id/i.test(source)) {
+        for (const method of ["get", "all", "run"] as const) {
+          const original = statement[method].bind(statement)
+          statement[method] = (...args: unknown[]) => {
+            const state = globalThis as { __boardCardReads?: number }
+            state.__boardCardReads = (state.__boardCardReads ?? 0) + 1
+            return original(...args)
+          }
+        }
+      }
+      return statement
+    }
+  }
+  return { ...mod, default: CountingDatabase }
+})
 
 function stores(): Array<{ name: string; make: () => Store; close: (store: Store) => void }> {
   return [
@@ -157,6 +195,46 @@ describe.each(stores())("board store ($name)", ({ make, close }) => {
       expect(store.getBoard("ws_2").columns[0]?.cards).toHaveLength(0)
     } finally {
       close(store)
+    }
+  })
+})
+
+describe("board snapshot queries", () => {
+  it("reads the snapshot with one column query plus one card query", () => {
+    // Four columns of three described cards: the old path ran one card query
+    // per column (N+1) on every GET and every board.updated frame; the snapshot
+    // now lists columns once and cards once (WHERE column_id IN ...), grouped
+    // in JS. Step 2 (per-card frames) is deliberately out of scope.
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-board-"))
+    const store = createSqliteStore(join(dir, "test.sqlite"))
+    try {
+      store.createWorkspace({ id: "ws_1", name: "App", path: "/w/app", createdAt: 1 })
+      for (const column of ["a", "b", "c", "d"]) {
+        store.createBoardColumn({ id: `col_${column}`, workspaceID: "ws_1", title: column.toUpperCase() })
+        for (let card = 0; card < 3; card += 1) {
+          store.createBoardCard({
+            id: `card_${column}_${card}`,
+            columnID: `col_${column}`,
+            title: `T${card}`,
+            description: `long description ${column} ${card}`,
+          })
+        }
+      }
+
+      resetBoardCardReads()
+      const snapshot = store.getBoard("ws_1")
+      expect(boardCardReads()).toBe(1)
+      expect(snapshot.columns).toHaveLength(4)
+      for (const column of snapshot.columns) {
+        expect(column.cards).toHaveLength(3)
+        expect(column.cards.map((card) => card.id)).toEqual(
+          [0, 1, 2].map((card) => `card_${column.id.slice("col_".length)}_${card}`),
+        )
+        expect(column.cards.map((card) => card.columnID)).toEqual([column.id, column.id, column.id])
+      }
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
     }
   })
 })
