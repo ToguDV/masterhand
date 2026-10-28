@@ -346,6 +346,114 @@ async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promis
   await Promise.all(workers)
 }
 
+/** One frame queued for an SSE client. */
+export interface SseFrame {
+  event?: string
+  data: string
+}
+
+/** The slice of Hono's SSE stream one client pump drives (injectable for tests). */
+export interface SsePumpStream {
+  writeSSE(frame: SseFrame): Promise<unknown>
+  abort(): void
+  onAbort(listener: () => void): void
+}
+
+/** Why an SSE client was dropped (reconnect-and-reconcile contract). */
+export type SseDropReason = "overflow" | "write-failure"
+
+export interface SsePumpOptions {
+  stream: SsePumpStream
+  /** Hub subscription; the returned function must remove the listener. */
+  subscribe: (listener: (frame: SseFrame) => void) => () => void
+  /** Frames a client may fall behind before it is dropped. */
+  maxQueue?: number
+  /** Observed when the client is dropped (overflow or write failure). */
+  onDrop?: (reason: SseDropReason) => void
+}
+
+export interface SsePump {
+  enqueue(frame: SseFrame): void
+  /** Removes the hub subscription and drops every queued frame. Idempotent. */
+  dispose(): void
+  isClosed(): boolean
+  pendingFrames(): number
+}
+
+/**
+ * One SSE client's serialized write queue (issue #83, hardened by #190):
+ * each frame awaits the stream, so a slow client applies natural backpressure
+ * to the queue instead of forking an unbounded promise chain, and a client
+ * that falls behind is dropped so it can reconnect and reconcile.
+ */
+export function createSsePump(options: SsePumpOptions): SsePump {
+  const { stream, subscribe, onDrop } = options
+  const maxQueue = options.maxQueue ?? MAX_SSE_QUEUE
+  let closed = false
+  let draining = false
+  const queue: SseFrame[] = []
+
+  function dispose(): void {
+    if (closed) return
+    closed = true
+    unsubscribe()
+  }
+
+  // One writer per client: each frame awaits the stream, so a slow client
+  // applies natural backpressure to the queue instead of forking an
+  // unbounded promise chain.
+  async function drain(): Promise<void> {
+    if (draining) return
+    draining = true
+    try {
+      while (!closed) {
+        const frame = queue.shift()
+        if (!frame) break
+        await stream.writeSSE(frame)
+      }
+    } catch {
+      // A failed write means the transport is gone (reset socket, half-open
+      // connection): tear the client down right here instead of waiting for
+      // the abort/keepalive path. Otherwise `closed` stays false, the hub
+      // subscription leaks, and every later frame is silently lost while the
+      // drain keeps failing (issue #190). The queue is cleared, the stream is
+      // aborted, and the failure is never retried or re-drained: the client
+      // reconnects (SSE has no replay) and reconciles state.
+      queue.length = 0
+      dispose()
+      stream.abort()
+      onDrop?.("write-failure")
+    } finally {
+      draining = false
+      if (!closed && queue.length > 0) void drain()
+    }
+  }
+
+  function enqueue(frame: SseFrame): void {
+    if (closed) return
+    if (queue.length >= maxQueue) {
+      // Zero-window/slow client: drop it instead of buffering every event in
+      // memory. It reconnects (SSE has no replay) and reconciles state.
+      dispose()
+      stream.abort()
+      onDrop?.("overflow")
+      return
+    }
+    queue.push(frame)
+    void drain()
+  }
+
+  const unsubscribe = subscribe(enqueue)
+  stream.onAbort(dispose)
+
+  return {
+    enqueue,
+    dispose,
+    isClosed: () => closed,
+    pendingFrames: () => queue.length,
+  }
+}
+
 export function createApp(deps: AppDeps): Hono {
   const { config } = deps
   const fetchImpl = deps.fetchImpl ?? fetch
@@ -1519,71 +1627,26 @@ export function createApp(deps: AppDeps): Hono {
     c.header("x-accel-buffering", "no")
     const maxQueue = deps.sseQueueMax ?? MAX_SSE_QUEUE
     return streamSSE(c, async (stream) => {
-      interface SseFrame {
-        event?: string
-        data: string
-      }
-
-      let closed = false
-      let draining = false
-      const queue: SseFrame[] = []
-      let unsubscribe = (): void => {}
-
-      const teardown = (): void => {
-        if (closed) return
-        closed = true
-        unsubscribe()
-      }
-
-      // One writer per client: each frame awaits the stream, so a slow client
-      // applies natural backpressure to the queue instead of forking an
-      // unbounded promise chain.
-      const drain = async (): Promise<void> => {
-        if (draining) return
-        draining = true
-        try {
-          while (!closed) {
-            const frame = queue.shift()
-            if (!frame) break
-            await stream.writeSSE(frame)
-          }
-        } catch {
-          // the client disconnected
-        } finally {
-          draining = false
-          if (!closed && queue.length > 0) void drain()
-        }
-      }
-
-      const enqueue = (frame: SseFrame): void => {
-        if (closed) return
-        if (queue.length >= maxQueue) {
-          // Zero-window/slow client: drop it instead of buffering every event in
-          // memory. It reconnects (SSE has no replay) and reconciles state.
-          teardown()
-          stream.abort()
-          return
-        }
-        queue.push(frame)
-        void drain()
-      }
-
-      unsubscribe = deps.hub.subscribe((event) => {
-        enqueue({ data: JSON.stringify(event) })
+      const pump = createSsePump({
+        stream,
+        subscribe: (enqueue) =>
+          deps.hub.subscribe((event) => {
+            enqueue({ data: JSON.stringify(event) })
+          }),
+        maxQueue,
       })
-      stream.onAbort(teardown)
 
       try {
-        enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
-        while (!closed) {
+        pump.enqueue({ event: "hello", data: JSON.stringify({ connected: deps.hub.connected }) })
+        while (!pump.isClosed()) {
           await stream.sleep(KEEPALIVE_MS)
-          if (closed) break
-          enqueue({ event: "ping", data: "{}" })
+          if (pump.isClosed()) break
+          pump.enqueue({ event: "ping", data: "{}" })
         }
       } catch {
         // client disconnected
       } finally {
-        teardown()
+        pump.dispose()
       }
     })
   })

@@ -1,6 +1,7 @@
 import { get as httpGet, request as httpRequest, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
+import { createSsePump, type SseFrame, type SsePumpStream } from "../src/app.js"
 import { createOpencodeProxy, isAllowedOpencodePath, sanitizeCatalogPayload } from "../src/proxy.js"
 import { login, readUntil, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
 
@@ -760,5 +761,53 @@ describe("SSE relay", () => {
     } finally {
       response.destroy()
     }
+  })
+
+  it("tears down the client when a write fails instead of leaking the subscription", async () => {
+    // A write that rejects means the transport is gone (reset socket,
+    // half-open connection): the hub subscription must be removed, the queue
+    // emptied, and no further write attempted (issue #190).
+    let writes = 0
+    let aborted = false
+    const drops: string[] = []
+    const stream: SsePumpStream = {
+      writeSSE: async () => {
+        writes += 1
+        throw new Error("EPIPE: broken pipe")
+      },
+      abort: () => {
+        aborted = true
+      },
+      onAbort: () => {},
+    }
+    const listeners = new Set<(frame: SseFrame) => void>()
+    const pump = createSsePump({
+      stream,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+      maxQueue: 4,
+      onDrop: (reason) => drops.push(reason),
+    })
+
+    pump.enqueue({ data: '{"type":"session.idle"}' })
+    await waitFor(() => pump.isClosed())
+    expect(listeners.size).toBe(0)
+    expect(pump.pendingFrames()).toBe(0)
+    expect(writes).toBe(1)
+    expect(aborted).toBe(true)
+    expect(drops).toEqual(["write-failure"])
+
+    // No retry and no re-drain: frames enqueued after the failure are dropped
+    // and the dead transport is never written to again.
+    pump.enqueue({ data: '{"type":"session.idle"}' })
+    pump.enqueue({ data: '{"type":"session.idle"}' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(writes).toBe(1)
+    expect(pump.pendingFrames()).toBe(0)
+    expect(listeners.size).toBe(0)
   })
 })
