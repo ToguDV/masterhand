@@ -60,21 +60,22 @@ export interface WorktreeManager {
   /** Current branch name, or a short SHA when HEAD is detached. */
   headBranch(path: string): Promise<string>
   create(repoPath: string, worktreePath: string, branch: string, baseRef: string): Promise<void>
-  remove(repoPath: string, worktreePath: string, branch: string): Promise<void>
+  remove(repoPath: string, worktreePath: string, branch: string, options?: GitRunOptions): Promise<void>
   /** Renames an orphan worktree out of the way (data kept) and prunes git's admin entry. */
   quarantine(repoPath: string, worktreePath: string): Promise<string>
   list(repoPath: string): Promise<WorktreeInfo[]>
   /** Stages and commits everything; false when the tree was already clean. */
-  commitAll(worktreePath: string, message: string): Promise<boolean>
+  commitAll(worktreePath: string, message: string, options?: GitRunOptions): Promise<boolean>
   hasRemote(worktreePath: string): Promise<boolean>
-  remoteUrl(worktreePath: string): Promise<string | null>
-  push(worktreePath: string, branch: string): Promise<void>
+  remoteUrl(worktreePath: string, options?: GitRunOptions): Promise<string | null>
+  push(worktreePath: string, branch: string, options?: GitRunOptions): Promise<void>
   /** PR URL from `gh`/`glab` when available; null to fall back to a compare URL. */
   pullRequest(
     worktreePath: string,
     remoteUrl: string,
     branch: string,
     baseRef: string,
+    options?: GitRunOptions,
   ): Promise<string | null>
   /** Local branches, current one first-class (issue #94). */
   branches(repoPath: string): Promise<{ current: string; branches: string[] }>
@@ -98,6 +99,12 @@ function spawnResult(
   options: { timeoutMs: number; env: NodeJS.ProcessEnv; signal?: AbortSignal },
 ): Promise<GitResult> {
   return new Promise((resolvePromise) => {
+    // An already-expired operation budget must not spawn (let alone wait on)
+    // a child it can no longer use.
+    if (options.signal?.aborted) {
+      resolvePromise({ status: -1, stdout: "", stderr: `${command} was cancelled` })
+      return
+    }
     let child: ChildProcess
     try {
       child = spawn(command, args, {
@@ -286,7 +293,7 @@ function needsConfigPreflight(args: string[]): boolean {
  * directly (not the injectable runner) to avoid recursion, and only fails on a
  * match: status 1 (no match) and non-repo errors let the real command report.
  */
-async function assertSafeLocalConfig(cwd: string, timeoutMs: number): Promise<void> {
+async function assertSafeLocalConfig(cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
   const unsafe = new Set<string>()
   // `--local` is `.git/config`; with `extensions.worktreeConfig` a repo can also
   // carry keys in `.git/config.worktree`, so both scopes are checked.
@@ -295,7 +302,7 @@ async function assertSafeLocalConfig(cwd: string, timeoutMs: number): Promise<vo
       "git",
       ["config", scope, "--name-only", "--get-regexp", UNSAFE_LOCAL_CONFIG.source],
       cwd,
-      { timeoutMs, env: sanitizedGitEnv({}, cwd) },
+      { timeoutMs, env: sanitizedGitEnv({}, cwd), signal },
     )
     if (result.status !== 0) continue
     for (const line of result.stdout.split("\n")) {
@@ -327,12 +334,17 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const userEmail = options.userEmail ?? "masterhand@localhost"
 
   async function git(args: string[], cwd: string, runOptions: GitRunOptions = {}): Promise<GitResult> {
-    if (needsConfigPreflight(args)) await assertSafeLocalConfig(cwd, gitTimeoutMs)
+    if (needsConfigPreflight(args)) await assertSafeLocalConfig(cwd, gitTimeoutMs, runOptions.signal)
     return run(args, cwd, { timeoutMs: gitTimeoutMs, ...runOptions })
   }
 
-  async function gitOrThrow(args: string[], cwd: string, context: string): Promise<GitResult> {
-    const result = await git(args, cwd)
+  async function gitOrThrow(
+    args: string[],
+    cwd: string,
+    context: string,
+    runOptions: GitRunOptions = {},
+  ): Promise<GitResult> {
+    const result = await git(args, cwd, runOptions)
     if (result.status !== 0) {
       const detail = result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`
       throw new Error(`${context}: ${detail}`)
@@ -389,10 +401,10 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       )
     },
 
-    async remove(repoPath, worktreePath, branch) {
-      await git(["worktree", "remove", "--force", worktreePath], repoPath)
-      await git(["branch", "-D", branch], repoPath)
-      await git(["worktree", "prune"], repoPath)
+    async remove(repoPath, worktreePath, branch, options = {}) {
+      await git(["worktree", "remove", "--force", worktreePath], repoPath, options)
+      await git(["branch", "-D", branch], repoPath, options)
+      await git(["worktree", "prune"], repoPath, options)
     },
 
     async quarantine(repoPath, worktreePath) {
@@ -422,11 +434,16 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       return entries
     },
 
-    async commitAll(worktreePath, message) {
-      await gitOrThrow(["add", "-A"], worktreePath, "git_add_failed")
-      const diff = await git(["diff", "--cached", "--quiet"], worktreePath)
+    async commitAll(worktreePath, message, options = {}) {
+      await gitOrThrow(["add", "-A"], worktreePath, "git_add_failed", options)
+      const diff = await git(["diff", "--cached", "--quiet"], worktreePath, options)
       if (diff.status === 0) return false
-      await gitOrThrow([...authorArgs, "commit", "--no-verify", "-m", message], worktreePath, "git_commit_failed")
+      await gitOrThrow(
+        [...authorArgs, "commit", "--no-verify", "-m", message],
+        worktreePath,
+        "git_commit_failed",
+        options,
+      )
       return true
     },
 
@@ -435,22 +452,22 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       return result.status === 0 && result.stdout.trim().length > 0
     },
 
-    async remoteUrl(worktreePath) {
-      const named = await git(["remote", "get-url", "origin"], worktreePath)
+    async remoteUrl(worktreePath, options = {}) {
+      const named = await git(["remote", "get-url", "origin"], worktreePath, options)
       if (named.status === 0 && named.stdout.trim()) return named.stdout.trim()
-      const list = await git(["remote"], worktreePath)
+      const list = await git(["remote"], worktreePath, options)
       const first = list.stdout.trim().split("\n")[0]?.trim()
       if (!first) return null
-      const fallback = await git(["remote", "get-url", first], worktreePath)
+      const fallback = await git(["remote", "get-url", first], worktreePath, options)
       return fallback.status === 0 ? fallback.stdout.trim() || null : null
     },
 
-    async push(worktreePath, branch) {
-      await gitOrThrow(["push", "--no-verify", "-u", "origin", branch], worktreePath, "git_push_failed")
+    async push(worktreePath, branch, options = {}) {
+      await gitOrThrow(["push", "--no-verify", "-u", "origin", branch], worktreePath, "git_push_failed", options)
     },
 
-    async pullRequest(worktreePath, remoteUrl, branch, baseRef) {
-      return createPullRequest({ cwd: worktreePath, remoteUrl, branch, baseRef, runCommand })
+    async pullRequest(worktreePath, remoteUrl, branch, baseRef, options = {}) {
+      return createPullRequest({ cwd: worktreePath, remoteUrl, branch, baseRef, runCommand, signal: options.signal })
     },
 
     async branches(repoPath) {
@@ -562,9 +579,19 @@ export function remoteWebUrl(remoteUrl: string): string | null {
 }
 
 /** Runs an external command; injectable so tests never spawn `gh`/`glab`. */
-export type CommandRunner = (command: string, args: string[], cwd: string) => Promise<GitResult>
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  cwd: string,
+  options?: GitRunOptions,
+) => Promise<GitResult>
 
-function defaultCommandRunner(command: string, args: string[], cwd: string): Promise<GitResult> {
+function defaultCommandRunner(
+  command: string,
+  args: string[],
+  cwd: string,
+  options: GitRunOptions = {},
+): Promise<GitResult> {
   const env = sanitizedGitEnv(
     {
       GH_PROMPT_DISABLED: "1",
@@ -583,6 +610,7 @@ function defaultCommandRunner(command: string, args: string[], cwd: string): Pro
   if (token) env[command === "gh" ? "GH_TOKEN" : "GITLAB_TOKEN"] = token
   return spawnResult(command, args, cwd, {
     timeoutMs: GIT_TIMEOUT_MS,
+    signal: options.signal,
     env,
   })
 }
@@ -593,6 +621,8 @@ export interface PullRequestOptions {
   branch: string
   baseRef: string
   runCommand?: CommandRunner
+  /** Cancels the CLI (e.g. the finish budget expired); in-flight output is dropped. */
+  signal?: AbortSignal
 }
 
 /** First http(s) URL in CLI output (create commands print one). */
@@ -636,8 +666,18 @@ async function findPullRequest(
 ): Promise<string | null> {
   const result =
     provider === "github"
-      ? await run("gh", ["pr", "list", "--head", options.branch, "--state", "all", "--json", "url"], options.cwd)
-      : await run("glab", ["mr", "list", "--source-branch", options.branch, "--output", "json"], options.cwd)
+      ? await run(
+          "gh",
+          ["pr", "list", "--head", options.branch, "--state", "all", "--json", "url"],
+          options.cwd,
+          { signal: options.signal },
+        )
+      : await run(
+          "glab",
+          ["mr", "list", "--source-branch", options.branch, "--output", "json"],
+          options.cwd,
+          { signal: options.signal },
+        )
   if (result.status !== 0) return null
   return jsonUrl(result.stdout) ?? firstUrl(result.stdout)
 }
@@ -659,6 +699,7 @@ export async function createPullRequest(options: PullRequestOptions): Promise<st
       "gh",
       ["pr", "create", "--head", options.branch, "--base", options.baseRef, "--fill"],
       options.cwd,
+      { signal: options.signal },
     )
     if (result.status === 0) return firstUrl(result.stdout) ?? (await findPullRequest(provider, options, run))
   } else {
@@ -675,6 +716,7 @@ export async function createPullRequest(options: PullRequestOptions): Promise<st
         "--yes",
       ],
       options.cwd,
+      { signal: options.signal },
     )
     if (result.status === 0) return firstUrl(result.stdout) ?? (await findPullRequest(provider, options, run))
   }
