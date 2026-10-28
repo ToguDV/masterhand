@@ -1,6 +1,6 @@
 ## What & why
 
-<!-- One feature per PR. What does it change and why? -->
+<!-- One session scope per PR. What does it change and why? -->
 
 ## Changelog
 
@@ -43,7 +43,7 @@
 
 ## Checklist
 
-- [ ] One feature only (no unrelated changes)
+- [ ] One session scope, no unrelated changes
 - [ ] `npm run typecheck` passes
 - [ ] `npm run test:coverage` passes (unit + 80% coverage gate)
 - [ ] `npm run test:e2e` passes (E2E)

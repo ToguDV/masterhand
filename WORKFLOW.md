@@ -319,7 +319,7 @@ Only skip this when the user explicitly asked for a plan, an analysis or a revie
 
 - **Docs-only** (`**.md`, `docs/**`, `design/**`, `LICENSE`): only the gate runs — the required check passes in seconds.
 - **Client changes**: typecheck, unit/coverage of the affected workspaces, dev-script tests when `scripts/` changed, the E2E **smoke** project for web/desktop changes, and the builds of the affected workspaces.
-- **Critical changes** (`apps/server/**`, `packages/client-core/**`, `e2e/**`, dependency manifests, `.github/**`) and every push to `main`: the full pipeline (all unit suites + the complete E2E suite) plus the affected builds (`client-core` and dependency changes build every workspace; `e2e`-only and CI-only changes skip the build job — the E2E harness builds the web app itself).
+- **Critical changes** (`apps/server/**`, `packages/client-core/**`, `e2e/**`, dependency manifests, `.github/**`) and every push to `main`: the full pipeline (all unit suites + the complete E2E suite) plus the affected builds (`client-core` and dependency changes build every workspace; mobile-only, scripts-only, `e2e`-only and CI-only changes skip the build job — the E2E harness builds the web app itself).
 - Any PR can force the full pipeline with the **`ci:full` label** (applies to an open PR without a new push).
 - Every job restores `node_modules` from a single cache keyed by `package-lock.json` (one `npm ci` only on a miss) and the E2E jobs cache the Playwright browsers the same way — no repeated installs or downloads.
 

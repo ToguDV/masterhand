@@ -58,7 +58,7 @@ The full development flow (branches, test gates, E2E harness and merge strategy)
 
 1. Keep the session focused; no unrelated changes.
 2. Fill the pull request template: what & why, changelog, how to review, testing, backward compatibility, client parity, code review, red → green trace, follow-ups, checklist.
-3. Make sure `npm run typecheck`, `npm test`, `npm run test:e2e` and `npm run build` pass (CI enforces them).
+3. Make sure `npm run typecheck`, `npm run test:coverage`, `npm run test:e2e` and `npm run build` pass (CI enforces them).
 4. Update `PROGRESS.md` (status + dated changelog entry) when a task finishes.
 5. Update the relevant documentation (`SPEC.md`, `ARCHITECTURE.md`, `docs/`) when scope, design or APIs change.
 6. Use a Conventional Commits title; squash merge reuses it as the commit on `main`.

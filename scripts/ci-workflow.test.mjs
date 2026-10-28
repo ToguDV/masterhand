@@ -71,13 +71,19 @@ test("jobs share one dependency install through the module cache", () => {
     const block = jobBlock(ci, name)
     assert.match(block, /id: modules/, `${name} must restore the module cache`)
     assert.match(block, /if: steps\.modules\.outputs\.cache-hit != 'true'/, `${name} must skip npm ci on a cache hit`)
+    assert.match(block, /hashFiles\('package-lock\.json'\)/, `${name} must key the cache on the lockfile`)
   }
+})
+
+test("the changes job publishes the builds output", () => {
+  assert.match(jobBlock(ci, "changes"), /builds: \$\{\{ steps\.detect\.outputs\.builds \}\}/)
 })
 
 test("E2E jobs cache the Playwright browsers", () => {
   for (const name of ["e2e-smoke", "e2e-full"]) {
     const block = jobBlock(ci, name)
     assert.match(block, /ms-playwright/, `${name} must cache the browser download`)
+    assert.match(block, /hashFiles\('package-lock\.json'\)/, `${name} must key the browser cache on the lockfile`)
     assert.match(block, /playwright install/, `${name} must still install browsers`)
   }
 })
