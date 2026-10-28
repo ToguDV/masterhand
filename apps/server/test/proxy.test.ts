@@ -1,7 +1,7 @@
 import { get as httpGet, request as httpRequest, type IncomingMessage } from "node:http"
 import { afterEach, describe, expect, it } from "vitest"
 import type { Config } from "../src/config.js"
-import { createSsePump, type SseFrame, type SsePumpStream } from "../src/app.js"
+import { createSharedSerializer, createSsePump, type SseFrame, type SsePumpStream } from "../src/app.js"
 import { createOpencodeProxy, isAllowedOpencodePath, sanitizeCatalogPayload } from "../src/proxy.js"
 import { login, readUntil, startMockOpencode, startTestApp, waitFor, type MockOpencode, type TestApp } from "./helpers.js"
 
@@ -809,5 +809,90 @@ describe("SSE relay", () => {
     expect(writes).toBe(1)
     expect(pump.pendingFrames()).toBe(0)
     expect(listeners.size).toBe(0)
+  })
+
+  it("drops a client whose queued bytes exceed the budget instead of growing without bound", async () => {
+    // A stalled transport (the first write never settles) with frames piling
+    // up: once the unsent bytes pass the budget the client is dropped under
+    // the same reconnect-and-reconcile contract as the frame-count overflow
+    // (issue #196).
+    let releaseWrite!: () => void
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    let aborted = false
+    const drops: string[] = []
+    const stream: SsePumpStream = {
+      writeSSE: async () => {
+        await writeGate
+      },
+      abort: () => {
+        aborted = true
+      },
+      onAbort: () => {},
+    }
+    const listeners = new Set<(frame: SseFrame) => void>()
+    const pump = createSsePump({
+      stream,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+      maxQueue: 1024,
+      maxBytes: 100,
+      onDrop: (reason) => drops.push(reason),
+    })
+
+    try {
+      pump.enqueue({ data: "x".repeat(60) })
+      // 60 queued + 60 more > 100: the second frame drops the client.
+      pump.enqueue({ data: "y".repeat(60) })
+      expect(pump.isClosed()).toBe(true)
+      expect(listeners.size).toBe(0)
+      expect(pump.pendingFrames()).toBe(0)
+      expect(aborted).toBe(true)
+      expect(drops).toEqual(["byte-budget"])
+    } finally {
+      releaseWrite()
+    }
+  })
+
+  it("serializes one emission once and delivers it to every subscriber", async () => {
+    // Unit level: the same object serializes once no matter how many
+    // subscribers share it (issue #196).
+    let stringifyCalls = 0
+    const serialize = createSharedSerializer((event) => {
+      stringifyCalls += 1
+      return JSON.stringify(event)
+    })
+    const event = { type: "goal.updated", data: { sessionID: "ses_1", goal: { round: 3 } } }
+    expect(serialize(event)).toBe(serialize(event))
+    expect(stringifyCalls).toBe(1)
+    serialize({ type: "other" })
+    expect(stringifyCalls).toBe(2)
+
+    // Route level: two clients on the shared path both receive the frame.
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url, opencodeAuth: TEST_AUTH } })
+    const cookie = await login(app.url)
+    const first = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    const second = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    await waitFor(() => upstream!.requests.some((request) => request.path === "/api/event"))
+
+    upstream.emit({ id: "evt_shared", type: "session.idle", data: { sessionID: "ses_9" } })
+    const firstReader = first.body!.getReader()
+    const secondReader = second.body!.getReader()
+    try {
+      const [one, two] = await Promise.all([readUntil(firstReader, "ses_9"), readUntil(secondReader, "ses_9")])
+      expect(one).toContain("session.idle")
+      expect(two).toContain("session.idle")
+    } finally {
+      await firstReader.cancel().catch(() => {})
+      await secondReader.cancel().catch(() => {})
+    }
   })
 })

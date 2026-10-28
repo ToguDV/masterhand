@@ -128,6 +128,8 @@ export interface AppDeps {
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
   sseQueueMax?: number
+  /** Overridable for tests: unsent bytes an SSE client may hold before it is dropped. */
+  sseBytesMax?: number
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
   /** Cap on proxied opencode request bodies (default 10 MiB). */
@@ -158,6 +160,15 @@ const DEFAULT_PROXY_BODY_LIMIT_BYTES = 10 * 1024 * 1024
 const MAX_PASSWORD_LENGTH = 1024
 /** Frames a single SSE client may fall behind before it is dropped. */
 const MAX_SSE_QUEUE = 1024
+/**
+ * Queued (unsent) bytes a single SSE client may hold before it is dropped
+ * (issue #196): the frame-count cap alone allows 1024 × ~1 MB ≈ 1 GB per
+ * stalled client against a 1 GB container. Frames stay verbatim — oversized
+ * `tool.success` outputs are NOT truncated, so clients keep rendering full
+ * outputs and the authoritative copy stays in the opencode message history
+ * the clients refetch on reconnect.
+ */
+const MAX_SSE_BYTES = 4 * 1024 * 1024
 
 /** Methods safe to retry outright: replaying them cannot duplicate state. */
 const IDEMPOTENT_OPENCODE_METHODS = new Set(["GET", "HEAD", "PUT", "PATCH", "DELETE"])
@@ -360,7 +371,7 @@ export interface SsePumpStream {
 }
 
 /** Why an SSE client was dropped (reconnect-and-reconcile contract). */
-export type SseDropReason = "overflow" | "write-failure"
+export type SseDropReason = "overflow" | "write-failure" | "byte-budget"
 
 export interface SsePumpOptions {
   stream: SsePumpStream
@@ -368,7 +379,9 @@ export interface SsePumpOptions {
   subscribe: (listener: (frame: SseFrame) => void) => () => void
   /** Frames a client may fall behind before it is dropped. */
   maxQueue?: number
-  /** Observed when the client is dropped (overflow or write failure). */
+  /** Queued (unsent) bytes a client may hold before it is dropped. */
+  maxBytes?: number
+  /** Observed when the client is dropped (overflow, write failure, budget). */
   onDrop?: (reason: SseDropReason) => void
 }
 
@@ -381,6 +394,29 @@ export interface SsePump {
 }
 
 /**
+ * Serializes each hub emission once and shares the string across every
+ * subscriber (issue #196): `goal.updated` (up to 50 rounds of history),
+ * `board.updated` (full snapshots) and tool outputs are unbounded, and a
+ * per-subscriber `JSON.stringify` multiplies that cost by the client count.
+ * The hub notifies synchronously, so every subscriber of one emission sees
+ * the identical object and hits the memo. Only the latest emission is
+ * retained, so the cache itself is bounded to one frame.
+ */
+export function createSharedSerializer(
+  serialize: (event: unknown) => string = (event) => JSON.stringify(event),
+): (event: unknown) => string {
+  let lastEvent: unknown
+  let lastJson: string | null = null
+  return (event) => {
+    if (lastJson !== null && event === lastEvent) return lastJson
+    const json = serialize(event)
+    lastEvent = event
+    lastJson = json
+    return json
+  }
+}
+
+/**
  * One SSE client's serialized write queue (issue #83, hardened by #190):
  * each frame awaits the stream, so a slow client applies natural backpressure
  * to the queue instead of forking an unbounded promise chain, and a client
@@ -389,14 +425,34 @@ export interface SsePump {
 export function createSsePump(options: SsePumpOptions): SsePump {
   const { stream, subscribe, onDrop } = options
   const maxQueue = options.maxQueue ?? MAX_SSE_QUEUE
+  const maxBytes = options.maxBytes ?? MAX_SSE_BYTES
   let closed = false
   let draining = false
   const queue: SseFrame[] = []
+  /** Unsent bytes held for this client (queued frames plus the in-flight write). */
+  let queuedBytes = 0
 
   function dispose(): void {
     if (closed) return
     closed = true
+    queue.length = 0
+    queuedBytes = 0
     unsubscribe()
+  }
+
+  function frameBytes(frame: SseFrame): number {
+    return (
+      (frame.event === undefined ? 0 : Buffer.byteLength(frame.event, "utf8")) +
+      Buffer.byteLength(frame.data, "utf8")
+    )
+  }
+
+  function drop(reason: SseDropReason): void {
+    // Drop + abort under the shared reconnect-and-reconcile contract: the
+    // client reconnects (SSE has no replay) and refetches state.
+    dispose()
+    stream.abort()
+    onDrop?.(reason)
   }
 
   // One writer per client: each frame awaits the stream, so a slow client
@@ -410,6 +466,7 @@ export function createSsePump(options: SsePumpOptions): SsePump {
         const frame = queue.shift()
         if (!frame) break
         await stream.writeSSE(frame)
+        queuedBytes = Math.max(0, queuedBytes - frameBytes(frame))
       }
     } catch {
       // A failed write means the transport is gone (reset socket, half-open
@@ -419,10 +476,7 @@ export function createSsePump(options: SsePumpOptions): SsePump {
       // drain keeps failing (issue #190). The queue is cleared, the stream is
       // aborted, and the failure is never retried or re-drained: the client
       // reconnects (SSE has no replay) and reconciles state.
-      queue.length = 0
-      dispose()
-      stream.abort()
-      onDrop?.("write-failure")
+      drop("write-failure")
     } finally {
       draining = false
       if (!closed && queue.length > 0) void drain()
@@ -434,11 +488,16 @@ export function createSsePump(options: SsePumpOptions): SsePump {
     if (queue.length >= maxQueue) {
       // Zero-window/slow client: drop it instead of buffering every event in
       // memory. It reconnects (SSE has no replay) and reconciles state.
-      dispose()
-      stream.abort()
-      onDrop?.("overflow")
+      drop("overflow")
       return
     }
+    // Byte budget (issue #196): the frame-count cap alone allows
+    // 1024 × ~1 MB ≈ 1 GB per stalled client against a 1 GB container.
+    if (queuedBytes + frameBytes(frame) > maxBytes) {
+      drop("byte-budget")
+      return
+    }
+    queuedBytes += frameBytes(frame)
     queue.push(frame)
     void drain()
   }
@@ -470,6 +529,10 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ error: "internal_error" }, 500)
   })
   const loginLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
+  // One serialization per hub emission, shared by every SSE subscriber
+  // (issue #196): without it each client pays its own `JSON.stringify` of
+  // unbounded `goal.updated`/`board.updated`/tool frames.
+  const serializeEvent = createSharedSerializer()
   const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
   const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
@@ -1626,14 +1689,16 @@ export function createApp(deps: AppDeps): Hono {
     c.header("cache-control", "no-cache")
     c.header("x-accel-buffering", "no")
     const maxQueue = deps.sseQueueMax ?? MAX_SSE_QUEUE
+    const maxBytes = deps.sseBytesMax ?? MAX_SSE_BYTES
     return streamSSE(c, async (stream) => {
       const pump = createSsePump({
         stream,
         subscribe: (enqueue) =>
           deps.hub.subscribe((event) => {
-            enqueue({ data: JSON.stringify(event) })
+            enqueue({ data: serializeEvent(event) })
           }),
         maxQueue,
+        maxBytes,
       })
 
       try {

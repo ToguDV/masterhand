@@ -591,6 +591,7 @@ export async function startTestApp(
     preview?: PreviewManager
     sessionsCacheMs?: number
     sseQueueMax?: number
+    sseBytesMax?: number
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
     /** Test-only request observer, e.g. to signal that a request arrived. */
@@ -645,6 +646,7 @@ export async function startTestApp(
     preview,
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
+    sseBytesMax: options.sseBytesMax,
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
