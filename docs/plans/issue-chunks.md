@@ -72,7 +72,7 @@ in the sessions options box per #136/#137).
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, PR pending) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | 🟡 Implemented 2026-10-28 on `fix/c20-shutdown-reliability` (4 commits, one per issue) — pending reviewer pass, PR not yet opened |
-| C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ⬜ Pending |
+| C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | 🟡 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #197 #198 #201 #203 #211 remain |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ⬜ Pending |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
@@ -211,6 +211,12 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   after #196; #197 changes the sessions contract and must update web + mobile in the same session.
 - **Notes:** #197 is the largest (contract + two clients); split the client work if the session
   grows. Measure the SSE byte budget with a slow-client test, not by inspection.
+- **Status:** 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202,
+  one commit per issue with red → green evidence each; pending reviewer pass, PR not yet opened):
+  SSE write-failure teardown, the per-client SSE byte budget with shared serialization, sync fs off
+  the request paths, listen-before-reconcile boot, and single-flight periodic passes. Remaining:
+  #197 (session pagination + scheduler retention), #198 (scheduled-run history limit), #201
+  (goal-role projections), #203 (audit index + retention), #211 (board snapshot N+1).
 
 ### C22 — Architecture and test debt
 

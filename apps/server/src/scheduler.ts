@@ -626,18 +626,35 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     }
   }
 
+  /** Set while a tick pass runs; overlapping passes skip (issue #202). */
+  let tickRunning = false
+
   async function tick(): Promise<void> {
-    await reconcileRunningRuns()
-    const current = now()
-    for (const task of store.listScheduledTasks()) {
-      if (task.paused) continue
-      const slot = parseMs(task.nextRunAt)
-      if (slot === null || slot > current) continue
-      void runExclusive(task.id, () => processDue(task.id)).catch((error) => {
-        console.error(`[scheduler] ${task.id} tick failed:`, error)
-      })
+    // Overlapping passes must not stack: the timer fires every 20 s while a
+    // pass can outlive it on a slow upstream. The flag is set synchronously
+    // so two passes can never both enter; it clears in `finally`. No
+    // correctness change: per-task fires already serialize through
+    // `runExclusive`, so a skipped pass loses nothing.
+    if (tickRunning) {
+      console.debug("[scheduler] tick already running; skipping overlapping pass")
+      return
     }
-    await flush()
+    tickRunning = true
+    try {
+      await reconcileRunningRuns()
+      const current = now()
+      for (const task of store.listScheduledTasks()) {
+        if (task.paused) continue
+        const slot = parseMs(task.nextRunAt)
+        if (slot === null || slot > current) continue
+        void runExclusive(task.id, () => processDue(task.id)).catch((error) => {
+          console.error(`[scheduler] ${task.id} tick failed:`, error)
+        })
+      }
+      await flush()
+    } finally {
+      tickRunning = false
+    }
   }
 
   function handleEvent(event: unknown): void {

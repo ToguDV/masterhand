@@ -1,5 +1,5 @@
 import { Cron } from "croner"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   SchedulerError,
   SCHEDULER_MARKER_KEY,
@@ -229,6 +229,53 @@ function settleError(h: Harness, sessionID: string, event: Record<string, unknow
   h.manager.handleEvent({ type: "session.execution.failed", data: { sessionID, ...event } })
   return h.manager.flush()
 }
+
+// ---------------------------------------------------------------------------
+// Tick overlap
+// ---------------------------------------------------------------------------
+
+describe("scheduler tick overlap", () => {
+  it("skips an overlapping tick pass instead of stacking", async () => {
+    // The 20 s timer can fire while a pass is still settling a slow upstream
+    // (issue #202): the second pass must skip, so `activeSessions` is asked
+    // once no matter how many passes overlap.
+    const h = harness()
+    h.store.createScheduledRun({
+      id: "run_hung",
+      taskId: "task_1",
+      sessionID: "ses_hung",
+      status: "running",
+      source: "schedule",
+      error: null,
+      startedAt: h.iso(0),
+      endedAt: null,
+    })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let activeCalls = 0
+    const inner = h.opencode.activeSessions.bind(h.opencode)
+    h.opencode.activeSessions = async () => {
+      activeCalls += 1
+      await gate
+      return inner()
+    }
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {})
+    try {
+      const first = h.manager.tick()
+      const second = h.manager.tick()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(activeCalls).toBe(1)
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining("already running"))
+      release()
+      await Promise.all([first, second])
+      expect(activeCalls).toBe(1)
+    } finally {
+      debug.mockRestore()
+    }
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Fire path

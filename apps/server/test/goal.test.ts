@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   CRITIC_INSTRUCTION_KEY,
   GOAL_INSTRUCTION_KEY,
@@ -596,6 +596,38 @@ describe("goal manager", () => {
     h.opencode.activeSessionsSet.add("ses_main")
     await h.manager.reconcile()
     expect(h.manager.status("ses_main")?.state).toBe("critiquing")
+  })
+
+  it("skips an overlapping watchdog pass and lists active sessions once per pass", async () => {
+    // The watchdog fires every 30 s while a pass can outlive it (issue #202):
+    // a second pass must skip instead of stacking, and one pass must ask
+    // upstream once, not once per run.
+    const h = harness()
+    await start(h)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let activeCalls = 0
+    const inner = h.opencode.activeSessions.bind(h.opencode)
+    h.opencode.activeSessions = async () => {
+      activeCalls += 1
+      await gate
+      return inner()
+    }
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {})
+    try {
+      const first = h.manager.reconcile()
+      const second = h.manager.reconcile()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(activeCalls).toBe(1)
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining("already running"))
+      release()
+      await Promise.all([first, second])
+      expect(activeCalls).toBe(1)
+    } finally {
+      debug.mockRestore()
+    }
   })
 
   it("also wakes on execution.succeeded (servers that skip idle)", async () => {
