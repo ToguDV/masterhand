@@ -27,6 +27,7 @@ test("docs-only diffs run nothing heavy", () => {
     smoke: "false",
     workspaces: "",
     scripts: "false",
+    builds: "",
   })
 })
 
@@ -38,6 +39,7 @@ test("client diffs run typecheck, their unit tests and the E2E smoke project", (
     smoke: "true",
     workspaces: "web mobile",
     scripts: "false",
+    builds: "web",
   })
 })
 
@@ -73,6 +75,7 @@ test("unrecognized files fail safe", () => {
   assert.equal(out.docs_only, "false")
   assert.equal(out.full, "true")
   assert.equal(out.workspaces, "server client-core web mobile")
+  assert.equal(out.builds, "server web desktop")
 })
 
 test("tooling-only and mobile-only diffs skip E2E", () => {
@@ -91,6 +94,22 @@ test("detection failures force the full pipeline", () => {
   for (const out of [classify([], { forceAll: true }), classify([], { eventName: "workflow_dispatch" })]) {
     assert.equal(out.docs_only, "false")
     assert.equal(out.full, "true")
+    assert.equal(out.builds, "server web desktop")
+  }
+})
+
+test("builds follow the changed areas, not the E2E verdict", () => {
+  // client-core ships inside every bundle; dependency changes can break any build.
+  for (const file of ["packages/client-core/src/api.ts", "package-lock.json", "apps/web/package.json"]) {
+    assert.equal(pullRequest([file]).builds, "server web desktop", `${file} builds`)
+  }
+  assert.equal(pullRequest(["apps/web/src/App.tsx"]).builds, "web")
+  assert.equal(pullRequest(["apps/server/src/index.ts"]).builds, "server")
+  assert.equal(pullRequest(["apps/desktop/src/main.ts"]).builds, "desktop")
+  // No production build exists for these areas (the E2E harness builds the
+  // web app itself), so the build job is skipped.
+  for (const file of ["apps/mobile/src/App.tsx", "scripts/dev-docker.mjs", "e2e/tests/chat.spec.ts", ".github/workflows/ci.yml"]) {
+    assert.equal(pullRequest([file]).builds, "", `${file} needs no build`)
   }
 })
 

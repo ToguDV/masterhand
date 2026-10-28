@@ -48,15 +48,17 @@ Rules:
 
 The full development flow (branches, test gates, E2E harness and merge strategy) lives in [`WORKFLOW.md`](WORKFLOW.md). In short:
 
-- One feature per branch (`feat/<slug>`, `fix/<slug>`, `docs/<slug>`, ...) and per PR.
+- One branch and one PR per work session: a session may resolve several issues
+  (one commit per issue, the PR body lists every `Closes #N`). Standalone
+  hotfixes may still take their own branch.
 - `pre-commit` runs typecheck + unit tests; `pre-push` and CI also run E2E and builds.
 - `main` is protected; integrate with **squash merge** from a PR.
 
 ## Pull requests
 
-1. Keep PRs focused on one change.
-2. Fill the pull request template: what & why, changelog, how to review, checklist.
-3. Make sure `npm run typecheck`, `npm test`, `npm run test:e2e` and `npm run build` pass (CI enforces them).
+1. Keep the session focused; no unrelated changes.
+2. Fill the pull request template: what & why, changelog, how to review, testing, backward compatibility, client parity, code review, red → green trace, follow-ups, checklist.
+3. Make sure `npm run typecheck`, `npm run test:coverage`, `npm run test:e2e` and `npm run build` pass (CI enforces them).
 4. Update `PROGRESS.md` (status + dated changelog entry) when a task finishes.
 5. Update the relevant documentation (`SPEC.md`, `ARCHITECTURE.md`, `docs/`) when scope, design or APIs change.
 6. Use a Conventional Commits title; squash merge reuses it as the commit on `main`.

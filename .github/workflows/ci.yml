@@ -33,6 +33,7 @@ jobs:
       smoke: ${{ steps.detect.outputs.smoke }}
       workspaces: ${{ steps.detect.outputs.workspaces }}
       scripts: ${{ steps.detect.outputs.scripts }}
+      builds: ${{ steps.detect.outputs.builds }}
     steps:
       # Full history so the classifier can diff any base/head pair (an
       # undiffable range falls back to the full pipeline).
@@ -66,9 +67,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Restore dependencies
+        id: modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            e2e/node_modules
+          key: modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }} # keep node22 in sync with setup-node
 
       - name: Install dependencies
+        if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
 
       - name: Typecheck
@@ -106,10 +118,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Restore dependencies
+        id: modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            e2e/node_modules
+          key: modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }} # keep node22 in sync with setup-node
 
       - name: Install dependencies
+        if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -139,10 +168,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Restore dependencies
+        id: modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            e2e/node_modules
+          key: modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }} # keep node22 in sync with setup-node
 
       - name: Install dependencies
+        if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -162,7 +208,7 @@ jobs:
   build:
     name: Build
     needs: changes
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.builds != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,13 +216,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Restore dependencies
+        id: modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            e2e/node_modules
+          key: modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }} # keep node22 in sync with setup-node
 
       - name: Install dependencies
+        if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Build affected workspaces
+        run: |
+          args=()
+          for ws in ${{ needs.changes.outputs.builds }}; do
+            args+=(-w "@masterhand/$ws")
+          done
+          npm run build "${args[@]}"
 
   gate:
     name: CI gate

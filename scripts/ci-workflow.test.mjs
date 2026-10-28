@@ -11,6 +11,10 @@ import { fileURLToPath } from "node:url"
 //   never reports for the skipped diff, so the PR can never merge),
 // - the smoke list drifting from `e2e/tests` (a renamed spec silently stops
 //   running in the smoke project, or runs twice in the full suite).
+// - every job reinstalling dependencies from scratch (four `npm ci` runs) or
+//   re-downloading the Playwright browsers on every run.
+// - the build job rebuilding every workspace for a diff that touches none of
+//   them (mobile-only, scripts-only, e2e-only, CI-only).
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const ci = readFileSync(path.join(root, ".github", "workflows", "ci.yml"), "utf8")
@@ -58,6 +62,37 @@ test("the required check keeps its published name", () => {
 test("the full pipeline can be forced from an open PR", () => {
   assert.match(ci, /types: \[opened, synchronize, reopened, labeled\]/)
   assert.match(ci, /ci:full/)
+})
+
+test("jobs share one dependency install through the module cache", () => {
+  assert.match(ci, /uses: actions\/cache@v4/)
+  assert.match(ci, /node_modules/)
+  for (const name of ["verify", "e2e-smoke", "e2e-full", "build"]) {
+    const block = jobBlock(ci, name)
+    assert.match(block, /id: modules/, `${name} must restore the module cache`)
+    assert.match(block, /if: steps\.modules\.outputs\.cache-hit != 'true'/, `${name} must skip npm ci on a cache hit`)
+    assert.match(block, /hashFiles\('package-lock\.json'\)/, `${name} must key the cache on the lockfile`)
+  }
+})
+
+test("the changes job publishes the builds output", () => {
+  assert.match(jobBlock(ci, "changes"), /builds: \$\{\{ steps\.detect\.outputs\.builds \}\}/)
+})
+
+test("E2E jobs cache the Playwright browsers", () => {
+  for (const name of ["e2e-smoke", "e2e-full"]) {
+    const block = jobBlock(ci, name)
+    assert.match(block, /ms-playwright/, `${name} must cache the browser download`)
+    assert.match(block, /hashFiles\('package-lock\.json'\)/, `${name} must key the browser cache on the lockfile`)
+    assert.match(block, /playwright install/, `${name} must still install browsers`)
+  }
+})
+
+test("the build job builds only the affected workspaces", () => {
+  const block = jobBlock(ci, "build")
+  assert.match(block, /if: needs\.changes\.outputs\.builds != ''/)
+  assert.match(block, /needs\.changes\.outputs\.builds/)
+  assert.match(block, /-w "@masterhand\//)
 })
 
 test("smoke specs exist and belong to exactly one Playwright project", () => {
