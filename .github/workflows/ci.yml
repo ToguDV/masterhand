@@ -95,6 +95,11 @@ jobs:
           done
           npm run test:coverage "${args[@]}"
 
+      # The shell has no coverage suite; its pure URL normalizer is pinned by
+      # node:test against the compiled output.
+      - name: Desktop shell tests
+        run: npm test -w @masterhand/desktop
+
       - name: Dev-script tests
         if: needs.changes.outputs.scripts == 'true'
         run: npm run test:scripts

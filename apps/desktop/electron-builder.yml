@@ -1,0 +1,57 @@
+# Desktop packaging + auto-update (#131 / first release).
+#
+# `electron-builder` writes installers and the electron-updater metadata
+# (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`) into `release/` with
+# `--publish never`; the release workflow uploads them to the GitHub release
+# created by `publish`. `electron-updater` reads the channel file from the
+# latest GitHub release and downloads the matching artifact.
+appId: dev.togudv.masterhand
+productName: MasterHand
+copyright: Copyright © 2026 ToguDV
+executableName: masterhand
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - static/**/*
+  - package.json
+
+asar: true
+npmRebuild: false
+compression: normal
+
+publish:
+  provider: github
+  owner: ToguDV
+  repo: masterhand
+
+linux:
+  target:
+    - AppImage
+  category: Development
+  maintainer: ToguDV
+  synopsis: Self-hosted UI for your opencode agents
+  description: Use your opencode agents from any device through your own MasterHand server.
+
+win:
+  target:
+    - nsis
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal

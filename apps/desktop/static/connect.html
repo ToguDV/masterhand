@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"
+    />
+    <title>Connect to MasterHand</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --paper: #fafaf7;
+        --ink: #171512;
+        --muted: #6b665c;
+        --accent: #0b6b53;
+        --line: #d9d3c7;
+        --field: #fffefa;
+        --danger: #a8331f;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #0c0c0b;
+          --ink: #f2efe8;
+          --muted: #a9a294;
+          --accent: #3ed8a8;
+          --line: #2b2925;
+          --field: #141412;
+          --danger: #ff8f7a;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: min(420px, calc(100vw - 48px));
+      }
+      .mark {
+        width: 56px;
+        height: 56px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        margin: 0 0 28px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      label {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      input {
+        width: 100%;
+        padding: 11px 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--field);
+        color: var(--ink);
+        font: inherit;
+        font-size: 14px;
+        outline: none;
+      }
+      input:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+      }
+      button {
+        width: 100%;
+        margin-top: 14px;
+        padding: 11px 16px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--paper);
+        font: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .error {
+        margin: 10px 0 0;
+        color: var(--danger);
+        font-size: 13px;
+      }
+      .hint {
+        margin: 26px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path
+          d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z"
+          fill="var(--accent)"
+        />
+        <path
+          d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4"
+          fill="none"
+          stroke="var(--paper)"
+          stroke-width="1.8"
+          stroke-linecap="round"
+        />
+      </svg>
+      <h1>MasterHand</h1>
+      <p class="sub">Connect the desktop app to your MasterHand server.</p>
+      <form id="connect-form" novalidate>
+        <label for="server-url">Server URL</label>
+        <input
+          id="server-url"
+          name="url"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          spellcheck="false"
+          placeholder="https://masterhand.example.com"
+          required
+        />
+        <p id="error" class="error" role="alert" hidden></p>
+        <button type="submit">Connect</button>
+      </form>
+      <p class="hint">
+        Self-hosted, single-user. Use the origin your reverse proxy exposes (https for remote
+        servers); the app remembers it and can change it from the MasterHand menu.
+      </p>
+    </main>
+    <script>
+      const form = document.getElementById("connect-form")
+      const input = document.getElementById("server-url")
+      const error = document.getElementById("error")
+      const button = form.querySelector("button")
+      const initial = new URLSearchParams(window.location.search).get("url")
+      if (initial) input.value = initial
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault()
+        error.hidden = true
+        button.disabled = true
+        button.textContent = "Connecting…"
+        try {
+          const result = await window.masterhand.connect(input.value)
+          if (!result.ok) {
+            error.textContent = result.error
+            error.hidden = false
+          }
+        } catch {
+          error.textContent = "Could not save the server URL."
+          error.hidden = false
+        } finally {
+          button.disabled = false
+          button.textContent = "Connect"
+        }
+      })
+
+      input.focus()
+      input.select()
+    </script>
+  </body>
+</html>

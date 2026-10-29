@@ -1,2 +1,3 @@
 # Electron
-apps/desktop/dist/
+dist/
+release/
