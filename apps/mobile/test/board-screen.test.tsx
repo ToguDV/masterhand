@@ -1,7 +1,7 @@
 import { Alert } from "react-native"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import type { BoardSnapshot, WorkspaceRecord } from "@masterhand/client-core"
-import { BoardScreen, indexForDrop } from "../src/screens/BoardScreen"
+import { BoardScreen, indexForDrop, resetCancelledDrag } from "../src/screens/BoardScreen"
 import { ThemeProvider } from "../src/theme"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
@@ -471,5 +471,15 @@ describe("indexForDrop (#164)", () => {
     expect(indexForDrop(cards, 0, 40, new Map())).toBe(1)
     // Unknown card or empty column degrade without a commit index.
     expect(indexForDrop([], 0, 40, heights)).toBe(0)
+  })
+})
+
+describe("resetCancelledDrag (#164 review)", () => {
+  it("clears the dragging flag and returns the offset to rest", () => {
+    const dragging = { value: true }
+    const translateY = { value: 128 }
+    resetCancelledDrag(dragging, translateY)
+    expect(dragging.value).toBe(false)
+    expect(translateY.value).toBe(0)
   })
 })

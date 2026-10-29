@@ -126,6 +126,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
     option: {
       paddingHorizontal: 16,
       paddingVertical: 12,
+      minHeight: 44,
+      justifyContent: "center",
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.hairline,
     },

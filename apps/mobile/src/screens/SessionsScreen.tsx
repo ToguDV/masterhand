@@ -166,9 +166,13 @@ export function SessionsScreen({
       ) : null}
 
       {section === "board" && board ? (
-        <ScrollView contentContainerStyle={styles.list}>{board}</ScrollView>
+        <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+          {board}
+        </ScrollView>
       ) : section === "scheduler" && scheduler ? (
-        <ScrollView contentContainerStyle={styles.list}>{scheduler}</ScrollView>
+        <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+          {scheduler}
+        </ScrollView>
       ) : (
       <>
       <View style={styles.filterRow}>

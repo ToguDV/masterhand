@@ -70,7 +70,11 @@ const CURATED_ZONES = [
   "Europe/Madrid",
   "Asia/Tokyo",
   "Asia/Shanghai",
+  "Asia/Kolkata",
   "Australia/Sydney",
+  "Pacific/Auckland",
+  "America/Sao_Paulo",
+  "Africa/Cairo",
 ]
 
 /** Task status chip: severity lives in the text tint, like the rest of the app. */

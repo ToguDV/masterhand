@@ -31,6 +31,16 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
  */
 
 const CARD_GAP = 8
+
+/**
+ * Resets a card's drag state when its gesture is cancelled: `onFinalize` is
+ * the only callback on cancel, so without this a scroll-stolen gesture leaves
+ * the card visually offset at its last `onUpdate` value.
+ */
+export function resetCancelledDrag(dragging: { value: boolean }, translateY: { value: number }): void {
+  dragging.value = false
+  translateY.value = withSpring(0)
+}
 /** Fallback row height when a card has not reported its layout yet. */
 const ESTIMATED_ROW_HEIGHT = 64
 
@@ -111,7 +121,7 @@ function DraggableCard({
           runOnJS((id: string, dy: number) => onDropRef.current(id, dy))(card.id, event.translationY)
         })
         .onFinalize(() => {
-          dragging.value = false
+          resetCancelledDrag(dragging, translateY)
         }),
     [card.id, dragging, translateY],
   )
@@ -183,8 +193,11 @@ function EditCardSheet({
     onSave(card.id, { title, description: draft.description })
   }
 
+  // The Move-to picker is a sibling modal, never nested inside the sheet
+  // modal: nested modals dismiss and stack unpredictably on device.
   return (
-    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+    <>
+      <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Edit card</Text>
@@ -269,6 +282,7 @@ function EditCardSheet({
           </View>
         </View>
       </View>
+      </Modal>
 
       <ChoiceModal
         visible={movePickerOpen}
@@ -281,7 +295,7 @@ function EditCardSheet({
         }}
         onClose={() => setMovePickerOpen(false)}
       />
-    </Modal>
+    </>
   )
 }
 
