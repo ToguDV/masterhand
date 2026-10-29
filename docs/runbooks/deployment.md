@@ -189,6 +189,7 @@ Every `v*` tag builds and publishes `ghcr.io/togudv/masterhand:<version>` plus `
 - **Pin vs `latest`:** `deploy/docker-compose.yml` defaults to `MASTERHAND_VERSION=latest`. Pin a version in `deploy/.env` (`MASTERHAND_VERSION=0.2.0`) to upgrade on purpose: the notice tells you a release exists, you decide when `pull && up -d` runs. v1 keeps the BFF update manual (`docker compose pull && up -d`, copyable from the notice); the one-click updater is deferred (#134).
 - **Backup before upgrading:** back up `masterhand_data` (SQLite) before every upgrade — `npm run backup` on the host or a volume snapshot. Migrations are forward-only: an older image cannot read a database a newer one already migrated.
 - **Privacy note:** update checks never leave your infrastructure per device. Only the BFF fetches `version.json` from GitHub (once per 12 min cache window, 10 s timeout); clients read the result from `GET /api/update`. Override the manifest location with `UPDATE_MANIFEST_URL` (e.g. a local mirror) when the host has no GitHub access — an unreachable manifest degrades to "no notice", never an error.
+- **Android:** server releases and the signed APK ship from the same tag; the APK refreshes the self-hosted F-Droid repo and the Android app notifies through it. Full flow in [`fdroid.md`](fdroid.md).
 
 ## 8. Disk headroom, logs and resource limits
 

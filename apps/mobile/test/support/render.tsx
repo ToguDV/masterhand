@@ -96,6 +96,8 @@ export interface FakeClient {
       settings: jest.Mock
       saveSettings: jest.Mock
     }
+    /** Release updates (#131/#133). */
+    update: { check: jest.Mock }
     sessions: { list: jest.Mock; finish: jest.Mock }
     branches: { list: jest.Mock; checkout: jest.Mock; create: jest.Mock }
   }
@@ -168,6 +170,9 @@ export function fakeClient(): FakeClient & Client {
             judgeModel: patch.judgeModel ?? null,
           }),
         ),
+      },
+      update: {
+        check: jest.fn(async () => ({ latest: null })),
       },
       sessions: {
         list: jest.fn(async () => ({ sessions: [] })),

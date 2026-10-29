@@ -1,10 +1,18 @@
-# Release (#131): tag-triggered only (`v*`, e.g. `v0.2.0`). Builds the server
-# image with the release identity baked in (`MASTERHAND_VERSION` = the tag
-# without `v`, `MASTERHAND_BUILD` = the commit SHA), pushes it to GHCR as
-# `:version` plus `:latest`, generates the `version.json` manifest the BFF's
-# `GET /api/update` reads, and creates the GitHub release with that manifest
-# attached. Deliberately separate from `ci.yml` (untouched): releases run on
-# tags, CI on PRs and `main`.
+# Release (#131 + #133): tag-triggered only (`v*`, e.g. `v0.2.0`).
+#
+# - `image`: builds the server image with the release identity baked in
+#   (`MASTERHAND_VERSION` = the tag without `v`, `MASTERHAND_BUILD` = the
+#   commit SHA), pushes it to GHCR as `:version` plus `:latest`, and generates
+#   the `version.json` manifest the BFF's `GET /api/update` reads.
+# - `android`: builds the signed release APK (`expo prebuild` + Gradle; the
+#   keystore comes from Actions secrets and is never committed).
+# - `publish`: creates the GitHub release with `version.json` + the APK
+#   attached, then refreshes the self-hosted F-Droid repo on the `fdroid`
+#   branch (stable URL `https://togudv.github.io/masterhand/fdroid/`).
+#
+# Deliberately separate from `ci.yml` (untouched): releases run on tags, CI
+# on PRs and `main`. The Android/F-Droid path is release-only: day-to-day
+# mobile CI stays `mobile-e2e.yml` (manual emulator runs).
 name: Release
 
 on:
@@ -17,12 +25,17 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    name: Build, push and publish
+  image:
+    name: Server image + version.json
     runs-on: ubuntu-latest
     env:
       REGISTRY: ghcr.io
       IMAGE: ghcr.io/togudv/masterhand
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      build: ${{ steps.meta.outputs.build }}
+      date: ${{ steps.meta.outputs.date }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,11 +91,166 @@ jobs:
         env:
           TAG: ${{ steps.meta.outputs.tag }}
 
+      - name: Upload version.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-json
+          path: version.json
+
+  android:
+    name: Signed release APK
+    runs-on: ubuntu-latest
+    needs: image
+    outputs:
+      version-code: ${{ steps.versions.outputs.version-code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the mobile version matches the tag
+        id: versions
+        run: |
+          APP_VERSION="$(node -p "require('./apps/mobile/app.json').expo.version")"
+          if [ "$APP_VERSION" != "${{ needs.image.outputs.version }}" ]; then
+            echo "apps/mobile/app.json version ($APP_VERSION) != tag version (${{ needs.image.outputs.version }}); bump it before tagging (see docs/runbooks/fdroid.md)"
+            exit 1
+          fi
+          echo "version-code=$(node -p "require('./apps/mobile/app.json').expo.android.versionCode")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write the signing keystore (secrets only, never committed)
+        working-directory: apps/mobile
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not set; add the signing keystore (see docs/runbooks/fdroid.md)"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          cat > key.properties <<EOF
+          storeFile=release.keystore
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+      - name: Prebuild the Android shell
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_TELEMETRY: "1"
+          CI: "1"
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: Build the signed APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+
+  publish:
+    name: GitHub release + F-Droid repo
+    runs-on: ubuntu-latest
+    needs: [image, android]
+    env:
+      TAG: ${{ needs.image.outputs.tag }}
+      VERSION: ${{ needs.image.outputs.version }}
+      VERSION_CODE: ${{ needs.android.outputs.version-code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download the release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.meta.outputs.tag }}" \
-            --title "${{ steps.meta.outputs.tag }}" \
+          gh release create "$TAG" \
+            --title "$TAG" \
             --generate-notes \
-            version.json
+            "assets/version-json/version.json" \
+            "assets/android-apk/app-release.apk"
+
+      # Self-hosted F-Droid repo (#133): the `fdroid` branch carries the repo
+      # under `fdroid/` (config + `repo/*.apk` + generated index), served by
+      # GitHub Pages at https://togudv.github.io/masterhand/fdroid/ (see
+      # docs/runbooks/fdroid.md for setup and key custody).
+      - name: Refresh the F-Droid repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          git fetch origin fdroid || true
+          if git rev-parse --verify origin/fdroid >/dev/null 2>&1; then
+            git checkout fdroid
+          else
+            git checkout --orphan fdroid
+            git rm -rf . || true
+          fi
+          mkdir -p fdroid/repo
+          APK="fdroid/repo/dev.togudv.masterhand_${VERSION_CODE}.apk"
+          cp "assets/android-apk/app-release.apk" "$APK"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > fdroid/repo.keystore
+          if [ ! -f fdroid/config.py ]; then
+            cat > fdroid/config.py <<'EOF'
+          repo_url = "https://togudv.github.io/masterhand/fdroid/"
+          repo_name = "MasterHand"
+          repo_icon = "icon.png"
+          keystore = "repo.keystore"
+          EOF
+          fi
+          # The repo keystore is the Android signing keystore (same file the
+          # APK job used): one stable key signs APKs and the index forever.
+          # Passwords live only in a throwaway copy of the config: fdroidserver
+          # reads them from `config.py`, and the committed file must never
+          # carry secrets (it is pushed to the public `fdroid` branch).
+          sed -i 's|^keystore *=.*|keystore = "repo.keystore"|' fdroid/config.py
+          grep -q '^keyalias' fdroid/config.py || echo "keyalias = \"$ANDROID_KEY_ALIAS\"" >> fdroid/config.py
+          cp fdroid/config.py fdroid/config.py.keep
+          cat >> fdroid/config.py <<EOF
+          keystorepass = "$ANDROID_KEYSTORE_PASSWORD"
+          keypass = "$ANDROID_KEY_PASSWORD"
+          EOF
+          pip install --quiet fdroidserver
+          (cd fdroid && fdroid update)
+          mv fdroid/config.py.keep fdroid/config.py
+          rm -f fdroid/repo.keystore
+          git add fdroid
+          if git diff --cached --quiet; then
+            echo "F-Droid repo unchanged"
+          else
+            git -c user.name="MasterHand release" -c user.email="masterhand@localhost" \
+              commit -m "F-Droid repo for $TAG (versionCode $VERSION_CODE)"
+            git push origin fdroid
+          fi

@@ -22,5 +22,6 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 | [`runbooks/deployment.md`](runbooks/deployment.md) | Deployment with Docker Compose and TLS options for the deployer | ✅ 2026-10-20 |
 | [`runbooks/backups.md`](runbooks/backups.md) | Volume backups, online SQLite backup, restore and corruption behavior | ✅ 2026-10-05 |
 | [`runbooks/mobile-e2e.md`](runbooks/mobile-e2e.md) | Mobile E2E with Maestro (emulator/simulator and CI) | ✅ 2026-10-01 |
+| [`runbooks/fdroid.md`](runbooks/fdroid.md) | Self-hosted F-Droid repo and Android update notices (#133) | ✅ 2026-10-29 |
 | [`reviews/2026-10-01-pr-24-25-code-review.md`](reviews/2026-10-01-pr-24-25-code-review.md) | Code review of PR #24/#25: open findings, evidence and fix plan | ✅ 2026-10-01 |
 | `runbooks/host-setup.md` | Host preparation: Docker, DNS, user and firewall | ⬜ Phase 0 |
