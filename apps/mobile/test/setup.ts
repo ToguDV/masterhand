@@ -8,3 +8,11 @@ jest.mock("react-native-safe-area-context", () => {
   const mock = jest.requireActual<{ default: unknown }>("react-native-safe-area-context/jest/mock")
   return mock.default
 })
+
+/**
+ * `react-native-reanimated` drives the board's within-column card drag
+ * (#164). Under Jest there is no worklet runtime, so the shipped mock stands
+ * in: animated styles resolve to plain styles and render tests assert
+ * structure, not animation frames.
+ */
+jest.mock("react-native-reanimated", () => require("react-native-reanimated/mock"))

@@ -4,6 +4,9 @@ const { moduleNameMapper } = require("jest-expo/jest-preset")
 module.exports = {
   preset: "jest-expo",
   testMatch: ["<rootDir>/test/**/*.test.{ts,tsx}"],
+  // `react-native-gesture-handler` ships its own Jest setup (native module
+  // mocks); it runs before the preset's setup via concatenation.
+  setupFiles: ["react-native-gesture-handler/jestSetup"],
   setupFilesAfterEnv: ["<rootDir>/test/setup.ts"],
   // React Native render tests are slow under coverage on CI runners; the 5s
   // default made unrelated suites (Composer, ChatScreen) flake with timeouts.
