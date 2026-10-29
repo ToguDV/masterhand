@@ -1,9 +1,14 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-21. 27 open issues — the release/update work (#131, #133, #134), the
-board and mobile-parity follow-ups (#164, #172), the C18 engine-side residuals (#216–#219) and the
-remaining findings of the 2026-10-20 server audit — grouped into **5 pending chunks**
-(C15–C16, C20–C22) by the code surface they share. C1–C14 and C17–C19 are merged or closed.
+**Snapshot:** 2026-10-29. 2 open issues: #134 (one-click BFF updater, deliberately
+deferred) and #225 (delete-path abort channels, follow-up of the C20 review). Everything else
+from the 2026-10-21 snapshot (27 issues) is merged: C15 (#131 #133), C18 residuals
+(#216–#219), C20–C22 and the client follow-ups (#164, #172).
+
+**Last updated:** 2026-10-29 — **all pending chunks landed**: C20 (#226), C21 transport
+(#227) + data (#228), C22 (#229), C15 (#230) and C23 mobile parity (#164 #172, #231),
+each with pre-merge reviewer passes and review hardening. Remaining: #134 (deferred),
+#225 and #211-step-2 (per-card board frames, needs #196).
 
 **Last updated:** 2026-10-21 — **C19 has landed (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
 merged #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
@@ -67,14 +72,14 @@ in the sessions options box per #136/#137).
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
-| C15 — Releases and in-app updates | #131 #133 | 🟡 2/2 implemented 2026-10-29 on `fix/c15-releases` (#131 → #133, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #134 stays deferred |
+| C15 — Releases and in-app updates | #131 #133 | ✅ Merged 2026-10-29 — #230 (review hardening included); #134 stays deferred |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
-| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, PR pending) |
+| C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, merged #224) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
-| C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | 🟡 Implemented 2026-10-28 on `fix/c20-shutdown-reliability` (4 commits, one per issue) — pending reviewer pass, PR not yet opened |
-| C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | 🟡 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #197 #198 #201 #203 #211 remain |
-| C22 — Architecture and test debt | #205 #206 #207 #212 | 🟡 4/4 implemented 2026-10-28 on `fix/c22-debt` (#207 route tests on in-memory SQLite → #205 extracted opencode adapters → #206 projected goal-run contract → #212 dead helper + bounded cron walk; pending reviewer pass, PR not yet opened) |
-| C23 — Mobile board + scheduler parity | #164 #172 | 🟡 Implemented 2026-10-29 on `feat/mobile-board-scheduler` (deps → #172 → #164, one commit per unit) — pending reviewer pass, PR not yet opened |
+| C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ✅ Merged 2026-10-29 — #226 (review hardening included; #208 approved breaking) |
+| C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ✅ Merged 2026-10-29 — #227 (transport) + #228 (data, review hardening included) |
+| C22 — Architecture and test debt | #205 #206 #207 #212 | ✅ Merged 2026-10-29 — #229 (review hardening included) |
+| C23 — Mobile board + scheduler parity | #164 #172 | ✅ Merged 2026-10-29 — #231 (review hardening included) |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
