@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native"
+import { useState, type ReactNode } from "react"
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import {
   directoryName,
   filterSessions,
@@ -14,9 +14,12 @@ import {
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { GearIcon, LogOutIcon } from "../components/icons"
+import { ClockIcon, GearIcon, LogOutIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+
+/** Home sections, mirroring the web sidebar rail (Sessions/Board/Scheduler). */
+export type HomeSection = "sessions" | "scheduler"
 
 export function SessionsScreen({
   sessions,
@@ -37,6 +40,9 @@ export function SessionsScreen({
   onAddWorkspace,
   onRemoveWorkspace,
   onDeleteSession,
+  section = "sessions",
+  onSelectSection = () => {},
+  scheduler = null,
 }: {
   sessions: Session[]
   loading: boolean
@@ -58,6 +64,11 @@ export function SessionsScreen({
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
   onDeleteSession: (id: string) => void
+  /** Active home section (web rail parity); the switcher shows when a slot is provided. */
+  section?: HomeSection
+  onSelectSection?: (section: HomeSection) => void
+  /** Scheduler task manager rendered in place of the session list. */
+  scheduler?: ReactNode
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
@@ -109,6 +120,34 @@ export function SessionsScreen({
         </View>
       </View>
 
+      {scheduler ? (
+        <View style={styles.tabs}>
+          <Pressable
+            onPress={() => onSelectSection("sessions")}
+            accessibilityRole="button"
+            accessibilityLabel="Show sessions"
+            accessibilityState={{ selected: section === "sessions" }}
+            style={[styles.tab, section === "sessions" && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, section === "sessions" && styles.tabTextActive]}>Sessions</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onSelectSection("scheduler")}
+            accessibilityRole="button"
+            accessibilityLabel="Show scheduler"
+            accessibilityState={{ selected: section === "scheduler" }}
+            style={[styles.tab, section === "scheduler" && styles.tabActive]}
+          >
+            <ClockIcon size={14} color={section === "scheduler" ? colors.canvas : colors.textMuted} />
+            <Text style={[styles.tabText, section === "scheduler" && styles.tabTextActive]}>Scheduler</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {section === "scheduler" && scheduler ? (
+        <ScrollView contentContainerStyle={styles.list}>{scheduler}</ScrollView>
+      ) : (
+      <>
       <View style={styles.filterRow}>
         <View style={styles.filters}>
           {FILTERS.map((option) => (
@@ -164,6 +203,8 @@ export function SessionsScreen({
           />
         )}
       />
+      </>
+      )}
 
       <View style={styles.optionsWrap}>
         <View style={styles.optionsBox}>
@@ -460,6 +501,38 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
+    },
+    tabs: {
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    tab: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 999,
+      paddingHorizontal: 14,
+      justifyContent: "center",
+    },
+    tabActive: {
+      backgroundColor: colors.text,
+      borderColor: colors.text,
+    },
+    tabText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+    },
+    tabTextActive: {
+      color: colors.canvas,
+      fontWeight: "600",
     },
     filters: {
       flexDirection: "row",

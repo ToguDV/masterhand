@@ -34,9 +34,10 @@ import {
 } from "@masterhand/client-core"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { LoginScreen } from "./src/screens/LoginScreen"
-import { SessionsScreen } from "./src/screens/SessionsScreen"
+import { SessionsScreen, type HomeSection } from "./src/screens/SessionsScreen"
 import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
+import { SchedulerSection } from "./src/components/SchedulerSection"
 import { SettingsModal } from "./src/components/SettingsModal"
 import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
@@ -252,6 +253,10 @@ function AuthenticatedApp({
   const autoAcceptLoaded = useRef(false)
   // App-level settings modal (Appearance, Providers, Account).
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Home section (Sessions/Scheduler), mirroring the web sidebar rail. The
+  // chat takes over the screen while a session is open; backing out returns
+  // to the selected section.
+  const [section, setSection] = useState<HomeSection>("sessions")
   // Set when the user switches workspace: drop the open session and open the
   // new workspace's most recent one once its session list arrives.
   const pendingWorkspaceAutoOpenRef = useRef(false)
@@ -680,6 +685,9 @@ function AuthenticatedApp({
           onAddWorkspace={addWorkspace}
           onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
           onDeleteSession={(id) => void deleteSession(id)}
+          section={section}
+          onSelectSection={setSection}
+          scheduler={<SchedulerSection client={client} onOpenSession={setSessionID} />}
         />
       )}
 

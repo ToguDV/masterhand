@@ -103,6 +103,11 @@ export function LogOutIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="log-out-outline" size={size} color={color} />
 }
 
+/** Scheduler section (clock face), mirroring the web rail. */
+export function ClockIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="time-outline" size={size} color={color} />
+}
+
 /** Run & preview trigger (replaces the text label, issue #120). */
 export function PlayIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="play" size={size} color={color} />

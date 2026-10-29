@@ -1,4 +1,4 @@
-import { Alert } from "react-native"
+import { Alert, Text } from "react-native"
 import { fireEvent, render, screen } from "@testing-library/react-native"
 import type { Session, SessionStatuses, WorkspaceRecord } from "@masterhand/client-core"
 import { SessionsScreen } from "../src/screens/SessionsScreen"
@@ -202,5 +202,32 @@ describe("SessionsScreen", () => {
     expect(handlers.onRemoveWorkspace).toHaveBeenCalledWith("ws1", { deleteFiles: false })
 
     alert.mockRestore()
+  })
+})
+
+describe("SessionsScreen sections (#172)", () => {
+  it("hides the section switcher when no scheduler slot is provided", async () => {
+    await setup()
+
+    expect(screen.queryByLabelText("Show scheduler")).toBeNull()
+    expect(screen.getByText("Standard session")).toBeOnTheScreen()
+  })
+
+  it("renders the scheduler slot instead of the session list", async () => {
+    await setup({ section: "scheduler", scheduler: <Text>Scheduler stub</Text> })
+
+    expect(screen.getByText("Scheduler stub")).toBeOnTheScreen()
+    expect(screen.queryByText("Standard session")).toBeNull()
+  })
+
+  it("notifies when a section tab is pressed", async () => {
+    const onSelectSection = jest.fn()
+    await setup({ onSelectSection, scheduler: <Text>Scheduler stub</Text> })
+
+    await fireEvent.press(screen.getByLabelText("Show scheduler"))
+    expect(onSelectSection).toHaveBeenCalledWith("scheduler")
+
+    await fireEvent.press(screen.getByLabelText("Show sessions"))
+    expect(onSelectSection).toHaveBeenCalledWith("sessions")
   })
 })
