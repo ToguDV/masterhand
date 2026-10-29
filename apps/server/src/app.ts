@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { statfs } from "node:fs/promises"
+import { join } from "node:path"
 import { getConnInfo } from "@hono/node-server/conninfo"
 import { Hono } from "hono"
 import type { Context } from "hono"
@@ -82,6 +83,7 @@ import {
   type WorktreeManager,
 } from "./worktrees.js"
 import { createUpdateChecker } from "./update.js"
+import { createUpdateApplier, type UpdateApplier } from "./updater.js"
 import {
   createWorkspaceDir,
   engineReadGuardRules,
@@ -135,6 +137,8 @@ export interface AppDeps {
   isReady?: () => boolean
   /** Overridable for tests: free bytes on the data volume, or null when unknown. */
   diskFreeBytes?: (path: string) => number | null
+  /** Overridable for tests: opt-in BFF self-updater sidecar (#134). */
+  updateApplier?: UpdateApplier
   /** Cap on proxied opencode request bodies (default 10 MiB). */
   proxyBodyLimitBytes?: number
 }
@@ -1601,6 +1605,33 @@ export function createApp(deps: AppDeps): CreatedApp {
     fetchImpl,
   })
 
+  /**
+   * Pre-update snapshot (#134): migrations are forward-only, so the only
+   * safe rollback after a bad release is restoring this file. The online
+   * backup API keeps the event loop free; a failure blocks the update.
+   */
+  async function backupBeforeUpdate(): Promise<void> {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+    await deps.store.backup(join(config.dataDir, "backups", `pre-update-${config.version}-${stamp}.sqlite`))
+  }
+
+  const updateApplier =
+    deps.updateApplier ??
+    createUpdateApplier({
+      url: config.updateUrl,
+      token: config.updateToken,
+      track: config.updateTrack,
+      currentVersion: config.version,
+      check: async () => (await checkForUpdate()).latest,
+      backup: backupBeforeUpdate,
+      fetchImpl,
+    })
+  const updaterStatus = {
+    enabled: updateApplier.enabled,
+    tracksLatest: updateApplier.tracksLatest,
+    track: config.updateTrack,
+  }
+
   api.get("/status", async (c) => {
     const previewStatus = {
       enabled: config.previewEnabled,
@@ -1631,6 +1662,7 @@ export function createApp(deps: AppDeps): CreatedApp {
           opencode: { healthy: false, error },
           preview: previewStatus,
           storage,
+          updater: updaterStatus,
         })
       }
       const data = (await health.json()) as { version?: string }
@@ -1641,6 +1673,7 @@ export function createApp(deps: AppDeps): CreatedApp {
         opencode: { healthy: true, version: data.version },
         preview: previewStatus,
         storage,
+        updater: updaterStatus,
       })
     } catch {
       return c.json({
@@ -1650,6 +1683,7 @@ export function createApp(deps: AppDeps): CreatedApp {
         opencode: { healthy: false, error: "unreachable" },
         preview: previewStatus,
         storage,
+        updater: updaterStatus,
       })
     }
   })
@@ -1657,6 +1691,21 @@ export function createApp(deps: AppDeps): CreatedApp {
   api.get("/update", async (c) => {
     const result = await checkForUpdate()
     return c.json({ latest: result.latest, checkedAt: result.checkedAt })
+  })
+
+  /**
+   * One-click self-update (#134). Authenticated + same-origin (cookie) or
+   * bearer-checked; the sidecar owns the Docker access. The process restarts
+   * mid-flow, so the response is fire-and-forget and the client reconciles
+   * through `/api/status` after reconnecting. Never retried automatically.
+   */
+  api.post("/update/apply", async (c) => {
+    const result = await updateApplier.apply()
+    if (result.ok) {
+      console.log(`[masterhand] update accepted: ${result.target}`)
+      return c.json({ accepted: true, target: result.target }, 202)
+    }
+    return c.json({ error: result.error }, result.status)
   })
 
   api.get("/events", (c) => {

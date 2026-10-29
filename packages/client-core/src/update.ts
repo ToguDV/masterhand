@@ -27,6 +27,12 @@ export interface UpdateCheck {
   latest: VersionRelease | null
 }
 
+/** `POST /api/update/apply` accepted the trigger (the server may restart). */
+export interface UpdateApplyResult {
+  accepted: boolean
+  target?: string
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

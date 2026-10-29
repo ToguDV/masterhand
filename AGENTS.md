@@ -17,7 +17,7 @@
 | `design/DESIGN.md` | Design system: tokens, typography, components, responsive rules (getdesign format) + preview `design/DESIGN.html` | When the design system changes |
 | `docs/opencode/` | Verified reference for opencode's API (SSE events, HTTP endpoints) | When integrating/verifying APIs |
 | `docs/bff/` | MasterHand backend API (endpoints, auth, proxy) | When the BFF changes |
-| `docs/runbooks/` | Operational procedures: host, deploy, TLS, backups, F-Droid | When operating or deploying |
+| `docs/runbooks/` | Operational procedures: host, deploy, TLS, backups, F-Droid, releases | When operating or deploying |
 | `docs/past-mistakes.md` | Past reliability mistakes: failure classes and the rules every client change must honor | When a failure class changes, a new mutating operation is added, or a fix lands |
 | `docs/plans/issue-chunks.md` | Batched follow-up plan: open issues grouped in chunks by shared code surface, with order, dependencies and status | When a chunk starts or lands, or the backlog is re-chunked |
 

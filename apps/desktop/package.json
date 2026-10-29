@@ -4,15 +4,33 @@
   "private": true,
   "type": "module",
   "main": "dist/main.js",
+  "description": "MasterHand desktop shell — connects to your self-hosted MasterHand server",
+  "author": "ToguDV",
+  "license": "MIT",
+  "homepage": "https://github.com/ToguDV/masterhand",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ToguDV/masterhand.git"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "npm run build && electron .",
     "start": "electron .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "electron": "^44.4.5",
+    "electron": "44.10.0",
+    "electron-builder": "^26.18.0",
     "typescript": "^5.9.0"
   }
 }

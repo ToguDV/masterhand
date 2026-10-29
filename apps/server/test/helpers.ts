@@ -449,6 +449,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     build: "dev",
     updateManifestUrl: "https://github.com/togudv/masterhand/releases/latest/download/version.json",
     updateCacheMs: 12 * 60 * 1000,
+    updateUrl: null,
+    updateToken: null,
+    updateTrack: "latest",
     ...overrides,
   }
 }
@@ -601,6 +604,7 @@ export async function startTestApp(
     isReady?: () => boolean
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
+    updateApplier?: import("../src/updater.js").UpdateApplier
     /** Test-only request observer, e.g. to signal that a request arrived. */
     onRequest?: (request: Request) => void
     previewOptions?: {
@@ -662,6 +666,7 @@ export async function startTestApp(
     isReady: options.isReady,
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
+    updateApplier: options.updateApplier,
   })
   const app = built.app
   const server = serve({

@@ -231,4 +231,58 @@ describe("loadConfig", () => {
       /MANAGED_RUN_LAUNCHER/,
     )
   })
+
+  describe("self-updater (#134)", () => {
+    const token = "0123456789abcdef0123456789abcdef"
+
+    it("is disabled by default and tracks latest", () => {
+      const config = loadConfig(env())
+      expect(config.updateUrl).toBeNull()
+      expect(config.updateToken).toBeNull()
+      expect(config.updateTrack).toBe("latest")
+    })
+
+    it("accepts a sidecar origin and token, normalizing the URL", () => {
+      const config = loadConfig(
+        env({
+          MASTERHAND_UPDATE_URL: " http://updater:8080/ ",
+          MASTERHAND_UPDATE_TOKEN: ` ${token} `,
+          MASTERHAND_UPDATE_TRACK: "latest",
+        }),
+      )
+      expect(config.updateUrl).toBe("http://updater:8080")
+      expect(config.updateToken).toBe(token)
+      expect(config.updateTrack).toBe("latest")
+    })
+
+    it("rejects a half-configured, invalid or weak updater", () => {
+      expect(() => loadConfig(env({ MASTERHAND_UPDATE_URL: "http://updater:8080" }))).toThrow(
+        /MASTERHAND_UPDATE_URL requires MASTERHAND_UPDATE_TOKEN/,
+      )
+      expect(() => loadConfig(env({ MASTERHAND_UPDATE_TOKEN: token }))).toThrow(
+        /MASTERHAND_UPDATE_TOKEN is set but MASTERHAND_UPDATE_URL is empty/,
+      )
+      expect(() => loadConfig(env({ MASTERHAND_UPDATE_URL: "not a url", MASTERHAND_UPDATE_TOKEN: token }))).toThrow(
+        /MASTERHAND_UPDATE_URL is not a valid URL/,
+      )
+      expect(() =>
+        loadConfig(env({ MASTERHAND_UPDATE_URL: "ftp://updater:8080", MASTERHAND_UPDATE_TOKEN: token })),
+      ).toThrow(/http:\/\/ or https:\/\//)
+      expect(() =>
+        loadConfig(env({ MASTERHAND_UPDATE_URL: "http://updater:8080/admin", MASTERHAND_UPDATE_TOKEN: token })),
+      ).toThrow(/origin without a path/)
+      expect(() =>
+        loadConfig(env({ MASTERHAND_UPDATE_URL: "http://updater:8080", MASTERHAND_UPDATE_TOKEN: "short" })),
+      ).toThrow(/at least 16 bytes/)
+      expect(() =>
+        loadConfig(
+          env({
+            MASTERHAND_UPDATE_URL: "http://updater:8080",
+            MASTERHAND_UPDATE_TOKEN: token,
+            MASTERHAND_UPDATE_TRACK: "bad tag!",
+          }),
+        ),
+      ).toThrow(/MASTERHAND_UPDATE_TRACK/)
+    })
+  })
 })

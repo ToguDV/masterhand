@@ -1160,3 +1160,28 @@ describe("data directory lock (issue #208)", () => {
     }
   })
 })
+
+describe("online backup", () => {
+  it("writes a restorable 0600 snapshot without closing the live store", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "masterhand-backup-"))
+    const store = createSqliteStore(join(dir, "live.sqlite"))
+    try {
+      store.createWorkspace({ id: "ws_1", name: "App", path: join(dir, "app"), createdAt: 1 })
+      const destination = join(dir, "backups", "pre-update.sqlite")
+      await store.backup(destination)
+
+      expect(statSync(destination).mode & 0o777).toBe(0o600)
+      const restored = createSqliteStore(destination)
+      try {
+        expect(restored.listWorkspaces()).toMatchObject([{ id: "ws_1", name: "App" }])
+      } finally {
+        restored.close()
+      }
+      // The live store remains usable after the online backup.
+      expect(store.listWorkspaces()).toHaveLength(1)
+    } finally {
+      store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

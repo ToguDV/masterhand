@@ -1,6 +1,7 @@
 import { chmodSync, closeSync, mkdirSync, openSync, unlinkSync } from "node:fs"
+import { chmod, mkdir } from "node:fs/promises"
 import { createConnection, createServer } from "node:net"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import Database from "better-sqlite3"
 import { runMigrations } from "./migrations.js"
 
@@ -603,6 +604,13 @@ export interface Store {
   listActiveScheduledRuns(): ScheduledRun[]
   /** True when the database answers a trivial read (readiness/health). */
   ping(): boolean
+  /**
+   * Consistent online snapshot (pre-update backup). Uses SQLite's incremental
+   * backup API, so it does not block the event loop the way `VACUUM INTO`
+   * would on a large database. The destination directory is created 0700 and
+   * the file is left 0600.
+   */
+  backup(destination: string): Promise<void>
   close(): void
 }
 
@@ -1482,6 +1490,11 @@ export function createSqliteStore(file: string): Store {
       } catch {
         return false
       }
+    },
+    async backup(destination) {
+      await mkdir(dirname(destination), { recursive: true, mode: PRIVATE_DIR_MODE })
+      await db.backup(destination)
+      await chmod(destination, PRIVATE_FILE_MODE)
     },
     close() {
       db.close()
