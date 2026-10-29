@@ -3,9 +3,24 @@ import {
   androidVersionCode,
   compareSemver,
   isNewerVersion,
+  isSemver,
   normalizeUpdateCheck,
   normalizeVersionManifest,
 } from "../src/update"
+
+describe("isSemver", () => {
+  it("accepts numeric triples with an optional leading v", () => {
+    expect(isSemver("0.2.0")).toBe(true)
+    expect(isSemver("v1.2")).toBe(true)
+    expect(isSemver("10.0.1-rc1")).toBe(true)
+  })
+
+  it("rejects anything without a numeric triple", () => {
+    expect(isSemver("garbage")).toBe(false)
+    expect(isSemver("")).toBe(false)
+    expect(isSemver("  ")).toBe(false)
+  })
+})
 
 describe("compareSemver", () => {
   it("orders major/minor/patch numerically, not lexically", () => {

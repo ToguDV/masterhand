@@ -4,6 +4,7 @@ import {
   androidVersionCode,
   compareSemver,
   isNewerVersion,
+  isSemver,
   type Client,
 } from "@masterhand/client-core"
 
@@ -87,7 +88,9 @@ export function normalizeFdroidIndex(value: unknown): FdroidEntry | null {
       record && (typeof record.versionCode === "number" || typeof record.versionCode === "string")
         ? Number.parseInt(String(record.versionCode), 10)
         : Number.NaN
-    if (!versionName || !Number.isFinite(versionCode)) continue
+    // A non-semver name would render as banner garbage: skip it even when its
+    // code is the highest (our own index always carries semver).
+    if (!versionName || !isSemver(versionName) || !Number.isFinite(versionCode)) continue
     if (!best || versionCode > best.versionCode) best = { version: versionName, versionCode }
   }
   return best

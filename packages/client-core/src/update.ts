@@ -48,6 +48,11 @@ function parseSemver(version: string): [number, number, number] | null {
   return parts as [number, number, number]
 }
 
+/** True when the string carries a numeric `major.minor.patch` triple. */
+export function isSemver(version: string): boolean {
+  return parseSemver(version) !== null
+}
+
 /**
  * Compares two version strings numerically (`0.10.0` beats `0.9.0`).
  * Unparseable input compares equal: an unknown version must never surface an

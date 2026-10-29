@@ -90,6 +90,11 @@ describe("normalizeFdroidIndex", () => {  it("picks the highest versionCode of t
     expect(
       normalizeFdroidIndex({ packages: { "dev.togudv.masterhand": [{ versionName: "", versionCode: 5 }] } }),
     ).toBeNull()
+    expect(
+      normalizeFdroidIndex({
+        packages: { "dev.togudv.masterhand": [{ versionName: "not-a-version", versionCode: 99999 }] },
+      }),
+    ).toBeNull()
   })
 })
 

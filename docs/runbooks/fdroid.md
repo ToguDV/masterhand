@@ -48,10 +48,15 @@ Branch layout (all under `fdroid/` in the branch):
 ## 2. Cutting a release (server + Android together)
 
 ```bash
-# 1. Bump the version everywhere (they must match):
+# 1. Bump the version string everywhere (the tag is the single source of
+#    truth; package.json files are informational and only apps/mobile/app.json
+#    is enforced by CI):
 #    root package.json, apps/*/package.json, packages/client-core/package.json,
-#    apps/mobile/app.json ("version" + android.versionCode, see §3).
-# 2. Commit, tag, push:
+#    apps/mobile/app.json ("version" + android.versionCode, which must equal
+#    major*10000+minor*100+patch of the tag — releases always bump the
+#    version, so code-only releases do not exist).
+# 2. Commit, tag (final vX.Y.Z only — prereleases notify stable users as if
+#    final, the semver compare strips suffixes), push:
 git commit -m "chore(release): 0.2.0"   # Conventional Commits, English
 git tag -a v0.2.0 -m "0.2.0"
 git push origin main v0.2.0
@@ -67,7 +72,7 @@ The workflow (`release`, jobs `image` → `android` → `publish`):
 
 ## 3. `versionCode` contract
 
-`android.versionCode` is derived as `major*10000 + minor*100 + patch` (`0.1.0` → `100`; helper `androidVersionCode()` in `client-core`, unit-tested) and **never decreases**: F-Droid and Android both refuse "upgrades" to a lower code. Old APKs stay in `fdroid/repo/` so existing installs keep a valid index. When the formula would go backwards (e.g. a hotfix on an older minor), bump the code by hand above the previous maximum and note it in the release commit.
+`android.versionCode` is derived as `major*10000 + minor*100 + patch` (`0.1.0` → `100`; helper `androidVersionCode()` in `client-core`, unit-tested) and **never decreases**: F-Droid and Android both refuse "upgrades" to a lower code. Old APKs stay in `fdroid/repo/` so existing installs keep a valid index. Forks: the GHCR image path in `release.yml` is the owner's (`ghcr.io/togudv/masterhand`); point it at your own registry when forking.
 
 ## 4. Client behavior
 

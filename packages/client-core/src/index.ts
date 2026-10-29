@@ -190,6 +190,7 @@ export {
   androidVersionCode,
   compareSemver,
   isNewerVersion,
+  isSemver,
   normalizeUpdateCheck,
   normalizeVersionManifest,
   UPDATE_MANIFEST_URL,

@@ -21,6 +21,20 @@ function loadSkippedTag(): string | null {
   }
 }
 
+/** Persisted skip shared by the banner and the About section in one document. */
+function useSkippedTag(): [string | null, (tag: string) => void] {
+  const [skippedTag, setSkippedTag] = useState<string | null>(loadSkippedTag)
+  const skip = (tag: string): void => {
+    try {
+      window.localStorage.setItem(SKIPPED_UPDATE_KEY, tag)
+    } catch {
+      // Private mode: the skip lives in memory only.
+    }
+    setSkippedTag(tag)
+  }
+  return [skippedTag, skip]
+}
+
 function releaseNotesUrl(tag: string): string {
   return `https://github.com/togudv/masterhand/releases/tag/${encodeURIComponent(tag)}`
 }
@@ -39,7 +53,7 @@ const UPGRADE_COMMAND = "docker compose -f deploy/docker-compose.yml pull && doc
  *   upstream (`latest: null`, old BFF included) shows nothing — never an error.
  */
 export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?: VersionRelease | null }) {
-  const [skippedTag, setSkippedTag] = useState<string | null>(loadSkippedTag)
+  const [skippedTag, skipVersion] = useSkippedTag()
   const [copied, setCopied] = useState(false)
 
   const serverBuild = status?.build
@@ -49,15 +63,6 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
   const updateAvailable = Boolean(latest && isNewerVersion(current, latest.version)) && skippedTag !== latest?.tag
 
   if (!staleBundle && !updateAvailable) return null
-
-  function skipVersion(tag: string): void {
-    try {
-      window.localStorage.setItem(SKIPPED_UPDATE_KEY, tag)
-    } catch {
-      // Private mode: the banner simply returns next poll.
-    }
-    setSkippedTag(tag)
-  }
 
   async function copyUpgradeCommand(): Promise<void> {
     try {
@@ -120,7 +125,7 @@ export function AboutSection() {
   const queryClient = useQueryClient()
   const status = useBffStatus(client)
   const update = useUpdate(client)
-  const [skippedTag, setSkippedTag] = useState<string | null>(loadSkippedTag)
+  const [skippedTag, skipLatestTag] = useSkippedTag()
 
   const version = status.data?.version ?? CLIENT_VERSION
   const build = status.data?.build ?? CLIENT_BUILD
@@ -134,12 +139,7 @@ export function AboutSection() {
 
   function skipLatest(): void {
     if (!latest) return
-    try {
-      window.localStorage.setItem(SKIPPED_UPDATE_KEY, latest.tag)
-    } catch {
-      // Private mode: keep it in memory only.
-    }
-    setSkippedTag(latest.tag)
+    skipLatestTag(latest.tag)
   }
 
   const lastChecked =
@@ -184,7 +184,11 @@ export function AboutSection() {
         </p>
       ) : (
         <p className="mh-body-sm mh-muted mt-2">
-          {latest ? "You are up to date." : "No update information (the server could not reach the release manifest)."}
+          {!latest
+            ? "No update information (the server could not reach the release manifest)."
+            : skippedTag === latest.tag
+              ? `Skipped ${latest.version}.`
+              : "You are up to date."}
         </p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
