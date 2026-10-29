@@ -21,9 +21,11 @@ const mockedSavePalette = savePalette as jest.Mock
 /** Drives the modal through the real theme provider, as the app does. */
 function Harness({
   client,
+  onSignOut = jest.fn(),
   onClose = jest.fn(),
 }: {
   client: ReturnType<typeof fakeClient>
+  onSignOut?: () => void
   onClose?: () => void
 }) {
   const { mode, setMode, palette, setPalette } = useTheme()
@@ -35,6 +37,7 @@ function Harness({
       onSelectMode={setMode}
       palette={palette}
       onSelectPalette={setPalette}
+      onSignOut={onSignOut}
       onClose={onClose}
     />
   )
@@ -42,7 +45,7 @@ function Harness({
 
 async function setup(
   configure?: (client: ReturnType<typeof fakeClient>) => void,
-  props: { onClose?: () => void } = {},
+  props: { onClose?: () => void; onSignOut?: () => void } = {},
 ) {
   const client = fakeClient()
   configure?.(client)
@@ -90,6 +93,15 @@ describe("SettingsModal section navigation", () => {
     await fireEvent.press(screen.getByLabelText("Back to settings"))
     expect(screen.getByLabelText("Open Providers")).toBeOnTheScreen()
     expect(screen.queryByLabelText("Critic model")).toBeNull()
+  })
+
+  it("signs out from the section list footer", async () => {
+    const onSignOut = jest.fn()
+    await setup(undefined, { onSignOut })
+
+    await fireEvent.press(screen.getByLabelText("Sign out"))
+
+    expect(onSignOut).toHaveBeenCalledTimes(1)
   })
 })
 

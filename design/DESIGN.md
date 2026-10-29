@@ -257,6 +257,14 @@ components:
     padding: "0 {spacing.md}"
     border: "1px solid {colors.hairline} (bottom)"
     height: 56px
+  bottom-nav:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.caption}"
+    padding: "2px {spacing.xxs} 0"
+    border: "1px solid {colors.hairline} (top)"
+    height: 52px
+    geometry: "mobile-only home chrome: four equal icon+label actions (Sessions, Board, Scheduler, Settings) above the bottom safe area. The active section paints its glyph in an accent-soft pill with an accent label; Settings is an action that opens the full-screen settings surface, never an active tab. The bar is home chrome only: an open chat hides it and the top-bar back chevron returns to the section"
   sidebar:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.text}"
@@ -624,7 +632,7 @@ Both themes are equal citizens. Light is the default editorial surface (warm pap
 - Editorial type pairing: **Fraunces** for display and the wordmark, **Instrument Sans** for all UI and body, **JetBrains Mono** for code — all swappable through three CSS variables
 - Organic decoration in empty rooms only: `{components.deco-blob}`, `{components.deco-dots}`, `{components.deco-hatch}`, `{components.deco-curve}`
 - Flat depth: hairlines and surface steps do the work; shadows reserved for overlays
-- Mobile-first: 44px touch targets, bottom sheets for management dialogs, drawer navigation — then progressively enhanced for desktop
+- Mobile-first: 44px touch targets, bottom sheets for management dialogs, `bottom-nav` in the native app (drawer in the web build) — then progressively enhanced for desktop
 - Blocking requests live in the flow: permission requests and agent questions render inline in the transcript (never as modals), and a multi-question form carries a tab index on top
 - The chat transcript is sacred: full width of a 768px column, zero decoration behind messages
 - Settings is a catalog, not a form: Appearance, Goal review, Web search and Providers share one panel rhythm (module head, cards, chips, ghost/danger actions)
@@ -841,7 +849,9 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`top-bar`** — 56px, canvas background, bottom hairline. Mobile: back chevron when a session is open, truncated title, status dot, overflow menu. Desktop: title, connection state, sessions count.
 
-**`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px it becomes a drawer opened from the top bar, with the overlay scrim. On desktop it collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs; the drawer keeps everything.
+**`sidebar`** — 272px canvas column, right hairline. Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. Below 768px the **web** sidebar becomes a drawer opened from the top bar, with the overlay scrim. On desktop it collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs; the drawer keeps everything. The React Native app does not use a sidebar: it navigates through `bottom-nav`.
+
+**`bottom-nav`** — mobile-only primary navigation, pinned above the bottom safe area: one canvas bar with a top `{colors.hairline}`, four equal actions (Sessions, Board, Scheduler, Settings) at ≥44px. Each action is a 20px glyph over a `{typography.caption}` label; the active section paints the glyph in an `{colors.accent-soft}` pill with an `{colors.accent}` label, inactive actions use `{colors.text-muted}`. Settings is an action (it opens the full-screen settings surface, where Sign out lives), not a section. The bar is home chrome only: an open chat takes over the screen, hides it, and the `top-bar` back chevron returns to the section the chat was opened from.
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface to `{colors.surface-muted}` with no accent bar — the row weight does the work.
 
@@ -947,7 +957,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 ### Breakpoints
 | Name | Width | Key Changes |
 |---|---|---|
-| Mobile | < 640px | Single column. Sidebar becomes a drawer. Management dialogs and side panels become bottom sheets; permission and question cards stay inline. Display hero 40px, display-lg 32px, heading-1 26px. Decoration reduced to one element per screen. |
+| Mobile | < 640px | Single column. Web sidebar becomes a drawer; the React Native app uses `bottom-nav` instead. Management dialogs and side panels become bottom sheets; permission and question cards stay inline. Display hero 40px, display-lg 32px, heading-1 26px. Decoration reduced to one element per screen. |
 | Large mobile | 640–767px | Message column takes full width with 24px gutters; submission rows gain secondary actions. |
 | Tablet | 768–1023px | Sidebar docks at 272px. Two-column form rows. Chat column centers with 32px gutters. Top-bar secondary info appears. |
 | Desktop | 1024–1279px | Preview/docs grid 3-up. Panels dock to the right at 360px. Full decoration composition on hero/login/empty states. |
@@ -959,7 +969,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Bottom sheets keep their primary action within the lower third of the screen
 
 ### Collapsing Strategy
-- **Sidebar**: drawer below 768px, opened from the top-bar workspace button; scrim uses `{components.dialog-overlay}`. On desktop it collapses to a 60px icon rail (persisted); the rail keeps the toggle, new-session and navigation actions.
+- **Sidebar**: below 768px the web sidebar becomes a drawer, opened from the top-bar workspace button; scrim uses `{components.dialog-overlay}`. On desktop it collapses to a 60px icon rail (persisted); the rail keeps the toggle, new-session and navigation actions. The React Native app replaces both with `bottom-nav` (home sections + Settings).
 - **Settings**: two-pane on desktop; on small screens a master-detail list (label + description + chevron, ≥56px rows) shows one section at a time with a back control.
 - **Chat**: same DOM — the transcript is single-column on all sizes; only gutters and the side-panel dock change
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code

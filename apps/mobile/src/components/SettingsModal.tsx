@@ -14,6 +14,7 @@ import {
   ExternalLinkIcon,
   GearIcon,
   KeyIcon,
+  LogOutIcon,
   SearchIcon,
   SparkleIcon,
   SunIcon,
@@ -60,6 +61,7 @@ export function SettingsModal({
   onSelectMode,
   palette,
   onSelectPalette,
+  onSignOut,
   onClose,
 }: {
   visible: boolean
@@ -68,6 +70,8 @@ export function SettingsModal({
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
   onSelectPalette: (palette: PaletteID) => void
+  /** Revokes the device and returns to login; the bottom nav no longer hosts it. */
+  onSignOut: () => void
   onClose: () => void
 }) {
   const styles = useThemedStyles(createStyles)
@@ -125,6 +129,16 @@ export function SettingsModal({
                 </Pressable>
               )
             })}
+
+            <Pressable
+              onPress={onSignOut}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+              style={styles.signOut}
+            >
+              <LogOutIcon size={18} color={colors.danger} />
+              <Text style={styles.signOutText}>Sign out</Text>
+            </Pressable>
           </ScrollView>
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
@@ -334,6 +348,25 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+    },
+    signOut: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      minHeight: 52,
+      marginTop: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.dangerLine,
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    signOutText: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 14,
+      fontWeight: "600",
     },
     sectionTitle: {
       color: colors.textMuted,

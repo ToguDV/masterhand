@@ -231,7 +231,13 @@ export function ChatScreen({
   return (
     <Screen>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.back} hitSlop={4}>
+        <Pressable
+          onPress={onBack}
+          style={styles.back}
+          hitSlop={4}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
