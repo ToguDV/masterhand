@@ -31,3 +31,29 @@ test("marks a session with unseen activity and clears the marker on open", async
   await page.locator(".mh-session-item:has([data-testid='session-unseen'])").click()
   await expect(page.getByTestId("session-unseen")).toHaveCount(0)
 })
+
+// The mobile shell unmounts the list while a chat is open, so App (not the
+// list) must persist the open timestamp; otherwise the marker never appears
+// or never clears.
+test("keeps the unseen marker working on the mobile session screen", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await login(page)
+  await addWorkspace(page)
+  await newSession(page)
+
+  await page.getByPlaceholder("Write a message…").fill("hello agent")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("Permission requested")).toBeVisible()
+  await page.getByRole("button", { name: "Once" }).click()
+  await expect(page.getByText("Done!")).toBeVisible()
+
+  // Back to the list: the session changed after it was opened.
+  await page.locator("header").getByRole("button", { name: "Back", exact: true }).click()
+  await expect(page.getByTestId("session-unseen")).toBeVisible({ timeout: 20_000 })
+
+  // Reopening writes the marker's timestamp; returning shows a clean row.
+  await page.locator(".mh-session-item:has([data-testid='session-unseen'])").click()
+  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
+  await page.locator("header").getByRole("button", { name: "Back", exact: true }).click()
+  await expect(page.getByTestId("session-unseen")).toHaveCount(0)
+})

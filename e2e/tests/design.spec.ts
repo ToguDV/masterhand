@@ -231,25 +231,3 @@ test("keeps later other-session questions reachable after dismissing one", async
   await dialog.getByRole("button", { name: "Not now" }).click()
   await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
 })
-
-test("opens the session list as a drawer on mobile", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 })
-  await login(page)
-  await addWorkspace(page)
-  // On mobile the list (and its new-session action) lives in the drawer.
-  await page.getByRole("button", { name: "Sessions" }).click()
-  await newSession(page)
-  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-
-  const drawer = page.locator("aside")
-  await expect(drawer).toBeHidden()
-  await page.getByRole("button", { name: "Sessions" }).click()
-  await expect(drawer).toBeVisible()
-  await expect(drawer.getByRole("button", { name: "New session" })).toBeVisible()
-  // The desktop edge handle has no use here and stays hidden.
-  await expect(drawer.getByRole("button", { name: /sidebar/i })).toBeHidden()
-
-  await drawer.getByRole("button", { name: /Untitled/ }).click()
-  await expect(drawer).toBeHidden()
-  await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
-})

@@ -625,14 +625,10 @@ body {
 }
 
 /* Collapsed sessions sidebar (desktop only): the full list and footer hide,
-   leaving a 60px icon rail. Mobile is untouched — the drawer keeps everything.
-   These rules live in `@layer utilities` on purpose: they must beat Tailwind
-   utilities (`contents`, `md:w-[272px]`) and a later layer always wins over
-   `@layer components` regardless of specificity. */
-.mh-rail {
-  display: none;
-}
-
+   leaving a 60px icon rail. Below 768px the aside is hidden and the mobile
+   bottom nav takes over. These rules live in `@layer utilities` on purpose:
+   they must beat Tailwind utilities (`md:w-[272px]`) and a later layer always
+   wins over `@layer components` regardless of specificity. */
 @media (min-width: 768px) {
   .mh-aside-collapsed {
     width: 60px;
@@ -640,10 +636,6 @@ body {
 
   .mh-aside-collapsed .mh-collapse-hide {
     display: none;
-  }
-
-  .mh-aside-collapsed .mh-rail {
-    display: flex;
   }
 }
 
@@ -1758,6 +1750,14 @@ body {
   pointer-events: none;
 }
 
+/* Mobile keeps the bottom nav on screen: lift confirmations above it. The
+   extra offset in a chat (nav hidden) is harmless. */
+@media (max-width: 767px) {
+  .mh-toast-host {
+    bottom: calc(52px + env(safe-area-inset-bottom) + 1rem);
+  }
+}
+
 .mh-empty {
   position: relative;
   overflow: hidden;
@@ -1880,6 +1880,12 @@ body {
   padding: 12px;
   border-right: 1px solid var(--mh-hairline);
   overflow-y: auto;
+}
+
+/* Mobile-only Sign out row at the end of the settings list; the desktop
+   sidebar options box keeps its own action. */
+.mh-settings__signout {
+  display: none;
 }
 
 .mh-settings__nav-item {
@@ -2119,6 +2125,8 @@ body {
   }
 
   .mh-settings[data-mobile-view="list"] .mh-settings__nav {
+    flex: 1;
+    min-height: 0;
     flex-direction: column;
     width: auto;
     border-right: 0;
@@ -2142,6 +2150,30 @@ body {
 
   .mh-settings[data-mobile-view="detail"] .mh-settings__nav {
     display: none;
+  }
+
+  /* The list view hosts the mobile-only Sign out at the end of the sections. */
+  .mh-settings[data-mobile-view="list"] .mh-settings__signout {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 56px;
+    padding: 8px 20px;
+    border: 0;
+    border-top: 1px solid var(--mh-hairline);
+    background: transparent;
+    color: var(--mh-danger);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mh-settings[data-mobile-view="list"] .mh-settings__signout:hover {
+    background: var(--mh-danger-soft);
   }
 
   .mh-settings[data-mobile-view="detail"] .mh-settings__back-header {
