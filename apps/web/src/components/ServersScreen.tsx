@@ -78,7 +78,7 @@ export function ServersScreen({
               <ServerMonogram label={connecting.label} active />
               <h1 className="mh-srv-title">Connecting to {connecting.label}</h1>
               <p className="mh-srv-sub">{serverHost(connecting.url)}</p>
-              <span className="mh-status mh-status--connecting" aria-hidden="true" />
+              <span className="mh-srv-spin" aria-hidden="true" />
               <p className="mh-srv-fine">This can take a few seconds.</p>
               <button type="button" className="mh-btn mh-btn--ghost mh-btn--sm" onClick={onCancelConnect}>
                 Cancel

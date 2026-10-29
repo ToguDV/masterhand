@@ -311,22 +311,26 @@ export default function App() {
         await candidate.auth.status()
         if (run !== generationRef.current) return
 
+        const legacyWorkspace = profile.authMode === "cookie" ? legacyWorkspaceID() : null
         const nextProfile: ServerProfile = {
           ...profile,
           authMode: profile.authMode,
           lastUsedAt: Date.now(),
           deviceID,
           expired: false,
-          ...(options.firstRun ? { lastWorkspaceID: legacyWorkspaceID() } : {}),
+          // The legacy single-server preferences belong to the serving origin
+          // (cookie profile). A remote profile must never inherit them.
+          ...(legacyWorkspace ? { lastWorkspaceID: legacyWorkspace } : {}),
         }
-        const firstProfile = registryRef.current.profiles.length === 0
         updateRegistry((previous) => ({
           profiles: previous.profiles.some((item) => item.id === nextProfile.id)
             ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
             : [...previous.profiles, nextProfile],
           activeID: nextProfile.id,
         }))
-        if (firstProfile) migrateLegacyPreferences(nextProfile.id)
+        // Idempotent: copies the old global preferences to the current-origin
+        // profile only, then removes them from the global keys.
+        if (nextProfile.authMode === "cookie") migrateLegacyPreferences(nextProfile.id)
         setActiveClient(clientFor(nextProfile))
         setQueryClient(newQueryClient())
         setPending(null)

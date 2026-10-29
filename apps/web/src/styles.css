@@ -2950,6 +2950,16 @@ body {
   font-size: 14px;
 }
 
+.mh-srv-spin {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 2px solid var(--mh-hairline-strong);
+  border-top-color: var(--mh-text-soft);
+  border-radius: 50%;
+  animation: mh-srv-spin 1s linear infinite;
+}
+
 @keyframes mh-srv-spin {
   to {
     transform: rotate(360deg);
@@ -3277,7 +3287,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .mh-status--connecting,
-  .mh-status--busy {
+  .mh-status--busy,
+  .mh-srv-spin {
     animation: none;
   }
 

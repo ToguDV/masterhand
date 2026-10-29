@@ -166,6 +166,35 @@ describe("ServersScreen (native)", () => {
     expect(onCancel).toHaveBeenCalled()
   })
 
+  it("shows the approved full-screen connecting card and cancels", async () => {
+    const onCancelConnect = jest.fn()
+    await renderScreen(
+      <ServersScreen
+        profiles={[profile()]}
+        activeID={null}
+        initialUrl=""
+        busy
+        error={null}
+        notice={null}
+        reauthProfile={null}
+        connecting={{ label: "Home", url: "https://home.example.com" }}
+        onSubmit={jest.fn()}
+        onSelect={jest.fn()}
+        onCancel={jest.fn()}
+        onCancelAdd={jest.fn()}
+        onCancelConnect={onCancelConnect}
+      />,
+    )
+
+    expect(screen.getByTestId("connecting-card")).toBeOnTheScreen()
+    expect(screen.getByText("Connecting to Home")).toBeOnTheScreen()
+    expect(screen.getByText("home.example.com")).toBeOnTheScreen()
+    expect(screen.getByText("This can take a few seconds.")).toBeOnTheScreen()
+    expect(screen.queryByTestId("server-url-input")).toBeNull()
+    await fireEvent.press(screen.getByLabelText("Cancel connecting"))
+    expect(onCancelConnect).toHaveBeenCalled()
+  })
+
   it("rejects malformed and insecure URLs", async () => {
     const onSubmit = jest.fn()
     await renderScreen(
@@ -214,6 +243,29 @@ describe("ServersScreen (native)", () => {
       />,
     )
     expect(screen.getByText("not a url")).toBeOnTheScreen()
+  })
+
+  it("asks for the password when submitting the form without one", async () => {
+    await renderScreen(
+      <ServersScreen
+        profiles={[profile()]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error={null}
+        notice={null}
+        reauthProfile={null}
+        startAdding
+        onSubmit={jest.fn()}
+        onSelect={jest.fn()}
+        onCancel={jest.fn()}
+        onCancelAdd={jest.fn()}
+      />,
+    )
+
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "https://other.example.com")
+    await fireEvent(screen.getByTestId("password-input"), "submitEditing")
+    expect(screen.getByText("Enter the password")).toBeOnTheScreen()
   })
 
   it("validates the URL and duplicate servers before submitting", async () => {

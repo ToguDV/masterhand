@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AccessibilityInfo, Animated, Easing, StyleSheet, Text, View } from "react-native"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { CheckIcon } from "./icons"
 
 export type ServerConnectionStatus = "connected" | "saved" | "expired" | "connecting"
 
@@ -73,9 +74,9 @@ export function ServerStatus({
   return (
     <View style={styles.row} accessible accessibilityLabel={label}>
       {status === "connected" ? (
-        <Text style={[styles.check, { color: colors.success, fontSize: size }]} accessibilityElementsHidden importantForAccessibility="no">
-          ✓
-        </Text>
+        <View style={styles.glyph} accessibilityElementsHidden importantForAccessibility="no">
+          <CheckIcon size={size} color={colors.success} />
+        </View>
       ) : status === "connecting" ? (
         <Animated.View
           style={[
@@ -171,10 +172,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 11,
     },
-    check: {
-      fontFamily: fonts.ui,
-      fontWeight: "700",
-      lineHeight: 16,
+    glyph: {
+      alignItems: "center",
+      justifyContent: "center",
     },
     ring: {
       borderWidth: 2,

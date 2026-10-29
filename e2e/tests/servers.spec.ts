@@ -43,6 +43,48 @@ test("adds a remote server, switches and persists the active profile", async ({ 
   await expect(page.getByRole("button", { name: "Server: Remote" })).toBeVisible()
 })
 
+test("never assigns the serving origin's legacy preferences to a remote first profile", async ({
+  page,
+  harness,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("masterhand.workspace", "ws-legacy")
+    localStorage.setItem("masterhand.autoAcceptSessions", JSON.stringify(["session-legacy"]))
+    localStorage.setItem("masterhand.lastSeenSessions", JSON.stringify({ "session-legacy": 1 }))
+  })
+  await page.goto("/")
+  await page.locator("#server-url").fill(harness.bffURL.replace("127.0.0.1", "localhost"))
+  await page.locator("#server-name").fill("Remote")
+  await page.locator("#password").fill("e2e-password")
+  await page.getByRole("button", { name: "Connect", exact: true }).click()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
+
+  const state = await page.evaluate(() => {
+    const raw = localStorage.getItem("masterhand.servers")
+    const parsed = raw ? (JSON.parse(raw) as unknown) : null
+    const profiles = Array.isArray(parsed)
+      ? parsed
+      : ((parsed as { profiles?: Array<{ lastWorkspaceID?: string | null }> } | null)?.profiles ?? [])
+    return {
+      legacyWorkspace: localStorage.getItem("masterhand.workspace"),
+      legacyAutoAccept: localStorage.getItem("masterhand.autoAcceptSessions"),
+      legacySeen: localStorage.getItem("masterhand.lastSeenSessions"),
+      lastWorkspaceID: profiles[0]?.lastWorkspaceID ?? null,
+      scopedAutoAccept: Object.keys(localStorage)
+        .filter((key) => key.startsWith("masterhand.autoAcceptSessions."))
+        .map((key) => localStorage.getItem(key)),
+    }
+  })
+
+  // The legacy keys still belong to the serving origin: they are neither
+  // copied into the remote profile nor deleted from storage.
+  expect(state.legacyWorkspace).toBe("ws-legacy")
+  expect(state.legacyAutoAccept).toBe(JSON.stringify(["session-legacy"]))
+  expect(state.legacySeen).toBe(JSON.stringify({ "session-legacy": 1 }))
+  expect(state.lastWorkspaceID).toBeNull()
+  expect(state.scopedAutoAccept).not.toContain(JSON.stringify(["session-legacy"]))
+})
+
 test("keeps a wrong password inline on the add form", async ({ page, harness }) => {
   await page.goto("/")
   await page.locator("#server-url").fill(harness.bffURL.replace("127.0.0.1", "localhost"))

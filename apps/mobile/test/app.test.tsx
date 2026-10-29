@@ -1,5 +1,5 @@
 import { Alert } from "react-native"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import { ApiError, createClient } from "@masterhand/client-core"
 import App from "../App"
 import {
@@ -194,6 +194,39 @@ describe("App", () => {
     expect(await screen.findByText(/secure storage/i)).toBeOnTheScreen()
   })
 
+  it("reconnects an expired saved profile and updates it in place", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({
+      profiles: [{ ...HOME, expired: true }],
+      activeID: "home",
+    })
+    mocked.loadServerToken.mockResolvedValue("old-token")
+    await render(<App />)
+
+    expect(await screen.findByText(/Reconnect to Home/)).toBeOnTheScreen()
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
+    expect(mocked.saveServerRegistry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profiles: [
+          expect.objectContaining({ id: "home", expired: false, device: expect.objectContaining({ id: "d1" }) }),
+        ],
+      }),
+    )
+  })
+
+  it("rejects an invalid URL before starting a connection", async () => {
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "not a url")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText(/Enter a valid URL/)).toBeOnTheScreen()
+    expect(mocked.saveServerToken).not.toHaveBeenCalled()
+  })
+
   it("switches between saved profiles without re-authentication", async () => {
     const second = {
       ...HOME,
@@ -228,6 +261,84 @@ describe("App", () => {
     await fireEvent.press(screen.getByLabelText("Server: Home"))
     await fireEvent.press(screen.getByTestId("switcher-server-studio"))
     expect(await screen.findByText(/Reconnect to Studio/)).toBeOnTheScreen()
+  })
+
+  it("ignores a login that resolves after Cancel and revokes its token", async () => {
+    let resolveLogin!: (value: unknown) => void
+    const loginDevice = jest.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveLogin = resolve
+        }),
+    )
+    const client = makeClient(loginDevice)
+    createClientMock.mockReturnValue(client)
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("server-name-input"), "Remote")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText("Connecting to Remote")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByTestId("cancel-connect"))
+    expect(screen.queryByText("Connecting to Remote")).toBeNull()
+
+    await act(async () => {
+      resolveLogin({
+        token: "late-token",
+        device: { id: "late-device", name: "Android", createdAt: 0, lastUsedAt: 0 },
+      })
+    })
+
+    await waitFor(() => expect(client.auth.revokeDevice).toHaveBeenCalledWith("late-device"))
+    expect(mocked.saveServerToken).not.toHaveBeenCalled()
+    expect(mocked.saveServerRegistry).not.toHaveBeenCalled()
+    expect(await screen.findByText("Connect your first server")).toBeOnTheScreen()
+  })
+
+  it("clears the local token when cancel lands after the device login", async () => {
+    let resolveSave!: () => void
+    mocked.saveServerToken.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve
+      }),
+    )
+    const client = makeClient()
+    createClientMock.mockReturnValue(client)
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("server-name-input"), "Remote")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+    expect(await screen.findByText("Connecting to Remote")).toBeOnTheScreen()
+
+    await fireEvent.press(screen.getByTestId("cancel-connect"))
+    await act(async () => {
+      resolveSave()
+    })
+
+    await waitFor(() => expect(client.auth.revokeDevice).toHaveBeenCalledWith("d1"))
+    expect(mocked.clearServerToken).toHaveBeenCalledWith("srv-test")
+    expect(mocked.saveServerRegistry).not.toHaveBeenCalled()
+  })
+
+  it("rejects adding a duplicate server before connecting", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Add server"))
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "https://host/")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText("This server is already saved.")).toBeOnTheScreen()
+    expect(mocked.saveServerToken).not.toHaveBeenCalled()
   })
 
   it("warns when the server list cannot be persisted", async () => {

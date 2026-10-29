@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useState, type ReactNode } from "react"
 import { ChevronDownIcon, GearIcon, PlusIcon, ServerIcon, XIcon } from "./icons"
 import { ServerAddRow, ServerMonogram, ServerRow, ServerStatusGlyph } from "./ServerBits"
+import { useModalFocus } from "./useModalFocus"
 import type { ServerProfile } from "../servers"
 
 /**
@@ -26,15 +27,6 @@ export function ServerSwitcher({
   onAdd: () => void
 }) {
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [open])
 
   const trigger =
     variant === "sidebar" ? (
@@ -106,13 +98,7 @@ export function ServerSwitcher({
         {trigger}
         {open && (
           <div className="mh-srv-mobile-scrim" onClick={() => setOpen(false)}>
-            <div
-              className="mh-srv-bottom-sheet"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Servers"
-              onClick={(event) => event.stopPropagation()}
-            >
+            <SwitcherDialog className="mh-srv-bottom-sheet" onClose={() => setOpen(false)}>
               <span className="mh-srv-bottom-sheet__grab" aria-hidden="true" />
               <div className="mh-srv-bottom-sheet__head">
                 <div>
@@ -126,7 +112,7 @@ export function ServerSwitcher({
               {list}
               <ServerAddRow onClick={() => { setOpen(false); onAdd() }} />
               <p className="mh-srv-note">Only the active server sends live updates.</p>
-            </div>
+            </SwitcherDialog>
           </div>
         )}
       </>
@@ -139,7 +125,7 @@ export function ServerSwitcher({
       {open && (
         <>
           <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setOpen(false)} />
-          <div className="mh-srv-pop" role="dialog" aria-label="Servers">
+          <SwitcherDialog className="mh-srv-pop" onClose={() => setOpen(false)}>
             <div className="mh-srv-sheet__head">
               <div>
                 <h3 className="mh-srv-title">Servers</h3>
@@ -149,7 +135,7 @@ export function ServerSwitcher({
             </div>
             {list}
             {actions}
-          </div>
+          </SwitcherDialog>
         </>
       )}
     </div>
@@ -159,4 +145,33 @@ export function ServerSwitcher({
 /** Small server glyph used by the Settings module empty state. */
 export function ServerEmptyGlyph() {
   return <ServerIcon size={22} className="text-ink-faint" />
+}
+
+/**
+ * Focus-trapped dialog surface for the switcher. Keeps Tab/Shift+Tab inside,
+ * closes on Escape and restores the trigger focus on unmount.
+ */
+function SwitcherDialog({
+  className,
+  onClose,
+  children,
+}: {
+  className: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  const ref = useModalFocus<HTMLDivElement>(onClose)
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Servers"
+      className={className}
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>
+  )
 }

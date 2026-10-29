@@ -181,7 +181,7 @@ describe("ServersScreen", () => {
     )
 
     expect(screen.getByRole("status").textContent).toContain("Connecting to Studio")
-    expect(document.querySelector(".mh-status--connecting")).toBeTruthy()
+    expect(document.querySelector(".mh-srv-spin")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     expect(onCancelConnect).toHaveBeenCalled()
   })
@@ -214,6 +214,10 @@ describe("ServerSwitcher", () => {
     fireEvent.click(screen.getByRole("button", { name: "Server: Home" }))
     fireEvent.click(screen.getByRole("button", { name: /Manage servers/ }))
     expect(onManage).toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Server: Home" }))
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Servers" }), { key: "Escape" })
+    expect(screen.queryByRole("dialog", { name: "Servers" })).toBeNull()
   })
 
   it("opens the mobile bottom sheet and adds a server", () => {

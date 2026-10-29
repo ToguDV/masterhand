@@ -41,10 +41,12 @@ export function ServersScreen({
   reauthProfile,
   startAdding = false,
   draft = null,
+  connecting = null,
   onSubmit,
   onSelect,
   onCancel,
   onCancelAdd,
+  onCancelConnect = () => {},
 }: {
   profiles: StoredServerProfile[]
   activeID: string | null
@@ -55,6 +57,7 @@ export function ServersScreen({
   reauthProfile: StoredServerProfile | null
   startAdding?: boolean
   draft?: { url: string; label: string } | null
+  connecting?: { label: string; url: string } | null
   onSubmit: (
     mode: "first-run" | "add" | "reauth",
     values: ServerFormValues,
@@ -63,6 +66,7 @@ export function ServersScreen({
   onSelect: (profile: StoredServerProfile) => void
   onCancel: () => void
   onCancelAdd: () => void
+  onCancelConnect?: () => void
 }) {
   const [adding, setAdding] = useState(startAdding)
   const firstRun = profiles.length === 0
@@ -74,6 +78,35 @@ export function ServersScreen({
   }, [startAdding])
 
   const mode = reauthProfile ? "reauth" : firstRun ? "first-run" : adding ? "add" : "list"
+
+  if (connecting) {
+    return (
+      <Screen style={styles.screen}>
+        <View style={styles.decoWrap} pointerEvents="none">
+          <Deco variant="blob" style={styles.blob} />
+          <Deco variant="dots" style={styles.dots} />
+        </View>
+        <View style={styles.connectingWrap}>
+          <View style={styles.connectingCard} testID="connecting-card">
+            <ServerMonogram label={connecting.label} active size={48} />
+            <Text style={styles.connectingTitle}>Connecting to {connecting.label}</Text>
+            <Text style={styles.connectingHost}>{hostOf(connecting.url)}</Text>
+            <ServerStatus status="connecting" size={24} showLabel={false} />
+            <Text style={styles.connectingFine}>This can take a few seconds.</Text>
+            <Pressable
+              testID="cancel-connect"
+              onPress={onCancelConnect}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel connecting"
+              style={styles.cancelButton}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Screen>
+    )
+  }
 
   return (
     <Screen style={styles.screen}>
@@ -299,6 +332,8 @@ function ServerForm({
           secureTextEntry={!reveal}
           autoCapitalize="none"
           autoCorrect={false}
+          returnKeyType="go"
+          onSubmitEditing={submit}
         />
         <Pressable
           onPress={() => setReveal((value) => !value)}
@@ -489,6 +524,54 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.warning,
       fontFamily: fonts.ui,
       fontSize: 12,
+    },
+    connectingWrap: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    },
+    connectingCard: {
+      width: "100%",
+      maxWidth: 340,
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 24,
+      paddingVertical: 28,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 24,
+      backgroundColor: colors.surface,
+    },
+    connectingTitle: {
+      color: colors.text,
+      fontFamily: fonts.display,
+      fontSize: 24,
+      fontWeight: "500",
+      textAlign: "center",
+    },
+    connectingHost: {
+      color: colors.textMuted,
+      fontFamily: fonts.mono,
+      fontSize: 12,
+      textAlign: "center",
+    },
+    connectingFine: {
+      color: colors.textFaint,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+      textAlign: "center",
+    },
+    cancelButton: {
+      minHeight: 44,
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      borderRadius: 10,
+    },
+    cancelText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
     },
     backRow: {
       flexDirection: "row",

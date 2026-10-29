@@ -146,6 +146,9 @@ function Root() {
   const [openAdd, setOpenAdd] = useState(false)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ url: string; label: string } | null>(null)
+  const [connecting, setConnecting] = useState<{ label: string; url: string } | null>(null)
+  const connectGenerationRef = useRef(0)
+  const connectInFlightRef = useRef<Promise<void> | null>(null)
   const tokenRef = useRef<string | null>(null)
   const activeRef = useRef<StoredServerProfile | null>(null)
   const registryRef = useRef(registry)
@@ -246,32 +249,73 @@ function Root() {
 
   const connect = useCallback(
     async (profile: StoredServerProfile, password: string, mode: "first-run" | "add" | "reauth") => {
+      const run = ++connectGenerationRef.current
+      const previous = connectInFlightRef.current
+      let release!: () => void
+      const inFlight = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      connectInFlightRef.current = inFlight
       setBusy(true)
       setError(null)
       setNotice(null)
+      setConnecting({ label: profile.label, url: profile.url })
+      let issued: { token: string; device: { id: string } } | null = null
+      let cancelled = false
+
       try {
+        // A cancelled attempt may still be revoking its just-issued token: let
+        // it finish before this attempt logs in, so revocation cannot invalidate
+        // the new token (same stable installID/device row).
+        if (previous) await previous
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          return
+        }
+
         const candidate = createClient({ baseUrl: profile.url, fetchImpl })
         const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
         const installID = await getOrCreateInstallID()
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          return
+        }
         const result = await candidate.auth.loginDevice(password, deviceName, installID)
+        issued = result
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          return
+        }
+
         let persistenceWarning = false
         try {
           await saveServerToken(profile.id, result.token)
         } catch {
           persistenceWarning = true
         }
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          await clearServerToken(profile.id).catch(() => {})
+          return
+        }
+
         const nextProfile: StoredServerProfile = {
           ...profile,
           device: result.device,
           expired: false,
           lastUsedAt: Date.now(),
         }
-        const previous = registryRef.current
+        const previousRegistry = registryRef.current
         const next: ServerRegistry = {
-          profiles: previous.profiles.some((item) => item.id === nextProfile.id)
-            ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
-            : [...previous.profiles, nextProfile],
+          profiles: previousRegistry.profiles.some((item) => item.id === nextProfile.id)
+            ? previousRegistry.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
+            : [...previousRegistry.profiles, nextProfile],
           activeID: nextProfile.id,
+        }
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          await clearServerToken(profile.id).catch(() => {})
+          return
         }
         persistRegistry(next)
         if (persistenceWarning) {
@@ -283,11 +327,39 @@ function Root() {
         setDraft(null)
         enter(nextProfile, result.token)
       } catch (err) {
+        if (run !== connectGenerationRef.current) {
+          cancelled = true
+          return
+        }
         setError(connectErrorMessage(err, profile.url))
         setReauthProfile(mode === "reauth" ? profile : null)
         setOpenAdd(mode === "add")
       } finally {
-        setBusy(false)
+        if (cancelled || run !== connectGenerationRef.current) {
+          if (issued) {
+            let residual = false
+            try {
+              const revokeClient = createClient({
+                baseUrl: profile.url,
+                getToken: () => issued!.token,
+                fetchImpl,
+                timeoutMs: 10_000,
+              })
+              await revokeClient.auth.revokeDevice(issued.device.id)
+            } catch {
+              residual = true
+            }
+            if (residual) {
+              setNotice("Cancelled. The just-issued device token could not be revoked.")
+            }
+          }
+        }
+        release()
+        if (connectInFlightRef.current === inFlight) connectInFlightRef.current = null
+        if (run === connectGenerationRef.current) {
+          setBusy(false)
+          setConnecting(null)
+        }
       }
     },
     [enter, persistRegistry],
@@ -504,6 +576,7 @@ function Root() {
         reauthProfile={reauthProfile}
         startAdding={openAdd}
         draft={draft}
+        connecting={connecting}
         onSubmit={submit}
         onSelect={select}
         onCancel={() => {
@@ -515,6 +588,12 @@ function Root() {
         onCancelAdd={() => {
           setOpenAdd(false)
           setDraft(null)
+          setError(null)
+        }}
+        onCancelConnect={() => {
+          connectGenerationRef.current += 1
+          setConnecting(null)
+          setBusy(false)
           setError(null)
         }}
       />
