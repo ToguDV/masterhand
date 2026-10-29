@@ -231,3 +231,27 @@ describe("SessionsScreen sections (#172)", () => {
     expect(onSelectSection).toHaveBeenCalledWith("sessions")
   })
 })
+
+describe("SessionsScreen board section (#164)", () => {
+  it("renders the board slot instead of the session list", async () => {
+    await setup({ section: "board", board: <Text>Board stub</Text>, scheduler: <Text>Scheduler stub</Text> })
+
+    expect(screen.getByText("Board stub")).toBeOnTheScreen()
+    expect(screen.queryByText("Standard session")).toBeNull()
+  })
+
+  it("notifies when the board tab is pressed", async () => {
+    const onSelectSection = jest.fn()
+    await setup({ onSelectSection, board: <Text>Board stub</Text> })
+
+    await fireEvent.press(screen.getByLabelText("Show board"))
+    expect(onSelectSection).toHaveBeenCalledWith("board")
+  })
+
+  it("hides the board tab when no board slot is provided", async () => {
+    await setup({ scheduler: <Text>Scheduler stub</Text> })
+
+    expect(screen.queryByLabelText("Show board")).toBeNull()
+    expect(screen.getByLabelText("Show scheduler")).toBeOnTheScreen()
+  })
+})

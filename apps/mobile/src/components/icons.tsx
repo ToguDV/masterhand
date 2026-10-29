@@ -108,6 +108,11 @@ export function ClockIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="time-outline" size={size} color={color} />
 }
 
+/** Board section (kanban columns), mirroring the web rail. */
+export function KanbanIcon({ size = 16, color }: IconProps) {
+  return <MaterialCommunityIcons name="view-column" size={size} color={color} />
+}
+
 /** Run & preview trigger (replaces the text label, issue #120). */
 export function PlayIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="play" size={size} color={color} />

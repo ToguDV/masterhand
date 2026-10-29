@@ -54,6 +54,7 @@ export function ChoiceModal({
             {filtered.map((option) => (
               <Pressable
                 key={option.value}
+                testID={`choice-${option.value}`}
                 style={[styles.option, option.value === selected && styles.optionSelected]}
                 onPress={() => {
                   onSelect(option.value)

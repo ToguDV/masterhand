@@ -33,8 +33,10 @@ import {
   type Session,
 } from "@masterhand/client-core"
 import { SafeAreaProvider } from "react-native-safe-area-context"
+import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { LoginScreen } from "./src/screens/LoginScreen"
 import { SessionsScreen, type HomeSection } from "./src/screens/SessionsScreen"
+import { BoardScreen } from "./src/screens/BoardScreen"
 import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { SchedulerSection } from "./src/components/SchedulerSection"
@@ -98,14 +100,16 @@ export default function App() {
   })
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
-        <ThemedSystemBars />
-        <QueryClientProvider client={queryClient}>
-          <Root />
-        </QueryClientProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
+          <ThemedSystemBars />
+          <QueryClientProvider client={queryClient}>
+            <Root />
+          </QueryClientProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }
 
@@ -687,6 +691,16 @@ function AuthenticatedApp({
           onDeleteSession={(id) => void deleteSession(id)}
           section={section}
           onSelectSection={setSection}
+          board={
+            <BoardScreen
+              client={client}
+              workspaceID={workspaceID}
+              workspaces={workspaces}
+              onSelectWorkspace={switchWorkspace}
+              onAddWorkspace={addWorkspace}
+              onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
+            />
+          }
           scheduler={<SchedulerSection client={client} onOpenSession={setSessionID} />}
         />
       )}

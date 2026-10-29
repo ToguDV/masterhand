@@ -1,5 +1,9 @@
 import { useState, type ReactNode } from "react"
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native"
+// The section slot scrolls through the gesture-handler ScrollView so a card
+// drag (long-press pan, #164) negotiates with scrolling instead of fighting
+// it; the stock ScrollView would scroll and drag at once on device.
+import { ScrollView } from "react-native-gesture-handler"
 import {
   directoryName,
   filterSessions,
@@ -14,12 +18,12 @@ import {
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { ClockIcon, GearIcon, LogOutIcon } from "../components/icons"
+import { ClockIcon, GearIcon, KanbanIcon, LogOutIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /** Home sections, mirroring the web sidebar rail (Sessions/Board/Scheduler). */
-export type HomeSection = "sessions" | "scheduler"
+export type HomeSection = "sessions" | "board" | "scheduler"
 
 export function SessionsScreen({
   sessions,
@@ -42,6 +46,7 @@ export function SessionsScreen({
   onDeleteSession,
   section = "sessions",
   onSelectSection = () => {},
+  board = null,
   scheduler = null,
 }: {
   sessions: Session[]
@@ -67,6 +72,8 @@ export function SessionsScreen({
   /** Active home section (web rail parity); the switcher shows when a slot is provided. */
   section?: HomeSection
   onSelectSection?: (section: HomeSection) => void
+  /** Kanban board rendered in place of the session list. */
+  board?: ReactNode
   /** Scheduler task manager rendered in place of the session list. */
   scheduler?: ReactNode
 }) {
@@ -120,7 +127,7 @@ export function SessionsScreen({
         </View>
       </View>
 
-      {scheduler ? (
+      {board || scheduler ? (
         <View style={styles.tabs}>
           <Pressable
             onPress={() => onSelectSection("sessions")}
@@ -131,20 +138,36 @@ export function SessionsScreen({
           >
             <Text style={[styles.tabText, section === "sessions" && styles.tabTextActive]}>Sessions</Text>
           </Pressable>
-          <Pressable
-            onPress={() => onSelectSection("scheduler")}
-            accessibilityRole="button"
-            accessibilityLabel="Show scheduler"
-            accessibilityState={{ selected: section === "scheduler" }}
-            style={[styles.tab, section === "scheduler" && styles.tabActive]}
-          >
-            <ClockIcon size={14} color={section === "scheduler" ? colors.canvas : colors.textMuted} />
-            <Text style={[styles.tabText, section === "scheduler" && styles.tabTextActive]}>Scheduler</Text>
-          </Pressable>
+          {board ? (
+            <Pressable
+              onPress={() => onSelectSection("board")}
+              accessibilityRole="button"
+              accessibilityLabel="Show board"
+              accessibilityState={{ selected: section === "board" }}
+              style={[styles.tab, section === "board" && styles.tabActive]}
+            >
+              <KanbanIcon size={14} color={section === "board" ? colors.canvas : colors.textMuted} />
+              <Text style={[styles.tabText, section === "board" && styles.tabTextActive]}>Board</Text>
+            </Pressable>
+          ) : null}
+          {scheduler ? (
+            <Pressable
+              onPress={() => onSelectSection("scheduler")}
+              accessibilityRole="button"
+              accessibilityLabel="Show scheduler"
+              accessibilityState={{ selected: section === "scheduler" }}
+              style={[styles.tab, section === "scheduler" && styles.tabActive]}
+            >
+              <ClockIcon size={14} color={section === "scheduler" ? colors.canvas : colors.textMuted} />
+              <Text style={[styles.tabText, section === "scheduler" && styles.tabTextActive]}>Scheduler</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
-      {section === "scheduler" && scheduler ? (
+      {section === "board" && board ? (
+        <ScrollView contentContainerStyle={styles.list}>{board}</ScrollView>
+      ) : section === "scheduler" && scheduler ? (
         <ScrollView contentContainerStyle={styles.list}>{scheduler}</ScrollView>
       ) : (
       <>
