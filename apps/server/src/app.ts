@@ -81,6 +81,7 @@ import {
   worktreeDir,
   type WorktreeManager,
 } from "./worktrees.js"
+import { createUpdateChecker } from "./update.js"
 import {
   createWorkspaceDir,
   engineReadGuardRules,
@@ -1492,6 +1493,15 @@ export function createApp(deps: AppDeps): CreatedApp {
   const api = new Hono()
   api.use("*", requireAuth(config, deps.store))
 
+  // Release manifest behind `GET /api/update` (#131): one cached fetch per
+  // TTL window, shared by every client poll; failures degrade to
+  // `latest: null`, never to an error state.
+  const checkForUpdate = createUpdateChecker({
+    manifestUrl: config.updateManifestUrl,
+    cacheMs: config.updateCacheMs,
+    fetchImpl,
+  })
+
   api.get("/status", async (c) => {
     const previewStatus = {
       enabled: config.previewEnabled,
@@ -1515,11 +1525,20 @@ export function createApp(deps: AppDeps): CreatedApp {
       })
       if (!health.ok) {
         const error = health.status === 401 || health.status === 403 ? "unauthorized" : "unreachable"
-        return c.json({ ok: true, opencode: { healthy: false, error }, preview: previewStatus, storage })
+        return c.json({
+          ok: true,
+          version: config.version,
+          build: config.build,
+          opencode: { healthy: false, error },
+          preview: previewStatus,
+          storage,
+        })
       }
       const data = (await health.json()) as { version?: string }
       return c.json({
         ok: true,
+        version: config.version,
+        build: config.build,
         opencode: { healthy: true, version: data.version },
         preview: previewStatus,
         storage,
@@ -1527,11 +1546,18 @@ export function createApp(deps: AppDeps): CreatedApp {
     } catch {
       return c.json({
         ok: true,
+        version: config.version,
+        build: config.build,
         opencode: { healthy: false, error: "unreachable" },
         preview: previewStatus,
         storage,
       })
     }
+  })
+
+  api.get("/update", async (c) => {
+    const result = await checkForUpdate()
+    return c.json({ latest: result.latest, checkedAt: result.checkedAt })
   })
 
   api.get("/events", (c) => {

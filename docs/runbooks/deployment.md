@@ -182,6 +182,14 @@ Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` reg
 
 Only one BFF may own a data directory: a second instance refuses to boot with `another instance owns <dataDir>` (exit 1). Never delete `masterhand.lock` by hand while an instance might be alive — a crashed holder's lock is reclaimed automatically on the next boot.
 
+### Releases and in-app updates (#131)
+
+Every `v*` tag builds and publishes `ghcr.io/togudv/masterhand:<version>` plus `:latest` (`.github/workflows/release.yml`), with the tag version and the commit SHA baked in as `MASTERHAND_VERSION`/`MASTERHAND_BUILD` (served by `/api/status`, shown in Settings > About). The release also attaches a `version.json` manifest (`{ version, tag, publishedAt, notes }`); the BFF fetches it through `GET /api/update` and web/desktop show an update notice (upstream release) plus a stale-bundle notice (the loaded page's build differs from the running server — Reload to pick it up).
+
+- **Pin vs `latest`:** `deploy/docker-compose.yml` defaults to `MASTERHAND_VERSION=latest`. Pin a version in `deploy/.env` (`MASTERHAND_VERSION=0.2.0`) to upgrade on purpose: the notice tells you a release exists, you decide when `pull && up -d` runs. v1 keeps the BFF update manual (`docker compose pull && up -d`, copyable from the notice); the one-click updater is deferred (#134).
+- **Backup before upgrading:** back up `masterhand_data` (SQLite) before every upgrade — `npm run backup` on the host or a volume snapshot. Migrations are forward-only: an older image cannot read a database a newer one already migrated.
+- **Privacy note:** update checks never leave your infrastructure per device. Only the BFF fetches `version.json` from GitHub (once per 12 min cache window, 10 s timeout); clients read the result from `GET /api/update`. Override the manifest location with `UPDATE_MANIFEST_URL` (e.g. a local mirror) when the host has no GitHub access — an unreachable manifest degrades to "no notice", never an error.
+
 ## 8. Disk headroom, logs and resource limits
 
 Agent workspaces, opencode data and `masterhand_data` (SQLite + audit) share the host disk, so a runaway build or `npm install` can fill it and take SQLite and git down with it. Compose already bounds the most common causes:

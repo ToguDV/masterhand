@@ -73,6 +73,8 @@ export const queryKeys = {
   websearchSources: ["websearchSources"] as const,
   /** Default web search source stored in MasterHand's config file. */
   websearch: ["websearch"] as const,
+  /** Latest published release served by `GET /api/update` (#131). */
+  update: ["update"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -81,6 +83,25 @@ export function useBffStatus(client: Client, refetchInterval: number | false = f
     queryFn: () => client.auth.status(),
     retry: false,
     refetchInterval,
+  })
+}
+
+/**
+ * Latest published release (#131). Hourly poll with refocus: the BFF caches
+ * the manifest behind its own TTL, so this is cheap. Never errors — the
+ * client maps every failure to `{ latest: null }` (no notice).
+ */
+export const UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000
+
+export function useUpdate(client: Client, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.update,
+    queryFn: () => client.api.update.check(),
+    enabled,
+    refetchInterval: UPDATE_POLL_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    staleTime: UPDATE_POLL_INTERVAL_MS,
+    retry: false,
   })
 }
 

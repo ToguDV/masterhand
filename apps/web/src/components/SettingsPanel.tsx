@@ -4,6 +4,7 @@ import { useModalFocus } from "./useModalFocus"
 import {
   ArrowLeftIcon,
   ChevronRightIcon,
+  CircleIcon,
   KeyIcon,
   SearchIcon,
   SparkleIcon,
@@ -14,6 +15,7 @@ import {
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
+import { AboutSection } from "./UpdateNotice"
 import type { ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
@@ -21,13 +23,14 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
   { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
-type SettingsModule = "appearance" | "goal" | "websearch" | "providers"
+type SettingsModule = "appearance" | "goal" | "websearch" | "providers" | "about"
 
 const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: ComponentType<IconProps> }> = [
   { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
   { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
+  { id: "about", label: "About", desc: "Version and updates", icon: CircleIcon },
 ]
 
 /**
@@ -130,6 +133,8 @@ export function SettingsDialog({
               <GoalReviewSection />
             ) : module === "websearch" ? (
               <WebSearchSection />
+            ) : module === "about" ? (
+              <AboutSection />
             ) : (
               <ProvidersSection />
             )}

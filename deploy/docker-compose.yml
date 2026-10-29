@@ -2,11 +2,19 @@ name: masterhand
 
 services:
   masterhand:
+    # Published images (`ghcr.io/togudv/masterhand:<version>`) are pulled by
+    # `docker compose pull`; the local `build:` stays for contributors working
+    # from source (`up --build`). Pin `MASTERHAND_VERSION` in deploy/.env to
+    # upgrade on purpose instead of floating on `latest` — see
+    # docs/runbooks/deployment.md §Releases.
+    image: ghcr.io/togudv/masterhand:${MASTERHAND_VERSION:-latest}
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
       args:
         CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.9.3}
+        MASTERHAND_VERSION: ${MASTERHAND_VERSION:-0.1.0}
+        MASTERHAND_BUILD: ${MASTERHAND_BUILD:-dev}
     restart: unless-stopped
     # Bound container logs: a long agent turn can produce gigabytes, and the
     # host disk is shared with SQLite and the workspaces.

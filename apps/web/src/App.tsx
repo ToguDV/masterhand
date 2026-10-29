@@ -7,6 +7,7 @@ import {
   formIsQuestion,
   invalidateOnReconnect,
   isAmbiguousError,
+  queryKeys,
   reconcileForms,
   reconcilePermissions,
   rootSessions,
@@ -18,6 +19,7 @@ import {
   useSessions,
   useSessionStatuses,
   useWorkspaces,
+  useUpdate,
   type CreateWorkspaceInput,
   type FormAnswer,
   type FormInfo,
@@ -42,6 +44,7 @@ import { SchedulerPanel } from "./components/SchedulerPanel"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SettingsDialog } from "./components/SettingsPanel"
+import { UpdateNotices } from "./components/UpdateNotice"
 import { useToast } from "./components/Toast"
 import {
   ArrowLeftIcon,
@@ -262,6 +265,9 @@ export default function App() {
   )
 
   const statusQuery = useBffStatus(client, authed ? 15_000 : false)
+  // Release manifest (#131): hourly poll plus refetch on window focus (see
+  // `useUpdate`). Advisory only — an unknown upstream shows no notice.
+  const updateQuery = useUpdate(client, authed === true)
 
   useEffect(() => {
     if (statusQuery.isSuccess) {
@@ -853,7 +859,17 @@ export default function App() {
   }
 
   if (!authed) {
-    return <Login onSuccess={() => setAuthed(true)} />
+    return (
+      <Login
+        onSuccess={() => {
+          setAuthed(true)
+          // The pre-login status poll answered 401: refetch now so the health,
+          // storage and release banners reflect the authed server immediately
+          // instead of waiting for the next 15 s poll (#131).
+          void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+        }}
+      />
+    )
   }
 
   // The sidebar holds one section list at a time: a 60px icon rail when
@@ -1019,6 +1035,8 @@ export default function App() {
           the database and git may fail.
         </div>
       )}
+
+      {authed && <UpdateNotices status={statusQuery.data} latest={updateQuery.data?.latest} />}
 
       {choiceForm ? null : waitingForm ? (
         <button
