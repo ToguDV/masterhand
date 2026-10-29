@@ -2505,9 +2505,6 @@ kbd {
    Ported from apps/web/src/styles.css so the gallery matches the app.
    -------------------------------------------------------------------------- */
 
-.mh-rail {
-  display: none;
-}
 .mh-btn--quiet {
   width: 36px;
   min-height: 36px;
@@ -3036,11 +3033,6 @@ kbd {
 
   .mh-aside-collapsed .mh-collapse-hide {
       display: none;
-    }
-
-
-  .mh-aside-collapsed .mh-rail {
-      display: flex;
     }
 
 

@@ -8,10 +8,12 @@ test("settings uses a vertical list with back navigation on mobile", async ({ pa
   await login(page)
   await addWorkspace(page)
 
-  // On mobile Settings lives in the sessions drawer.
-  await page.getByRole("button", { name: "Sessions" }).click()
-  const drawer = page.locator("aside")
-  await drawer.getByRole("button", { name: "Settings" }).click()
+  // Settings is a bottom-nav action on mobile; Sign out lives at the end of
+  // the section list (the desktop options box is not rendered here).
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Settings", exact: true })
+    .click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
 
   // The list comes first: every section is reachable, no content is shown.
@@ -19,6 +21,7 @@ test("settings uses a vertical list with back navigation on mobile", async ({ pa
   await expect(dialog.getByRole("button", { name: "Goal review" })).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Web search" })).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Providers" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Sign out" })).toBeVisible()
   await expect(dialog.getByText("Theme color")).toBeHidden()
 
   // Opening a section shows only that section.

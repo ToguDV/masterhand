@@ -37,11 +37,11 @@ test("the sidebar rail switches the main view between sessions and board", async
   await expect(aside.getByRole("button", { name: "Collapse sidebar" })).toBeVisible()
 })
 
-test("selecting sessions opens the most recent session", async ({ page }) => {
+test("the mobile bottom nav switches sections without a drawer", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await login(page)
   await addWorkspace(page)
-  await page.locator("header").getByRole("button", { name: "Sessions" }).click()
+  // The Sessions screen is the list itself: no hamburger, no drawer.
   await newSession(page)
   await expect(page.getByPlaceholder("Write a message…")).toBeVisible()
   // A single back arrow: session open means it closes the session.
@@ -49,20 +49,19 @@ test("selecting sessions opens the most recent session", async ({ page }) => {
   await expect(header.getByRole("button", { name: /Back/ })).toHaveCount(1)
   // Back leaves the session list intact with nothing open.
   await page.getByRole("button", { name: "Back", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "No session open" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
 
-  const drawer = page.locator("aside")
-  // Home lives behind the header <: go back, then open the drawer on it.
-  await header.getByRole("button", { name: "Back to sections" }).click()
-  await header.getByRole("button", { name: "Sessions" }).click()
-  await drawer.getByRole("button", { name: "Board", exact: true }).click()
-  // The drawer covers the overlay center: dismiss it tapping past its edge.
-  await page.locator(".mh-overlay").click({ position: { x: 380, y: 400 } })
-  await expect(page.locator("main").getByRole("heading", { name: "Board" })).toBeVisible()
+  const nav = page.getByRole("navigation", { name: "Main navigation" })
+  await nav.getByRole("button", { name: "Board", exact: true }).click()
+  const main = page.locator("main")
+  await expect(
+    main.getByRole("heading", { name: "Board" }).or(main.locator('div[aria-label="Board columns"]')),
+  ).toBeVisible()
 
-  await header.getByRole("button", { name: "Back to sections" }).click()
-  await header.getByRole("button", { name: "Sessions" }).click()
-  await drawer.getByRole("button", { name: "Sessions", exact: true }).click()
+  await nav.getByRole("button", { name: "Sessions", exact: true }).click()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
+  // The list opens on demand; selecting the session restores the chat URL.
+  await main.getByRole("button", { name: /Untitled/ }).click()
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).not.toBeNull()
 })
 

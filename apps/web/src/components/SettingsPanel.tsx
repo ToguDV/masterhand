@@ -6,6 +6,7 @@ import {
   ChevronRightIcon,
   CircleIcon,
   KeyIcon,
+  LogOutIcon,
   SearchIcon,
   SparkleIcon,
   SunIcon,
@@ -44,12 +45,15 @@ export function SettingsDialog({
   onSelectMode,
   palette,
   onSelectPalette,
+  onSignOut,
   onClose,
 }: {
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
   onSelectPalette: (palette: PaletteID) => void
+  /** Mobile only: the bottom nav no longer hosts a sign-out action. */
+  onSignOut: () => void
   onClose: () => void
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onClose)
@@ -120,6 +124,19 @@ export function SettingsDialog({
               )
             })}
           </nav>
+
+          {/* Mobile only: the bottom nav has no sign-out action, so it lives
+              at the end of the settings list (the desktop options box keeps
+              its own Sign out). Hidden in the detail view. */}
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="mh-settings__signout"
+            aria-label="Sign out"
+          >
+            <LogOutIcon size={16} />
+            Sign out
+          </button>
 
           <div className="mh-settings__content scroll-thin">
             {module === "appearance" ? (
