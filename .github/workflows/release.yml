@@ -370,9 +370,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download the release assets
+      # Download only the release artifacts. Docker buildx also uploads
+      # `.dockerbuild` cache artifacts; they are not release assets and are not
+      # extractable zips, so downloading "all artifacts" fails.
+      - name: Download version.json
         uses: actions/download-artifact@v4
         with:
+          name: version-json
+          path: assets/version-json
+
+      - name: Download the Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: assets/android-apk
+
+      - name: Download the desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
           path: assets
 
       - name: Create the GitHub release

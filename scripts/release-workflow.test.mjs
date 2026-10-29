@@ -92,6 +92,13 @@ test("the publish job attaches the desktop channel files", () => {
   assert.match(release, /gh release upload "\$TAG" --clobber "\$file"/)
 })
 
+test("publish downloads only release artifacts, never buildx cache artifacts", () => {
+  assert.match(release, /name: version-json\s*\n\s*path: assets\/version-json/)
+  assert.match(release, /name: android-apk\s*\n\s*path: assets\/android-apk/)
+  assert.match(release, /pattern: desktop-\*/)
+  assert.doesNotMatch(release, /Download the release assets/)
+})
+
 test("the updater sidecar image is published next to the server image", () => {
   assert.match(release, /context: deploy\s*\n\s*file: deploy\/updater\.Dockerfile/s)
   assert.match(release, /\$\{\{ env\.IMAGE \}\}-updater:\$\{\{ steps\.meta\.outputs\.version \}\}/)
