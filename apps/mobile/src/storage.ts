@@ -1,8 +1,28 @@
 import * as SecureStore from "expo-secure-store"
+import { defaultServerLabel, normalizeServerLabel, normalizeServerUrl } from "@masterhand/client-core"
 
 export interface StoredDevice {
   id: string
   name: string
+}
+
+/** One saved server profile. Tokens live under their own SecureStore keys. */
+export interface StoredServerProfile {
+  id: string
+  label: string
+  /** Canonical origin (https unless loopback). */
+  url: string
+  /** Device row returned by this server's `POST /api/devices`. */
+  device: StoredDevice | null
+  lastWorkspaceID: string | null
+  lastSessionID: string | null
+  expired: boolean
+  lastUsedAt: number
+}
+
+export interface ServerRegistry {
+  profiles: StoredServerProfile[]
+  activeID: string | null
 }
 
 export interface SessionPreferences {
@@ -21,6 +41,11 @@ const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
 const THEME_KEY = "masterhand.theme"
 const PALETTE_KEY = "masterhand.palette"
+
+/** Named differently from the legacy single-server keys so migration is unambiguous. */
+const SERVERS_KEY = "masterhand.servers.v2"
+const ACTIVE_SERVER_KEY = "masterhand.servers.active"
+const TOKEN_PREFIX = "masterhand.server.token."
 
 export function loadServerUrl(): Promise<string | null> {
   return SecureStore.getItemAsync(SERVER_URL_KEY)
@@ -61,11 +86,11 @@ export function clearDevice(): Promise<void> {
 }
 
 /** `crypto.randomUUID` where the runtime has it, with a small dependency-free fallback. */
-function newInstallID(): string {
+function newID(prefix = "id"): string {
   const crypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
   const uuid = crypto?.randomUUID?.()
   if (uuid) return uuid
-  return `install-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`
 }
 
 let installIDInFlight: Promise<string> | null = null
@@ -78,7 +103,7 @@ async function resolveInstallID(): Promise<string> {
     stored = await SecureStore.getItemAsync(INSTALL_ID_KEY)
   } catch {
     // Never write here: a transient read failure must not overwrite a real id.
-    ephemeralInstallID ??= newInstallID()
+    ephemeralInstallID ??= newID("install")
     return ephemeralInstallID
   }
   if (stored) {
@@ -87,7 +112,7 @@ async function resolveInstallID(): Promise<string> {
   }
   // Reuse an id that only lived in memory (previous write failure) instead of
   // registering a new device on every retry.
-  const created = ephemeralInstallID ?? newInstallID()
+  const created = ephemeralInstallID ?? newID("install")
   try {
     await SecureStore.setItemAsync(INSTALL_ID_KEY, created)
     ephemeralInstallID = null
@@ -111,6 +136,134 @@ export function getOrCreateInstallID(): Promise<string> {
   return installIDInFlight
 }
 
+function normalizeProfile(value: unknown): StoredServerProfile | null {
+  if (!value || typeof value !== "object") return null
+  const input = value as Partial<StoredServerProfile>
+  if (typeof input.id !== "string" || !input.id) return null
+  if (typeof input.url !== "string") return null
+  const normalized = normalizeServerUrl(input.url)
+  if (!normalized.ok) return null
+  const url = normalized.server.url
+  const device =
+    input.device &&
+    typeof input.device === "object" &&
+    typeof (input.device as StoredDevice).id === "string" &&
+    typeof (input.device as StoredDevice).name === "string"
+      ? { id: (input.device as StoredDevice).id, name: (input.device as StoredDevice).name }
+      : null
+  return {
+    id: input.id.slice(0, 128),
+    label: normalizeServerLabel(input.label, url),
+    url,
+    device,
+    lastWorkspaceID: typeof input.lastWorkspaceID === "string" ? input.lastWorkspaceID : null,
+    lastSessionID: typeof input.lastSessionID === "string" ? input.lastSessionID : null,
+    expired: input.expired === true,
+    lastUsedAt: typeof input.lastUsedAt === "number" ? input.lastUsedAt : 0,
+  }
+}
+
+function parseRegistry(raw: string | null): ServerRegistry | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { profiles?: unknown; activeID?: unknown }
+    const profiles = Array.isArray(parsed.profiles)
+      ? parsed.profiles
+          .map(normalizeProfile)
+          .filter((profile): profile is StoredServerProfile => profile !== null)
+      : []
+    const activeID =
+      typeof parsed.activeID === "string" && profiles.some((profile) => profile.id === parsed.activeID)
+        ? parsed.activeID
+        : null
+    return { profiles, activeID }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Reads the registry, migrating the legacy single-server keys exactly once.
+ * Legacy keys are deleted only after the new entries are written, so a failed
+ * migration cannot lose the session.
+ */
+export async function loadServerRegistry(): Promise<ServerRegistry> {
+  const stored = parseRegistry(await SecureStore.getItemAsync(SERVERS_KEY))
+  if (stored) return stored
+
+  const [legacyUrl, legacyToken, legacyDevice, legacyWorkspace, legacyAutoAccept] = await Promise.all([
+    SecureStore.getItemAsync(SERVER_URL_KEY),
+    SecureStore.getItemAsync(TOKEN_KEY).catch(() => null),
+    loadDevice().catch(() => null),
+    SecureStore.getItemAsync(WORKSPACE_KEY).catch(() => null),
+    SecureStore.getItemAsync(AUTO_ACCEPT_KEY).catch(() => null),
+  ])
+  const normalized = legacyUrl ? normalizeServerUrl(legacyUrl) : null
+  if (!legacyUrl || !normalized || !normalized.ok) return { profiles: [], activeID: null }
+
+  const profile: StoredServerProfile = {
+    id: newID("srv"),
+    label: defaultServerLabel(normalized.server),
+    url: normalized.server.url,
+    device: legacyDevice,
+    lastWorkspaceID: legacyWorkspace,
+    lastSessionID: null,
+    expired: false,
+    lastUsedAt: Date.now(),
+  }
+  const registry: ServerRegistry = {
+    profiles: [profile],
+    // A saved URL without a token keeps the profile for re-auth but is not
+    // auto-connected: the app opens the Servers screen.
+    activeID: legacyToken ? profile.id : null,
+  }
+  await SecureStore.setItemAsync(SERVERS_KEY, JSON.stringify(registry))
+  await SecureStore.setItemAsync(ACTIVE_SERVER_KEY, registry.activeID ?? "")
+  if (legacyToken) await SecureStore.setItemAsync(`${TOKEN_PREFIX}${profile.id}`, legacyToken)
+  if (legacyAutoAccept) {
+    await SecureStore.setItemAsync(`${AUTO_ACCEPT_KEY}.${profile.id}`, legacyAutoAccept).catch(() => {})
+  }
+  // Only now is it safe to forget the legacy keys.
+  await Promise.all([
+    SecureStore.deleteItemAsync(SERVER_URL_KEY),
+    SecureStore.deleteItemAsync(TOKEN_KEY),
+    SecureStore.deleteItemAsync(DEVICE_KEY),
+    SecureStore.deleteItemAsync(WORKSPACE_KEY),
+    SecureStore.deleteItemAsync(AUTO_ACCEPT_KEY),
+  ])
+  return registry
+}
+
+export async function saveServerRegistry(registry: ServerRegistry): Promise<void> {
+  await SecureStore.setItemAsync(SERVERS_KEY, JSON.stringify(registry))
+  if (registry.activeID) await SecureStore.setItemAsync(ACTIVE_SERVER_KEY, registry.activeID)
+  else await SecureStore.deleteItemAsync(ACTIVE_SERVER_KEY)
+}
+
+export function newServerID(): string {
+  return newID("srv")
+}
+
+export function loadServerToken(profileID: string): Promise<string | null> {
+  return SecureStore.getItemAsync(`${TOKEN_PREFIX}${profileID}`)
+}
+
+export function saveServerToken(profileID: string, token: string): Promise<void> {
+  return SecureStore.setItemAsync(`${TOKEN_PREFIX}${profileID}`, token)
+}
+
+export async function clearServerToken(profileID: string): Promise<void> {
+  await SecureStore.deleteItemAsync(`${TOKEN_PREFIX}${profileID}`)
+}
+
+export function loadAutoAcceptSessionsFor(profileID: string): Promise<string[]> {
+  return readIDList(`${AUTO_ACCEPT_KEY}.${profileID}`)
+}
+
+export function saveAutoAcceptSessionsFor(profileID: string, ids: string[]): Promise<void> {
+  return SecureStore.setItemAsync(`${AUTO_ACCEPT_KEY}.${profileID}`, JSON.stringify(ids))
+}
+
 export function loadWorkspaceID(): Promise<string | null> {
   return SecureStore.getItemAsync(WORKSPACE_KEY)
 }
@@ -121,6 +274,17 @@ export function saveWorkspaceID(id: string): Promise<void> {
 
 export function clearWorkspaceID(): Promise<void> {
   return SecureStore.deleteItemAsync(WORKSPACE_KEY)
+}
+
+async function readIDList(key: string): Promise<string[]> {
+  const raw = await SecureStore.getItemAsync(key)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
+  } catch {
+    return []
+  }
 }
 
 /** Stored theme choice, or null when unset/corrupted (the system decides). */
@@ -161,14 +325,7 @@ export function clearPalette(): Promise<void> {
 }
 
 export async function loadAutoAcceptSessions(): Promise<string[]> {
-  const raw = await SecureStore.getItemAsync(AUTO_ACCEPT_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
-  } catch {
-    return []
-  }
+  return readIDList(AUTO_ACCEPT_KEY)
 }
 
 export function saveAutoAcceptSessions(ids: string[]): Promise<void> {

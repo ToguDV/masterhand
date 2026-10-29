@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query"
 import {
   ApiError,
+  RequestTimeoutError,
   createEventHandler,
   createSessionMarker,
   formIsQuestion,
   invalidateOnReconnect,
   isAmbiguousError,
-  queryKeys,
+  isMixedContentBlocked,
+  normalizeServerLabel,
+  normalizeServerUrl,
   reconcileForms,
   reconcilePermissions,
   rootSessions,
+  serverAuthMode,
   sessionCreateMarker,
   shouldAutoAccept,
   useBffStatus,
@@ -27,7 +31,7 @@ import {
   type PermissionResponse,
   type Session,
 } from "@masterhand/client-core"
-import { client } from "./client"
+import { client, createServerClient, setActiveClient } from "./client"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
 import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
 import { BoardPanel, BoardView } from "./components/BoardView"
@@ -36,15 +40,16 @@ import { BrandMark } from "./components/BrandMark"
 import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
-import { Login } from "./components/Login"
 import { BranchPicker } from "./components/BranchPicker"
 import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { SchedulerPanel } from "./components/SchedulerPanel"
+import { ServerSwitcher } from "./components/ServerSwitcher"
+import { ServersScreen, type ConnectingServer } from "./components/ServersScreen"
 import { SessionList } from "./components/SessionList"
 import { SessionToolbar } from "./components/SessionToolbar"
-import { SettingsDialog } from "./components/SettingsPanel"
+import { SettingsDialog, type SettingsModule } from "./components/SettingsPanel"
 import { UpdateNotices } from "./components/UpdateNotice"
 import { useToast } from "./components/Toast"
 import { WorkspacePicker } from "./components/WorkspacePicker"
@@ -64,11 +69,31 @@ import type { AnsweredPermission } from "./components/PermissionCard"
 import { useThemeMode } from "./theme"
 import { useMediaQuery, MOBILE_MEDIA_QUERY } from "./useMediaQuery"
 import { markSessionSeen } from "./sessionSeen"
+import {
+  clearServerToken,
+  createProfile,
+  findProfileByUrl,
+  getOrCreateInstallID,
+  loadRegistry,
+  loadScopedJSON,
+  loadServerToken,
+  migrateLegacyPreferences,
+  removeProfile,
+  saveRegistry,
+  saveScopedJSON,
+  saveServerToken,
+  webDeviceName,
+  type ServerProfile,
+  type ServerRegistry,
+} from "./servers"
 
-const WORKSPACE_STORAGE_KEY = "masterhand.workspace"
-const AUTO_ACCEPT_STORAGE_KEY = "masterhand.autoAcceptSessions"
+const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
 const SIDEBAR_SECTION_KEY = "mh-sidebar-section"
+
+function autoAcceptKey(profileID: string): string {
+  return `${AUTO_ACCEPT_KEY}.${profileID}`
+}
 
 /** Sections of the sidebar. Sessions is first; board and scheduler follow. */
 type SidebarSection = "sessions" | "board" | "scheduler"
@@ -77,24 +102,44 @@ type SidebarSection = "sessions" | "board" | "scheduler"
 const AUTO_ACCEPT_MAX_ATTEMPTS = 3
 const AUTO_ACCEPT_RETRY_DELAYS_MS = [1_000, 3_000]
 
-function initialWorkspaceID(): string | null {
-  const fromUrl = new URLSearchParams(window.location.search).get("workspace")
-  if (fromUrl) return fromUrl
+function initialWorkspaceID(profile: ServerProfile, useUrlState: boolean): string | null {
+  if (useUrlState) {
+    const fromUrl = new URLSearchParams(window.location.search).get("workspace")
+    if (fromUrl) return fromUrl
+  }
+  return profile.lastWorkspaceID
+}
+
+function initialSessionID(profile: ServerProfile, useUrlState: boolean): string | null {
+  if (useUrlState) {
+    const fromUrl = new URLSearchParams(window.location.search).get("session")
+    if (fromUrl) return fromUrl
+  }
+  return profile.lastSessionID
+}
+
+function loadAutoAcceptSessions(profileID: string): string[] {
+  const parsed = loadScopedJSON<unknown>(autoAcceptKey(profileID), [])
+  return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
+}
+
+function legacyWorkspaceID(): string | null {
   try {
-    return window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
+    return window.localStorage.getItem("masterhand.workspace")
   } catch {
     return null
   }
 }
 
-function loadAutoAcceptSessions(): string[] {
-  try {
-    const raw = window.localStorage.getItem(AUTO_ACCEPT_STORAGE_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
-  } catch {
-    return []
-  }
+function clearUrlState(): void {
+  const url = new URL(window.location.href)
+  url.searchParams.delete("session")
+  url.searchParams.delete("workspace")
+  window.history.replaceState(null, "", url)
+}
+
+function newQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: 1 } } })
 }
 
 /** Compact free-space label for the low-disk banner. */
@@ -104,21 +149,620 @@ function formatFreeBytes(bytes: number | null): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(0, Math.round(bytes / 1024 ** 2))} MB`
 }
 
+function connectErrorMessage(
+  error: unknown,
+  url: string,
+  mode: "first-run" | "add" | "reauth" | "saved",
+): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Wrong password. Try again."
+    if (error.status === 429) return "Too many attempts; wait 15 minutes."
+    if (error.status === 400) {
+      return mode === "reauth" ? "Enter the password." : "Check the server URL and password."
+    }
+    if (error.status === 404) return "This server does not expose the MasterHand API (404)."
+    return `The server answered with error ${error.status}.`
+  }
+  if (error instanceof RequestTimeoutError) {
+    return "The server did not answer in time. Check the URL and try again."
+  }
+  let host = url
+  try {
+    host = new URL(url).host
+  } catch {
+    // keep the raw value
+  }
+  return `Could not reach ${host}. Check the URL, that the server is running, and that it allows cross-origin token requests (an older BFF may need an update).`
+}
+
+type RootPhase = "loading" | "servers" | "connecting" | "app" | "boot-error"
+
+/**
+ * Multi-server root (ADR-39): owns the profile registry, the one active
+ * client/QueryClient and the connect/switch/disconnect/remove lifecycle. The
+ * authenticated tree is keyed by profile id, so switching unmounts the old
+ * server's UI, stops its SSE stream and starts from a clean cache.
+ */
 export default function App() {
+  const themeMode = useThemeMode()
+  const toast = useToast()
+  const [registry, setRegistry] = useState<ServerRegistry>(() => loadRegistry())
+  const registryRef = useRef(registry)
+  registryRef.current = registry
+  const [phase, setPhase] = useState<RootPhase>("loading")
+  const [pending, setPending] = useState<ConnectingServer | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [reauthProfile, setReauthProfile] = useState<ServerProfile | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [bootError, setBootError] = useState<string | null>(null)
+  const [useUrlState, setUseUrlState] = useState(true)
+  const [openAdd, setOpenAdd] = useState(false)
+  const [draft, setDraft] = useState<{ url: string; label: string } | null>(null)
+  const [queryClient, setQueryClient] = useState<QueryClient>(newQueryClient)
+  const generationRef = useRef(0)
+  const bootedRef = useRef(false)
+  const expireRef = useRef<(profileID: string) => void>(() => {})
+  // Drop the previous server's cache (and its gc timers) on switch/unmount.
+  useEffect(() => () => queryClient.clear(), [queryClient])
+
+  const activeProfile =
+    phase === "app" ? (registry.profiles.find((item) => item.id === registry.activeID) ?? null) : null
+
+  const updateRegistry = useCallback((updater: (previous: ServerRegistry) => ServerRegistry) => {
+    setRegistry((previous) => {
+      const next = updater(previous)
+      saveRegistry(next)
+      return next
+    })
+  }, [])
+
+  const clientFor = useCallback((profile: ServerProfile) => {
+    return createServerClient({
+      baseUrl: profile.url,
+      ...(profile.authMode === "device"
+        ? { getToken: () => loadServerToken(profile.id) }
+        : {}),
+      onUnauthorized: () => expireRef.current(profile.id),
+    })
+  }, [])
+
+  const expire = useCallback(
+    (profileID: string) => {
+      // A late 401 from a replaced client must not tear down the new server.
+      if (registryRef.current.activeID !== profileID) return
+      const profile = registryRef.current.profiles.find((item) => item.id === profileID) ?? null
+      if (profile?.authMode === "device") clearServerToken(profileID)
+      updateRegistry((previous) => ({
+        profiles: previous.profiles.map((item) =>
+          item.id === profileID ? { ...item, expired: true } : item,
+        ),
+        activeID: null,
+      }))
+      generationRef.current += 1
+      setQueryClient(newQueryClient())
+      setReauthProfile(profile ? { ...profile, expired: true } : null)
+      setConnectError(profile ? `${profile.label}'s saved session expired. Enter its password again.` : null)
+      setPending(null)
+      setBusy(false)
+      setPhase("servers")
+    },
+    [updateRegistry],
+  )
+  expireRef.current = expire
+
+  /**
+   * Connects one profile with a password (add/re-auth) or its saved
+   * credential (switch/restore). Never logs or persists the password.
+   */
+  const connectProfile = useCallback(
+    async (
+      profile: ServerProfile,
+      options: {
+        password?: string
+        restoreURL: boolean
+        firstRun?: boolean
+        formMode?: "first-run" | "add" | "reauth"
+      },
+    ) => {
+      const run = ++generationRef.current
+      const targetUrl = profile.url
+      const mode: "first-run" | "add" | "reauth" | "saved" =
+        options.formMode ?? (options.firstRun ? "first-run" : "saved")
+      setConnectError(null)
+      setNotice(null)
+      setReauthProfile(null)
+      setPending({ label: profile.label, url: profile.url })
+      setPhase("connecting")
+      setBusy(true)
+
+      const candidate = createServerClient({
+        baseUrl: targetUrl,
+        ...(profile.authMode === "device"
+          ? { getToken: () => loadServerToken(profile.id) }
+          : {}),
+      })
+      let deviceID = profile.deviceID
+
+      try {
+        if (options.password) {
+          if (profile.authMode === "cookie") {
+            await candidate.auth.login(options.password)
+          } else {
+            const result = await candidate.auth.loginDevice(
+              options.password,
+              webDeviceName(),
+              getOrCreateInstallID(),
+            )
+            saveServerToken(profile.id, result.token)
+            deviceID = result.device.id
+          }
+        } else if (profile.authMode === "device" && !loadServerToken(profile.id)) {
+          if (run !== generationRef.current) return
+          setBusy(false)
+          setPending(null)
+          setReauthProfile(profile)
+          setPhase("servers")
+          return
+        }
+
+        // Verify the saved/issued credential before entering the app: a 401
+        // here means "wrong password"/"expired", never a half-connected UI.
+        await candidate.auth.status()
+        if (run !== generationRef.current) return
+
+        const nextProfile: ServerProfile = {
+          ...profile,
+          authMode: profile.authMode,
+          lastUsedAt: Date.now(),
+          deviceID,
+          expired: false,
+          ...(options.firstRun ? { lastWorkspaceID: legacyWorkspaceID() } : {}),
+        }
+        const firstProfile = registryRef.current.profiles.length === 0
+        updateRegistry((previous) => ({
+          profiles: previous.profiles.some((item) => item.id === nextProfile.id)
+            ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
+            : [...previous.profiles, nextProfile],
+          activeID: nextProfile.id,
+        }))
+        if (firstProfile) migrateLegacyPreferences(nextProfile.id)
+        setActiveClient(clientFor(nextProfile))
+        setQueryClient(newQueryClient())
+        setPending(null)
+        setBusy(false)
+        setUseUrlState(options.restoreURL)
+        setOpenAdd(false)
+        setDraft(null)
+        if (!options.restoreURL) clearUrlState()
+        setPhase("app")
+      } catch (error) {
+        if (run !== generationRef.current) return
+        // A failed device login must not leave a token around.
+        if (options.password && profile.authMode === "device") clearServerToken(profile.id)
+        setBusy(false)
+        setPending(null)
+        setConnectError(connectErrorMessage(error, targetUrl, mode))
+        const expiredSession = error instanceof ApiError && error.status === 401
+        setOpenAdd(mode === "add")
+        setReauthProfile(
+          mode === "reauth" || (mode === "saved" && (profile.expired || expiredSession))
+            ? profile
+            : null,
+        )
+        setPhase("servers")
+      }
+    },
+    [clientFor, updateRegistry],
+  )
+
+  const retryBoot = useCallback(async () => {
+    const current = registryRef.current
+    setBootError(null)
+    setPhase("loading")
+    if (current.profiles.length === 0) {
+      const probe = createServerClient({ baseUrl: window.location.origin })
+      try {
+        await probe.auth.status()
+        const profile = createProfile({
+          url: window.location.origin,
+          authMode: "cookie",
+        })
+        profile.lastWorkspaceID = legacyWorkspaceID()
+        migrateLegacyPreferences(profile.id)
+        const next = { profiles: [profile], activeID: profile.id }
+        saveRegistry(next)
+        setRegistry(next)
+        setActiveClient(clientFor(profile))
+        setQueryClient(newQueryClient())
+        setUseUrlState(true)
+        setPhase("app")
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          setPhase("servers")
+        } else {
+          setBootError(
+            error instanceof ApiError
+              ? `The server answered with error ${error.status}. Check the server logs and try again.`
+              : "Could not reach the MasterHand server. Check the URL and that it is running.",
+          )
+          setPhase("boot-error")
+        }
+      }
+      return
+    }
+    const active = current.profiles.find((item) => item.id === current.activeID)
+    if (!active) {
+      setPhase("servers")
+      return
+    }
+    await connectProfile(active, { restoreURL: true })
+  }, [clientFor, connectProfile])
+
+  // Boot: migrate an existing same-origin cookie session into a profile, or
+  // restore the last active profile. A 401 sends the user to the Servers
+  // screen (re-auth prompt); other errors keep the old retry screen.
+  useEffect(() => {
+    if (bootedRef.current) return
+    bootedRef.current = true
+    void retryBoot()
+  }, [retryBoot])
+
+  useEffect(() => {
+    document.title =
+      phase === "app" && activeProfile
+        ? `${activeProfile.label} · MasterHand`
+        : phase === "servers"
+          ? "Servers · MasterHand"
+          : "MasterHand"
+  }, [phase, activeProfile])
+
+  const handleSubmit = useCallback(
+    async (
+      mode: "first-run" | "add" | "reauth",
+      submission: { url: string; label: string; password: string },
+      profile?: ServerProfile,
+    ) => {
+      setConnectError(null)
+      setDraft({ url: submission.url, label: submission.label })
+      const normalized = normalizeServerUrl(submission.url)
+      if (!normalized.ok) {
+        setConnectError("Enter a valid server URL")
+        setPhase("servers")
+        return
+      }
+      if (isMixedContentBlocked(normalized.server.url)) {
+        setConnectError(
+          "This page is served over https and cannot reach an http server. Use https:// for remote servers.",
+        )
+        setPhase("servers")
+        return
+      }
+      const target =
+        mode === "reauth" && profile
+          ? profile
+          : createProfile({
+              url: normalized.server.url,
+              label: submission.label,
+              authMode: serverAuthMode(normalized.server.url),
+            })
+      const duplicate = findProfileByUrl(registryRef.current.profiles, normalized.server.url)
+      if (mode !== "reauth" && duplicate && duplicate.id !== target.id) {
+        setConnectError("This server is already saved.")
+        setPhase("servers")
+        return
+      }
+      await connectProfile(target, {
+        password: submission.password,
+        restoreURL: false,
+        firstRun: mode === "first-run" && registryRef.current.profiles.length === 0,
+        formMode: mode,
+      })
+    },
+    [connectProfile],
+  )
+
+  const handleSelect = useCallback(
+    (profile: ServerProfile) => {
+      setConnectError(null)
+      setNotice(null)
+      if (profile.authMode === "device" && !loadServerToken(profile.id)) {
+        setReauthProfile(profile)
+        setPhase("servers")
+        return
+      }
+      void connectProfile(profile, { restoreURL: false })
+    },
+    [connectProfile],
+  )
+
+  const handleSwitch = useCallback(
+    (profile: ServerProfile) => {
+      if (profile.id === registryRef.current.activeID) return
+      setConnectError(null)
+      setNotice(null)
+      if (profile.authMode === "device" && !loadServerToken(profile.id)) {
+        setReauthProfile(profile)
+        setPhase("servers")
+        return
+      }
+      void connectProfile(profile, { restoreURL: false })
+    },
+    [connectProfile],
+  )
+
+  const disconnectProfile = useCallback(
+    async (profile: ServerProfile) => {
+      let residual = false
+      const target = createServerClient({
+        baseUrl: profile.url,
+        ...(profile.authMode === "device"
+          ? { getToken: () => loadServerToken(profile.id) }
+          : {}),
+        timeoutMs: 10_000,
+      })
+      if (profile.authMode === "cookie") {
+        await target.auth.logout().catch(() => {})
+      } else {
+        const token = loadServerToken(profile.id)
+        if (token && profile.deviceID) {
+          try {
+            await target.auth.revokeDevice(profile.deviceID)
+          } catch {
+            residual = true
+          }
+        }
+        clearServerToken(profile.id)
+      }
+      const wasActive = registryRef.current.activeID === profile.id
+      updateRegistry((previous) => ({
+        profiles: previous.profiles.map((item) =>
+          item.id === profile.id ? { ...item, expired: false } : item,
+        ),
+        activeID: wasActive ? null : previous.activeID,
+      }))
+      if (wasActive) {
+        generationRef.current += 1
+        setQueryClient(newQueryClient())
+        setPending(null)
+        setBusy(false)
+        setReauthProfile(null)
+        setConnectError(null)
+        setPhase("servers")
+        if (residual) {
+          setNotice("Disconnected. The device token could not be revoked; revoke it from that server's settings.")
+        }
+      } else if (residual) {
+        toast("Disconnected. The device token could not be revoked.")
+      }
+    },
+    [toast, updateRegistry],
+  )
+
+  const removeServer = useCallback(
+    async (profile: ServerProfile) => {
+      let residual = false
+      if (profile.authMode === "cookie") {
+        const target = createServerClient({ baseUrl: profile.url, timeoutMs: 10_000 })
+        await target.auth.logout().catch(() => {})
+      } else {
+        const token = loadServerToken(profile.id)
+        if (token && profile.deviceID) {
+          const target = createServerClient({
+            baseUrl: profile.url,
+            getToken: () => token,
+            timeoutMs: 10_000,
+          })
+          try {
+            await target.auth.revokeDevice(profile.deviceID)
+          } catch {
+            residual = true
+          }
+        }
+        clearServerToken(profile.id)
+      }
+      const wasActive = registryRef.current.activeID === profile.id
+      updateRegistry((previous) => ({
+        profiles: removeProfile(previous.profiles, profile.id),
+        activeID: wasActive ? null : previous.activeID,
+      }))
+      if (wasActive) {
+        generationRef.current += 1
+        setQueryClient(newQueryClient())
+        setPending(null)
+        setBusy(false)
+        setReauthProfile(null)
+        setConnectError(null)
+        setPhase("servers")
+      }
+      toast(
+        residual
+          ? "Server removed. Its device token could not be revoked — revoke it from that server's settings."
+          : "Server removed",
+      )
+    },
+    [toast, updateRegistry],
+  )
+
+  const renameServer = useCallback(
+    (profile: ServerProfile, label: string) => {
+      updateRegistry((previous) => ({
+        ...previous,
+        profiles: previous.profiles.map((item) =>
+          item.id === profile.id ? { ...item, label: normalizeServerLabel(label, item.url) } : item,
+        ),
+      }))
+    },
+    [updateRegistry],
+  )
+
+  const updateProfileState = useCallback(
+    (profileID: string, patch: Partial<Pick<ServerProfile, "lastWorkspaceID" | "lastSessionID">>) => {
+      updateRegistry((previous) => {
+        let changed = false
+        const profiles = previous.profiles.map((item) => {
+          if (item.id !== profileID) return item
+          const next = { ...item }
+          if ("lastWorkspaceID" in patch && patch.lastWorkspaceID !== item.lastWorkspaceID) {
+            next.lastWorkspaceID = patch.lastWorkspaceID ?? null
+            changed = true
+          }
+          if ("lastSessionID" in patch && patch.lastSessionID !== item.lastSessionID) {
+            next.lastSessionID = patch.lastSessionID ?? null
+            changed = true
+          }
+          return changed ? next : item
+        })
+        return changed ? { ...previous, profiles } : previous
+      })
+    },
+    [updateRegistry],
+  )
+
+  const openServersAdd = useCallback(() => {
+    setReauthProfile(null)
+    setConnectError(null)
+    setNotice(null)
+    setDraft(null)
+    setOpenAdd(true)
+    // Adding is done from the Servers screen so credential entry is never
+    // mixed with the active app's mutable state.
+    generationRef.current += 1
+    setPending(null)
+    setBusy(false)
+    setPhase("servers")
+  }, [])
+
+  const activeProfileID = activeProfile?.id ?? null
+  const onProfileStateActive = useCallback(
+    (patch: Partial<Pick<ServerProfile, "lastWorkspaceID" | "lastSessionID">>) => {
+      if (activeProfileID) updateProfileState(activeProfileID, patch)
+    },
+    [activeProfileID, updateProfileState],
+  )
+
+  if (phase === "loading") {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-canvas">
+        <p className="animate-pulse text-sm text-ink-muted">Loading…</p>
+      </main>
+    )
+  }
+
+  if (phase === "boot-error") {
+    return (
+      <main className="mh-login">
+        <Deco variant="blob" />
+        <Deco variant="dots" />
+        <div className="mh-login-card">
+          <div className="mh-brand">
+            <BrandMark />
+            <span className="mh-brand__name">MasterHand</span>
+          </div>
+          <p className="mh-body-sm text-ink-muted">{bootError}</p>
+          <button type="button" onClick={() => void retryBoot()} className="mh-btn mh-btn--primary w-full">
+            Retry
+          </button>
+        </div>
+      </main>
+    )
+  }
+
+  if (phase === "servers" || phase === "connecting") {
+    return (
+      <ServersScreen
+        profiles={registry.profiles}
+        activeID={registry.activeID}
+        initialUrl={window.location.origin}
+        busy={busy}
+        error={connectError}
+        notice={notice}
+        connecting={pending}
+        reauthProfile={reauthProfile}
+        startAdding={openAdd}
+        draft={draft}
+        onSubmit={(mode, submission, profile) => void handleSubmit(mode, submission, profile)}
+        onSelect={handleSelect}
+        onCancel={() => {
+          setOpenAdd(false)
+          setDraft(null)
+          setReauthProfile(null)
+          setConnectError(null)
+        }}
+        onCancelConnect={() => {
+          generationRef.current += 1
+          setPending(null)
+          setBusy(false)
+          setOpenAdd(false)
+          setConnectError(null)
+          setPhase("servers")
+        }}
+      />
+    )
+  }
+
+  if (!activeProfile) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-canvas">
+        <p className="text-sm text-ink-muted">No server selected.</p>
+      </main>
+    )
+  }
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthenticatedApp
+        key={activeProfile.id}
+        profile={activeProfile}
+        profiles={registry.profiles}
+        useUrlState={useUrlState}
+        themeMode={themeMode}
+        onSwitchServer={handleSwitch}
+        onDisconnect={() => void disconnectProfile(activeProfile)}
+        onSessionExpired={() => expire(activeProfile.id)}
+        onDisconnectServer={(profile) => void disconnectProfile(profile)}
+        onRemoveServer={(profile) => void removeServer(profile)}
+        onRenameServer={renameServer}
+        onAddServer={openServersAdd}
+        onProfileState={onProfileStateActive}
+      />
+    </QueryClientProvider>
+  )
+}
+
+function AuthenticatedApp({
+  profile,
+  profiles,
+  useUrlState,
+  themeMode,
+  onSwitchServer,
+  onDisconnect,
+  onSessionExpired,
+  onDisconnectServer,
+  onRemoveServer,
+  onRenameServer,
+  onAddServer,
+  onProfileState,
+}: {
+  profile: ServerProfile
+  profiles: ServerProfile[]
+  useUrlState: boolean
+  themeMode: ReturnType<typeof useThemeMode>
+  onSwitchServer: (profile: ServerProfile) => void
+  onDisconnect: () => void
+  onSessionExpired: () => void
+  onDisconnectServer: (profile: ServerProfile) => void
+  onRemoveServer: (profile: ServerProfile) => void
+  onRenameServer: (profile: ServerProfile, label: string) => void
+  onAddServer: () => void
+  onProfileState: (patch: Partial<Pick<ServerProfile, "lastWorkspaceID" | "lastSessionID">>) => void
+}) {
   const queryClient = useQueryClient()
   const toast = useToast()
-  // App-level so the system listener keeps working with the panel closed.
-  const themeMode = useThemeMode()
-  const [authed, setAuthed] = useState<boolean | null>(null)
-  const [statusFailed, setStatusFailed] = useState(false)
-  // Read inside the status effect without re-running it: a stale 401 from
-  // before login must not sign the user out after a successful login.
-  const authedRef = useRef(authed)
-  authedRef.current = authed
-  const [sessionID, setSessionID] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get("session"),
+  const [sessionID, setSessionID] = useState<string | null>(() => initialSessionID(profile, useUrlState))
+  const [workspaceID, setWorkspaceID] = useState<string | null>(() =>
+    initialWorkspaceID(profile, useUrlState),
   )
-  const [workspaceID, setWorkspaceID] = useState<string | null>(initialWorkspaceID)
   const [addingWorkspace, setAddingWorkspace] = useState(false)
   const [removeWorkspaceID, setRemoveWorkspaceID] = useState<string | null>(null)
   const [removingWorkspace, setRemovingWorkspace] = useState(false)
@@ -138,8 +782,11 @@ export default function App() {
   const [dismissedChoiceFormIDs, setDismissedChoiceFormIDs] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
-  const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(loadAutoAcceptSessions)
+  const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>(() =>
+    loadAutoAcceptSessions(profile.id),
+  )
   const [panel, setPanel] = useState<"audit" | "run" | "settings" | null>(null)
+  const [settingsModule, setSettingsModule] = useState<SettingsModule | undefined>(undefined)
   const [menuOpen, setMenuOpen] = useState(false)
   // Mobile shell (<768px): bottom nav instead of the sidebar drawer. The two
   // shells mount different panels, so the split is JS-driven; mounting both
@@ -207,11 +854,18 @@ export default function App() {
   const knownSessionIDsRef = useRef<Set<string>>(new Set())
   const sessionIDRef = useRef(sessionID)
   sessionIDRef.current = sessionID
+  // Restore the exact workspace/session on the next visit to this profile.
+  useEffect(() => {
+    onProfileState({ lastSessionID: sessionID })
+  }, [sessionID, onProfileState])
+  useEffect(() => {
+    onProfileState({ lastWorkspaceID: workspaceID })
+  }, [workspaceID, onProfileState])
   // Persist "seen" on every open path (list, creation, banners, restored URL).
   // App owns it because the mobile shell unmounts the session list in a chat.
   useEffect(() => {
-    if (sessionID) markSessionSeen(sessionID)
-  }, [sessionID])
+    if (sessionID) markSessionSeen(sessionID, profile.id)
+  }, [sessionID, profile.id])
   // Session graph mirror for the event handler: a permission raised in a
   // subagent (or a Goal Mode critic/judge) resolves its auto-accept inheritance
   // against the latest list without resubscribing the stream.
@@ -275,32 +929,24 @@ export default function App() {
     [],
   )
 
-  const statusQuery = useBffStatus(client, authed ? 15_000 : false)
+  const statusQuery = useBffStatus(client, 15_000)
   // Release manifest (#131): hourly poll plus refetch on window focus (see
   // `useUpdate`). Advisory only — an unknown upstream shows no notice.
-  const updateQuery = useUpdate(client, authed === true)
+  const updateQuery = useUpdate(client, true)
 
   useEffect(() => {
-    if (statusQuery.isSuccess) {
-      setStatusFailed(false)
-      setAuthed(true)
-    } else if (statusQuery.error) {
-      if (statusQuery.error instanceof ApiError) {
-        if (statusQuery.error.status === 401) {
-          setStatusFailed(false)
-          setAuthed(false)
-        } else if (authedRef.current === null) {
-          // Any other HTTP error (5xx, unexpected 4xx): terminal, so show a
-          // retry screen instead of leaving the app on "Loading…" forever.
-          setStatusFailed(true)
-        }
-      } else {
-        setStatusFailed(false)
-        setBanner("Could not reach the MasterHand server")
-        setAuthed(false)
+    if (statusQuery.isSuccess) return
+    if (!statusQuery.error) return
+    if (statusQuery.error instanceof ApiError) {
+      if (statusQuery.error.status === 401) {
+        onSessionExpired()
+        return
       }
+      setBanner(`The server answered with error ${statusQuery.error.status}`)
+    } else {
+      setBanner("Could not reach the MasterHand server")
     }
-  }, [statusQuery.isSuccess, statusQuery.error])
+  }, [statusQuery.isSuccess, statusQuery.error, onSessionExpired])
 
   const handleEvent = useMemo(
     () =>
@@ -358,12 +1004,6 @@ export default function App() {
     if (id) url.searchParams.set("workspace", id)
     else url.searchParams.delete("workspace")
     window.history.replaceState(null, "", url)
-    try {
-      if (id) window.localStorage.setItem(WORKSPACE_STORAGE_KEY, id)
-      else window.localStorage.removeItem(WORKSPACE_STORAGE_KEY)
-    } catch {
-      // storage may be unavailable (private mode)
-    }
   }, [])
 
   /**
@@ -382,7 +1022,7 @@ export default function App() {
     [workspaceID, selectWorkspace, openSession],
   )
 
-  const workspacesQuery = useWorkspaces(client, authed === true)
+  const workspacesQuery = useWorkspaces(client, true)
   const workspaces = workspacesQuery.data ?? []
 
   useEffect(() => {
@@ -393,8 +1033,8 @@ export default function App() {
 
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   const workspacePath = workspace?.path ?? null
-  const directoriesQuery = useSessionDirectories(client, authed === true, workspaceID)
-  const sessionsQuery = useSessions(client, authed === true, 10_000, workspaceID)
+  const directoriesQuery = useSessionDirectories(client, true, workspaceID)
+  const sessionsQuery = useSessions(client, true, 10_000, workspaceID)
 
   // `permission.asked` and `form.created` events are lost while disconnected
   // and never replayed. On connect (and once workspaces load) reconcile against
@@ -444,24 +1084,20 @@ export default function App() {
   }, [queryClient, syncPending])
 
   useEventStream(client, {
-    enabled: authed === true,
+    enabled: true,
     onEvent: handleEvent,
     onConnectionChange: setConnected,
     onConnect: handleConnect,
   })
 
   useEffect(() => {
-    if (authed !== true || !workspacesQuery.data) return
+    if (!workspacesQuery.data) return
     void syncPending()
-  }, [authed, workspacesQuery.data, syncPending])
+  }, [workspacesQuery.data, syncPending])
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(AUTO_ACCEPT_STORAGE_KEY, JSON.stringify(autoAcceptSessions))
-    } catch {
-      // storage may be unavailable (private mode)
-    }
-  }, [autoAcceptSessions])
+    saveScopedJSON(autoAcceptKey(profile.id), autoAcceptSessions)
+  }, [autoAcceptSessions, profile.id])
 
   const toggleAutoAccept = useCallback((id: string, on: boolean) => {
     setAutoAcceptSessions((prev) =>
@@ -470,7 +1106,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (authed !== true) return
     function refresh(): void {
       if (document.visibilityState !== "visible") return
       void queryClient.invalidateQueries({ queryKey: ["messages"] })
@@ -483,13 +1118,13 @@ export default function App() {
       document.removeEventListener("visibilitychange", refresh)
       window.removeEventListener("online", refresh)
     }
-  }, [authed, queryClient])
+  }, [queryClient])
 
-  const statusesQuery = useSessionStatuses(client, authed === true, connected)
+  const statusesQuery = useSessionStatuses(client, true, connected)
 
   useEffect(() => {
-    if (sessionsQuery.error instanceof ApiError && sessionsQuery.error.status === 401) setAuthed(false)
-  }, [sessionsQuery.error])
+    if (sessionsQuery.error instanceof ApiError && sessionsQuery.error.status === 401) onSessionExpired()
+  }, [sessionsQuery.error, onSessionExpired])
 
   const sessions = useMemo(
     () => [...(sessionsQuery.data ?? [])].sort((a, b) => b.time.updated - a.time.updated),
@@ -613,18 +1248,16 @@ export default function App() {
     ...new Set(permissions.filter((permission) => permission.sessionID !== sessionID).map((p) => p.sessionID)),
   ]
 
-  const handleLogout = useCallback(async () => {
-    await client.auth.logout().catch(() => {})
-    queryClient.clear()
-    setPermissions([])
-    setAnsweredPermissions([])
-    setForms([])
-    setAnsweredForms([])
+  const handleLogout = useCallback(() => {
     setPanel(null)
     setMenuOpen(false)
-    setAuthed(false)
-    openSession(null)
-  }, [queryClient, openSession])
+    onDisconnect()
+  }, [onDisconnect])
+
+  const openSettings = useCallback((module?: SettingsModule) => {
+    setSettingsModule(module)
+    setPanel("settings")
+  }, [])
 
   /**
    * Walks the session list for a marker after an ambiguous create. Bounded
@@ -856,56 +1489,6 @@ export default function App() {
     }
   }
 
-  if (statusFailed) {
-    return (
-      <main className="mh-login">
-        <Deco variant="blob" />
-        <Deco variant="dots" />
-        <div className="mh-login-card">
-          <div className="mh-brand">
-            <BrandMark />
-            <span className="mh-brand__name">MasterHand</span>
-          </div>
-          <p className="mh-body-sm text-ink-muted">
-            The server answered with an error. Check the server logs and try again.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setStatusFailed(false)
-              void statusQuery.refetch()
-            }}
-            className="mh-btn mh-btn--primary w-full"
-          >
-            Retry
-          </button>
-        </div>
-      </main>
-    )
-  }
-
-  if (authed === null) {
-    return (
-      <main className="flex min-h-dvh items-center justify-center bg-canvas">
-        <p className="animate-pulse text-sm text-ink-muted">Loading…</p>
-      </main>
-    )
-  }
-
-  if (!authed) {
-    return (
-      <Login
-        onSuccess={() => {
-          setAuthed(true)
-          // The pre-login status poll answered 401: refetch now so the health,
-          // storage and release banners reflect the authed server immediately
-          // instead of waiting for the next 15 s poll (#131).
-          void queryClient.invalidateQueries({ queryKey: queryKeys.status })
-        }}
-      />
-    )
-  }
-
   // The desktop sidebar holds one section list at a time: a 60px icon rail
   // when collapsed, or the panel (sections home / active section + options
   // box) when expanded. The mobile shell has no sidebar; the bottom nav
@@ -978,6 +1561,16 @@ export default function App() {
                 ? selected.title || "Untitled"
                 : "Sessions"}
         </h1>
+        {isMobile && (
+          <ServerSwitcher
+            profiles={profiles}
+            activeProfile={profile}
+            variant="mobile"
+            onSwitch={onSwitchServer}
+            onManage={() => openSettings("servers")}
+            onAdd={onAddServer}
+          />
+        )}
         {connected ? (
           <span
             className="mh-dot mh-dot--connected"
@@ -1063,7 +1656,7 @@ export default function App() {
         </div>
       )}
 
-      {authed && <UpdateNotices status={statusQuery.data} latest={updateQuery.data?.latest} />}
+      <UpdateNotices status={statusQuery.data} latest={updateQuery.data?.latest} />
 
       {choiceForm ? null : waitingForm ? (
         <button
@@ -1129,9 +1722,18 @@ export default function App() {
                   <ClockIcon size={18} />
                 </button>
                 <div className="mt-auto flex flex-col items-center gap-1">
+                  <ServerSwitcher
+                    profiles={profiles}
+                    activeProfile={profile}
+                    variant="sidebar"
+                    collapsed
+                    onSwitch={onSwitchServer}
+                    onManage={() => openSettings("servers")}
+                    onAdd={onAddServer}
+                  />
                   <button
                     type="button"
-                    onClick={() => setPanel("settings")}
+                    onClick={() => openSettings()}
                     className="mh-btn mh-btn--quiet"
                     aria-label="Settings"
                     title="Settings"
@@ -1142,8 +1744,8 @@ export default function App() {
                     type="button"
                     onClick={() => void handleLogout()}
                     className="mh-btn mh-btn--quiet"
-                    aria-label="Sign out"
-                    title="Sign out"
+                    aria-label="Disconnect"
+                    title="Disconnect"
                   >
                     <LogOutIcon size={16} />
                   </button>
@@ -1201,6 +1803,7 @@ export default function App() {
                     hasWorkspace={Boolean(workspaceID)}
                     onCreateSession={(isolated) => void createSession(isolated)}
                     creating={creating}
+                    serverID={profile.id}
                   />
                 ) : activeSection === "scheduler" ? (
                   <SchedulerPanel onOpenSession={openSessionInChat} />
@@ -1210,11 +1813,19 @@ export default function App() {
                   </div>
                 )}
                 {/* Bottom-left options box: app-level actions live here, not in the top bar. */}
-                <div className="shrink-0 border-t border-hairline p-3">
+                <div className="flex shrink-0 flex-col gap-2 border-t border-hairline p-3">
+                  <ServerSwitcher
+                    profiles={profiles}
+                    activeProfile={profile}
+                    variant="sidebar"
+                    onSwitch={onSwitchServer}
+                    onManage={() => openSettings("servers")}
+                    onAdd={onAddServer}
+                  />
                   <div className="flex w-fit items-center gap-2 rounded-md border border-hairline bg-surface p-1">
                     <button
                       type="button"
-                      onClick={() => setPanel("settings")}
+                      onClick={() => openSettings()}
                       className="mh-btn mh-btn--quiet"
                       aria-label="Settings"
                       title="Settings"
@@ -1227,7 +1838,7 @@ export default function App() {
                       className="mh-btn mh-btn--ghost"
                     >
                       <LogOutIcon size={16} />
-                      Sign out
+                      Disconnect
                     </button>
                   </div>
                 </div>
@@ -1365,6 +1976,7 @@ export default function App() {
                     hasWorkspace={Boolean(workspaceID)}
                     onCreateSession={(isolated) => void createSession(isolated)}
                     creating={creating}
+                    serverID={profile.id}
                   />
                 </div>
               )}
@@ -1410,7 +2022,7 @@ export default function App() {
         <BottomNav
           section={activeSection}
           onSelectSection={selectHomeSection}
-          onOpenSettings={() => setPanel("settings")}
+          onOpenSettings={() => openSettings()}
         />
       )}
 
@@ -1459,6 +2071,15 @@ export default function App() {
           onSelectPalette={themeMode.setPalette}
           onSignOut={() => void handleLogout()}
           onClose={() => setPanel(null)}
+          initialModule={settingsModule}
+          servers={{
+            profiles,
+            activeID: profile.id,
+            onRename: onRenameServer,
+            onDisconnect: onDisconnectServer,
+            onRemove: onRemoveServer,
+            onAdd: onAddServer,
+          }}
         />
       )}
       {sessionID && panel === "run" && (

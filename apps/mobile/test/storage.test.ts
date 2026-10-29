@@ -6,7 +6,11 @@ import {
   clearWorkspaceID,
   getOrCreateInstallID,
   loadAutoAcceptSessions,
+  loadAutoAcceptSessionsFor,
   loadDevice,
+  loadServerRegistry,
+  loadServerToken,
+  clearServerToken,
   loadPalette,
   loadServerUrl,
   loadSessionPreferences,
@@ -14,7 +18,10 @@ import {
   loadToken,
   loadWorkspaceID,
   saveAutoAcceptSessions,
+  saveAutoAcceptSessionsFor,
   saveDevice,
+  saveServerRegistry,
+  saveServerToken,
   savePalette,
   saveServerUrl,
   saveSessionPreferences,
@@ -239,5 +246,115 @@ describe("storage — session preferences", () => {
 
     await saveSessionPreferences("s2", { agent: "explore", model: "alpha", variant: "" })
     expect(await loadSessionPreferences("s2")).toEqual({ agent: "explore", model: "alpha", variant: "" })
+  })
+})
+
+describe("storage — multi-server registry", () => {
+  it("migrates the legacy single-server session exactly once", async () => {
+    await saveServerUrl("https://legacy.example.com/")
+    await saveToken("legacy-token")
+    await saveDevice({ id: "dev-1", name: "Pixel" })
+    await saveWorkspaceID("ws-legacy")
+    await saveAutoAcceptSessions(["s1"])
+
+    const first = await loadServerRegistry()
+    expect(first.profiles).toHaveLength(1)
+    expect(first.activeID).toBe(first.profiles[0]?.id)
+    expect(first.profiles[0]).toMatchObject({
+      url: "https://legacy.example.com",
+      label: "legacy.example.com",
+      device: { id: "dev-1", name: "Pixel" },
+      lastWorkspaceID: "ws-legacy",
+    })
+    expect(await loadServerToken(first.profiles[0]!.id)).toBe("legacy-token")
+    expect(await loadAutoAcceptSessionsFor(first.profiles[0]!.id)).toEqual(["s1"])
+    // Legacy keys are gone once the migration is written.
+    expect(await loadServerUrl()).toBeNull()
+    expect(await loadToken()).toBeNull()
+    expect(await loadDevice()).toBeNull()
+    expect(await loadWorkspaceID()).toBeNull()
+
+    // A second boot reads the registry instead of migrating again.
+    const second = await loadServerRegistry()
+    expect(second.profiles.map((profile) => profile.id)).toEqual(first.profiles.map((profile) => profile.id))
+  })
+
+  it("keeps a saved URL without a token for re-authentication", async () => {
+    await saveServerUrl("http://localhost:8787")
+    const registry = await loadServerRegistry()
+    expect(registry.profiles).toHaveLength(1)
+    expect(registry.activeID).toBeNull()
+    expect(await loadServerToken(registry.profiles[0]!.id)).toBeNull()
+  })
+
+  it("round-trips profiles, the active server and per-server tokens", async () => {
+    const registry = {
+      profiles: [
+        {
+          id: "a",
+          label: "Home",
+          url: "https://home.example.com",
+          device: { id: "d1", name: "Phone" },
+          lastWorkspaceID: null,
+          lastSessionID: null,
+          expired: false,
+          lastUsedAt: 1,
+        },
+      ],
+      activeID: "a",
+    }
+    await saveServerRegistry(registry)
+    await saveServerToken("a", "tok-a")
+    expect(await loadServerRegistry()).toEqual(registry)
+    expect(await loadServerToken("a")).toBe("tok-a")
+    expect(await loadServerToken("b")).toBeNull()
+  })
+
+  it("ignores corrupt registry JSON and invalid URLs", async () => {
+    store.set("masterhand.servers.v2", "{bad")
+    expect(await loadServerRegistry()).toEqual({ profiles: [], activeID: null })
+
+    store.set(
+      "masterhand.servers.v2",
+      JSON.stringify({
+        profiles: [
+          { id: "bad", url: "http://public.example.com" },
+          { id: "good", url: "https://home.example.com" },
+        ],
+        activeID: "bad",
+      }),
+    )
+    const registry = await loadServerRegistry()
+    expect(registry.profiles.map((profile) => profile.id)).toEqual(["good"])
+    expect(registry.activeID).toBeNull()
+  })
+})
+
+describe("storage — migration and list edge cases", () => {
+  it("ignores an invalid legacy URL and reports no profiles", async () => {
+    await saveServerUrl("http://public.example.com")
+    expect(await loadServerRegistry()).toEqual({ profiles: [], activeID: null })
+  })
+
+  it("reads corrupt auto-accept lists as empty", async () => {
+    store.set("masterhand.autoAcceptSessions.profile-1", "{bad")
+    expect(await loadAutoAcceptSessionsFor("profile-1")).toEqual([])
+  })
+
+  it("removes the active marker when the registry has no active server", async () => {
+    await saveServerRegistry({ profiles: [], activeID: null })
+    expect(await SecureStore.getItemAsync("masterhand.servers.active")).toBeNull()
+  })
+
+  it("persists per-server auto-accept lists", async () => {
+    await saveAutoAcceptSessionsFor("a", ["s1", "s2"])
+    expect(await loadAutoAcceptSessionsFor("a")).toEqual(["s1", "s2"])
+  })
+
+  it("clears a per-server token", async () => {
+    await saveServerToken("profile-1", "tok")
+    expect(await loadServerToken("profile-1")).toBe("tok")
+    await clearServerToken("profile-1")
+    expect(await loadServerToken("profile-1")).toBeNull()
   })
 })

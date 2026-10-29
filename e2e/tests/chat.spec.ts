@@ -4,7 +4,7 @@ import { addWorkspace, login, newSession } from "./helpers"
 test("rejects a wrong password", async ({ page }) => {
   await page.goto("/")
   await page.locator("#password").fill("not-the-password")
-  await page.getByRole("button", { name: "Sign in" }).click()
+  await page.getByRole("button", { name: "Connect", exact: true }).click()
   await expect(page.getByText("Wrong password")).toBeVisible()
 })
 

@@ -31,6 +31,7 @@ export function SessionList({
   hasWorkspace,
   onCreateSession,
   creating,
+  serverID,
 }: {
   sessions: Session[]
   statuses: Record<string, SessionStatus>
@@ -41,10 +42,12 @@ export function SessionList({
   hasWorkspace: boolean
   onCreateSession: (isolated: boolean) => void
   creating: boolean
+  /** Active server profile id: scopes the seen/unseen markers. */
+  serverID: string
 }) {
   const [filter, setFilter] = useState<SessionFilter>("all")
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
-  const [lastSeen, setLastSeen] = useState<Record<string, number>>(loadLastSeen)
+  const [lastSeen, setLastSeen] = useState<Record<string, number>>(() => loadLastSeen(serverID))
   // App owns persistence (the mobile list unmounts while a chat is open);
   // this keeps the mounted list's dots in sync with the selected session.
   useEffect(() => {

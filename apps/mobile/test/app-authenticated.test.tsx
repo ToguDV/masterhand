@@ -24,32 +24,27 @@ import {
   type Session,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
-import App, { queryClient } from "../App"
+import App from "../App"
 import * as storageModule from "../src/storage"
 
 jest.mock("../src/storage", () => ({
-  loadServerUrl: jest.fn(async () => null),
-  loadToken: jest.fn(async () => null),
-  loadDevice: jest.fn(async () => null),
+  loadServerRegistry: jest.fn(async () => ({ profiles: [], activeID: null })),
+  loadServerToken: jest.fn(async () => null),
+  saveServerRegistry: jest.fn(async () => {}),
+  saveServerToken: jest.fn(async () => {}),
+  clearServerToken: jest.fn(async () => {}),
   getOrCreateInstallID: jest.fn(async () => "install-test"),
-  loadWorkspaceID: jest.fn(async () => null),
-  loadAutoAcceptSessions: jest.fn(async () => []),
+  newServerID: jest.fn(() => "srv-test"),
+  loadAutoAcceptSessionsFor: jest.fn(async () => []),
+  saveAutoAcceptSessionsFor: jest.fn(async () => {}),
   loadSessionPreferences: jest.fn(async () => ({})),
   loadTheme: jest.fn(async () => null),
   loadPalette: jest.fn(async () => null),
   savePalette: jest.fn(async () => {}),
   clearPalette: jest.fn(async () => {}),
-  saveServerUrl: jest.fn(async () => {}),
-  saveToken: jest.fn(async () => {}),
-  saveDevice: jest.fn(async () => {}),
-  saveWorkspaceID: jest.fn(async () => {}),
-  saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
-  clearToken: jest.fn(async () => {}),
-  clearDevice: jest.fn(async () => {}),
-  clearWorkspaceID: jest.fn(async () => {}),
 }))
 
 jest.mock("@masterhand/client-core", () => {
@@ -80,21 +75,16 @@ const statusesMock = useSessionStatuses as unknown as jest.Mock
 const messagesMock = useMessages as unknown as jest.Mock
 
 interface MockedStorage {
-  loadServerUrl: jest.Mock
-  loadToken: jest.Mock
-  loadDevice: jest.Mock
-  loadWorkspaceID: jest.Mock
-  loadAutoAcceptSessions: jest.Mock
+  loadServerRegistry: jest.Mock
+  loadServerToken: jest.Mock
+  saveServerRegistry: jest.Mock
+  saveServerToken: jest.Mock
+  clearServerToken: jest.Mock
+  getOrCreateInstallID: jest.Mock
+  newServerID: jest.Mock
+  loadAutoAcceptSessionsFor: jest.Mock
+  saveAutoAcceptSessionsFor: jest.Mock
   loadSessionPreferences: jest.Mock
-  saveServerUrl: jest.Mock
-  saveToken: jest.Mock
-  saveDevice: jest.Mock
-  saveWorkspaceID: jest.Mock
-  saveAutoAcceptSessions: jest.Mock
-  saveSessionPreferences: jest.Mock
-  clearToken: jest.Mock
-  clearDevice: jest.Mock
-  clearWorkspaceID: jest.Mock
 }
 
 const storage = storageModule as unknown as MockedStorage
@@ -205,11 +195,9 @@ beforeEach(() => {
     appStateHandler = listener as (state: string) => void
     return { remove: jest.fn() } as never
   })
-  storage.loadServerUrl.mockResolvedValue(null)
-  storage.loadToken.mockResolvedValue(null)
-  storage.loadDevice.mockResolvedValue(null)
-  storage.loadWorkspaceID.mockResolvedValue(null)
-  storage.loadAutoAcceptSessions.mockResolvedValue([])
+  storage.loadServerRegistry.mockResolvedValue({ profiles: [], activeID: null })
+  storage.loadServerToken.mockResolvedValue(null)
+  storage.loadAutoAcceptSessionsFor.mockResolvedValue([])
   storage.loadSessionPreferences.mockResolvedValue({})
   workspacesMock.mockReturnValue({ data: [], isLoading: false })
   sessionsMock.mockReturnValue({ data: [], isLoading: false })
@@ -226,7 +214,6 @@ afterEach(() => {
   // (`setQueryData`) and an unobserved entry schedules a 5-minute gc timer that
   // would keep Jest alive.
   cleanup()
-  queryClient.clear()
   jest.restoreAllMocks()
 })
 
@@ -238,12 +225,19 @@ async function renderAuthenticated(options: {
   workspaceID?: string | null
   messages?: ChatMessage[]
 } = {}) {
-  storage.loadToken.mockResolvedValue("stored-token")
-  storage.loadServerUrl.mockResolvedValue("https://host")
-  storage.loadWorkspaceID.mockResolvedValue(
-    options.workspaceID === undefined ? workspace.id : options.workspaceID,
-  )
-  storage.loadAutoAcceptSessions.mockResolvedValue(options.autoAccept ?? [])
+  const profile = {
+    id: "home",
+    label: "Home",
+    url: "https://host",
+    device: { id: "d1", name: "Pixel" },
+    lastWorkspaceID: options.workspaceID === undefined ? workspace.id : options.workspaceID,
+    lastSessionID: null,
+    expired: false,
+    lastUsedAt: 1,
+  }
+  storage.loadServerRegistry.mockResolvedValue({ profiles: [profile], activeID: "home" })
+  storage.loadServerToken.mockResolvedValue("stored-token")
+  storage.loadAutoAcceptSessionsFor.mockResolvedValue(options.autoAccept ?? [])
   workspacesMock.mockReturnValue({ data: options.workspaces ?? [workspace], isLoading: false })
   sessionsMock.mockReturnValue({ data: options.sessions ?? [], isLoading: false })
   directoriesMock.mockReturnValue({ data: options.directories ?? [], isLoading: false })
@@ -268,18 +262,15 @@ describe("App — login errors", () => {
     client.auth.loginDevice = loginDevice
     createClientMock.mockReturnValue(client)
     await render(<App />)
-    await fireEvent.changeText(
-      await screen.findByPlaceholderText("https://masterhand.example.com"),
-      "https://host",
-    )
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
-    await fireEvent.press(screen.getByText("Sign in"))
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
   }
 
   it.each([
-    [429, "Too many attempts; wait 15 minutes"],
-    [400, "Check the server URL and password"],
-    [500, "Error 500"],
+    [429, "Too many attempts; wait 15 minutes."],
+    [400, "Check the server URL and password."],
+    [500, "The server answered with error 500."],
   ])("maps a %i response to its message", async (status, message) => {
     await submit(jest.fn(async () => Promise.reject(new ApiError(status, "x"))))
 
@@ -289,7 +280,7 @@ describe("App — login errors", () => {
   it("reports an unreachable server for non-HTTP failures", async () => {
     await submit(jest.fn(async () => Promise.reject(new Error("network down"))))
 
-    expect(await screen.findByText("Could not reach the server")).toBeOnTheScreen()
+    expect(await screen.findByText(/Could not reach host/)).toBeOnTheScreen()
   })
 
   it("normalizes the server URL before saving it", async () => {
@@ -297,14 +288,17 @@ describe("App — login errors", () => {
     createClientMock.mockReturnValue(client)
     await render(<App />)
 
-    await fireEvent.changeText(
-      await screen.findByPlaceholderText("https://masterhand.example.com"),
-      "https://host/",
-    )
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
-    await fireEvent.press(screen.getByText("Sign in"))
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host/")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
 
-    await waitFor(() => expect(storage.saveServerUrl).toHaveBeenCalledWith("https://host"))
+    await waitFor(() =>
+      expect(storage.saveServerRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profiles: [expect.objectContaining({ url: "https://host" })],
+        }),
+      ),
+    )
     expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
   })
 
@@ -318,8 +312,9 @@ describe("App — login errors", () => {
       options?.onUnauthorized?.()
     })
 
-    expect(storage.clearToken).toHaveBeenCalled()
-    expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+    expect(storage.clearServerToken).toHaveBeenCalledWith("home")
+    expect((await screen.findAllByText(/saved session expired/)).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Reconnect to Home/)).toBeOnTheScreen()
   })
 })
 
@@ -403,7 +398,11 @@ describe("App — workspaces", () => {
     await fireEvent.press(screen.getByText("Workspace"))
     await fireEvent.press(screen.getByText("other"))
 
-    expect(storage.saveWorkspaceID).toHaveBeenCalledWith("ws2")
+    expect(storage.saveServerRegistry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profiles: [expect.objectContaining({ lastWorkspaceID: "ws2" })],
+      }),
+    )
   })
 
   it("adds a workspace and selects it", async () => {
@@ -415,7 +414,11 @@ describe("App — workspaces", () => {
     await fireEvent.press(screen.getByText("Add"))
 
     await waitFor(() => expect(client.workspaces.create).toHaveBeenCalledWith({ name: "fresh" }))
-    expect(storage.saveWorkspaceID).toHaveBeenCalledWith("ws_new")
+    expect(storage.saveServerRegistry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profiles: [expect.objectContaining({ lastWorkspaceID: "ws_new" })],
+      }),
+    )
   })
 
   it("removes the selected workspace after confirmation", async () => {
@@ -427,7 +430,13 @@ describe("App — workspaces", () => {
     alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
 
     await waitFor(() => expect(client.workspaces.remove).toHaveBeenCalledWith("ws1", { deleteFiles: false }))
-    expect(storage.clearWorkspaceID).toHaveBeenCalled()
+    await waitFor(() =>
+      expect(storage.saveServerRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profiles: [expect.objectContaining({ lastWorkspaceID: null })],
+        }),
+      ),
+    )
     alert.mockRestore()
   })
 

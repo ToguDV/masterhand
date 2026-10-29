@@ -243,6 +243,14 @@ export function requireSameOrigin(config: Config): MiddlewareHandler {
         await next()
         return
       }
+      // Device login is unauthenticated and cookie-less: it needs the password
+      // in the body and only returns a token, so a browser cannot be tricked
+      // into it via ambient credentials. Cross-origin token login is the
+      // multi-server flow (ADR-39); cookie login stays origin-checked.
+      if (method === "POST" && c.req.path === "/api/devices") {
+        await next()
+        return
+      }
       const origin = c.req.header("origin")
       if (origin) {
         let originHost: string | null = null

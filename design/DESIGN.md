@@ -833,7 +833,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 **`button-secondary`** — outlined companion.
 - Transparent background, `{colors.text}` text, `1px solid {colors.hairline-strong}` border, same geometry as primary.
 
-**`button-ghost`** — quiet tertiary action (Back, Sign out, panel triggers).
+**`button-ghost`** — quiet tertiary action (Back, Disconnect, panel triggers).
 - Transparent, `{colors.text-muted}` text, `{rounded.sm}`, compact padding.
 
 **`button-danger`** — destructive (Reject, Delete, Remove).
@@ -851,7 +851,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`sidebar`** — 272px canvas column, right hairline, desktop only (≥768px). Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. It collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs. Below 768px the web build drops the sidebar entirely and navigates through `bottom-nav` (the session list is the Sessions screen, with the workspace picker above it); the React Native app does the same.
 
-**`bottom-nav`** — mobile primary navigation (web <768px and the React Native app), pinned above the bottom safe area: one canvas bar with a top `{colors.hairline}`, four equal actions (Sessions, Board, Scheduler, Settings) at ≥44px. Each action is a 20px glyph over a `{typography.caption}` label; the active section paints the glyph in an `{colors.accent-soft}` pill with an `{colors.accent}` label, inactive actions use `{colors.text-muted}`. Sessions opens the list (or the already-open chat), Board the kanban and Scheduler the task manager; Settings is an action (it opens the settings surface, where Sign out lives on mobile), not a section. The bar is home chrome only: an open chat takes over the screen, hides it, and the `top-bar` back chevron returns to the section the chat was opened from.
+**`bottom-nav`** — mobile primary navigation (web <768px and the React Native app), pinned above the bottom safe area: one canvas bar with a top `{colors.hairline}`, four equal actions (Sessions, Board, Scheduler, Settings) at ≥44px. Each action is a 20px glyph over a `{typography.caption}` label; the active section paints the glyph in an `{colors.accent-soft}` pill with an `{colors.accent}` label, inactive actions use `{colors.text-muted}`. Sessions opens the list (or the already-open chat), Board the kanban and Scheduler the task manager; Settings is an action (it opens the settings surface, where Disconnect lives on mobile), not a section. The bar is home chrome only: an open chat takes over the screen, hides it, and the `top-bar` back chevron returns to the section the chat was opened from.
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface to `{colors.surface-muted}` with no accent bar — the row weight does the work.
 
@@ -893,6 +893,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`status-dot-idle`** (`{colors.hairline-strong}`), **`status-dot-busy`** (warning, pulsing), **`status-dot-connected`** (success). Dots are 8px, always paired with a text label in tooltips or captions.
 
+**`status-indicator`** — the server-oriented vocabulary approved in `animated-stats-proposal.html` and shipped in `design.css`/`styles.css`/native: **available** (`mh-status--connected`, static success check), **saved** (`mh-status--idle`, hairline-strong idle ring), **expired** (`mh-status--expired`, warning ring) and **connecting** (`mh-status--connecting`/`--busy`, 14px monochrome arc: `text-soft` on `hairline-strong`, 1s linear rotation). Only the connecting arc animates; `prefers-reduced-motion` leaves it static; status text always accompanies the glyph, and the accent is never used for the busy arc. Severity lives in the ring ink, never in row borders.
+
 **`chip-neutral`**, **`chip-accent`**, **`chip-warning`**, **`chip-danger`**, **`branch-chip`** — pill badges at 3px/10px padding in `{typography.caption}`; branch chips use `{typography.code-sm}`. Sober chrome: `chip-accent`, `chip-warning` and `branch-chip` are neutral (`{colors.surface-muted}` + `{colors.text-muted}`); only `chip-danger` keeps its semantic tint for real errors.
 
 **`session-stats`** — per-session usage in the composer head: cost plus the same icon + number rhythm as `{components.message-stats}` (labels in tooltips only, cache excluded). It aligns left when it wraps to its own line on narrow widths.
@@ -913,13 +915,19 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`side-panel`** — right sheet (360px) for side questions, **Run & preview** and audit; full-width on mobile. The Run & preview panel keeps one internal tablist (`{components.run-preview-tabs}`: `Run | Preview` with `tab`/`tabpanel` semantics, arrow-key navigation, active tab underlined in `{colors.text}`) because both views drive the same dev-server lifecycle: opening it lands on Preview when the tunnel is running, otherwise on Run, and starting/stopping never forces a tab switch. A port chip sits in the shared header.
 
-**`settings-panel`** — the gear opens one panel for Appearance, Goal review, Web search and Providers (`{components.settings-panel}`): two-pane on desktop (220px section nav + content), master-detail on small screens (section list with label + description + chevron at ≥56px rows; back control returns to the list). Every module shares the same rhythm: `{components.settings-module-head}` with the primary action pinned above the section, group labels, loading/error/notice states, and ghost text buttons for tertiaries. Appearance owns the mode picker (System/Light/Dark; System clears the stored choice and follows the OS live) plus the shared theme/palette grids (`{components.theme-swatches}`, `{components.palette-grid}`).
+**`settings-panel`** — the gear opens one panel for Servers, Appearance, Goal review, Web search and Providers (`{components.settings-panel}`): two-pane on desktop (220px section nav + content), master-detail on small screens (section list with label + description + chevron at ≥56px rows; back control returns to the list). Every module shares the same rhythm: `{components.settings-module-head}` with the primary action pinned above the section, group labels, loading/error/notice states, and ghost text buttons for tertiaries. Servers owns the profile list (rename, disconnect keeping the profile, remove with best-effort token revocation, add). Appearance owns the mode picker (Light/Dark) plus the shared theme/palette grids (`{components.theme-swatches}`, `{components.palette-grid}`).
 
 **`provider-card`** / **`websearch-card`** — Settings > Providers and Settings > Web search mirror each other (`{components.provider-card}`, `{components.websearch-card}`): avatar, semibold name, `Connected`/`Default`/`No API key required` chips, credential rows with confirm-before-Disconnect and a secondary Connect button. Web search keeps radio semantics (Automatic plus one default source) with the selected card on a neutral `{colors.hairline-strong}` ring; its Test probe shows the answering source or a mapped error. Custom OpenAI-compatible providers add name + auto-slugged id + base URL + key + models with an Advanced section (transport, headers, per-model limits); the model list loads from the provider's `/models` with a debounced fetch plus a manual Load button, and Create stays disabled until it loads.
 
-**`icon-set`** — every UI glyph comes from one vector source (`{components.icon-set}`): folder, chevrons, plus, x, check, trash, brain (effort variants) / sliders, arrows, sparkle, bolt, external link, shield-check, sun/moon, branch, key, gear, search, play/pause/stop. No inline one-off SVGs, no emoji glyphs, no font-dependent symbols in tool headers.
+**`icon-set`** — every UI glyph comes from one vector source (`{components.icon-set}`): folder, chevrons, plus, x, check, trash, brain (effort variants) / sliders, arrows, sparkle, bolt, external link, shield-check, sun/moon, branch, key, gear, search, play/pause/stop, server, globe, pencil, eye/eye-off. No inline one-off SVGs, no emoji glyphs, no font-dependent symbols in tool headers.
 
-**`login-card`** — centered card, `{rounded.xxl}`, with a blob behind it and a dot field at its base; contains the wordmark, one field and one primary button. The single most decorated screen in the product.
+**`servers-screen`** — first run / server shelf replacing the password-only login (`{components.servers-screen}`). Desktop is a two-column composition: brand + display line + lede on the left, a `{rounded.xxl}` surface sheet on the right (max 400px). Mobile hides the intro and keeps the sheet full-width. First run = URL (current origin prefilled) + optional name + password; the saved state = the server list plus a dashed add row. The connecting state is a centered monogram card with a 1s monochrome arc and Cancel; the error state keeps the form inline with `role="alert"` copy.
+
+**`server-item`** — 56px row, 2px gap between rows, `{rounded.md}`, 36px monogram (Instrument Sans 12/600, 0.06em), label + mono host, status glyph + text at the right. Active = `{colors.surface-muted}` + `{colors.hairline}` border and an accent-soft monogram; never a colored row bar. **`server-add`** is a 52px dashed `hairline-strong` row with a 28px plus tile and no fill.
+
+**`server-switcher`** — in-app switcher: a 44px footer chip on the desktop sidebar (monogram + label + host; icon-only in the 60px rail) opening a 300px popover at level-3 elevation with the list + Add/Manage; on mobile web the top-bar monogram opens a bottom sheet (20px top radius, 44px targets). Native mirrors it with a 44px header chip and a safe-area bottom sheet.
+
+**`server-form`** — URL + optional name + password, 44px fields, leading globe/key glyph, password reveal inside the trailing 44px target. Validation happens before submit (https except loopback, no credentials/query/hash/path, duplicate by canonical URL); errors stay inline and the draft URL/name survive a rejected password.
 
 ## Do's and Don'ts
 
@@ -969,8 +977,8 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Bottom sheets keep their primary action within the lower third of the screen
 
 ### Collapsing Strategy
-- **Sidebar**: desktop only (≥768px), collapsing to a 60px icon rail (persisted); the rail keeps the toggle, new-session and navigation actions. Below 768px the web build and the React Native app replace it with `bottom-nav` (home sections + Settings); the session list becomes the Sessions screen and Settings hosts Sign out.
-- **Settings**: two-pane on desktop; on small screens a master-detail list (label + description + chevron, ≥56px rows) shows one section at a time with a back control, with Sign out at the end of the list.
+- **Sidebar**: desktop only (≥768px), collapsing to a 60px icon rail (persisted); the rail keeps the toggle, new-session and navigation actions. Below 768px the web build and the React Native app replace it with `bottom-nav` (home sections + Settings); the session list becomes the Sessions screen and Settings hosts Disconnect.
+- **Settings**: two-pane on desktop; on small screens a master-detail list (label + description + chevron, ≥56px rows) shows one section at a time with a back control, with Disconnect at the end of the list.
 - **Chat**: same DOM — the transcript is single-column on all sizes; only gutters and the side-panel dock change
 - **Tool cards**: collapse to header row on mobile; expanded output scrolls horizontally rather than wrapping code
 - **Question index**: tabs scroll horizontally when they overflow (never wrap to a second row); the active question stays visible

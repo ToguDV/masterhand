@@ -862,6 +862,16 @@ describe("client error handling", () => {
     expect(unauthorized).toBe(0)
   })
 
+  it("treats a rejected login as a form error, not an expired session", async () => {
+    let unauthorized = 0
+    const { fetchImpl } = recordingFetch(() => new Response("invalid_password", { status: 401 }))
+    const client = createClient({ onUnauthorized: () => unauthorized++, fetchImpl })
+
+    await expect(client.auth.login("wrong")).rejects.toBeInstanceOf(ApiError)
+    await expect(client.auth.loginDevice("wrong", "Phone")).rejects.toBeInstanceOf(ApiError)
+    expect(unauthorized).toBe(0)
+  })
+
   it("propagates network failures untouched", async () => {
     const failure = new TypeError("fetch failed")
     const fetchImpl = (async () => {

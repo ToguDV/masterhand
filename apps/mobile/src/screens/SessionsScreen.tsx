@@ -44,6 +44,7 @@ export function SessionsScreen({
   onOpen,
   onNew,
   onOpenSettings,
+  serverSwitcher = null,
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
@@ -68,6 +69,8 @@ export function SessionsScreen({
   onNew: (isolated: boolean) => void
   /** Opens the app-level settings modal (owned by App). */
   onOpenSettings: () => void
+  /** Server chip + switcher sheet rendered in the header (owned by App). */
+  serverSwitcher?: ReactNode
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
@@ -130,6 +133,7 @@ export function SessionsScreen({
           ) : null}
         </View>
         <View style={styles.headerRight}>
+          {serverSwitcher}
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
         </View>
       </View>

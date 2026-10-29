@@ -374,3 +374,60 @@ export function ClockIcon(props: IconProps) {
     </IconBase>
   )
 }
+
+/** A self-hosted server profile (Servers list, switcher, settings). */
+export function ServerIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4" width="18" height="7" rx="2" />
+      <rect x="3" y="13" width="18" height="7" rx="2" />
+      <path d="M7 7.5h.01" />
+      <path d="M7 16.5h.01" />
+      <path d="M11 7.5h6" />
+      <path d="M11 16.5h6" />
+    </IconBase>
+  )
+}
+
+/** Server URL field: the network / globe glyph used by the approved design. */
+export function GlobeIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" />
+    </IconBase>
+  )
+}
+
+/** Rename a saved server. */
+export function PencilIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </IconBase>
+  )
+}
+
+/** Reveal a password field. */
+export function EyeIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </IconBase>
+  )
+}
+
+/** Hide a password field. */
+export function EyeOffIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m3 3 18 18" />
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.1 4.2" />
+      <path d="M6.6 6.6C3.7 8.6 2 12 2 12s3.5 7 10 7a10.6 10.6 0 0 0 4.2-.9" />
+    </IconBase>
+  )
+}

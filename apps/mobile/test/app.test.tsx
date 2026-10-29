@@ -1,40 +1,34 @@
-import { fireEvent, render, screen } from "@testing-library/react-native"
+import { Alert } from "react-native"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import { ApiError, createClient } from "@masterhand/client-core"
 import App from "../App"
 import {
-  clearDevice,
-  clearToken,
-  clearWorkspaceID,
+  clearServerToken,
   getOrCreateInstallID,
-  loadServerUrl,
-  loadToken,
-  saveServerUrl,
-  saveToken,
+  loadServerRegistry,
+  loadServerToken,
+  saveServerRegistry,
+  saveServerToken,
 } from "../src/storage"
 
 jest.mock("../src/storage", () => ({
-  loadServerUrl: jest.fn(async () => null),
-  loadToken: jest.fn(async () => null),
-  loadDevice: jest.fn(async () => null),
+  loadServerRegistry: jest.fn(async () => ({ profiles: [], activeID: null })),
+  loadServerToken: jest.fn(async () => null),
+  saveServerRegistry: jest.fn(async () => {}),
+  saveServerToken: jest.fn(async () => {}),
+  clearServerToken: jest.fn(async () => {}),
   getOrCreateInstallID: jest.fn(async () => "install-test"),
-  loadWorkspaceID: jest.fn(async () => null),
-  loadAutoAcceptSessions: jest.fn(async () => []),
+  newServerID: jest.fn(() => "srv-test"),
+  loadAutoAcceptSessionsFor: jest.fn(async () => []),
+  saveAutoAcceptSessionsFor: jest.fn(async () => {}),
   loadSessionPreferences: jest.fn(async () => ({})),
   loadTheme: jest.fn(async () => null),
   loadPalette: jest.fn(async () => null),
   savePalette: jest.fn(async () => {}),
   clearPalette: jest.fn(async () => {}),
-  saveServerUrl: jest.fn(async () => {}),
-  saveToken: jest.fn(async () => {}),
-  saveDevice: jest.fn(async () => {}),
-  saveWorkspaceID: jest.fn(async () => {}),
-  saveAutoAcceptSessions: jest.fn(async () => {}),
   saveSessionPreferences: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
-  clearToken: jest.fn(async () => {}),
-  clearDevice: jest.fn(async () => {}),
-  clearWorkspaceID: jest.fn(async () => {}),
 }))
 
 jest.mock("@masterhand/client-core", () => {
@@ -47,20 +41,34 @@ jest.mock("@masterhand/client-core", () => {
     useSessions: jest.fn(() => ({ data: [], isLoading: false })),
     useSessionStatuses: jest.fn(() => ({ data: {} })),
     useSessionDirectories: jest.fn(() => ({ data: [] })),
+    useBffStatus: jest.fn(() => ({ data: undefined })),
+    useUpdate: jest.fn(() => ({ data: undefined })),
+    useMessages: jest.fn(() => ({ data: [], isLoading: false })),
+    useAgents: jest.fn(() => ({ data: [] })),
+    useModels: jest.fn(() => ({ data: { models: [], providers: [], defaultModel: null } })),
   }
 })
 
 const createClientMock = createClient as unknown as jest.Mock
 
 const mocked = {
-  loadServerUrl: loadServerUrl as jest.Mock,
-  loadToken: loadToken as jest.Mock,
+  loadServerRegistry: loadServerRegistry as jest.Mock,
+  loadServerToken: loadServerToken as jest.Mock,
+  saveServerRegistry: saveServerRegistry as jest.Mock,
+  saveServerToken: saveServerToken as jest.Mock,
+  clearServerToken: clearServerToken as jest.Mock,
   getOrCreateInstallID: getOrCreateInstallID as jest.Mock,
-  saveServerUrl: saveServerUrl as jest.Mock,
-  saveToken: saveToken as jest.Mock,
-  clearToken: clearToken as jest.Mock,
-  clearDevice: clearDevice as jest.Mock,
-  clearWorkspaceID: clearWorkspaceID as jest.Mock,
+}
+
+const HOME = {
+  id: "home",
+  label: "Home",
+  url: "https://host",
+  device: { id: "d1", name: "Pixel" },
+  lastWorkspaceID: null,
+  lastSessionID: null,
+  expired: false,
+  lastUsedAt: 1,
 }
 
 function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
@@ -68,7 +76,11 @@ function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
   device: { id: "d1", name: "Android device", createdAt: 0, lastUsedAt: 0 },
 }))) {
   return {
-    auth: { loginDevice, revokeDevice: jest.fn(async () => {}) },
+    auth: {
+      loginDevice,
+      revokeDevice: jest.fn(async () => {}),
+      status: jest.fn(async () => ({ ok: true })),
+    },
     api: {
       permissions: jest.fn(async () => []),
       respondPermission: jest.fn(async () => {}),
@@ -77,6 +89,7 @@ function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
       credentials: jest.fn(async () => []),
       removeCredential: jest.fn(async () => {}),
       activateCredential: jest.fn(async () => {}),
+      update: { check: jest.fn(async () => ({ latest: null })) },
       sessions: { create: jest.fn(), remove: jest.fn() },
     },
     workspaces: { create: jest.fn(), remove: jest.fn() },
@@ -85,30 +98,44 @@ function makeClient(loginDevice: jest.Mock = jest.fn(async () => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mocked.loadServerUrl.mockResolvedValue(null)
-  mocked.loadToken.mockResolvedValue(null)
+  mocked.loadServerRegistry.mockResolvedValue({ profiles: [], activeID: null })
+  mocked.loadServerToken.mockResolvedValue(null)
+  mocked.saveServerRegistry.mockResolvedValue(undefined)
+  mocked.saveServerToken.mockResolvedValue(undefined)
+  mocked.clearServerToken.mockResolvedValue(undefined)
   mocked.getOrCreateInstallID.mockResolvedValue("install-test")
   createClientMock.mockReturnValue(makeClient())
 })
 
 describe("App", () => {
-  it("shows the login screen when there is no stored session", async () => {
+  it("shows the Servers first-run screen when there is no stored session", async () => {
     await render(<App />)
 
-    expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+    expect(await screen.findByText("Connect your first server")).toBeOnTheScreen()
+    expect(screen.getByTestId("server-url-input")).toBeOnTheScreen()
   })
 
-  it("signs in through the device flow and lands on the sessions screen", async () => {
-    mocked.loadServerUrl.mockResolvedValue("https://host")
+  it("connects through the device flow, persists the profile and lands on sessions", async () => {
     await render(<App />)
 
-    await fireEvent.changeText(await screen.findByDisplayValue("https://host"), "https://host")
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
-    await fireEvent.press(screen.getByText("Sign in"))
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
 
-    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
-    expect(mocked.saveToken).toHaveBeenCalledWith("tok")
-    expect(mocked.saveServerUrl).toHaveBeenCalledWith("https://host")
+    expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
+    expect(mocked.saveServerToken).toHaveBeenCalledWith("srv-test", "tok")
+    expect(mocked.saveServerRegistry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeID: "srv-test",
+        profiles: [
+          expect.objectContaining({
+            id: "srv-test",
+            url: "https://host",
+            device: expect.objectContaining({ id: "d1" }),
+          }),
+        ],
+      }),
+    )
   })
 
   it("sends the stable install id with the device login", async () => {
@@ -119,64 +146,167 @@ describe("App", () => {
     createClientMock.mockReturnValue(makeClient(loginDevice))
     await render(<App />)
 
-    await fireEvent.changeText(await screen.findByPlaceholderText("https://masterhand.example.com"), "https://host")
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
-    await fireEvent.press(screen.getByText("Sign in"))
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
 
-    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
+    expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
     expect(mocked.getOrCreateInstallID).toHaveBeenCalled()
     expect(loginDevice).toHaveBeenCalledWith("pw", expect.any(String), "install-test")
   })
 
-  it("shows the wrong-password error from the server", async () => {
+  it("shows the wrong-password error inline", async () => {
     const loginDevice = jest.fn(async () => {
       throw new ApiError(401, "unauthorized")
     })
     createClientMock.mockReturnValue(makeClient(loginDevice))
     await render(<App />)
 
-    await fireEvent.changeText(await screen.findByPlaceholderText("https://masterhand.example.com"), "https://host")
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "bad")
-    await fireEvent.press(screen.getByText("Sign in"))
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "bad")
+    await fireEvent.press(screen.getByTestId("connect-button"))
 
-    expect(await screen.findByText("Wrong password")).toBeOnTheScreen()
+    expect(await screen.findByText("Wrong password. Try again.")).toBeOnTheScreen()
   })
 
-  it("renders the app for a stored token and signs out", async () => {
-    mocked.loadToken.mockResolvedValue("stored-token")
-    mocked.loadServerUrl.mockResolvedValue("https://host")
+  it("restores a saved token and disconnects without forgetting the profile", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
     await render(<App />)
 
     expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
-    // Sign out lives inside Settings, reached from the bottom nav.
     await fireEvent.press(screen.getByLabelText("Settings"))
-    await fireEvent.press(screen.getByLabelText("Sign out"))
+    await fireEvent.press(screen.getByLabelText("Close settings"))
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Disconnect from the active server"))
 
-    expect(mocked.clearToken).toHaveBeenCalled()
-    expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+    expect(mocked.clearServerToken).toHaveBeenCalledWith("home")
+    expect(await screen.findByText("Home")).toBeOnTheScreen()
+    expect(screen.getByText("Add another server")).toBeOnTheScreen()
   })
 
-  it("shows the login screen with a storage error when SecureStore fails at startup (#82)", async () => {
-    mocked.loadServerUrl.mockRejectedValue(new Error("keychain unavailable"))
+  it("shows the Servers screen with a storage error when SecureStore fails at startup (#82)", async () => {
+    mocked.loadServerRegistry.mockRejectedValue(new Error("keychain unavailable"))
     await render(<App />)
 
-    // Never a permanent spinner: the login screen appears with the real reason.
-    expect(await screen.findByText("Your opencode agents, from anywhere.")).toBeOnTheScreen()
+    expect(await screen.findByText("Connect your first server")).toBeOnTheScreen()
     expect(await screen.findByText(/secure storage/i)).toBeOnTheScreen()
   })
 
-  it("keeps the session in memory and warns when it cannot be saved (#82)", async () => {
-    mocked.loadServerUrl.mockResolvedValue("https://host")
-    mocked.saveToken.mockRejectedValue(new Error("keychain unavailable"))
+  it("switches between saved profiles without re-authentication", async () => {
+    const second = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, second], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
     await render(<App />)
 
-    await fireEvent.changeText(await screen.findByDisplayValue("https://host"), "https://host")
-    await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
-    await fireEvent.press(screen.getByText("Sign in"))
+    expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Server: Home"))
+    await fireEvent.press(screen.getByTestId("switcher-server-studio"))
+    expect(await screen.findByLabelText("Server: Studio")).toBeOnTheScreen()
+  })
 
-    // The login still lands; the banner says the session will not survive a restart.
-    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
+  it("asks for the password when a saved profile has no token", async () => {
+    const second = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, second], activeID: "home" })
+    mocked.loadServerToken.mockImplementation(async (id: string) =>
+      id === "home" ? "stored-token" : null,
+    )
+    await render(<App />)
+
+    await screen.findByText("Add a workspace to start working on a project.")
+    await fireEvent.press(screen.getByLabelText("Server: Home"))
+    await fireEvent.press(screen.getByTestId("switcher-server-studio"))
+    expect(await screen.findByText(/Reconnect to Studio/)).toBeOnTheScreen()
+  })
+
+  it("warns when the server list cannot be persisted", async () => {
+    mocked.saveServerRegistry.mockRejectedValue(new Error("keychain unavailable"))
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText(/server list could not be saved/i)).toBeOnTheScreen()
+  })
+
+  it("renames and removes a profile from Settings > Servers", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Rename Home"))
+    await fireEvent.changeText(screen.getByLabelText("Name for Home"), "Home lab")
+    await fireEvent.press(screen.getByLabelText("Save name"))
+    await waitFor(() =>
+      expect(mocked.saveServerRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({ profiles: [expect.objectContaining({ label: "Home lab" })] }),
+      ),
+    )
+
+    await fireEvent.press(screen.getByLabelText("Remove Home lab"))
+    alert.mock.calls.at(-1)?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("home"))
+    expect(await screen.findByText("Connect your first server")).toBeOnTheScreen()
+    alert.mockRestore()
+  })
+
+  it("disconnects the active profile from Settings > Servers", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Disconnect Home"))
+    alert.mock.calls.at(-1)?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("home"))
+    expect(await screen.findByText("Add another server")).toBeOnTheScreen()
+    alert.mockRestore()
+  })
+
+  it("opens the add-server form from Settings > Servers", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Add server"))
+    expect(await screen.findByText("Add a server")).toBeOnTheScreen()
+    expect(screen.getByTestId("server-url-input")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Back to servers"))
+    expect(await screen.findByText("Add another server")).toBeOnTheScreen()
+  })
+
+  it("keeps the session in memory and warns when it cannot be saved (#82)", async () => {
+    mocked.saveServerToken.mockRejectedValue(new Error("keychain unavailable"))
+    await render(<App />)
+
+    await fireEvent.changeText(await screen.findByTestId("server-url-input"), "https://host")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
     expect(await screen.findByText(/could not save the session/i)).toBeOnTheScreen()
   })
 })

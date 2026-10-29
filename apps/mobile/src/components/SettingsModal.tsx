@@ -1,12 +1,14 @@
-import { useState, type ComponentType } from "react"
+import { useEffect, useState, type ComponentType } from "react"
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
+import type { StoredServerProfile } from "../storage"
 import { Screen } from "./Screen"
 import { AboutSection } from "./UpdateNotice"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
+import { ServersSection } from "./ServersSection"
 import {
   BackIcon,
   ChevronRightIcon,
@@ -16,6 +18,7 @@ import {
   KeyIcon,
   LogOutIcon,
   SearchIcon,
+  ServerIcon,
   SparkleIcon,
   SunIcon,
   type IconProps,
@@ -38,9 +41,10 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
 const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
-type SectionID = "appearance" | "goal" | "websearch" | "providers" | "about"
+type SectionID = "servers" | "appearance" | "goal" | "websearch" | "providers" | "about"
 
 const SECTIONS: Array<{ id: SectionID; label: string; desc: string; icon: ComponentType<IconProps> }> = [
+  { id: "servers", label: "Servers", desc: "Connections and credentials", icon: ServerIcon },
   { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
@@ -63,6 +67,8 @@ export function SettingsModal({
   onSelectPalette,
   onSignOut,
   onClose,
+  initialSection = null,
+  servers,
 }: {
   visible: boolean
   client: Client
@@ -70,14 +76,26 @@ export function SettingsModal({
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
   onSelectPalette: (palette: PaletteID) => void
-  /** Revokes the device and returns to login; the bottom nav no longer hosts it. */
+  /** Disconnects the active server (keeps the profile); the bottom nav no longer hosts it. */
   onSignOut: () => void
   onClose: () => void
+  initialSection?: SectionID | null
+  servers: {
+    profiles: StoredServerProfile[]
+    activeID: string | null
+    onRename: (profile: StoredServerProfile, label: string) => void
+    onDisconnect: (profile: StoredServerProfile) => void
+    onRemove: (profile: StoredServerProfile) => void
+    onAdd: () => void
+  }
 }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   // null = the section list; otherwise only that section is mounted.
-  const [section, setSection] = useState<SectionID | null>(null)
+  const [section, setSection] = useState<SectionID | null>(initialSection)
+  useEffect(() => {
+    if (visible) setSection(initialSection)
+  }, [visible, initialSection])
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -133,16 +151,17 @@ export function SettingsModal({
             <Pressable
               onPress={onSignOut}
               accessibilityRole="button"
-              accessibilityLabel="Sign out"
+              accessibilityLabel="Disconnect from the active server"
               style={styles.signOut}
             >
               <LogOutIcon size={18} color={colors.danger} />
-              <Text style={styles.signOutText}>Sign out</Text>
+              <Text style={styles.signOutText}>Disconnect</Text>
             </Pressable>
           </ScrollView>
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
-            {section === "appearance" && (
+            {section === "servers" && <ServersSection {...servers} />}
+          {section === "appearance" && (
               <>
                 <Text style={styles.sectionTitle}>Appearance</Text>
                 <Text style={styles.themeLabel}>Theme color</Text>

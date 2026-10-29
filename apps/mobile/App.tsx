@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AppState, Platform, Pressable, StyleSheet, View } from "react-native"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { Alert, AppState, Platform, Pressable, StyleSheet, View } from "react-native"
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query"
 import { fetch as expoFetch } from "expo/fetch"
 import { useFonts } from "expo-font"
 import { Fraunces_400Regular, Fraunces_500Medium, Fraunces_600SemiBold } from "@expo-google-fonts/fraunces"
@@ -14,11 +14,16 @@ import {
   ApiError,
   createClient,
   createEventHandler,
+  defaultServerLabel,
   formIsQuestion,
   invalidateOnReconnect,
+  isMixedContentBlocked,
+  normalizeServerLabel,
+  normalizeServerUrl,
   reconcileForms,
   reconcilePermissions,
   rootSessions,
+  serverUrlErrorMessage,
   shouldAutoAccept,
   useEventStream,
   useSessionDirectories,
@@ -34,13 +39,14 @@ import {
 } from "@masterhand/client-core"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
-import { LoginScreen } from "./src/screens/LoginScreen"
+import { ServersScreen } from "./src/screens/ServersScreen"
 import { SessionsScreen, type HomeSection } from "./src/screens/SessionsScreen"
 import { BoardScreen } from "./src/screens/BoardScreen"
 import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { SchedulerSection } from "./src/components/SchedulerSection"
 import { SettingsModal } from "./src/components/SettingsModal"
+import { ServerSwitcher } from "./src/components/ServerSwitcher"
 import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
 import { ThemedSystemBars } from "./src/components/SystemBars"
@@ -55,29 +61,18 @@ import {
   type Palette,
 } from "./src/theme"
 import {
-  clearDevice,
-  clearToken,
-  clearWorkspaceID,
+  clearServerToken,
   getOrCreateInstallID,
-  loadAutoAcceptSessions,
-  loadDevice,
-  loadServerUrl,
-  loadToken,
-  loadWorkspaceID,
-  saveAutoAcceptSessions,
-  saveDevice,
-  saveServerUrl,
-  saveToken,
-  saveWorkspaceID,
+  loadAutoAcceptSessionsFor,
+  loadServerRegistry,
+  loadServerToken,
+  newServerID,
+  saveAutoAcceptSessionsFor,
+  saveServerRegistry,
+  saveServerToken,
+  type ServerRegistry,
+  type StoredServerProfile,
 } from "./src/storage"
-
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-    },
-  },
-})
 
 const fetchImpl = expoFetch as unknown as typeof fetch
 
@@ -104,107 +99,386 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider fonts={fontsLoaded ? appFonts : systemFonts}>
           <ThemedSystemBars />
-          <QueryClientProvider client={queryClient}>
-            <Root />
-          </QueryClientProvider>
+          <Root />
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )
 }
 
+function newQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: 1 } } })
+}
+
+function connectErrorMessage(error: unknown, url: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return "Wrong password. Try again."
+    if (error.status === 429) return "Too many attempts; wait 15 minutes."
+    if (error.status === 400) return "Check the server URL and password."
+    if (error.status === 404) return "This server does not expose the MasterHand API (404)."
+    return `The server answered with error ${error.status}.`
+  }
+  let host = url
+  try {
+    host = new URL(url).host
+  } catch {
+    // keep the raw value
+  }
+  return `Could not reach ${host}. Check the URL, the network, and that the server is running.`
+}
+
+/**
+ * Multi-server root (ADR-39): profile registry, one active client and one
+ * QueryClient. Switching remounts the authenticated tree (keyed by profile id)
+ * and therefore stops the old SSE stream and discards its cache.
+ */
 function Root() {
   const [ready, setReady] = useState(false)
-  const [serverUrl, setServerUrl] = useState<string | null>(null)
-  const [token, setToken] = useState<string | null>(null)
-  const [loginBusy, setLoginBusy] = useState(false)
-  const [loginError, setLoginError] = useState<string | null>(null)
+  const [registry, setRegistry] = useState<ServerRegistry>({ profiles: [], activeID: null })
+  const [view, setView] = useState<"servers" | "app">("servers")
+  const [activeProfile, setActiveProfile] = useState<StoredServerProfile | null>(null)
+  const [connection, setConnection] = useState<Client | null>(null)
+  const [queryClient, setQueryClient] = useState<QueryClient>(newQueryClient)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [reauthProfile, setReauthProfile] = useState<StoredServerProfile | null>(null)
+  const [openAdd, setOpenAdd] = useState(false)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{ url: string; label: string } | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const activeRef = useRef<StoredServerProfile | null>(null)
+  const registryRef = useRef(registry)
+  registryRef.current = registry
+  activeRef.current = activeProfile
+  const expireRef = useRef<(profileID: string) => void>(() => {})
+  // Drop the previous server's cache (and its gc timers) on switch/unmount.
+  useEffect(() => () => queryClient.clear(), [queryClient])
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [storedUrl, storedToken] = await Promise.all([loadServerUrl(), loadToken()])
-        tokenRef.current = storedToken
-        setServerUrl(storedUrl)
-        setToken(storedToken)
-      } catch {
-        // A SecureStore failure (keychain unavailable, corrupted access group)
-        // must never leave the app on a permanent spinner: fall back to the
-        // login screen with a storage-specific message (issue #82).
-        setLoginError(
-          "Could not read the saved session from this device's secure storage. Sign in again.",
-        )
-      } finally {
-        setReady(true)
-      }
-    })()
+  const persistRegistry = useCallback((next: ServerRegistry) => {
+    setRegistry(next)
+    void saveServerRegistry(next).catch(() => {
+      setStorageWarning(
+        "The server list could not be saved to this device's secure storage. It will work until the app restarts.",
+      )
+    })
   }, [])
 
-  const client = useMemo(() => {
-    if (!serverUrl) return null
-    return createClient({
-      baseUrl: serverUrl,
-      getToken: () => tokenRef.current,
-      fetchImpl,
-      onUnauthorized: () => {
-        tokenRef.current = null
-        void clearToken()
-        setToken(null)
-      },
-    })
-  }, [serverUrl])
+  const enter = useCallback(
+    (profile: StoredServerProfile, token: string) => {
+      tokenRef.current = token
+      const nextClient = createClient({
+        baseUrl: profile.url,
+        getToken: () => tokenRef.current,
+        fetchImpl,
+        onUnauthorized: () => expireRef.current(profile.id),
+      })
+      setConnection(nextClient)
+      setActiveProfile(profile)
+      setQueryClient(newQueryClient())
+      setBusy(false)
+      setError(null)
+      setReauthProfile(null)
+      setView("app")
+    },
+    [],
+  )
 
-  async function handleLogin(url: string, password: string) {
-    setLoginBusy(true)
-    setLoginError(null)
-    try {
-      const normalized = url.replace(/\/+$/, "")
-      const candidate = createClient({ baseUrl: normalized, fetchImpl })
-      const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
-      // Stable identity across logins (the SecureStore entry survives sign-out);
-      // the display name is only a label (issue #193).
-      const installID = await getOrCreateInstallID()
-      const result = await candidate.auth.loginDevice(password, deviceName, installID)
+  const expire = useCallback(
+    (profileID: string) => {
+      if (activeRef.current?.id !== profileID) return
+      tokenRef.current = null
+      void clearServerToken(profileID).catch(() => {})
+      const previous = registryRef.current
+      const profile = previous.profiles.find((item) => item.id === profileID) ?? null
+      const next: ServerRegistry = {
+        profiles: previous.profiles.map((item) =>
+          item.id === profileID ? { ...item, expired: true } : item,
+        ),
+        activeID: null,
+      }
+      persistRegistry(next)
+      setActiveProfile(null)
+      setConnection(null)
+      setQueryClient(newQueryClient())
+      setReauthProfile(profile ? { ...profile, expired: true } : null)
+      setError(profile ? `${profile.label}'s saved session expired. Enter its password again.` : null)
+      setView("servers")
+    },
+    [persistRegistry],
+  )
+  expireRef.current = expire
+
+  // Boot: the last active profile connects with its saved token (no re-auth);
+  // a missing token opens the Servers screen for a password prompt.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
       try {
-        await Promise.all([saveServerUrl(normalized), saveToken(result.token), saveDevice(result.device)])
+        const stored = await loadServerRegistry()
+        if (cancelled) return
+        setRegistry(stored)
+        const active = stored.profiles.find((item) => item.id === stored.activeID) ?? null
+        if (active) {
+          const token = await loadServerToken(active.id)
+          if (cancelled) return
+          if (token && !active.expired) {
+            enter(active, token)
+          } else {
+            setReauthProfile(active.expired ? active : null)
+            setView("servers")
+          }
+        }
       } catch {
-        // The login worked but the device cannot persist it: keep the session
-        // usable in memory and say it will not survive a restart (issue #82).
-        setStorageWarning(
-          "Signed in, but this device could not save the session. You will need to sign in again after restarting.",
+        // SecureStore failures must never leave the app on a permanent spinner
+        // (#82): show the Servers screen with a specific message.
+        setError("Could not read the saved servers from this device's secure storage.")
+      } finally {
+        if (!cancelled) setReady(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [enter])
+
+  const connect = useCallback(
+    async (profile: StoredServerProfile, password: string, mode: "first-run" | "add" | "reauth") => {
+      setBusy(true)
+      setError(null)
+      setNotice(null)
+      try {
+        const candidate = createClient({ baseUrl: profile.url, fetchImpl })
+        const deviceName = Platform.OS === "ios" ? "iOS device" : "Android device"
+        const installID = await getOrCreateInstallID()
+        const result = await candidate.auth.loginDevice(password, deviceName, installID)
+        let persistenceWarning = false
+        try {
+          await saveServerToken(profile.id, result.token)
+        } catch {
+          persistenceWarning = true
+        }
+        const nextProfile: StoredServerProfile = {
+          ...profile,
+          device: result.device,
+          expired: false,
+          lastUsedAt: Date.now(),
+        }
+        const previous = registryRef.current
+        const next: ServerRegistry = {
+          profiles: previous.profiles.some((item) => item.id === nextProfile.id)
+            ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
+            : [...previous.profiles, nextProfile],
+          activeID: nextProfile.id,
+        }
+        persistRegistry(next)
+        if (persistenceWarning) {
+          setStorageWarning(
+            "Signed in, but this device could not save the session. You will need to sign in again after restarting.",
+          )
+        }
+        setOpenAdd(false)
+        setDraft(null)
+        enter(nextProfile, result.token)
+      } catch (err) {
+        setError(connectErrorMessage(err, profile.url))
+        setReauthProfile(mode === "reauth" ? profile : null)
+        setOpenAdd(mode === "add")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [enter, persistRegistry],
+  )
+
+  const submit = useCallback(
+    (mode: "first-run" | "add" | "reauth", values: { url: string; label: string; password: string }, profile?: StoredServerProfile) => {
+      setError(null)
+      setDraft({ url: values.url, label: values.label })
+      const normalized = normalizeServerUrl(values.url)
+      if (!normalized.ok) {
+        setError(serverUrlErrorMessage(normalized.error))
+        return
+      }
+      if (isMixedContentBlocked(normalized.server.url, null)) {
+        setError("Use https:// for remote servers.")
+        return
+      }
+      const duplicate = registryRef.current.profiles.find(
+        (item) => item.url === normalized.server.url,
+      )
+      if (mode !== "reauth" && duplicate) {
+        setError("This server is already saved.")
+        return
+      }
+      const target =
+        mode === "reauth" && profile
+          ? profile
+          : {
+              id: newServerID(),
+              label: normalizeServerLabel(values.label, normalized.server.url),
+              url: normalized.server.url,
+              device: null,
+              lastWorkspaceID: null,
+              lastSessionID: null,
+              expired: false,
+              lastUsedAt: Date.now(),
+            }
+      void connect(target, values.password, mode)
+    },
+    [connect],
+  )
+
+  const select = useCallback(
+    (profile: StoredServerProfile) => {
+      setError(null)
+      setNotice(null)
+      void (async () => {
+        const token = await loadServerToken(profile.id).catch(() => null)
+        if (!token) {
+          setReauthProfile(profile)
+          setView("servers")
+          return
+        }
+        enter({ ...profile, expired: false }, token)
+      })()
+    },
+    [enter],
+  )
+
+  const disconnect = useCallback(
+    async (profile: StoredServerProfile) => {
+      let residual = false
+      const token = await loadServerToken(profile.id).catch(() => null)
+      if (token && profile.device) {
+        const target = createClient({
+          baseUrl: profile.url,
+          getToken: () => token,
+          fetchImpl,
+          timeoutMs: 10_000,
+        })
+        try {
+          await target.auth.revokeDevice(profile.device.id)
+        } catch {
+          residual = true
+        }
+      }
+      await clearServerToken(profile.id).catch(() => {})
+      const wasActive = activeRef.current?.id === profile.id
+      const previous = registryRef.current
+      persistRegistry({
+        profiles: previous.profiles.map((item) =>
+          item.id === profile.id ? { ...item, expired: false } : item,
+        ),
+        activeID: wasActive ? null : previous.activeID,
+      })
+      if (wasActive) {
+        tokenRef.current = null
+        setActiveProfile(null)
+        setConnection(null)
+        setQueryClient(newQueryClient())
+        setReauthProfile(null)
+        setError(null)
+        setView("servers")
+        if (residual) {
+          setNotice("Disconnected. The device token could not be revoked; revoke it from that server's settings.")
+        }
+      } else if (residual) {
+        Alert.alert("Disconnected", "The device token could not be revoked.")
+      }
+    },
+    [persistRegistry],
+  )
+
+  const remove = useCallback(
+    async (profile: StoredServerProfile) => {
+      let residual = false
+      const token = await loadServerToken(profile.id).catch(() => null)
+      if (token && profile.device) {
+        const target = createClient({
+          baseUrl: profile.url,
+          getToken: () => token,
+          fetchImpl,
+          timeoutMs: 10_000,
+        })
+        try {
+          await target.auth.revokeDevice(profile.device.id)
+        } catch {
+          residual = true
+        }
+      }
+      await clearServerToken(profile.id).catch(() => {})
+      const wasActive = activeRef.current?.id === profile.id
+      const previous = registryRef.current
+      persistRegistry({
+        profiles: previous.profiles.filter((item) => item.id !== profile.id),
+        activeID: wasActive ? null : previous.activeID,
+      })
+      if (wasActive) {
+        tokenRef.current = null
+        setActiveProfile(null)
+        setConnection(null)
+        setQueryClient(newQueryClient())
+        setReauthProfile(null)
+        setError(null)
+        setNotice("Server removed")
+        setView("servers")
+      }
+      if (residual) {
+        Alert.alert(
+          "Server removed",
+          "Its device token could not be revoked. Revoke it from that server's settings if needed.",
         )
       }
-      tokenRef.current = result.token
-      setServerUrl(normalized)
-      setToken(result.token)
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) setLoginError("Wrong password")
-        else if (err.status === 429) setLoginError("Too many attempts; wait 15 minutes")
-        else if (err.status === 400) setLoginError("Check the server URL and password")
-        else setLoginError(`Error ${err.status}`)
-      } else {
-        setLoginError("Could not reach the server")
-      }
-    } finally {
-      setLoginBusy(false)
-    }
-  }
+    },
+    [persistRegistry],
+  )
 
-  async function handleSignOut() {
-    if (client) {
-      const device = await loadDevice().catch(() => null)
-      if (device) await client.auth.revokeDevice(device.id).catch(() => {})
-    }
-    await Promise.all([clearToken(), clearDevice(), clearWorkspaceID()])
-    tokenRef.current = null
-    queryClient.clear()
-    setToken(null)
-  }
+  const rename = useCallback(
+    (profile: StoredServerProfile, label: string) => {
+      const previous = registryRef.current
+      persistRegistry({
+        ...previous,
+        profiles: previous.profiles.map((item) =>
+          item.id === profile.id ? { ...item, label: normalizeServerLabel(label, item.url) } : item,
+        ),
+      })
+    },
+    [persistRegistry],
+  )
+
+  const updateProfileState = useCallback(
+    (profileID: string, patch: Partial<Pick<StoredServerProfile, "lastWorkspaceID" | "lastSessionID">>) => {
+      const previous = registryRef.current
+      let changed = false
+      const profiles = previous.profiles.map((item) => {
+        if (item.id !== profileID) return item
+        const next = { ...item }
+        if ("lastWorkspaceID" in patch && patch.lastWorkspaceID !== item.lastWorkspaceID) {
+          next.lastWorkspaceID = patch.lastWorkspaceID ?? null
+          changed = true
+        }
+        if ("lastSessionID" in patch && patch.lastSessionID !== item.lastSessionID) {
+          next.lastSessionID = patch.lastSessionID ?? null
+          changed = true
+        }
+        return changed ? next : item
+      })
+      if (changed) persistRegistry({ ...previous, profiles })
+    },
+    [persistRegistry],
+  )
+
+  const openAddServer = useCallback(() => {
+    setOpenAdd(true)
+    setDraft(null)
+    setError(null)
+    setNotice(null)
+    setReauthProfile(null)
+    setView("servers")
+  }, [])
 
   if (!ready) {
     return (
@@ -214,37 +488,87 @@ function Root() {
     )
   }
 
-  if (!client || !token) {
+  const currentProfile = activeProfile
+    ? (registry.profiles.find((item) => item.id === activeProfile.id) ?? activeProfile)
+    : null
+
+  if (view === "servers" || !currentProfile || !connection) {
     return (
-      <LoginScreen
-        initialServerUrl={serverUrl}
-        busy={loginBusy}
-        error={loginError}
-        onSubmit={(url, password) => void handleLogin(url, password)}
+      <ServersScreen
+        profiles={registry.profiles}
+        activeID={view === "app" ? currentProfile?.id ?? null : null}
+        initialUrl=""
+        busy={busy}
+        error={error}
+        notice={notice}
+        reauthProfile={reauthProfile}
+        startAdding={openAdd}
+        draft={draft}
+        onSubmit={submit}
+        onSelect={select}
+        onCancel={() => {
+          setOpenAdd(false)
+          setDraft(null)
+          setReauthProfile(null)
+          setError(null)
+        }}
+        onCancelAdd={() => {
+          setOpenAdd(false)
+          setDraft(null)
+          setError(null)
+        }}
       />
     )
   }
 
   return (
-    <AuthenticatedApp
-      client={client}
-      initialBanner={storageWarning}
-      onSignOut={() => void handleSignOut()}
-    />
+    <QueryClientProvider client={queryClient}>
+      <AuthenticatedApp
+        key={currentProfile.id}
+        client={connection}
+        profile={currentProfile}
+        profiles={registry.profiles}
+        initialBanner={storageWarning}
+        onDisconnect={disconnect}
+        onDisconnectServer={(profile) => void disconnect(profile)}
+        onRemoveServer={(profile) => void remove(profile)}
+        onRenameServer={rename}
+        onAddServer={openAddServer}
+        onProfileState={(patch) => updateProfileState(currentProfile.id, patch)}
+        onSwitch={(profile) => select(profile)}
+      />
+    </QueryClientProvider>
   )
 }
 
 function AuthenticatedApp({
   client,
-  onSignOut,
+  profile,
+  profiles,
   initialBanner = null,
+  onDisconnect,
+  onDisconnectServer,
+  onRemoveServer,
+  onRenameServer,
+  onAddServer,
+  onProfileState,
+  onSwitch,
 }: {
   client: Client
-  onSignOut: () => void
+  profile: StoredServerProfile
+  profiles: StoredServerProfile[]
   initialBanner?: string | null
+  onDisconnect: (profile: StoredServerProfile) => Promise<void>
+  onDisconnectServer: (profile: StoredServerProfile) => void
+  onRemoveServer: (profile: StoredServerProfile) => void
+  onRenameServer: (profile: StoredServerProfile, label: string) => void
+  onAddServer: () => void
+  onProfileState: (patch: Partial<Pick<StoredServerProfile, "lastWorkspaceID" | "lastSessionID">>) => void
+  onSwitch: (profile: StoredServerProfile) => void
 }) {
-  const [sessionID, setSessionID] = useState<string | null>(null)
-  const [workspaceID, setWorkspaceID] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const [sessionID, setSessionID] = useState<string | null>(profile.lastSessionID)
+  const [workspaceID, setWorkspaceID] = useState<string | null>(profile.lastWorkspaceID)
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [forms, setForms] = useState<FormInfo[]>([])
   const [answeredForms, setAnsweredForms] = useState<Array<{ form: FormInfo; answer: FormAnswer }>>([])
@@ -255,8 +579,9 @@ function AuthenticatedApp({
   const [banner, setBanner] = useState<string | null>(initialBanner)
   const [autoAcceptSessions, setAutoAcceptSessions] = useState<string[]>([])
   const autoAcceptLoaded = useRef(false)
-  // App-level settings modal (Appearance, Providers, Account).
+  // App-level settings modal (Servers, Appearance, Providers, Account).
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<"servers" | null>(null)
   // Home section (Sessions/Scheduler), mirroring the web sidebar rail. The
   // chat takes over the screen while a session is open; backing out returns
   // to the selected section.
@@ -268,16 +593,23 @@ function AuthenticatedApp({
   const { mode, setMode, palette, setPalette } = useTheme()
 
   useEffect(() => {
-    void loadAutoAcceptSessions().then((ids) => {
+    void loadAutoAcceptSessionsFor(profile.id).then((ids) => {
       setAutoAcceptSessions(ids)
       autoAcceptLoaded.current = true
     })
-  }, [])
+  }, [profile.id])
 
   useEffect(() => {
     if (!autoAcceptLoaded.current) return
-    void saveAutoAcceptSessions(autoAcceptSessions)
-  }, [autoAcceptSessions])
+    void saveAutoAcceptSessionsFor(profile.id, autoAcceptSessions).catch(() => {})
+  }, [autoAcceptSessions, profile.id])
+
+  useEffect(() => {
+    onProfileState({ lastSessionID: sessionID })
+  }, [sessionID, onProfileState])
+  useEffect(() => {
+    onProfileState({ lastWorkspaceID: workspaceID })
+  }, [workspaceID, onProfileState])
 
   // Mirrors for the memoized event handler: it must see the latest values
   // without being recreated (which would resubscribe the stream).
@@ -358,10 +690,6 @@ function AuthenticatedApp({
     [],
   )
 
-  useEffect(() => {
-    void loadWorkspaceID().then(setWorkspaceID)
-  }, [])
-
   const workspacesQuery = useWorkspaces(client, true)
   const workspaces = workspacesQuery.data ?? []
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
@@ -371,10 +699,7 @@ function AuthenticatedApp({
   useEffect(() => {
     if (!workspacesQuery.data) return
     if (workspaceID && workspacesQuery.data.some((item) => item.id === workspaceID)) return
-    const next = workspacesQuery.data[0]?.id ?? null
-    setWorkspaceID(next)
-    if (next) void saveWorkspaceID(next)
-    else void clearWorkspaceID()
+    setWorkspaceID(workspacesQuery.data[0]?.id ?? null)
   }, [workspacesQuery.data, workspaceID])
 
   const sessionsQuery = useSessions(client, true, 10_000, workspaceID)
@@ -515,6 +840,11 @@ function AuthenticatedApp({
     )
   }, [])
 
+  function openSettings(section: "servers" | null = null) {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
+
   async function createSession(isolated: boolean) {
     if (!workspaceID) {
       setBanner("Add a workspace first")
@@ -550,16 +880,12 @@ function AuthenticatedApp({
     const created = await client.workspaces.create(input)
     await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
     setWorkspaceID(created.id)
-    void saveWorkspaceID(created.id)
   }
 
   async function removeWorkspace(id: string, options: { deleteFiles: boolean }) {
     try {
       await client.workspaces.remove(id, options)
-      if (workspaceID === id) {
-        setWorkspaceID(null)
-        void clearWorkspaceID()
-      }
+      if (workspaceID === id) setWorkspaceID(null)
       await queryClient.invalidateQueries({ queryKey: ["workspaces"] })
     } catch {
       setBanner("Could not remove the workspace")
@@ -568,7 +894,6 @@ function AuthenticatedApp({
 
   function selectWorkspace(id: string) {
     setWorkspaceID(id)
-    void saveWorkspaceID(id)
   }
 
   /**
@@ -683,7 +1008,16 @@ function AuthenticatedApp({
           activeSessionID={sessionID}
           onOpen={setSessionID}
           onNew={(isolated) => void createSession(isolated)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings()}
+          serverSwitcher={
+            <ServerSwitcher
+              profiles={profiles}
+              activeProfile={profile}
+              onSwitch={onSwitch}
+              onManage={() => openSettings("servers")}
+              onAdd={onAddServer}
+            />
+          }
           onSelectWorkspace={switchWorkspace}
           onAddWorkspace={addWorkspace}
           onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
@@ -711,11 +1045,26 @@ function AuthenticatedApp({
         onSelectMode={setMode}
         palette={palette}
         onSelectPalette={setPalette}
+        initialSection={settingsSection}
+        servers={{
+          profiles,
+          activeID: profile.id,
+          onRename: onRenameServer,
+          onDisconnect: onDisconnectServer,
+          onRemove: onRemoveServer,
+          onAdd: () => {
+            setSettingsOpen(false)
+            onAddServer()
+          },
+        }}
         onSignOut={() => {
           setSettingsOpen(false)
-          onSignOut()
+          void onDisconnect(profile)
         }}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false)
+          setSettingsSection(null)
+        }}
       />
 
       {permissions[0] && (

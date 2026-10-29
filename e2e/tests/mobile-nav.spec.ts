@@ -49,7 +49,7 @@ test("the bottom nav switches sections and hides while a chat is open", async ({
   await nav.getByRole("button", { name: "Settings", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
   await expect(dialog.getByRole("button", { name: "Appearance" })).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Sign out" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Disconnect from the active server" })).toBeVisible()
   await dialog.getByRole("button", { name: "Close settings" }).click()
 
   // An open chat takes over the screen: the nav hides and its back control

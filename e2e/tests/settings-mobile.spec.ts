@@ -21,7 +21,7 @@ test("settings uses a vertical list with back navigation on mobile", async ({ pa
   await expect(dialog.getByRole("button", { name: "Goal review" })).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Web search" })).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Providers" })).toBeVisible()
-  await expect(dialog.getByRole("button", { name: "Sign out" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Disconnect from the active server" })).toBeVisible()
   await expect(dialog.getByText("Theme color")).toBeHidden()
 
   // Opening a section shows only that section.

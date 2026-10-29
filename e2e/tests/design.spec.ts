@@ -68,13 +68,15 @@ test("switches color theme from settings and remembers it", async ({ page }) => 
   await expect(page.locator("html")).toHaveAttribute("data-palette", "paper")
 })
 
-test("signs out from the sessions panel options, not from the top bar", async ({ page }) => {
+test("disconnects from the sessions panel options, not from the top bar", async ({ page }) => {
   await login(page)
-  // Sign out lives in the bottom-left options box of the sessions panel.
-  const options = page.locator("aside").getByRole("button", { name: "Sign out" })
+  // Disconnect lives in the bottom-left options box of the sessions panel and
+  // returns to the Servers screen without forgetting the profile.
+  const options = page.locator("aside").getByRole("button", { name: "Disconnect" })
   await expect(options).toBeVisible()
   await options.click()
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible()
+  await expect(page.getByText("One connection at a time.")).toBeVisible()
+  await expect(page.getByRole("button", { name: /Add another server/ })).toBeVisible()
 })
 
 test("collapses the sessions sidebar into an icon rail on desktop", async ({ page }) => {
@@ -85,14 +87,14 @@ test("collapses the sessions sidebar into an icon rail on desktop", async ({ pag
   const newSessionAction = aside.getByRole("button", { name: "New session" })
   await expect(newSessionAction).toBeHidden()
   await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
-  await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
+  await expect(aside.getByRole("button", { name: "Disconnect" })).toBeVisible()
 
   // The choice survives a reload.
   await page.reload()
   await expect(aside.getByRole("button", { name: "Expand sidebar" })).toBeVisible()
   await aside.getByRole("button", { name: "Expand sidebar" }).click()
   await expect(newSessionAction).toBeVisible()
-  await expect(aside.getByRole("button", { name: "Sign out" })).toBeVisible()
+  await expect(aside.getByRole("button", { name: "Disconnect" })).toBeVisible()
 })
 
 test("paints the sidebar edge handle with the sidebar border paint", async ({ page }) => {

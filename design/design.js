@@ -249,4 +249,94 @@
       }, 2600);
     });
   }
+
+  /* ---------------------------------------------------------------
+     10. Servers proposal: state switcher, active row and a small
+         connect simulation. All controls are inert outside #servers.
+     --------------------------------------------------------------- */
+  var srvTabs = Array.prototype.slice.call(document.querySelectorAll("[data-srv-state]"));
+  var srvPanels = Array.prototype.slice.call(document.querySelectorAll("[data-srv-panel]"));
+  var srvTimer = null;
+
+  function selectServerState(name) {
+    if (srvTimer) {
+      window.clearTimeout(srvTimer);
+      srvTimer = null;
+    }
+    srvTabs.forEach(function (tab) {
+      var active = tab.getAttribute("data-srv-state") === name;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    srvPanels.forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-srv-panel") !== name;
+    });
+  }
+
+  function setActiveServer(id) {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-srv-server]"), function (row) {
+      var active = row.getAttribute("data-srv-server") === id;
+      if (active) {
+        row.setAttribute("aria-current", "true");
+      } else {
+        row.removeAttribute("aria-current");
+      }
+      var expired = row.getAttribute("data-srv-expired") === "true";
+      var indicator = row.querySelector("[data-srv-indicator]");
+      if (indicator) {
+        indicator.className =
+          "mh-status " +
+          (active ? "mh-status--connected" : expired ? "mh-status--expired" : "mh-status--idle");
+      }
+      var status = row.querySelector("[data-srv-status]");
+      if (status) {
+        status.textContent = active ? "Connected" : expired ? "Expired" : "Saved";
+        if (active) {
+          status.removeAttribute("title");
+        } else {
+          status.setAttribute("title", expired ? "Session expired" : "Saved session");
+        }
+      }
+    });
+  }
+
+  function scrollToServerSection(id) {
+    var target = document.getElementById(id);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  srvTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      selectServerState(tab.getAttribute("data-srv-state"));
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-srv-action]"), function (button) {
+    button.addEventListener("click", function () {
+      var action = button.getAttribute("data-srv-action");
+      if (action === "to-add") {
+        selectServerState("add");
+        scrollToServerSection("servers-frames");
+      } else if (action === "add") {
+        selectServerState("add");
+      } else if (action === "back" || action === "cancel") {
+        selectServerState("list");
+      } else if (action === "settings") {
+        scrollToServerSection("servers-settings");
+      } else if (action === "connect") {
+        selectServerState("connecting");
+        srvTimer = window.setTimeout(function () {
+          srvTimer = null;
+          setActiveServer("studio");
+          selectServerState("list");
+        }, 1600);
+      }
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-srv-server]"), function (row) {
+    row.addEventListener("click", function () {
+      setActiveServer(row.getAttribute("data-srv-server"));
+    });
+  });
 })();

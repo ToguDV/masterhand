@@ -411,7 +411,13 @@ export function createClient(options: ClientOptions = {}): Client {
       overrideMs,
     )
     if (!response.ok) {
-      if (response.status === 401) options.onUnauthorized?.()
+      // A rejected login is a form error, never an expired session. Only the
+      // two credential-issuing POSTs are exempt; protected GET/DELETE calls on
+      // the same paths must still report an expired session.
+      const method = (init.method ?? "GET").toUpperCase()
+      const credentialAttempt =
+        method === "POST" && (path === "/api/login" || path === "/api/devices")
+      if (response.status === 401 && !credentialAttempt) options.onUnauthorized?.()
       const text = await response.text().catch(() => "")
       throw new ApiError(response.status, text || `HTTP ${response.status}`)
     }

@@ -67,6 +67,7 @@
           <a href="#foundations">Foundations</a>
           <a href="#components">Components</a>
           <a href="#app-preview">App preview</a>
+          <a href="#servers">Servers</a>
           <a href="DESIGN.md">DESIGN.md</a>
         </nav>
 
@@ -2104,6 +2105,907 @@
                 Desktop · sidebar docks in the frame at ≥620px container width
               </figcaption>
             </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================================================================
+           04 · Servers
+           ================================================================== -->
+      <section class="mh-section" id="servers">
+        <div class="mh-container">
+          <div class="mh-section__head">
+            <p class="mh-micro mh-eyebrow">04 · Servers</p>
+            <h2 class="mh-display-lg mh-section__title">One desk. Every server.</h2>
+            <p class="mh-lede">
+              The password-only login becomes a small shelf of servers. Each profile owns its URL and its
+              own credential; only one is connected at a time. Sessions keep running on the others.
+            </p>
+          </div>
+
+          <div class="mh-tabs mh-srv-tabs" role="tablist" aria-label="Server screen states">
+            <button class="mh-tab is-active" type="button" role="tab" aria-selected="true" data-srv-state="list">Server list</button>
+            <button class="mh-tab" type="button" role="tab" aria-selected="false" data-srv-state="empty">First run</button>
+            <button class="mh-tab" type="button" role="tab" aria-selected="false" data-srv-state="add">Add server</button>
+            <button class="mh-tab" type="button" role="tab" aria-selected="false" data-srv-state="connecting">Connecting</button>
+            <button class="mh-tab" type="button" role="tab" aria-selected="false" data-srv-state="error">Wrong password</button>
+          </div>
+
+          <div class="mh-frames" id="servers-frames">
+            <!-- ---------------------------- Phone ---------------------------- -->
+            <figure class="mh-frame" style="margin: 0">
+              <div class="mh-phone">
+                <div class="mh-phone__speaker"></div>
+                <div class="mh-app">
+                  <div class="mh-app-screen is-active">
+                    <!-- Server list -->
+                    <div class="mh-srv-phone" data-srv-panel="list">
+                      <div class="mh-srv-phone__head">
+                        <div class="mh-brand">
+                          <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                            <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                            <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                          </svg>
+                          <span class="mh-brand__name">MasterHand</span>
+                        </div>
+                        <span class="mh-chip">3 saved</span>
+                      </div>
+                      <div class="mh-srv-phone__body">
+                        <p class="mh-micro mh-eyebrow" style="margin: 0">Your workspace</p>
+                        <h3 class="mh-srv-title">Servers</h3>
+                        <p class="mh-srv-sub" style="margin-top: -4px">One connection at a time.</p>
+                        <div class="mh-srv-list">
+                          <button class="mh-server" type="button" aria-current="true" data-srv-server="home">
+                            <span class="mh-server__monogram">HM</span>
+                            <span class="mh-server__body">
+                              <span class="mh-server__name">Home</span>
+                              <span class="mh-server__host">masterhand.example.com</span>
+                            </span>
+                            <span class="mh-server__meta">
+                              <span class="mh-status mh-status--connected" data-srv-indicator aria-hidden="true"></span>
+                              <span data-srv-status>Connected</span>
+                            </span>
+                          </button>
+                          <button class="mh-server" type="button" data-srv-server="studio">
+                            <span class="mh-server__monogram">ST</span>
+                            <span class="mh-server__body">
+                              <span class="mh-server__name">Studio</span>
+                              <span class="mh-server__host">studio.masterhand.dev</span>
+                            </span>
+                            <span class="mh-server__meta">
+                              <span class="mh-status mh-status--idle" data-srv-indicator aria-hidden="true"></span>
+                              <span data-srv-status title="Saved session">Saved</span>
+                            </span>
+                          </button>
+                          <button class="mh-server" type="button" data-srv-server="vps" data-srv-expired="true">
+                            <span class="mh-server__monogram">VP</span>
+                            <span class="mh-server__body">
+                              <span class="mh-server__name">VPS</span>
+                              <span class="mh-server__host">192.168.1.20:8787</span>
+                            </span>
+                            <span class="mh-server__meta">
+                              <span class="mh-status mh-status--expired" data-srv-indicator aria-hidden="true"></span>
+                              <span data-srv-status title="Session expired">Expired</span>
+                            </span>
+                          </button>
+                        </div>
+                        <button class="mh-server__add" type="button" data-srv-action="to-add">
+                          <span class="mh-server__plus">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                          </span>
+                          <span>Add another server</span>
+                        </button>
+                        <p class="mh-srv-note">Only the active server sends live updates. The others keep working.</p>
+                      </div>
+                    </div>
+
+                    <!-- First run -->
+                    <div class="mh-srv-phone" data-srv-panel="empty" hidden>
+                      <div class="mh-srv-phone__deco">
+                        <div class="mh-deco mh-deco--blob"></div>
+                        <div class="mh-deco mh-deco--dots"></div>
+                      </div>
+                      <div class="mh-srv-phone__head">
+                        <div class="mh-brand">
+                          <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                            <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                            <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                          </svg>
+                          <span class="mh-brand__name">MasterHand</span>
+                        </div>
+                      </div>
+                      <div class="mh-srv-phone__body">
+                        <p class="mh-micro mh-eyebrow" style="margin: 0">First run</p>
+                        <h3 class="mh-srv-title">Connect your first server</h3>
+                        <p class="mh-srv-sub">Self-hosted, single-user. Your agents never leave your machine.</p>
+                        <div class="mh-srv-form">
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-empty-url">Server URL</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                              <input class="mh-input" id="srv-phone-empty-url" type="url" value="https://masterhand.example.com" spellcheck="false" />
+                            </div>
+                          </div>
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-empty-name">Name <span class="mh-srv-field__hint">(optional)</span></label>
+                            <input class="mh-input" id="srv-phone-empty-name" type="text" placeholder="Home" />
+                          </div>
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-empty-pw">Password</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                              <input class="mh-input mh-input--has-end" id="srv-phone-empty-pw" type="password" value="correct horse battery staple" />
+                              <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                          <p class="mh-srv-fine">Your password is sent only to this server. This device remembers the session.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Add server -->
+                    <div class="mh-srv-phone" data-srv-panel="add" hidden>
+                      <div class="mh-srv-phone__head">
+                        <button class="mh-srv-phone__back" type="button" data-srv-action="back" aria-label="Back to servers">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                        </button>
+                        <span class="mh-fine">Add server</span>
+                        <span style="flex: 1"></span>
+                      </div>
+                      <div class="mh-srv-phone__body">
+                        <h3 class="mh-srv-title">Add a server</h3>
+                        <p class="mh-srv-sub">URL, name and password. Each server keeps its own credential.</p>
+                        <div class="mh-srv-form">
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-add-url">Server URL</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                              <input class="mh-input" id="srv-phone-add-url" type="url" value="https://studio.masterhand.dev" spellcheck="false" />
+                            </div>
+                          </div>
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-add-name">Name <span class="mh-srv-field__hint">(optional)</span></label>
+                            <input class="mh-input" id="srv-phone-add-name" type="text" value="Studio" />
+                          </div>
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-add-pw">Password</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                              <input class="mh-input mh-input--has-end" id="srv-phone-add-pw" type="password" value="correct horse battery staple" />
+                              <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                          <p class="mh-srv-fine">Each server keeps its own credential. This device stores a revocable token.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Connecting -->
+                    <div class="mh-srv-phone" data-srv-panel="connecting" hidden>
+                      <div class="mh-srv-phone__deco">
+                        <div class="mh-deco mh-deco--blob"></div>
+                        <div class="mh-deco mh-deco--dots"></div>
+                      </div>
+                      <div class="mh-srv-connecting">
+                        <div class="mh-srv-connecting__card">
+                          <span class="mh-srv-connecting__mono">ST</span>
+                          <h3 class="mh-srv-title" style="font-size: 22px">Connecting to Studio</h3>
+                          <p class="mh-srv-sub" style="margin-top: -4px">studio.masterhand.dev</p>
+                          <span class="mh-srv-spin" aria-hidden="true"></span>
+                          <p class="mh-srv-fine" style="margin-top: -4px">This can take a few seconds.</p>
+                          <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button" data-srv-action="cancel">Cancel</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Wrong password -->
+                    <div class="mh-srv-phone" data-srv-panel="error" hidden>
+                      <div class="mh-srv-phone__head">
+                        <button class="mh-srv-phone__back" type="button" data-srv-action="back" aria-label="Back to servers">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                        </button>
+                        <span class="mh-fine">Add server</span>
+                        <span style="flex: 1"></span>
+                      </div>
+                      <div class="mh-srv-phone__body">
+                        <h3 class="mh-srv-title">Add a server</h3>
+                        <p class="mh-srv-sub">The server refused the password. Check it and try again.</p>
+                        <div class="mh-srv-form">
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-error-url">Server URL</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                              <input class="mh-input" id="srv-phone-error-url" type="url" value="https://studio.masterhand.dev" spellcheck="false" />
+                            </div>
+                          </div>
+                          <div class="mh-srv-field">
+                            <label class="mh-label" for="srv-phone-error-pw">Password</label>
+                            <div class="mh-field-icon">
+                              <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                              <input class="mh-input mh-input--has-end" id="srv-phone-error-pw" type="password" value="wrong password" aria-invalid="true" />
+                              <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                          <p class="mh-srv-error"><span class="mh-dot mh-dot--danger"></span>Wrong password. Try again.</p>
+                          <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <figcaption class="mh-frame__caption">Mobile · 360×720 · list, first run, add, connecting and error states</figcaption>
+            </figure>
+
+            <!-- --------------------------- Browser --------------------------- -->
+            <figure class="mh-frame" style="margin: 0">
+              <div class="mh-browser">
+                <div class="mh-browser__chrome">
+                  <span class="mh-browser__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="mh-browser__url">masterhand.example.com</span>
+                </div>
+                <div class="mh-browser__body">
+                  <div class="mh-app">
+                    <div class="mh-app-screen is-active">
+                      <!-- Server list -->
+                      <div class="mh-srv-desktop" data-srv-panel="list">
+                        <div class="mh-srv-desktop__intro">
+                          <div class="mh-deco mh-deco--blob"></div>
+                          <div class="mh-deco mh-deco--dots"></div>
+                          <div class="mh-brand" style="margin-bottom: 8px">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-micro mh-eyebrow" style="margin: 0">Your workspace</p>
+                          <h3 class="mh-srv-display">One desk.<br />Every server.</h3>
+                          <p class="mh-srv-lede">Connect to the MasterHand servers you own. One at a time, with each session kept exactly where you left it.</p>
+                          <p class="mh-srv-quiet">Sessions keep running on the servers you are not viewing.</p>
+                        </div>
+                        <div class="mh-srv-desktop__aside">
+                          <div class="mh-srv-sheet">
+                            <div class="mh-srv-sheet__head">
+                              <div>
+                                <h4 class="mh-srv-title">Servers</h4>
+                                <p class="mh-srv-sub">One connection at a time.</p>
+                              </div>
+                              <span class="mh-chip">3 saved</span>
+                            </div>
+                            <div class="mh-srv-list">
+                              <button class="mh-server" type="button" aria-current="true" data-srv-server="home">
+                                <span class="mh-server__monogram">HM</span>
+                                <span class="mh-server__body">
+                                  <span class="mh-server__name">Home</span>
+                                  <span class="mh-server__host">masterhand.example.com</span>
+                                </span>
+                                <span class="mh-server__meta">
+                                  <span class="mh-status mh-status--connected" data-srv-indicator aria-hidden="true"></span>
+                                  <span data-srv-status>Connected</span>
+                                </span>
+                              </button>
+                              <button class="mh-server" type="button" data-srv-server="studio">
+                                <span class="mh-server__monogram">ST</span>
+                                <span class="mh-server__body">
+                                  <span class="mh-server__name">Studio</span>
+                                  <span class="mh-server__host">studio.masterhand.dev</span>
+                                </span>
+                                <span class="mh-server__meta">
+                                  <span class="mh-status mh-status--idle" data-srv-indicator aria-hidden="true"></span>
+                                  <span data-srv-status title="Saved session">Saved</span>
+                                </span>
+                              </button>
+                              <button class="mh-server" type="button" data-srv-server="vps" data-srv-expired="true">
+                                <span class="mh-server__monogram">VP</span>
+                                <span class="mh-server__body">
+                                  <span class="mh-server__name">VPS</span>
+                                  <span class="mh-server__host">192.168.1.20:8787</span>
+                                </span>
+                                <span class="mh-server__meta">
+                                  <span class="mh-status mh-status--expired" data-srv-indicator aria-hidden="true"></span>
+                                  <span data-srv-status title="Session expired">Expired</span>
+                                </span>
+                              </button>
+                            </div>
+                            <button class="mh-server__add" type="button" data-srv-action="to-add">
+                              <span class="mh-server__plus">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                              </span>
+                              <span>Add another server</span>
+                            </button>
+                            <p class="mh-srv-note">Only the active server sends live updates. The others keep working.</p>
+                          </div>
+                          <p class="mh-srv-fine" style="text-align: center">Your data stays on your servers.</p>
+                        </div>
+                      </div>
+
+                      <!-- First run -->
+                      <div class="mh-srv-desktop" data-srv-panel="empty" hidden>
+                        <div class="mh-srv-desktop__intro">
+                          <div class="mh-deco mh-deco--blob"></div>
+                          <div class="mh-deco mh-deco--dots"></div>
+                          <div class="mh-brand" style="margin-bottom: 8px">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-micro mh-eyebrow" style="margin: 0">First run</p>
+                          <h3 class="mh-srv-display">Your agents,<br />one desk away.</h3>
+                          <p class="mh-srv-lede">Connect your first server. Self-hosted, single-user — your data never leaves your machine.</p>
+                        </div>
+                        <div class="mh-srv-desktop__aside">
+                          <div class="mh-srv-sheet">
+                            <div>
+                              <h4 class="mh-srv-title">Connect your server</h4>
+                              <p class="mh-srv-sub">URL, name and password. One connection at a time.</p>
+                            </div>
+                            <div class="mh-srv-form">
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-empty-url">Server URL</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                                  <input class="mh-input" id="srv-desk-empty-url" type="url" value="https://masterhand.example.com" spellcheck="false" />
+                                </div>
+                              </div>
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-empty-name">Name <span class="mh-srv-field__hint">(optional)</span></label>
+                                <input class="mh-input" id="srv-desk-empty-name" type="text" placeholder="Home" />
+                              </div>
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-empty-pw">Password</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                                  <input class="mh-input mh-input--has-end" id="srv-desk-empty-pw" type="password" value="correct horse battery staple" />
+                                  <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                  </button>
+                                </div>
+                              </div>
+                              <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                              <p class="mh-srv-fine">Your password is sent only to this server. This device remembers the session.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Add server -->
+                      <div class="mh-srv-desktop" data-srv-panel="add" hidden>
+                        <div class="mh-srv-desktop__intro">
+                          <div class="mh-deco mh-deco--blob"></div>
+                          <div class="mh-deco mh-deco--dots"></div>
+                          <div class="mh-brand" style="margin-bottom: 8px">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-micro mh-eyebrow" style="margin: 0">New connection</p>
+                          <h3 class="mh-srv-display">Another server,<br />same desk.</h3>
+                          <p class="mh-srv-lede">Add a server with its own URL and its own password. The sessions of the current server stay untouched.</p>
+                        </div>
+                        <div class="mh-srv-desktop__aside">
+                          <div class="mh-srv-sheet">
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button" data-srv-action="back" style="align-self: flex-start; margin-bottom: 4px">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                              Servers
+                            </button>
+                            <div>
+                              <h4 class="mh-srv-title">Add a server</h4>
+                              <p class="mh-srv-sub">Each server keeps its own credential.</p>
+                            </div>
+                            <div class="mh-srv-form">
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-add-url">Server URL</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                                  <input class="mh-input" id="srv-desk-add-url" type="url" value="https://studio.masterhand.dev" spellcheck="false" />
+                                </div>
+                              </div>
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-add-name">Name <span class="mh-srv-field__hint">(optional)</span></label>
+                                <input class="mh-input" id="srv-desk-add-name" type="text" value="Studio" />
+                              </div>
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-add-pw">Password</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                                  <input class="mh-input mh-input--has-end" id="srv-desk-add-pw" type="password" value="correct horse battery staple" />
+                                  <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                  </button>
+                                </div>
+                              </div>
+                              <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                              <p class="mh-srv-fine">Each server keeps its own credential. This device stores a revocable token.</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Connecting -->
+                      <div class="mh-srv-desktop" data-srv-panel="connecting" hidden>
+                        <div class="mh-srv-desktop__intro">
+                          <div class="mh-deco mh-deco--blob"></div>
+                          <div class="mh-deco mh-deco--dots"></div>
+                          <div class="mh-brand" style="margin-bottom: 8px">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-micro mh-eyebrow" style="margin: 0">Switching</p>
+                          <h3 class="mh-srv-display">Changing desks,<br />not threads.</h3>
+                          <p class="mh-srv-lede">The current server is released and the target restores its last workspace and session.</p>
+                        </div>
+                        <div class="mh-srv-desktop__aside">
+                          <div class="mh-srv-sheet" style="align-items: center; text-align: center; padding-block: 28px">
+                            <span class="mh-srv-connecting__mono">ST</span>
+                            <h4 class="mh-srv-title" style="font-size: 22px">Connecting to Studio</h4>
+                            <p class="mh-srv-sub" style="margin-top: -4px">studio.masterhand.dev</p>
+                            <span class="mh-srv-spin" aria-hidden="true"></span>
+                            <p class="mh-srv-fine" style="margin-top: -4px">This can take a few seconds.</p>
+                            <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button" data-srv-action="cancel">Cancel</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Wrong password -->
+                      <div class="mh-srv-desktop" data-srv-panel="error" hidden>
+                        <div class="mh-srv-desktop__intro">
+                          <div class="mh-deco mh-deco--blob"></div>
+                          <div class="mh-deco mh-deco--dots"></div>
+                          <div class="mh-brand" style="margin-bottom: 8px">
+                            <svg class="mh-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+                              <path d="M16.4 2.6c5.8-.6 11.6 3 13.2 8.6 1.6 5.6-1.2 11.8-6.4 14.6-5.2 2.8-12.2 2-16-2.6C3.4 18.6 3 12 6.6 8c2.6-3 6.2-5 9.8-5.4Z" fill="var(--mh-accent)" />
+                              <path d="M9.5 20.5c3.4-1.1 5.8-3.8 6.6-7.4" fill="none" stroke="var(--mh-canvas)" stroke-width="1.8" stroke-linecap="round" />
+                            </svg>
+                            <span class="mh-brand__name">MasterHand</span>
+                          </div>
+                          <p class="mh-micro mh-eyebrow" style="margin: 0">New connection</p>
+                          <h3 class="mh-srv-display">A different<br />password.</h3>
+                          <p class="mh-srv-lede">Every server validates its own password. Nothing from the current server is sent to the new one.</p>
+                        </div>
+                        <div class="mh-srv-desktop__aside">
+                          <div class="mh-srv-sheet">
+                            <div>
+                              <h4 class="mh-srv-title">Add a server</h4>
+                              <p class="mh-srv-sub">The server refused the password. Check it and try again.</p>
+                            </div>
+                            <div class="mh-srv-form">
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-error-url">Server URL</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                                  <input class="mh-input" id="srv-desk-error-url" type="url" value="https://studio.masterhand.dev" spellcheck="false" />
+                                </div>
+                              </div>
+                              <div class="mh-srv-field">
+                                <label class="mh-label" for="srv-desk-error-pw">Password</label>
+                                <div class="mh-field-icon">
+                                  <svg class="mh-field-icon__lead" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                                  <input class="mh-input mh-input--has-end" id="srv-desk-error-pw" type="password" value="wrong password" aria-invalid="true" />
+                                  <button class="mh-field-icon__end" type="button" aria-label="Show password">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                  </button>
+                                </div>
+                              </div>
+                              <p class="mh-srv-error"><span class="mh-dot mh-dot--danger"></span>Wrong password. Try again.</p>
+                              <button class="mh-btn mh-btn--primary" type="button" data-srv-action="connect">Connect</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <figcaption class="mh-frame__caption">Desktop · one connection at a time, each server keeps its own session</figcaption>
+            </figure>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Switching without leaving the work</h3>
+          <p class="mh-lede" style="margin-bottom: 16px">The active server is always visible: a chip in the sidebar on desktop, a monogram in the mobile header. Both open the same short list; management lives in Settings.</p>
+
+          <div class="mh-srv-switch-grid">
+            <!-- Desktop sidebar + popover -->
+            <div class="mh-srv-aside">
+              <div class="mh-srv-aside__head">
+                <h4 class="mh-heading-4" style="margin: 0">Sessions</h4>
+                <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" style="padding: 7px 10px" aria-label="New session">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                </button>
+              </div>
+              <div class="mh-pills" style="margin-bottom: 4px">
+                <button class="mh-pill is-active" type="button">All</button>
+                <button class="mh-pill" type="button">Isolated</button>
+                <button class="mh-pill" type="button">Standard</button>
+              </div>
+              <div class="mh-srv-aside__session is-active">
+                <span class="mh-srv-aside__session-title">Migrate session store to SQLite</span>
+                <span class="mh-srv-aside__session-meta">2m ago · masterhand</span>
+              </div>
+              <div class="mh-srv-aside__session">
+                <span class="mh-srv-aside__session-title">Preview the new board</span>
+                <span class="mh-srv-aside__session-meta">18m ago · board</span>
+              </div>
+              <div class="mh-srv-aside__session">
+                <span class="mh-srv-aside__session-title">Review the scheduler edge cases</span>
+                <span class="mh-srv-aside__session-meta">1h ago · scheduler</span>
+              </div>
+
+              <div class="mh-srv-pop" aria-label="Switch server">
+                <button class="mh-server" type="button" aria-current="true" data-srv-server="home">
+                  <span class="mh-server__monogram">HM</span>
+                  <span class="mh-server__body">
+                    <span class="mh-server__name">Home</span>
+                    <span class="mh-server__host">masterhand.example.com</span>
+                  </span>
+                  <span class="mh-server__meta">
+                    <span class="mh-status mh-status--connected" data-srv-indicator aria-hidden="true"></span>
+                    <span data-srv-status>Connected</span>
+                  </span>
+                </button>
+                <button class="mh-server" type="button" data-srv-server="studio">
+                  <span class="mh-server__monogram">ST</span>
+                  <span class="mh-server__body">
+                    <span class="mh-server__name">Studio</span>
+                    <span class="mh-server__host">studio.masterhand.dev</span>
+                  </span>
+                  <span class="mh-server__meta">
+                    <span class="mh-status mh-status--idle" data-srv-indicator aria-hidden="true"></span>
+                    <span data-srv-status title="Saved session">Saved</span>
+                  </span>
+                </button>
+                <button class="mh-server" type="button" data-srv-server="vps" data-srv-expired="true">
+                  <span class="mh-server__monogram">VP</span>
+                  <span class="mh-server__body">
+                    <span class="mh-server__name">VPS</span>
+                    <span class="mh-server__host">192.168.1.20:8787</span>
+                  </span>
+                  <span class="mh-server__meta">
+                    <span class="mh-status mh-status--expired" data-srv-indicator aria-hidden="true"></span>
+                    <span data-srv-status title="Session expired">Expired</span>
+                  </span>
+                </button>
+                <div class="mh-srv-pop__foot">
+                  <button class="mh-srv-pop__action" type="button" data-srv-action="to-add">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                    Add server
+                  </button>
+                  <button class="mh-srv-pop__action" type="button" data-srv-action="settings">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+                    Manage servers
+                  </button>
+                </div>
+              </div>
+
+              <div class="mh-srv-aside__footer">
+                <button class="mh-srv-chip" type="button" aria-label="Switch server: Home">
+                  <span class="mh-srv-chip__mono">HM</span>
+                  <span class="mh-srv-chip__body">
+                    <span class="mh-srv-chip__name">Home</span>
+                    <span class="mh-srv-chip__host">masterhand.example.com</span>
+                  </span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                </button>
+                <button class="mh-btn mh-btn--quiet" type="button" aria-label="Settings" style="width: 36px; min-height: 36px">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Mobile header + sheet -->
+            <div class="mh-phone" style="height: 500px">
+              <div class="mh-phone__speaker"></div>
+              <div class="mh-app">
+                <div class="mh-srv-phone__header">
+                  <button class="mh-srv-phone__serverchip" type="button" aria-label="Switch server: Home">
+                    <span class="mh-server__monogram">HM</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                  </button>
+                  <span class="mh-srv-phone__header-title">Sessions</span>
+                  <span class="mh-dot mh-dot--connected"></span>
+                  <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" style="padding: 6px 10px">+ New</button>
+                </div>
+                <div style="flex: 1; overflow: hidden">
+                  <div class="mh-srv-phone__session">
+                    <span class="mh-srv-phone__session-dot"></span>
+                    <span class="mh-srv-phone__session-body">
+                      <span class="mh-srv-phone__session-title">Migrate session store to SQLite</span>
+                      <span class="mh-srv-phone__session-meta">2m ago · masterhand</span>
+                    </span>
+                  </div>
+                  <div class="mh-srv-phone__session">
+                    <span class="mh-srv-phone__session-dot is-busy"></span>
+                    <span class="mh-srv-phone__session-body">
+                      <span class="mh-srv-phone__session-title">Preview the new board</span>
+                      <span class="mh-srv-phone__session-meta">18m ago · board</span>
+                    </span>
+                  </div>
+                  <div class="mh-srv-phone__session">
+                    <span class="mh-srv-phone__session-dot"></span>
+                    <span class="mh-srv-phone__session-body">
+                      <span class="mh-srv-phone__session-title">Review the scheduler edge cases</span>
+                      <span class="mh-srv-phone__session-meta">1h ago · scheduler</span>
+                    </span>
+                  </div>
+                </div>
+                <div class="mh-srv-bottom-scrim"></div>
+                <div class="mh-srv-bottom-sheet" role="dialog" aria-label="Servers">
+                  <div class="mh-srv-bottom-sheet__grab"></div>
+                  <div class="mh-srv-bottom-sheet__head">
+                    <div>
+                      <h4 class="mh-srv-title" style="font-size: 21px">Servers</h4>
+                      <p class="mh-srv-sub">One connection at a time.</p>
+                    </div>
+                    <button class="mh-srv-bottom-sheet__close" type="button" aria-label="Close servers">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                    </button>
+                  </div>
+                  <div class="mh-srv-list">
+                    <button class="mh-server" type="button" aria-current="true" data-srv-server="home">
+                      <span class="mh-server__monogram">HM</span>
+                      <span class="mh-server__body">
+                        <span class="mh-server__name">Home</span>
+                        <span class="mh-server__host">masterhand.example.com</span>
+                      </span>
+                      <span class="mh-server__meta">
+                        <span class="mh-status mh-status--connected" data-srv-indicator aria-hidden="true"></span>
+                        <span data-srv-status>Connected</span>
+                      </span>
+                    </button>
+                    <button class="mh-server" type="button" data-srv-server="studio">
+                      <span class="mh-server__monogram">ST</span>
+                      <span class="mh-server__body">
+                        <span class="mh-server__name">Studio</span>
+                        <span class="mh-server__host">studio.masterhand.dev</span>
+                      </span>
+                      <span class="mh-server__meta">
+                        <span class="mh-status mh-status--idle" data-srv-indicator aria-hidden="true"></span>
+                        <span data-srv-status title="Saved session">Saved</span>
+                      </span>
+                    </button>
+                    <button class="mh-server" type="button" data-srv-server="vps" data-srv-expired="true">
+                      <span class="mh-server__monogram">VP</span>
+                      <span class="mh-server__body">
+                        <span class="mh-server__name">VPS</span>
+                        <span class="mh-server__host">192.168.1.20:8787</span>
+                      </span>
+                      <span class="mh-server__meta">
+                        <span class="mh-status mh-status--expired" data-srv-indicator aria-hidden="true"></span>
+                        <span data-srv-status title="Session expired">Expired</span>
+                      </span>
+                    </button>
+                  </div>
+                  <button class="mh-server__add" type="button" data-srv-action="to-add">
+                    <span class="mh-server__plus">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+                    </span>
+                    <span>Add another server</span>
+                  </button>
+                  <button class="mh-srv-pop__action" type="button" data-srv-action="settings">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+                    Manage servers
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" id="servers-settings" style="margin: 40px 0 12px">Settings &gt; Servers</h3>
+          <p class="mh-lede" style="margin-bottom: 16px">The catalog view owns renaming, disconnecting and removing. Disconnecting keeps the server in the list; removing forgets it and revokes the saved device token.</p>
+
+          <div class="mh-settings mh-srv-settings" style="height: 520px; max-height: 520px; border: 1px solid var(--mh-hairline); border-radius: var(--r-xl); overflow: hidden" data-mobile-view="detail">
+            <div class="mh-settings__head">
+              <button class="mh-settings__back-header mh-btn mh-btn--quiet" type="button" aria-label="Back to settings">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+              </button>
+              <h2 class="mh-heading-4">Settings</h2>
+              <button class="mh-settings__close mh-btn mh-btn--quiet" type="button" aria-label="Close settings">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+              </button>
+            </div>
+            <div class="mh-settings__body">
+              <nav class="mh-settings__nav" aria-label="Settings sections">
+                <button class="mh-settings__nav-item" type="button" aria-current="page">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M7 7h.01M7 17h.01" /></svg>
+                  <span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Servers</span><span class="mh-settings__nav-desc">One connection at a time</span></span>
+                  <span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></span>
+                </button>
+                <button class="mh-settings__nav-item" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
+                  <span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Appearance</span><span class="mh-settings__nav-desc">Theme and color</span></span>
+                  <span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></span>
+                </button>
+                <button class="mh-settings__nav-item" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>
+                  <span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Goal review</span><span class="mh-settings__nav-desc">Critic, judge and rounds</span></span>
+                  <span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></span>
+                </button>
+                <button class="mh-settings__nav-item" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="16.5" r="3.5" /><path d="m10.1 13.9 9.4-9.4" /><path d="m15.5 8.5 2 2" /><path d="m18 6 2 2" /></svg>
+                  <span class="mh-settings__nav-text"><span class="mh-settings__nav-label">Providers</span><span class="mh-settings__nav-desc">API keys and custom providers</span></span>
+                  <span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></span>
+                </button>
+                <button class="mh-settings__nav-item" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8" /></svg>
+                  <span class="mh-settings__nav-text"><span class="mh-settings__nav-label">About</span><span class="mh-settings__nav-desc">Version and updates</span></span>
+                  <span class="mh-settings__nav-chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg></span>
+                </button>
+              </nav>
+              <div class="mh-settings__content scroll-thin">
+                <div class="mh-srv-settings__head">
+                  <div>
+                    <h3 class="mh-settings__title">Servers</h3>
+                    <p class="mh-settings__desc">Connect to one server at a time. Sessions stay saved on each.</p>
+                  </div>
+                  <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" data-srv-action="to-add">Add server</button>
+                </div>
+                <div class="mh-srv-settings__list">
+                  <div class="mh-srv-settings__row" aria-current="true">
+                    <span class="mh-server__monogram">HM</span>
+                    <span class="mh-server__body">
+                      <span class="mh-server__name">Home</span>
+                      <span class="mh-server__host">masterhand.example.com</span>
+                    </span>
+                    <span class="mh-server__meta"><span class="mh-status mh-status--connected" aria-hidden="true"></span>Connected</span>
+                    <span class="mh-srv-settings__actions">
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">Disconnect</button>
+                      <button class="mh-srv-settings__action" type="button" aria-label="Rename Home">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                    </span>
+                    <button class="mh-srv-settings__action mh-srv-settings__menu" type="button" aria-label="More server actions">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></svg>
+                    </button>
+                    </div>
+                  <div class="mh-srv-settings__row">
+                    <span class="mh-server__monogram">ST</span>
+                    <span class="mh-server__body">
+                      <span class="mh-server__name">Studio</span>
+                      <span class="mh-server__host">studio.masterhand.dev</span>
+                    </span>
+                    <span class="mh-server__meta"><span class="mh-status mh-status--idle" aria-hidden="true"></span>Saved session</span>
+                    <span class="mh-srv-settings__actions">
+                      <button class="mh-srv-settings__action" type="button" aria-label="Rename Studio">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                      <button class="mh-srv-settings__action" type="button" aria-label="Remove Studio">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="m6 7 1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                      </button>
+                    </span>
+                    <button class="mh-srv-settings__action mh-srv-settings__menu" type="button" aria-label="More server actions">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></svg>
+                    </button>
+                    </div>
+                  <div class="mh-srv-settings__row">
+                    <span class="mh-server__monogram">VP</span>
+                    <span class="mh-server__body">
+                      <span class="mh-server__name">VPS</span>
+                      <span class="mh-server__host">192.168.1.20:8787</span>
+                    </span>
+                    <span class="mh-server__meta"><span class="mh-status mh-status--expired" aria-hidden="true"></span>Session expired</span>
+                    <span class="mh-srv-settings__actions">
+                      <button class="mh-srv-settings__action" type="button" aria-label="Rename VPS">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                      </button>
+                      <button class="mh-srv-settings__action" type="button" aria-label="Remove VPS">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="m6 7 1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                      </button>
+                    </span>
+                    <button class="mh-srv-settings__action mh-srv-settings__menu" type="button" aria-label="More server actions">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" /></svg>
+                    </button>
+                    </div>
+                </div>
+                <p class="mh-srv-settings__note">Disconnecting keeps the server saved. Removing forgets it and revokes the token. Sessions keep running on either server.</p>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">New icons</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>server-set · added to the single vector source</span><span>24px stroke · currentColor</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-grid" style="grid-template-columns: repeat(auto-fill, minmax(110px, 1fr))">
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M7 7h.01M7 17h.01" /></svg>
+                    <span class="mh-caption mh-muted">server</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" /></svg>
+                    <span class="mh-caption mh-muted">globe</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    <span class="mh-caption mh-muted">pencil</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                    <span class="mh-caption mh-muted">eye</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 10px 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 3 18 18" /><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" /><path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.1 4.2" /><path d="M6.6 6.6C3.7 8.6 2 12 2 12s3.5 7 10 7a10.6 10.6 0 0 0 4.2-.9" /></svg>
+                    <span class="mh-caption mh-muted">eye-off</span>
+                  </span>
+                </div>
+                <p class="mh-caption mh-muted">Mobile mirrors the set with Ionicons: <span class="mh-mono-sm">server-outline</span>, <span class="mh-mono-sm">globe-outline</span>, <span class="mh-mono-sm">pencil-outline</span>, <span class="mh-mono-sm">eye-outline</span> and <span class="mh-mono-sm">eye-off-outline</span>.</p>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Status indicators</h3>
+          <div class="mh-demos">
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>status-indicators · animated-stats proposal</span><span>only busy animates</span></div>
+              <div class="mh-demo__stage">
+                <div class="mh-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr))">
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 12px 8px;">
+                    <span class="mh-status mh-status--connected" aria-hidden="true"></span>
+                    <span class="mh-caption mh-muted">Connected · static check</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 12px 8px;">
+                    <span class="mh-status mh-status--idle" aria-hidden="true"></span>
+                    <span class="mh-caption mh-muted">Saved · idle ring</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 12px 8px;">
+                    <span class="mh-status mh-status--expired" aria-hidden="true"></span>
+                    <span class="mh-caption mh-muted">Expired · warning ring</span>
+                  </span>
+                  <span class="mh-demo__col" style="align-items: center; gap: 6px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); padding: 12px 8px;">
+                    <span class="mh-status mh-status--busy" aria-hidden="true"></span>
+                    <span class="mh-caption mh-muted">Connecting · spinning arc</span>
+                  </span>
+                </div>
+                <p class="mh-caption mh-muted">The status text always accompanies the glyph; motion is reserved for the busy state and stops under <span class="mh-mono-sm">prefers-reduced-motion</span>. The busy arc is monochrome, never accent.</p>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Specification</h3>
+          <div class="mh-srv-spec">
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-item</span><span class="mh-srv-spec__value">56px min height · 8px 10px padding · 36px monogram · <span class="mh-mono-sm">rounded.md</span> · neutral chrome</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-item-active</span><span class="mh-srv-spec__value"><span class="mh-mono-sm">surface-muted</span> + hairline, monogram in <span class="mh-mono-sm">accent-soft</span>; no colored bar</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-monogram</span><span class="mh-srv-spec__value">Instrument Sans 12/600 · 0.06em tracking · 10px radius · two initials from the label</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-status</span><span class="mh-srv-spec__value">14px glyph + caption · connected = static check · saved = idle ring · expired = warning ring · connecting = 1s arc · only busy animates</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">status-indicator</span><span class="mh-srv-spec__value">monochrome busy arc (<span class="mh-mono-sm">text-soft</span> on <span class="mh-mono-sm">hairline-strong</span>); severity lives in the ring ink, never in the row border</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-add</span><span class="mh-srv-spec__value">52px row · dashed <span class="mh-mono-sm">hairline-strong</span> · 28px plus tile · no fill</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-switcher</span><span class="mh-srv-spec__value">desktop 300px popover, shadow level 3; mobile bottom sheet with 20px top radius and 44px targets</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">server-form</span><span class="mh-srv-spec__value">URL + name + password · 44px fields · leading globe/key glyph · password reveal inside the field</span></div>
+            <div class="mh-srv-spec__row"><span class="mh-srv-spec__key">copy</span><span class="mh-srv-spec__value">“One connection at a time.” · “Sessions stay saved on each.” · “Only the active server sends live updates.”</span></div>
+          </div>
+
+          <h3 class="mh-heading-4" style="margin: 40px 0 12px">Implementation note</h3>
+          <div class="mh-demo mh-demo--full">
+            <div class="mh-demo__label"><span>credential boundary · per server</span><span>implemented · web, desktop and mobile</span></div>
+            <div class="mh-demo__stage">
+              <div class="mh-card" style="margin: 0">
+                <div class="mh-card__head">
+                  <span class="mh-heading-4">Each server keeps its own credential</span>
+                  <span class="mh-chip">Independent</span>
+                </div>
+                <p class="mh-body-sm mh-muted" style="margin: 0">
+                  The web app served by server A authenticates to server B with the password the user types for B.
+                  A's cookie never leaves A; B issues its own revocable device token. The server list only stores
+                  URLs, labels and per-server sessions. Switching releases the current client and restores the
+                  target's last workspace and session; only one server is connected at a time.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>

@@ -1,6 +1,6 @@
 # MasterHand BFF API
 
-Verified on **2026-10-20** against the implementation (`apps/server/src/app.ts`, `proxy.ts`, `runs.ts`); the proxy allowlist and managed-run isolation were verified at runtime on the dev stack (opencode 2.0.6).
+Verified on **2026-10-29** against the implementation (`apps/server/src/app.ts`, `proxy.ts`, `runs.ts`); the proxy allowlist and managed-run isolation were verified at runtime on the dev stack (opencode 2.0.6).
 
 Base URL: the deployer's origin (in development, `http://127.0.0.1:8787`).
 
@@ -8,15 +8,17 @@ Base URL: the deployer's origin (in development, `http://127.0.0.1:8787`).
 
 MasterHand accepts two credential types on protected routes:
 
-- **Web / desktop:** `POST /api/login` validates the password and sets a session cookie.
+- **Web / desktop (serving origin only):** `POST /api/login` validates the password and sets a session cookie.
   - Cookie `mh_session`: `HttpOnly`, `Secure` (configurable with `COOKIE_SECURE`), `SameSite=Strict`, HMAC-signed (`SESSION_SECRET`), TTL `SESSION_TTL_HOURS` (30 days by default).
-- **Native (mobile):** `POST /api/devices` validates the password and returns a signed Bearer token plus a device record. Clients send `Authorization: Bearer <token>` on every request. Tokens are revoked by deleting the device. Device **identity is the stable, client-generated `installID`**; `name` is only an editable display label (two phones with the same default name stay separate devices and are revoked independently).
+- **Remote servers from web/desktop and native (mobile):** `POST /api/devices` validates the password and returns a signed Bearer token plus a device record. Each client profile calls it against its own server and stores that server's token separately (localStorage per profile on web, SecureStore on mobile); it sends `Authorization: Bearer <token>` only to that server. Tokens are revoked by deleting the device. Device **identity is the stable, client-generated `installID`**; `name` is only an editable display label (two phones with the same default name stay separate devices and are revoked independently).
+- **Multi-server profile flow (ADR-39):** the serving origin is authenticated with the HttpOnly cookie and never keeps a token; every other saved server gets its own `/api/devices` token. Switching disconnects the current UI/stream/cache (it does not revoke the old profile) and reconnects the target with its saved credential. Disconnect clears the session but keeps the profile; Remove forgets it and best-effort revokes the device token.
+- **CORS (bearer-only):** `/api/*` answers `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: Authorization, Content-Type`, `Access-Control-Allow-Methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS` and `Access-Control-Max-Age: 600`. Preflight (`OPTIONS`) is answered `204` before auth. The headers are also present on `401`/`429`/`5xx` responses and on the `GET /api/events` SSE stream. **No** `Access-Control-Allow-Credentials` is ever sent, so cookies cannot be used cross-origin.
 
 Other rules:
 
 - Rate limit: **5 failed attempts** per IP every 15 minutes (`429` when exceeded) shared by both login routes. Only failures are counted and a correct password is always verified first, so a successful login never consumes the budget and still succeeds after it is exhausted; a success clears the IP's window. Keyed on the real socket peer address (`getConnInfo`), not `X-Forwarded-For`: that header is client-controlled and would let an attacker rotate the key (`unknown` when the socket address is unavailable). Keys are swept after the window and the map is LRU-bounded (10 000 keys). The limiter is **in-memory**: a BFF restart clears the window (accepted for a single-user self-hosted tool). Each failure is logged as `[masterhand] login failed from <ip> at <ISO timestamp>` — never the password.
 - Request bodies are bounded before parsing: login/device bodies at 64 KiB and proxied opencode bodies at `PROXY_BODY_LIMIT_MB` (10 MiB default). Oversized bodies answer `413 { error: "payload_too_large" }`; passwords longer than 1024 characters answer `400 bad_request` before hashing.
-- Mutations (`POST`/`PATCH`/...) with an `Origin` header must match the `Host`; otherwise `403`. Origins listed in `ALLOWED_ORIGINS` are also allowed (in development the Vite origins are added automatically). Bearer requests are exempt: browsers never attach tokens automatically, so they carry no CSRF risk.
+- Mutations (`POST`/`PATCH`/...) with an `Origin` header must match the `Host`; otherwise `403`. Origins listed in `ALLOWED_ORIGINS` are also allowed (in development the Vite origins are added automatically). Bearer requests are exempt: browsers never attach tokens automatically, so they carry no CSRF risk. `POST /api/devices` is also exempt (cookie-less, password in the body, returns only a token), which makes cross-origin token login work. `ALLOWED_ORIGINS` is the **CSRF allowlist, not the CORS allowlist**.
 - Protected routes: everything under `/api/*` except `/api/health`, `/api/login`, `/api/logout` and `POST /api/devices`.
 
 ## Public endpoints
@@ -296,7 +298,7 @@ curl -X POST https://your-origin.example/api/devices \
 | `SESSION_SECRET` | — (required) | Cookie and token signing |
 | `SESSION_TTL_HOURS` | `720` | Session/device token lifetime |
 | `COOKIE_SECURE` | `true` | Cookie `Secure` flag |
-| `ALLOWED_ORIGINS` | — | Comma-separated extra origins allowed on mutations (in dev the Vite origins are added) |
+| `ALLOWED_ORIGINS` | — | Comma-separated extra origins allowed on **cookie mutations** (CSRF allowlist; in dev the Vite origins are added). Not the CORS allowlist: bearer requests are allowed from any origin without credentials |
 | `PORT` | `8787` | BFF port |
 | `OPENCODE_URL` | `http://127.0.0.1:4096` | opencode upstream |
 | `OPENCODE_TIMEOUT_MS` | `10000` | Deadline for the BFF's internal opencode calls (session listing, `/api/commands`, session create/delete, instruction/permission writes, PTY/run control). A missed deadline answers `504 { error: "opencode_timeout" }` (minimum 1000 ms); the public `/api/oc/*` proxy keeps its own 60s budget |
