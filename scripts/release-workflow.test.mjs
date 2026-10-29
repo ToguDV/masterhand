@@ -52,6 +52,10 @@ test("release signing is wired from secrets, not key.properties", () => {
   assert.match(release, /System\.getenv\("ANDROID_KEYSTORE_PASSWORD"\)/)
   assert.match(release, /APKSIGNER.*" verify --print-certs/s)
   assert.match(release, /keytool -list.*release\.keystore/s)
+  // apksigner prints the digest without colons and keytool with colons; both
+  // sides must be normalized before comparing (the first real APK build proved
+  // the fingerprints matched but the string comparison failed).
+  assert.match(release, /tr -d ':'/)
   // The stock convention file must never be created: nothing reads it, so a
   // `cat > key.properties` step would only leave secrets on disk.
   assert.doesNotMatch(release, /cat > key\.properties/)

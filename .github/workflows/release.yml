@@ -253,8 +253,10 @@ jobs:
           set -e
           APK=android/app/build/outputs/apk/release/app-release.apk
           APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
-          APK_CERT="$("$APKSIGNER" verify --print-certs "$APK" | grep -oE '[Ss][Hh][Aa]-256 digest: [0-9a-fA-F:]+' | head -1 | awk '{print $NF}' | tr 'A-Z' 'a-z')"
-          KEY_CERT="$(keytool -list -v -keystore android/app/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | grep -oE 'SHA256: [0-9A-F:]+' | head -1 | awk '{print $NF}' | tr 'A-Z' 'a-z')"
+          # Normalize both fingerprints to the same format: apksigner prints
+          # the digest without colons, keytool prints it with colons.
+          APK_CERT="$("$APKSIGNER" verify --print-certs "$APK" | grep -oE '[Ss][Hh][Aa]-256 digest: [0-9a-fA-F:]+' | head -1 | awk '{print $NF}' | tr -d ':' | tr 'A-Z' 'a-z')"
+          KEY_CERT="$(keytool -list -v -keystore android/app/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | grep -oE 'SHA256: [0-9A-F:]+' | head -1 | awk '{print $NF}' | tr -d ':' | tr 'A-Z' 'a-z')"
           if [ -z "$APK_CERT" ] || [ "$APK_CERT" != "$KEY_CERT" ]; then
             echo "APK is not signed with the release keystore (apk=$APK_CERT key=$KEY_CERT)"
             exit 1
