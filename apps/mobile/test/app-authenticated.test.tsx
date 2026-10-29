@@ -250,7 +250,7 @@ async function renderAuthenticated(options: {
   messagesMock.mockReturnValue({ data: options.messages ?? [], isLoading: false })
 
   await render(<App />)
-  await screen.findByText("Sessions")
+  await screen.findByLabelText("Show sessions")
 }
 
 /** The options object `AuthenticatedApp` handed to the stubbed event stream. */
@@ -305,7 +305,7 @@ describe("App — login errors", () => {
     await fireEvent.press(screen.getByText("Sign in"))
 
     await waitFor(() => expect(storage.saveServerUrl).toHaveBeenCalledWith("https://host"))
-    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
   })
 
   it("clears the token when the server rejects it mid-session", async () => {

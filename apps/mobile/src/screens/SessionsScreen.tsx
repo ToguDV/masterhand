@@ -1,5 +1,9 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native"
+// The section slot scrolls through the gesture-handler ScrollView so a card
+// drag (long-press pan, #164) negotiates with scrolling instead of fighting
+// it; the stock ScrollView would scroll and drag at once on device.
+import { ScrollView } from "react-native-gesture-handler"
 import {
   directoryName,
   filterSessions,
@@ -14,9 +18,12 @@ import {
 import { Screen } from "../components/Screen"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { GearIcon, LogOutIcon } from "../components/icons"
+import { ClockIcon, GearIcon, KanbanIcon, LogOutIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+
+/** Home sections, mirroring the web sidebar rail (Sessions/Board/Scheduler). */
+export type HomeSection = "sessions" | "board" | "scheduler"
 
 export function SessionsScreen({
   sessions,
@@ -37,6 +44,10 @@ export function SessionsScreen({
   onAddWorkspace,
   onRemoveWorkspace,
   onDeleteSession,
+  section = "sessions",
+  onSelectSection = () => {},
+  board = null,
+  scheduler = null,
 }: {
   sessions: Session[]
   loading: boolean
@@ -58,6 +69,13 @@ export function SessionsScreen({
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
   onDeleteSession: (id: string) => void
+  /** Active home section (web rail parity); the switcher shows when a slot is provided. */
+  section?: HomeSection
+  onSelectSection?: (section: HomeSection) => void
+  /** Kanban board rendered in place of the session list. */
+  board?: ReactNode
+  /** Scheduler task manager rendered in place of the session list. */
+  scheduler?: ReactNode
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [filter, setFilter] = useState<SessionFilter>("all")
@@ -109,6 +127,54 @@ export function SessionsScreen({
         </View>
       </View>
 
+      {board || scheduler ? (
+        <View style={styles.tabs}>
+          <Pressable
+            onPress={() => onSelectSection("sessions")}
+            accessibilityRole="button"
+            accessibilityLabel="Show sessions"
+            accessibilityState={{ selected: section === "sessions" }}
+            style={[styles.tab, section === "sessions" && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, section === "sessions" && styles.tabTextActive]}>Sessions</Text>
+          </Pressable>
+          {board ? (
+            <Pressable
+              onPress={() => onSelectSection("board")}
+              accessibilityRole="button"
+              accessibilityLabel="Show board"
+              accessibilityState={{ selected: section === "board" }}
+              style={[styles.tab, section === "board" && styles.tabActive]}
+            >
+              <KanbanIcon size={14} color={section === "board" ? colors.canvas : colors.textMuted} />
+              <Text style={[styles.tabText, section === "board" && styles.tabTextActive]}>Board</Text>
+            </Pressable>
+          ) : null}
+          {scheduler ? (
+            <Pressable
+              onPress={() => onSelectSection("scheduler")}
+              accessibilityRole="button"
+              accessibilityLabel="Show scheduler"
+              accessibilityState={{ selected: section === "scheduler" }}
+              style={[styles.tab, section === "scheduler" && styles.tabActive]}
+            >
+              <ClockIcon size={14} color={section === "scheduler" ? colors.canvas : colors.textMuted} />
+              <Text style={[styles.tabText, section === "scheduler" && styles.tabTextActive]}>Scheduler</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {section === "board" && board ? (
+        <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+          {board}
+        </ScrollView>
+      ) : section === "scheduler" && scheduler ? (
+        <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+          {scheduler}
+        </ScrollView>
+      ) : (
+      <>
       <View style={styles.filterRow}>
         <View style={styles.filters}>
           {FILTERS.map((option) => (
@@ -164,6 +230,8 @@ export function SessionsScreen({
           />
         )}
       />
+      </>
+      )}
 
       <View style={styles.optionsWrap}>
         <View style={styles.optionsBox}>
@@ -460,6 +528,38 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
+    },
+    tabs: {
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    tab: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      minHeight: 44,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 999,
+      paddingHorizontal: 14,
+      justifyContent: "center",
+    },
+    tabActive: {
+      backgroundColor: colors.text,
+      borderColor: colors.text,
+    },
+    tabText: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+    },
+    tabTextActive: {
+      color: colors.canvas,
+      fontWeight: "600",
     },
     filters: {
       flexDirection: "row",

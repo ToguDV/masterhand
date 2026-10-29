@@ -74,6 +74,7 @@ in the sessions options box per #136/#137).
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | 🟡 Implemented 2026-10-28 on `fix/c20-shutdown-reliability` (4 commits, one per issue) — pending reviewer pass, PR not yet opened |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | 🟡 5/10 implemented 2026-10-28 on `fix/c21-transport` (#190 → #196 → #200 → #199 → #202, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #197 #198 #201 #203 #211 remain |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | 🟡 4/4 implemented 2026-10-28 on `fix/c22-debt` (#207 route tests on in-memory SQLite → #205 extracted opencode adapters → #206 projected goal-run contract → #212 dead helper + bounded cron walk; pending reviewer pass, PR not yet opened) |
+| C23 — Mobile board + scheduler parity | #164 #172 | 🟡 Implemented 2026-10-29 on `feat/mobile-board-scheduler` (deps → #172 → #164, one commit per unit) — pending reviewer pass, PR not yet opened |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6
 ([#77](https://github.com/ToguDV/masterhand/issues/77) async git runner,
@@ -330,6 +331,8 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
 - **Dependencies:** none on C15/C16 (independent surfaces). **Mobile parity is tracked in
   [#172](https://github.com/ToguDV/masterhand/issues/172)** — a new client must port the mutation
   contracts, not reimplement them (see `docs/past-mistakes.md`).
+- **Status:** mobile parity landed in C23 (2026-10-29, `feat/mobile-board-scheduler`): #172
+  scheduler parity first, then #164 board parity — see C23 below.
 
 ### C15 — Releases and in-app updates
 
@@ -367,6 +370,28 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
 - **Order:** after #131 (needs GHCR images + `/api/update`).
 - **Dependencies:** #131. Never mount `/var/run/docker.sock` into the BFF; Docker access stays in
   the isolated sidecar.
+
+### C23 — Mobile board + scheduler parity
+
+- **Issues:** [#164](https://github.com/ToguDV/masterhand/issues/164) mobile kanban board,
+  [#172](https://github.com/ToguDV/masterhand/issues/172) mobile scheduler parity.
+- **Surface:** `apps/mobile` only — `screens/BoardScreen.tsx`, `components/SchedulerSection.tsx`,
+  the `SessionsScreen` section switcher, `App.tsx` wiring, `KanbanIcon`/`ClockIcon`, jest-expo
+  suites + the fake-client board/scheduler mocks — plus `react-native-gesture-handler` and
+  `react-native-reanimated` (Expo Go SDK 57 bundles both, no dev build).
+- **Why together:** both are pure mobile presentation ports over frozen contracts (C17/#147 for
+  the scheduler, the web `BoardView` for the board); one navigation entry (the Sessions-header
+  switcher, mirroring the web rail) serves both, and the drag deps serve the board.
+- **Order:** deps → #172 → #164 → joint parity (delivery order per surface).
+- **Dependencies:** none on C15/C16/C20–C22 (independent surfaces). #134 stays deferred. No BFF
+  change, no migration, no web change — E2E needs no new specs (mobile-only branch).
+- **Notes:** within-column drag is long-press + pan committed as an absolute position through
+  the idempotent-positional pattern; cross-column moves go through a "Move to…" picker (no
+  cross-column touch drag in v1). Timezone picker falls back to a curated list when the device
+  has no IANA database; ids are `Date.now`+random (Hermes has no `randomUUID`). The drag
+  gesture itself is device-only chrome — suites drive the same commit path. ≥44px targets.
+- **Status:** 🟡 Implemented 2026-10-29 on `feat/mobile-board-scheduler` (deps, #172, #164, one
+  commit per unit) — pending reviewer pass, PR not yet opened.
 
 ## Previous batch — C1–C9 (all merged)
 

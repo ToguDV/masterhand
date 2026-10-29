@@ -100,6 +100,25 @@ export interface FakeClient {
     update: { check: jest.Mock }
     sessions: { list: jest.Mock; finish: jest.Mock }
     branches: { list: jest.Mock; checkout: jest.Mock; create: jest.Mock }
+    /** Kanban board (#164): snapshot plus column/card mutations. */
+    board: {
+      get: jest.Mock
+      createColumn: jest.Mock
+      updateColumn: jest.Mock
+      deleteColumn: jest.Mock
+      createCard: jest.Mock
+      updateCard: jest.Mock
+      deleteCard: jest.Mock
+    }
+    /** Scheduled tasks (#172): task list/mutations plus per-task run history. */
+    scheduler: {
+      list: jest.Mock
+      create: jest.Mock
+      update: jest.Mock
+      remove: jest.Mock
+      runNow: jest.Mock
+      runs: jest.Mock
+    }
   }
   workspaces: { list: jest.Mock; create: jest.Mock; remove: jest.Mock }
 }
@@ -189,6 +208,23 @@ export function fakeClient(): FakeClient & Client {
         list: jest.fn(async () => ({ current: "main", branches: ["main"] })),
         checkout: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
         create: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
+      },
+      board: {
+        get: jest.fn(async (workspaceID: string) => ({ workspaceID, columns: [] })),
+        createColumn: jest.fn(async (column: unknown) => column),
+        updateColumn: jest.fn(async (column: unknown) => column),
+        deleteColumn: jest.fn(async () => {}),
+        createCard: jest.fn(async (card: unknown) => card),
+        updateCard: jest.fn(async (card: unknown) => card),
+        deleteCard: jest.fn(async () => {}),
+      },
+      scheduler: {
+        list: jest.fn(async () => []),
+        create: jest.fn(async (input: unknown) => ({ id: "task_1", ...(input as object) })),
+        update: jest.fn(async (task: unknown) => task),
+        remove: jest.fn(async () => {}),
+        runNow: jest.fn(async (taskID: string) => ({ id: taskID })),
+        runs: jest.fn(async () => []),
       },
     },
     workspaces: { list: jest.fn(async () => []), create: jest.fn(), remove: jest.fn() },

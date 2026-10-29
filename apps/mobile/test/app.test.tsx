@@ -106,7 +106,7 @@ describe("App", () => {
     await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
     await fireEvent.press(screen.getByText("Sign in"))
 
-    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
     expect(mocked.saveToken).toHaveBeenCalledWith("tok")
     expect(mocked.saveServerUrl).toHaveBeenCalledWith("https://host")
   })
@@ -123,7 +123,7 @@ describe("App", () => {
     await fireEvent.changeText(screen.getByPlaceholderText("••••••••"), "pw")
     await fireEvent.press(screen.getByText("Sign in"))
 
-    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
     expect(mocked.getOrCreateInstallID).toHaveBeenCalled()
     expect(loginDevice).toHaveBeenCalledWith("pw", expect.any(String), "install-test")
   })
@@ -175,7 +175,7 @@ describe("App", () => {
     await fireEvent.press(screen.getByText("Sign in"))
 
     // The login still lands; the banner says the session will not survive a restart.
-    expect(await screen.findByText("Sessions")).toBeOnTheScreen()
+    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
     expect(await screen.findByText(/could not save the session/i)).toBeOnTheScreen()
   })
 })

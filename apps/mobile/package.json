@@ -27,6 +27,8 @@
     "expo-secure-store": "~57.0.4",
     "react": "19.3.0",
     "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-svg": "15.15.4",
     "react-native-webview": "13.16.1"
