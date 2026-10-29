@@ -18,6 +18,7 @@ import {
   formIsQuestion,
   invalidateOnReconnect,
   isMixedContentBlocked,
+  MAX_SERVER_PROFILES,
   normalizeServerLabel,
   normalizeServerUrl,
   reconcileForms,
@@ -110,6 +111,14 @@ function newQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: 1 } } })
 }
 
+/** Same server under another saved hostname: revoking one token kills both. */
+function sharesDevice(profiles: StoredServerProfile[], profile: StoredServerProfile): boolean {
+  if (!profile.device) return false
+  return profiles.some(
+    (item) => item.id !== profile.id && item.device?.id === profile.device?.id,
+  )
+}
+
 function connectErrorMessage(error: unknown, url: string): string {
   if (error instanceof ApiError) {
     if (error.status === 401) return "Wrong password. Try again."
@@ -149,12 +158,15 @@ function Root() {
   const [connecting, setConnecting] = useState<{ label: string; url: string } | null>(null)
   const connectGenerationRef = useRef(0)
   const connectInFlightRef = useRef<Promise<void> | null>(null)
-  const tokenRef = useRef<string | null>(null)
   const activeRef = useRef<StoredServerProfile | null>(null)
+  const connectionRef = useRef<Client | null>(null)
+  const viewRef = useRef<"servers" | "app">(view)
   const registryRef = useRef(registry)
   registryRef.current = registry
   activeRef.current = activeProfile
-  const expireRef = useRef<(profileID: string) => void>(() => {})
+  connectionRef.current = connection
+  viewRef.current = view
+  const expireRef = useRef<(profileID: string, client?: Client) => void>(() => {})
   // Drop the previous server's cache (and its gc timers) on switch/unmount.
   useEffect(() => () => queryClient.clear(), [queryClient])
   const styles = useThemedStyles(createStyles)
@@ -171,13 +183,17 @@ function Root() {
 
   const enter = useCallback(
     (profile: StoredServerProfile, token: string) => {
-      tokenRef.current = token
-      const nextClient = createClient({
+      let nextClient: Client
+      nextClient = createClient({
         baseUrl: profile.url,
-        getToken: () => tokenRef.current,
+        // Capture this profile's token: a later switch must never make an old
+        // client send the new profile's credential.
+        getToken: () => token,
         fetchImpl,
-        onUnauthorized: () => expireRef.current(profile.id),
+        onUnauthorized: () => expireRef.current(profile.id, nextClient),
       })
+      connectionRef.current = nextClient
+      connectionRef.current = nextClient
       setConnection(nextClient)
       setActiveProfile(profile)
       setQueryClient(newQueryClient())
@@ -190,9 +206,12 @@ function Root() {
   )
 
   const expire = useCallback(
-    (profileID: string) => {
+    (profileID: string, client?: Client) => {
+      // A late 401 from a replaced client must not abort a switch or expire
+      // the profile that is no longer mounted.
+      if (viewRef.current !== "app") return
+      if (client && connectionRef.current !== client) return
       if (activeRef.current?.id !== profileID) return
-      tokenRef.current = null
       void clearServerToken(profileID).catch(() => {})
       const previous = registryRef.current
       const profile = previous.profiles.find((item) => item.id === profileID) ?? null
@@ -208,6 +227,7 @@ function Root() {
       setQueryClient(newQueryClient())
       setReauthProfile(profile ? { ...profile, expired: true } : null)
       setError(profile ? `${profile.label}'s saved session expired. Enter its password again.` : null)
+      viewRef.current = "servers"
       setView("servers")
     },
     [persistRegistry],
@@ -369,6 +389,10 @@ function Root() {
     (mode: "first-run" | "add" | "reauth", values: { url: string; label: string; password: string }, profile?: StoredServerProfile) => {
       setError(null)
       setDraft({ url: values.url, label: values.label })
+      if (mode !== "reauth" && registryRef.current.profiles.length >= MAX_SERVER_PROFILES) {
+        setError(`You can save at most ${MAX_SERVER_PROFILES} servers.`)
+        return
+      }
       const normalized = normalizeServerUrl(values.url)
       if (!normalized.ok) {
         setError(serverUrlErrorMessage(normalized.error))
@@ -407,39 +431,81 @@ function Root() {
     (profile: StoredServerProfile) => {
       setError(null)
       setNotice(null)
+      const run = ++connectGenerationRef.current
+      setConnecting({ label: profile.label, url: profile.url })
+      setBusy(true)
+      viewRef.current = "servers"
+      setView("servers")
       void (async () => {
-        const token = await loadServerToken(profile.id).catch(() => null)
-        if (!token) {
-          setReauthProfile(profile)
-          setView("servers")
-          return
+        try {
+          const token = await loadServerToken(profile.id).catch(() => null)
+          if (run !== connectGenerationRef.current) return
+          if (!token) {
+            setReauthProfile(profile)
+            return
+          }
+          const candidate = createClient({
+            baseUrl: profile.url,
+            getToken: () => token,
+            fetchImpl,
+          })
+          // Verify the saved token before showing the app; a 401 must go to
+          // re-auth instead of a half-connected screen.
+          await candidate.auth.status()
+          if (run !== connectGenerationRef.current) return
+          const nextProfile: StoredServerProfile = {
+            ...profile,
+            expired: false,
+            lastUsedAt: Date.now(),
+          }
+          const previous = registryRef.current
+          persistRegistry({
+            profiles: previous.profiles.some((item) => item.id === nextProfile.id)
+              ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
+              : [...previous.profiles, nextProfile],
+            activeID: nextProfile.id,
+          })
+          enter(nextProfile, token)
+        } catch (err) {
+          if (run !== connectGenerationRef.current) return
+          const expired = err instanceof ApiError && err.status === 401
+          if (expired) {
+            await clearServerToken(profile.id).catch(() => {})
+            const previous = registryRef.current
+            persistRegistry({
+              profiles: previous.profiles.map((item) =>
+                item.id === profile.id ? { ...item, expired: true } : item,
+              ),
+              activeID: null,
+            })
+            setReauthProfile({ ...profile, expired: true })
+            setError(`${profile.label}'s saved session expired. Enter its password again.`)
+          } else {
+            setError(connectErrorMessage(err, profile.url))
+          }
+        } finally {
+          if (run === connectGenerationRef.current) {
+            setBusy(false)
+            setConnecting(null)
+          }
         }
-        enter({ ...profile, expired: false }, token)
       })()
     },
-    [enter],
+    [enter, persistRegistry],
   )
 
+  const reportResidual = useCallback((message: string) => {
+    if (viewRef.current === "servers") setNotice(message)
+    else Alert.alert("Connection", message)
+  }, [])
+
   const disconnect = useCallback(
-    async (profile: StoredServerProfile) => {
-      let residual = false
-      const token = await loadServerToken(profile.id).catch(() => null)
-      if (token && profile.device) {
-        const target = createClient({
-          baseUrl: profile.url,
-          getToken: () => token,
-          fetchImpl,
-          timeoutMs: 10_000,
-        })
-        try {
-          await target.auth.revokeDevice(profile.device.id)
-        } catch {
-          residual = true
-        }
-      }
-      await clearServerToken(profile.id).catch(() => {})
+    (profile: StoredServerProfile) => {
+      const shared = sharesDevice(registryRef.current.profiles, profile)
       const wasActive = activeRef.current?.id === profile.id
       const previous = registryRef.current
+      // Switch the UI and drop the profile's active marker immediately; the
+      // idempotent revocation runs in the background.
       persistRegistry({
         profiles: previous.profiles.map((item) =>
           item.id === profile.id ? { ...item, expired: false } : item,
@@ -447,41 +513,41 @@ function Root() {
         activeID: wasActive ? null : previous.activeID,
       })
       if (wasActive) {
-        tokenRef.current = null
+        connectionRef.current = null
         setActiveProfile(null)
         setConnection(null)
         setQueryClient(newQueryClient())
         setReauthProfile(null)
         setError(null)
+        viewRef.current = "servers"
         setView("servers")
-        if (residual) {
-          setNotice("Disconnected. The device token could not be revoked; revoke it from that server's settings.")
-        }
-      } else if (residual) {
-        Alert.alert("Disconnected", "The device token could not be revoked.")
       }
+
+      void (async () => {
+        const token = await loadServerToken(profile.id).catch(() => null)
+        await clearServerToken(profile.id).catch(() => {})
+        if (!token || !profile.device || shared) return
+        try {
+          const target = createClient({
+            baseUrl: profile.url,
+            getToken: () => token,
+            fetchImpl,
+            timeoutMs: 10_000,
+          })
+          await target.auth.revokeDevice(profile.device.id)
+        } catch {
+          reportResidual(
+            "Disconnected. The device token could not be revoked; revoke it from that server's settings.",
+          )
+        }
+      })()
     },
-    [persistRegistry],
+    [persistRegistry, reportResidual],
   )
 
   const remove = useCallback(
-    async (profile: StoredServerProfile) => {
-      let residual = false
-      const token = await loadServerToken(profile.id).catch(() => null)
-      if (token && profile.device) {
-        const target = createClient({
-          baseUrl: profile.url,
-          getToken: () => token,
-          fetchImpl,
-          timeoutMs: 10_000,
-        })
-        try {
-          await target.auth.revokeDevice(profile.device.id)
-        } catch {
-          residual = true
-        }
-      }
-      await clearServerToken(profile.id).catch(() => {})
+    (profile: StoredServerProfile) => {
+      const shared = sharesDevice(registryRef.current.profiles, profile)
       const wasActive = activeRef.current?.id === profile.id
       const previous = registryRef.current
       persistRegistry({
@@ -489,23 +555,37 @@ function Root() {
         activeID: wasActive ? null : previous.activeID,
       })
       if (wasActive) {
-        tokenRef.current = null
+        connectionRef.current = null
         setActiveProfile(null)
         setConnection(null)
         setQueryClient(newQueryClient())
         setReauthProfile(null)
         setError(null)
         setNotice("Server removed")
+        viewRef.current = "servers"
         setView("servers")
       }
-      if (residual) {
-        Alert.alert(
-          "Server removed",
-          "Its device token could not be revoked. Revoke it from that server's settings if needed.",
-        )
-      }
+
+      void (async () => {
+        const token = await loadServerToken(profile.id).catch(() => null)
+        await clearServerToken(profile.id).catch(() => {})
+        if (!token || !profile.device || shared) return
+        try {
+          const target = createClient({
+            baseUrl: profile.url,
+            getToken: () => token,
+            fetchImpl,
+            timeoutMs: 10_000,
+          })
+          await target.auth.revokeDevice(profile.device.id)
+        } catch {
+          reportResidual(
+            "Server removed. Its device token could not be revoked — revoke it from that server's settings.",
+          )
+        }
+      })()
     },
-    [persistRegistry],
+    [persistRegistry, reportResidual],
   )
 
   const rename = useCallback(
@@ -637,7 +717,7 @@ function AuthenticatedApp({
   profile: StoredServerProfile
   profiles: StoredServerProfile[]
   initialBanner?: string | null
-  onDisconnect: (profile: StoredServerProfile) => Promise<void>
+  onDisconnect: (profile: StoredServerProfile) => void
   onDisconnectServer: (profile: StoredServerProfile) => void
   onRemoveServer: (profile: StoredServerProfile) => void
   onRenameServer: (profile: StoredServerProfile, label: string) => void

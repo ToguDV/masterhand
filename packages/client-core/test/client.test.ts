@@ -881,6 +881,16 @@ describe("client error handling", () => {
     await expect(client.api.sessions.list("ws_1")).rejects.toBe(failure)
   })
 
+  it("refuses cross-origin redirects instead of replaying the request", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ ok: true }))
+    const client = createClient({ baseUrl: "https://remote.example", fetchImpl })
+
+    await client.auth.status()
+    await client.api.agents().catch(() => {})
+    expect(calls[0]?.init?.redirect).toBe("error")
+    expect(calls[1]?.init?.redirect).toBe("error")
+  })
+
   it("omits the Authorization header when no token is available", async () => {
     const { calls, fetchImpl } = recordingFetch(() => jsonResponse({}))
     const client = createClient({ getToken: async () => null, fetchImpl })
@@ -937,6 +947,19 @@ describe("client error handling", () => {
 })
 
 describe("createEventStream", () => {
+  it("refuses redirects on the SSE request", async () => {
+    let init: RequestInit | undefined
+    const fetchImpl = (async (_input: RequestInfo | URL, options?: RequestInit) => {
+      init = options
+      throw new TypeError("redirect refused")
+    }) as typeof fetch
+    const stream = createEventStream({ baseUrl: "https://mh.example", fetchImpl, onEvent: () => {} })
+    stream.start()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    stream.stop()
+    expect(init?.redirect).toBe("error")
+  })
+
   it("parses server-sent events and reports connection changes", async () => {
     const events: unknown[] = []
     const states: boolean[] = []

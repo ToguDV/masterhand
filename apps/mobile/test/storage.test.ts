@@ -318,7 +318,7 @@ describe("storage — multi-server registry", () => {
       "masterhand.servers.v2",
       JSON.stringify({
         profiles: [
-          { id: "bad", url: "http://public.example.com" },
+          { id: "bad", url: "ftp://public.example.com" },
           { id: "good", url: "https://home.example.com" },
         ],
         activeID: "bad",
@@ -331,8 +331,20 @@ describe("storage — multi-server registry", () => {
 })
 
 describe("storage — migration and list edge cases", () => {
+  it("keeps a legacy plain-http LAN URL instead of dropping the session", async () => {
+    await saveServerUrl("http://192.168.1.20:8787")
+    await saveToken("lan-token")
+    const registry = await loadServerRegistry()
+    expect(registry.profiles[0]).toMatchObject({
+      url: "http://192.168.1.20:8787",
+      label: "192.168.1.20",
+    })
+    expect(registry.activeID).toBe(registry.profiles[0]?.id)
+    expect(await loadServerToken(registry.profiles[0]!.id)).toBe("lan-token")
+  })
+
   it("ignores an invalid legacy URL and reports no profiles", async () => {
-    await saveServerUrl("http://public.example.com")
+    await saveServerUrl("not a valid url")
     expect(await loadServerRegistry()).toEqual({ profiles: [], activeID: null })
   })
 
@@ -341,9 +353,64 @@ describe("storage — migration and list edge cases", () => {
     expect(await loadAutoAcceptSessionsFor("profile-1")).toEqual([])
   })
 
-  it("removes the active marker when the registry has no active server", async () => {
-    await saveServerRegistry({ profiles: [], activeID: null })
-    expect(await SecureStore.getItemAsync("masterhand.servers.active")).toBeNull()
+  it("caps the registry at the profile limit on load", async () => {
+    const profiles = Array.from({ length: 51 }, (_, index) => ({
+      id: `p${index}`,
+      url: `https://s${index}.example.com`,
+    }))
+    store.set("masterhand.servers.v2", JSON.stringify({ profiles, activeID: "p0" }))
+    const registry = await loadServerRegistry()
+    expect(registry.profiles).toHaveLength(50)
+    expect(registry.activeID).toBe("p0")
+  })
+
+  it("serializes registry writes so an older write cannot win", async () => {
+    const firstRegistry = {
+      profiles: [
+        {
+          id: "a",
+          label: "A",
+          url: "https://a.example.com",
+          device: null,
+          lastWorkspaceID: null,
+          lastSessionID: null,
+          expired: false,
+          lastUsedAt: 1,
+        },
+      ],
+      activeID: "a",
+    }
+    const secondRegistry = {
+      profiles: [
+        {
+          id: "b",
+          label: "B",
+          url: "https://b.example.com",
+          device: null,
+          lastWorkspaceID: null,
+          lastSessionID: null,
+          expired: false,
+          lastUsedAt: 2,
+        },
+      ],
+      activeID: "b",
+    }
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const setItem = SecureStore.setItemAsync as jest.Mock
+    setItem.mockImplementationOnce(async (key: string, value: string) => {
+      await gate
+      store.set(key, value)
+    })
+
+    const first = saveServerRegistry(firstRegistry)
+    const second = saveServerRegistry(secondRegistry)
+    releaseFirst()
+    await Promise.all([first, second])
+
+    expect(JSON.parse(store.get("masterhand.servers.v2")!)).toMatchObject({ activeID: "b" })
   })
 
   it("persists per-server auto-accept lists", async () => {

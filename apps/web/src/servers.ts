@@ -1,4 +1,6 @@
 import {
+  browserOrigin,
+  MAX_SERVER_PROFILES,
   normalizeServerLabel,
   normalizeServerUrl,
   serverAuthMode,
@@ -38,9 +40,6 @@ const PROFILES_KEY = "masterhand.servers"
 const ACTIVE_KEY = "masterhand.servers.active"
 const TOKEN_PREFIX = "masterhand.server.token."
 const INSTALL_ID_KEY = "masterhand.installID"
-const LEGACY_TOKEN_PREFIX = "masterhand.serverToken."
-
-export const MAX_SERVER_PROFILES = 50
 
 function storageAvailable(): Storage | null {
   try {
@@ -60,7 +59,9 @@ function normalizeProfile(value: unknown): ServerProfile | null {
   const input = value as Partial<ServerProfile>
   if (typeof input.id !== "string" || !input.id) return null
   if (typeof input.url !== "string") return null
-  const normalized = normalizeServerUrl(input.url)
+  // The serving origin may be plain http (LAN deployment, COOKIE_SECURE=false):
+  // its cookie never leaves that origin. Remote profiles stay https-only.
+  const normalized = normalizeServerUrl(input.url, { allowInsecureOrigin: browserOrigin() })
   if (!normalized.ok) return null
   const url = normalized.server.url
   const label =
@@ -118,7 +119,7 @@ export function saveRegistry(registry: ServerRegistry): void {
   const storage = storageAvailable()
   if (!storage) return
   try {
-    storage.setItem(PROFILES_KEY, JSON.stringify(registry.profiles.slice(0, MAX_SERVER_PROFILES)))
+    storage.setItem(PROFILES_KEY, JSON.stringify(registry.profiles))
     if (registry.activeID) storage.setItem(ACTIVE_KEY, registry.activeID)
     else storage.removeItem(ACTIVE_KEY)
   } catch {
@@ -148,11 +149,6 @@ export function createProfile(input: {
   }
 }
 
-export function upsertProfile(profiles: ServerProfile[], profile: ServerProfile): ServerProfile[] {
-  const existing = profiles.findIndex((item) => item.id === profile.id)
-  if (existing === -1) return [...profiles, profile].slice(0, MAX_SERVER_PROFILES)
-  return profiles.map((item) => (item.id === profile.id ? profile : item))
-}
 
 export function removeProfile(profiles: ServerProfile[], id: string): ServerProfile[] {
   return profiles.filter((profile) => profile.id !== id)
@@ -187,7 +183,6 @@ export function clearServerToken(profileID: string): void {
   if (!storage) return
   try {
     storage.removeItem(tokenKey(profileID))
-    storage.removeItem(`${LEGACY_TOKEN_PREFIX}${profileID}`)
   } catch {
     // ignore
   }

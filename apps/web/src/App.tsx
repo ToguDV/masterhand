@@ -9,12 +9,14 @@ import {
   invalidateOnReconnect,
   isAmbiguousError,
   isMixedContentBlocked,
+  MAX_SERVER_PROFILES,
   normalizeServerLabel,
   normalizeServerUrl,
   reconcileForms,
   reconcilePermissions,
   rootSessions,
   serverAuthMode,
+  serverUrlErrorMessage,
   sessionCreateMarker,
   shouldAutoAccept,
   useBffStatus,
@@ -25,6 +27,7 @@ import {
   useWorkspaces,
   useUpdate,
   type CreateWorkspaceInput,
+  type DeviceLoginResponse,
   type FormAnswer,
   type FormInfo,
   type Permission,
@@ -142,6 +145,12 @@ function newQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: 1 } } })
 }
 
+/** Same server under another saved hostname: revoking one token kills both. */
+function sharesDevice(profiles: ServerProfile[], profile: ServerProfile): boolean {
+  if (!profile.deviceID) return false
+  return profiles.some((item) => item.id !== profile.id && item.deviceID === profile.deviceID)
+}
+
 /** Compact free-space label for the low-disk banner. */
 function formatFreeBytes(bytes: number | null): string {
   if (bytes === null) return "unknown"
@@ -155,7 +164,11 @@ function connectErrorMessage(
   mode: "first-run" | "add" | "reauth" | "saved",
 ): string {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "Wrong password. Try again."
+    if (error.status === 401) {
+      return mode === "saved"
+        ? "The saved session expired. Enter the password again."
+        : "Wrong password. Try again."
+    }
     if (error.status === 429) return "Too many attempts; wait 15 minutes."
     if (error.status === 400) {
       return mode === "reauth" ? "Enter the password." : "Check the server URL and password."
@@ -201,20 +214,31 @@ export default function App() {
   const [draft, setDraft] = useState<{ url: string; label: string } | null>(null)
   const [queryClient, setQueryClient] = useState<QueryClient>(newQueryClient)
   const generationRef = useRef(0)
+  const connectInFlightRef = useRef<Promise<void> | null>(null)
   const bootedRef = useRef(false)
+  const phaseRef = useRef<RootPhase>("loading")
+  phaseRef.current = phase
+  const reportResidual = useCallback(
+    (message: string) => {
+      if (phaseRef.current === "servers") setNotice(message)
+      else toast(message)
+    },
+    [toast],
+  )
   const expireRef = useRef<(profileID: string) => void>(() => {})
   // Drop the previous server's cache (and its gc timers) on switch/unmount.
   useEffect(() => () => queryClient.clear(), [queryClient])
+  // Persist only committed registry state (never inside a setState updater):
+  // StrictMode can replay updaters, and a side effect there may run twice.
+  useEffect(() => {
+    saveRegistry(registry)
+  }, [registry])
 
   const activeProfile =
     phase === "app" ? (registry.profiles.find((item) => item.id === registry.activeID) ?? null) : null
 
   const updateRegistry = useCallback((updater: (previous: ServerRegistry) => ServerRegistry) => {
-    setRegistry((previous) => {
-      const next = updater(previous)
-      saveRegistry(next)
-      return next
-    })
+    setRegistry(updater)
   }, [])
 
   const clientFor = useCallback((profile: ServerProfile) => {
@@ -229,7 +253,9 @@ export default function App() {
 
   const expire = useCallback(
     (profileID: string) => {
-      // A late 401 from a replaced client must not tear down the new server.
+      // A late 401 from a replaced client must not tear down the new server:
+      // ignore it while connecting/switching and once the active id changed.
+      if (phaseRef.current !== "app") return
       if (registryRef.current.activeID !== profileID) return
       const profile = registryRef.current.profiles.find((item) => item.id === profileID) ?? null
       if (profile?.authMode === "device") clearServerToken(profileID)
@@ -245,6 +271,7 @@ export default function App() {
       setConnectError(profile ? `${profile.label}'s saved session expired. Enter its password again.` : null)
       setPending(null)
       setBusy(false)
+      phaseRef.current = "servers"
       setPhase("servers")
     },
     [updateRegistry],
@@ -266,6 +293,12 @@ export default function App() {
       },
     ) => {
       const run = ++generationRef.current
+      const previous = connectInFlightRef.current
+      let release!: () => void
+      const inFlight = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      connectInFlightRef.current = inFlight
       const targetUrl = profile.url
       const mode: "first-run" | "add" | "reauth" | "saved" =
         options.formMode ?? (options.firstRun ? "first-run" : "saved")
@@ -273,18 +306,30 @@ export default function App() {
       setNotice(null)
       setReauthProfile(null)
       setPending({ label: profile.label, url: profile.url })
+      phaseRef.current = "connecting"
       setPhase("connecting")
       setBusy(true)
-
-      const candidate = createServerClient({
-        baseUrl: targetUrl,
-        ...(profile.authMode === "device"
-          ? { getToken: () => loadServerToken(profile.id) }
-          : {}),
-      })
+      let issued: DeviceLoginResponse | null = null
       let deviceID = profile.deviceID
+      let cancelled = false
+      let failed = false
 
       try {
+        // A cancelled attempt may still be revoking its issued token; wait for
+        // that cleanup before starting another login.
+        if (previous) await previous
+        if (run !== generationRef.current) {
+          cancelled = true
+          return
+        }
+
+        const candidate = createServerClient({
+          baseUrl: targetUrl,
+          ...(profile.authMode === "device"
+            ? { getToken: () => loadServerToken(profile.id) }
+            : {}),
+        })
+
         if (options.password) {
           if (profile.authMode === "cookie") {
             await candidate.auth.login(options.password)
@@ -294,13 +339,25 @@ export default function App() {
               webDeviceName(),
               getOrCreateInstallID(),
             )
+            issued = result
+            // H1: a cancel must not persist the token first.
+            if (run !== generationRef.current) {
+              cancelled = true
+              return
+            }
             saveServerToken(profile.id, result.token)
+            if (run !== generationRef.current) {
+              cancelled = true
+              clearServerToken(profile.id)
+              return
+            }
             deviceID = result.device.id
           }
         } else if (profile.authMode === "device" && !loadServerToken(profile.id)) {
-          if (run !== generationRef.current) return
-          setBusy(false)
-          setPending(null)
+          if (run !== generationRef.current) {
+            cancelled = true
+            return
+          }
           setReauthProfile(profile)
           setPhase("servers")
           return
@@ -309,7 +366,10 @@ export default function App() {
         // Verify the saved/issued credential before entering the app: a 401
         // here means "wrong password"/"expired", never a half-connected UI.
         await candidate.auth.status()
-        if (run !== generationRef.current) return
+        if (run !== generationRef.current) {
+          cancelled = true
+          return
+        }
 
         const legacyWorkspace = profile.authMode === "cookie" ? legacyWorkspaceID() : null
         const nextProfile: ServerProfile = {
@@ -322,10 +382,10 @@ export default function App() {
           // (cookie profile). A remote profile must never inherit them.
           ...(legacyWorkspace ? { lastWorkspaceID: legacyWorkspace } : {}),
         }
-        updateRegistry((previous) => ({
-          profiles: previous.profiles.some((item) => item.id === nextProfile.id)
-            ? previous.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
-            : [...previous.profiles, nextProfile],
+        updateRegistry((previousRegistry) => ({
+          profiles: previousRegistry.profiles.some((item) => item.id === nextProfile.id)
+            ? previousRegistry.profiles.map((item) => (item.id === nextProfile.id ? nextProfile : item))
+            : [...previousRegistry.profiles, nextProfile],
           activeID: nextProfile.id,
         }))
         // Idempotent: copies the old global preferences to the current-origin
@@ -333,21 +393,29 @@ export default function App() {
         if (nextProfile.authMode === "cookie") migrateLegacyPreferences(nextProfile.id)
         setActiveClient(clientFor(nextProfile))
         setQueryClient(newQueryClient())
-        setPending(null)
-        setBusy(false)
         setUseUrlState(options.restoreURL)
         setOpenAdd(false)
         setDraft(null)
         if (!options.restoreURL) clearUrlState()
         setPhase("app")
       } catch (error) {
-        if (run !== generationRef.current) return
-        // A failed device login must not leave a token around.
+        if (run !== generationRef.current) {
+          cancelled = true
+          return
+        }
+        failed = true
         if (options.password && profile.authMode === "device") clearServerToken(profile.id)
-        setBusy(false)
-        setPending(null)
         setConnectError(connectErrorMessage(error, targetUrl, mode))
         const expiredSession = error instanceof ApiError && error.status === 401
+        if (expiredSession && mode === "saved" && profile.authMode === "device") {
+          clearServerToken(profile.id)
+          updateRegistry((previous) => ({
+            ...previous,
+            profiles: previous.profiles.map((item) =>
+              item.id === profile.id ? { ...item, expired: true } : item,
+            ),
+          }))
+        }
         setOpenAdd(mode === "add")
         setReauthProfile(
           mode === "reauth" || (mode === "saved" && (profile.expired || expiredSession))
@@ -355,6 +423,38 @@ export default function App() {
             : null,
         )
         setPhase("servers")
+      } finally {
+        if (cancelled || failed || run !== generationRef.current) {
+          if (issued) {
+            clearServerToken(profile.id)
+            let residual = false
+            if (!sharesDevice(registryRef.current.profiles, { ...profile, deviceID: issued.device.id })) {
+              try {
+                const revokeClient = createServerClient({
+                  baseUrl: targetUrl,
+                  getToken: () => issued!.token,
+                  timeoutMs: 10_000,
+                })
+                await revokeClient.auth.revokeDevice(issued.device.id)
+              } catch {
+                residual = true
+              }
+            }
+            if (residual) {
+              setNotice(
+                cancelled || run !== generationRef.current
+                  ? "Cancelled. The just-issued device token could not be revoked."
+                  : "Connection failed. The just-issued device token could not be revoked.",
+              )
+            }
+          }
+        }
+        release()
+        if (connectInFlightRef.current === inFlight) connectInFlightRef.current = null
+        if (run === generationRef.current) {
+          setBusy(false)
+          setPending(null)
+        }
       }
     },
     [clientFor, updateRegistry],
@@ -375,7 +475,6 @@ export default function App() {
         profile.lastWorkspaceID = legacyWorkspaceID()
         migrateLegacyPreferences(profile.id)
         const next = { profiles: [profile], activeID: profile.id }
-        saveRegistry(next)
         setRegistry(next)
         setActiveClient(clientFor(profile))
         setQueryClient(newQueryClient())
@@ -429,9 +528,16 @@ export default function App() {
     ) => {
       setConnectError(null)
       setDraft({ url: submission.url, label: submission.label })
-      const normalized = normalizeServerUrl(submission.url)
+      if (mode !== "reauth" && registryRef.current.profiles.length >= MAX_SERVER_PROFILES) {
+        setConnectError(`You can save at most ${MAX_SERVER_PROFILES} servers.`)
+        setPhase("servers")
+        return
+      }
+      const normalized = normalizeServerUrl(submission.url, {
+        allowInsecureOrigin: window.location.origin,
+      })
       if (!normalized.ok) {
-        setConnectError("Enter a valid server URL")
+        setConnectError(serverUrlErrorMessage(normalized.error))
         setPhase("servers")
         return
       }
@@ -472,6 +578,7 @@ export default function App() {
       setNotice(null)
       if (profile.authMode === "device" && !loadServerToken(profile.id)) {
         setReauthProfile(profile)
+        phaseRef.current = "servers"
         setPhase("servers")
         return
       }
@@ -487,6 +594,7 @@ export default function App() {
       setNotice(null)
       if (profile.authMode === "device" && !loadServerToken(profile.id)) {
         setReauthProfile(profile)
+        phaseRef.current = "servers"
         setPhase("servers")
         return
       }
@@ -496,28 +604,12 @@ export default function App() {
   )
 
   const disconnectProfile = useCallback(
-    async (profile: ServerProfile) => {
-      let residual = false
-      const target = createServerClient({
-        baseUrl: profile.url,
-        ...(profile.authMode === "device"
-          ? { getToken: () => loadServerToken(profile.id) }
-          : {}),
-        timeoutMs: 10_000,
-      })
-      if (profile.authMode === "cookie") {
-        await target.auth.logout().catch(() => {})
-      } else {
-        const token = loadServerToken(profile.id)
-        if (token && profile.deviceID) {
-          try {
-            await target.auth.revokeDevice(profile.deviceID)
-          } catch {
-            residual = true
-          }
-        }
-        clearServerToken(profile.id)
-      }
+    (profile: ServerProfile) => {
+      const token = profile.authMode === "device" ? loadServerToken(profile.id) : null
+      const shared = sharesDevice(registryRef.current.profiles, profile)
+      // Clear the local session before any network call: revocation is
+      // best-effort and must not block the switch back to the Servers screen.
+      if (profile.authMode === "device") clearServerToken(profile.id)
       const wasActive = registryRef.current.activeID === profile.id
       updateRegistry((previous) => ({
         profiles: previous.profiles.map((item) =>
@@ -532,39 +624,38 @@ export default function App() {
         setBusy(false)
         setReauthProfile(null)
         setConnectError(null)
+        phaseRef.current = "servers"
         setPhase("servers")
-        if (residual) {
-          setNotice("Disconnected. The device token could not be revoked; revoke it from that server's settings.")
-        }
-      } else if (residual) {
-        toast("Disconnected. The device token could not be revoked.")
+      }
+
+      if (profile.authMode === "cookie") {
+        const target = createServerClient({ baseUrl: profile.url, timeoutMs: 10_000 })
+        void target.auth
+          .logout()
+          .catch(() =>
+            reportResidual("Disconnected, but the server session could not be cleared."),
+          )
+      } else if (token && profile.deviceID && !shared) {
+        const target = createServerClient({
+          baseUrl: profile.url,
+          getToken: () => token,
+          timeoutMs: 10_000,
+        })
+        void target.auth.revokeDevice(profile.deviceID).catch(() =>
+          reportResidual(
+            "Disconnected. The device token could not be revoked; revoke it from that server's settings.",
+          ),
+        )
       }
     },
-    [toast, updateRegistry],
+    [reportResidual, updateRegistry],
   )
 
   const removeServer = useCallback(
-    async (profile: ServerProfile) => {
-      let residual = false
-      if (profile.authMode === "cookie") {
-        const target = createServerClient({ baseUrl: profile.url, timeoutMs: 10_000 })
-        await target.auth.logout().catch(() => {})
-      } else {
-        const token = loadServerToken(profile.id)
-        if (token && profile.deviceID) {
-          const target = createServerClient({
-            baseUrl: profile.url,
-            getToken: () => token,
-            timeoutMs: 10_000,
-          })
-          try {
-            await target.auth.revokeDevice(profile.deviceID)
-          } catch {
-            residual = true
-          }
-        }
-        clearServerToken(profile.id)
-      }
+    (profile: ServerProfile) => {
+      const token = profile.authMode === "device" ? loadServerToken(profile.id) : null
+      const shared = sharesDevice(registryRef.current.profiles, profile)
+      if (profile.authMode === "device") clearServerToken(profile.id)
       const wasActive = registryRef.current.activeID === profile.id
       updateRegistry((previous) => ({
         profiles: removeProfile(previous.profiles, profile.id),
@@ -577,15 +668,32 @@ export default function App() {
         setBusy(false)
         setReauthProfile(null)
         setConnectError(null)
+        setNotice("Server removed")
+        phaseRef.current = "servers"
         setPhase("servers")
       }
-      toast(
-        residual
-          ? "Server removed. Its device token could not be revoked — revoke it from that server's settings."
-          : "Server removed",
-      )
+
+      if (profile.authMode === "cookie") {
+        const target = createServerClient({ baseUrl: profile.url, timeoutMs: 10_000 })
+        void target.auth
+          .logout()
+          .catch(() =>
+            reportResidual("Server removed, but its server session could not be cleared."),
+          )
+      } else if (token && profile.deviceID && !shared) {
+        const target = createServerClient({
+          baseUrl: profile.url,
+          getToken: () => token,
+          timeoutMs: 10_000,
+        })
+        void target.auth.revokeDevice(profile.deviceID).catch(() =>
+          reportResidual(
+            "Server removed. Its device token could not be revoked — revoke it from that server's settings.",
+          ),
+        )
+      }
     },
-    [toast, updateRegistry],
+    [reportResidual, updateRegistry],
   )
 
   const renameServer = useCallback(

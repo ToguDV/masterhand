@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react"
 import {
   MAX_SERVER_LABEL_LENGTH,
   MAX_SERVER_URL_LENGTH,
+  browserOrigin,
   isMixedContentBlocked,
+  isSameOrigin,
   normalizeServerUrl,
   serverMonogram,
   serverUrlErrorMessage,
@@ -163,6 +165,9 @@ export function ServerForm({
 
   const showUrl = mode !== "reauth"
   const showName = mode !== "reauth"
+  const servingOriginTarget = isSameOrigin(url || initialUrl || "", browserOrigin())
+  const passwordAutoComplete =
+    mode === "reauth" || servingOriginTarget ? "current-password" : "off"
   const title =
     mode === "first-run"
       ? "Connect your first server"
@@ -184,7 +189,7 @@ export function ServerForm({
 
     let normalizedUrl = profile?.url ?? ""
     if (showUrl) {
-      const normalized = normalizeServerUrl(url)
+      const normalized = normalizeServerUrl(url, { allowInsecureOrigin: browserOrigin() })
       if (!normalized.ok) {
         setLocalError(serverUrlErrorMessage(normalized.error))
         return
@@ -274,7 +279,7 @@ export function ServerForm({
             type={reveal ? "text" : "password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
+            autoComplete={passwordAutoComplete}
             aria-invalid={Boolean(localError || error)}
             required
           />

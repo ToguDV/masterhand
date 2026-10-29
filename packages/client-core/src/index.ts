@@ -289,6 +289,7 @@ export {
 } from "./tools"
 export {
   MAX_SERVER_LABEL_LENGTH,
+  MAX_SERVER_PROFILES,
   MAX_SERVER_URL_LENGTH,
   browserOrigin,
   defaultServerLabel,
@@ -301,6 +302,7 @@ export {
   serverMonogram,
   serverUrlErrorMessage,
   type NormalizedServerUrl,
+  type NormalizeServerUrlOptions,
   type NormalizeServerUrlResult,
   type ServerAuthMode,
   type ServerUrlError,

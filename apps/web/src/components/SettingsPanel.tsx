@@ -315,38 +315,59 @@ function ServersSection({
       </p>
 
       {removing && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center mh-overlay md:items-center md:p-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Remove ${removing.label}`}
-            className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
-          >
-            <h4 className="mh-dialog__title mh-heading-4">Remove server</h4>
-            <p className="mh-body-sm text-ink-muted">
-              Remove <span className="font-medium text-ink">{removing.label}</span> from this device?
-              Sessions keep running on that server; you can add it again later.
-            </p>
-            <div className="mh-dialog__actions">
-              <button type="button" className="mh-btn mh-btn--secondary" onClick={() => setRemoving(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="mh-btn mh-btn--danger"
-                onClick={() => {
-                  const profile = removing
-                  setRemoving(null)
-                  onRemove(profile)
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        </div>
+        <RemoveServerDialog
+          profile={removing}
+          onClose={() => setRemoving(null)}
+          onConfirm={(profile) => {
+            setRemoving(null)
+            onRemove(profile)
+          }}
+        />
       )}
     </section>
+  )
+}
+
+function RemoveServerDialog({
+  profile,
+  onClose,
+  onConfirm,
+}: {
+  profile: ServerProfile
+  onClose: () => void
+  onConfirm: (profile: ServerProfile) => void
+}) {
+  const dialogRef = useModalFocus<HTMLDivElement>(onClose)
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center mh-overlay md:items-center md:p-4">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Remove ${profile.label}`}
+        className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
+      >
+        <h4 className="mh-dialog__title mh-heading-4">Remove server</h4>
+        <p className="mh-body-sm text-ink-muted">
+          Remove <span className="font-medium text-ink">{profile.label}</span> from this device?
+          Sessions keep running on that server; you can add it again later.
+        </p>
+        <div className="mh-dialog__actions">
+          <button type="button" className="mh-btn mh-btn--secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="mh-btn mh-btn--danger"
+            onClick={() => onConfirm(profile)}
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

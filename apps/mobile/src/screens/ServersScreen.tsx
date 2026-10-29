@@ -330,6 +330,7 @@ function ServerForm({
           placeholder="••••••••"
           placeholderTextColor={colors.textFaint}
           secureTextEntry={!reveal}
+          autoComplete={mode === "reauth" ? "current-password" : "off"}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="go"

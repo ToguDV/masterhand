@@ -181,7 +181,7 @@ describe("App", () => {
     await fireEvent.press(screen.getByLabelText("Settings"))
     await fireEvent.press(screen.getByLabelText("Disconnect from the active server"))
 
-    expect(mocked.clearServerToken).toHaveBeenCalledWith("home")
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("home"))
     expect(await screen.findByText("Home")).toBeOnTheScreen()
     expect(screen.getByText("Add another server")).toBeOnTheScreen()
   })
@@ -216,6 +216,29 @@ describe("App", () => {
     )
   })
 
+  it("rejects adding a server beyond the profile cap", async () => {
+    const profiles = Array.from({ length: 50 }, (_, index) => ({
+      ...HOME,
+      id: `profile-${index}`,
+      label: `Server ${index}`,
+      url: `https://server-${index}.example.com`,
+    }))
+    mocked.loadServerRegistry.mockResolvedValue({ profiles, activeID: profiles[0]!.id })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Add server"))
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "https://one-more.example.com")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+
+    expect(await screen.findByText("You can save at most 50 servers.")).toBeOnTheScreen()
+    expect(mocked.saveServerToken).not.toHaveBeenCalled()
+  })
+
   it("rejects an invalid URL before starting a connection", async () => {
     await render(<App />)
 
@@ -242,6 +265,140 @@ describe("App", () => {
     await fireEvent.press(screen.getByLabelText("Server: Home"))
     await fireEvent.press(screen.getByTestId("switcher-server-studio"))
     expect(await screen.findByLabelText("Server: Studio")).toBeOnTheScreen()
+  })
+
+  it("persists the switched active id, verifies the token and isolates client tokens", async () => {
+    const second = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, second], activeID: "home" })
+    mocked.loadServerToken.mockImplementation(async (id: string) =>
+      id === "home" ? "home-token" : "studio-token",
+    )
+    await render(<App />)
+
+    await screen.findByText("Add a workspace to start working on a project.")
+    await fireEvent.press(screen.getByLabelText("Server: Home"))
+    await fireEvent.press(screen.getByTestId("switcher-server-studio"))
+    expect(await screen.findByLabelText("Server: Studio")).toBeOnTheScreen()
+
+    await waitFor(() =>
+      expect(mocked.saveServerRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({ activeID: "studio" }),
+      ),
+    )
+    const tokenGetters = createClientMock.mock.calls
+      .map((call) => (call[0] as { getToken?: () => string | null }).getToken)
+      .filter((getter): getter is () => string | null => typeof getter === "function")
+    expect(tokenGetters[0]?.()).toBe("home-token")
+    expect(tokenGetters.at(-1)?.()).toBe("studio-token")
+
+    // A late 401 from the unmounted Home client must not abort the switch.
+    const homeOptions = createClientMock.mock.calls
+      .map((call) => call[0] as { baseUrl?: string; onUnauthorized?: () => void })
+      .find((options) => options.baseUrl === "https://host")
+    await act(async () => {
+      homeOptions?.onUnauthorized?.()
+    })
+    expect(screen.getByLabelText("Server: Studio")).toBeOnTheScreen()
+  })
+
+  it("sends a saved switch with an expired token to re-auth", async () => {
+    const second = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, second], activeID: "home" })
+    mocked.loadServerToken.mockImplementation(async (id: string) =>
+      id === "home" ? "home-token" : "studio-token",
+    )
+    const client = makeClient()
+    client.auth.status.mockRejectedValue(new ApiError(401, "expired"))
+    createClientMock.mockReturnValue(client)
+    await render(<App />)
+
+    await screen.findByText("Add a workspace to start working on a project.")
+    await fireEvent.press(screen.getByLabelText("Server: Home"))
+    await fireEvent.press(screen.getByTestId("switcher-server-studio"))
+
+    expect(await screen.findByText(/Reconnect to Studio/)).toBeOnTheScreen()
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("studio"))
+  })
+
+  it("does not revoke a device still used by another saved profile", async () => {
+    const shared = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, shared], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    const client = makeClient()
+    createClientMock.mockReturnValue(client)
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Open Servers"))
+    await fireEvent.press(screen.getByLabelText("Remove Home"))
+    alert.mock.calls.at(-1)?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("home"))
+    expect(client.auth.revokeDevice).not.toHaveBeenCalled()
+    alert.mockRestore()
+  })
+
+  it("shows a failed saved switch on the server list", async () => {
+    const second = {
+      ...HOME,
+      id: "studio",
+      label: "Studio",
+      url: "https://studio.example.com",
+    }
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME, second], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    const client = makeClient()
+    client.auth.status.mockRejectedValue(new Error("network down"))
+    createClientMock.mockReturnValue(client)
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Server: Home"))
+    await fireEvent.press(screen.getByTestId("switcher-server-studio"))
+    expect(await screen.findByText(/Could not reach studio.example.com/)).toBeOnTheScreen()
+    expect(screen.getByText("Studio")).toBeOnTheScreen()
+  })
+
+  it("disconnects before the revocation request settles", async () => {
+    mocked.loadServerRegistry.mockResolvedValue({ profiles: [HOME], activeID: "home" })
+    mocked.loadServerToken.mockResolvedValue("stored-token")
+    let releaseRevoke!: () => void
+    const client = makeClient()
+    client.auth.revokeDevice.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRevoke = resolve
+        }),
+    )
+    createClientMock.mockReturnValue(client)
+    await render(<App />)
+    await screen.findByText("Add a workspace to start working on a project.")
+
+    await fireEvent.press(screen.getByLabelText("Settings"))
+    await fireEvent.press(screen.getByLabelText("Disconnect from the active server"))
+    // The UI leaves the app before the best-effort DELETE resolves.
+    expect(await screen.findByText("Add another server")).toBeOnTheScreen()
+    await waitFor(() => expect(mocked.clearServerToken).toHaveBeenCalledWith("home"))
+    await act(async () => {
+      releaseRevoke()
+    })
   })
 
   it("asks for the password when a saved profile has no token", async () => {

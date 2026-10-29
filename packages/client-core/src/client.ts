@@ -387,7 +387,10 @@ export function createClient(options: ClientOptions = {}): Client {
       else external.addEventListener("abort", forwardAbort, { once: true })
     }
     try {
-      return await fetchImpl(input, { ...init, signal: controller.signal })
+      // Never follow redirects: a cross-origin API call must not be replayed
+      // as a same-origin request (which would attach the serving origin's
+      // cookie). Remote servers answer their own API directly.
+      return await fetchImpl(input, { ...init, redirect: "error", signal: controller.signal })
     } catch (error) {
       if (timedOut) throw new RequestTimeoutError()
       throw error

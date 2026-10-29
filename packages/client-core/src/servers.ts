@@ -32,8 +32,33 @@ export type NormalizeServerUrlResult =
   | { ok: true; server: NormalizedServerUrl }
   | { ok: false; error: ServerUrlError }
 
+export interface NormalizeServerUrlOptions {
+  /**
+   * Accept plain `http://` for this exact origin (the page that served the
+   * client). Its HttpOnly cookie never leaves that origin, so the same-origin
+   * exception is safe even on a LAN deployment without TLS.
+   */
+  allowInsecureOrigin?: string | null
+  /**
+   * Accept any plain `http://` origin. Only for migrating pre-multi-server
+   * mobile sessions whose URL may be a LAN address; new remote servers must
+   * still use https.
+   */
+  allowInsecure?: boolean
+}
+
+function originOf(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    return new URL(value).origin
+  } catch {
+    return null
+  }
+}
+
 export const MAX_SERVER_URL_LENGTH = 2048
 export const MAX_SERVER_LABEL_LENGTH = 64
+export const MAX_SERVER_PROFILES = 50
 
 /** Loopback hosts may use plain `http://` (local development). */
 export function isLoopbackHostname(hostname: string): boolean {
@@ -53,7 +78,10 @@ export function isLoopbackHostname(hostname: string): boolean {
  * - rejects credentials, query strings, hashes and non-root paths
  * - strips trailing slashes and default ports through `URL.origin`
  */
-export function normalizeServerUrl(input: string): NormalizeServerUrlResult {
+export function normalizeServerUrl(
+  input: string,
+  options: NormalizeServerUrlOptions = {},
+): NormalizeServerUrlResult {
   const trimmed = input.trim()
   if (!trimmed) return { ok: false, error: "empty" }
   if (trimmed.length > MAX_SERVER_URL_LENGTH) return { ok: false, error: "too_long" }
@@ -75,7 +103,10 @@ export function normalizeServerUrl(input: string): NormalizeServerUrlResult {
   if (parsed.hash) return { ok: false, error: "hash" }
   if (parsed.pathname.replace(/\/+$/, "") !== "") return { ok: false, error: "path" }
   if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
-    return { ok: false, error: "https_required" }
+    const allowedOrigin = originOf(options.allowInsecureOrigin)
+    const insecureAllowed =
+      options.allowInsecure === true || (allowedOrigin !== null && parsed.origin === allowedOrigin)
+    if (!insecureAllowed) return { ok: false, error: "https_required" }
   }
 
   const origin = parsed.origin

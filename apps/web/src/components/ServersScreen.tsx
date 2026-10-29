@@ -135,6 +135,12 @@ export function ServersScreen({
               {notice}
             </p>
           ) : null}
+          {!showReauth && !firstRun && !showAdd && error ? (
+            <p className="mh-srv-error" role="alert">
+              <span className="mh-dot mh-dot--danger" aria-hidden="true" />
+              {error}
+            </p>
+          ) : null}
           {showReauth && reauthProfile ? (
             <>
               <button

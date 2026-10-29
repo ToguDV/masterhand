@@ -1,5 +1,10 @@
 import * as SecureStore from "expo-secure-store"
-import { defaultServerLabel, normalizeServerLabel, normalizeServerUrl } from "@masterhand/client-core"
+import {
+  MAX_SERVER_PROFILES,
+  defaultServerLabel,
+  normalizeServerLabel,
+  normalizeServerUrl,
+} from "@masterhand/client-core"
 
 export interface StoredDevice {
   id: string
@@ -44,7 +49,6 @@ const PALETTE_KEY = "masterhand.palette"
 
 /** Named differently from the legacy single-server keys so migration is unambiguous. */
 const SERVERS_KEY = "masterhand.servers.v2"
-const ACTIVE_SERVER_KEY = "masterhand.servers.active"
 const TOKEN_PREFIX = "masterhand.server.token."
 
 export function loadServerUrl(): Promise<string | null> {
@@ -141,7 +145,10 @@ function normalizeProfile(value: unknown): StoredServerProfile | null {
   const input = value as Partial<StoredServerProfile>
   if (typeof input.id !== "string" || !input.id) return null
   if (typeof input.url !== "string") return null
-  const normalized = normalizeServerUrl(input.url)
+  // Pre-multi-server installs may legitimately point at a plain-http LAN
+  // address. New profiles still go through the https-only add form; this
+  // allowance only keeps already-persisted sessions loadable.
+  const normalized = normalizeServerUrl(input.url, { allowInsecure: true })
   if (!normalized.ok) return null
   const url = normalized.server.url
   const device =
@@ -171,6 +178,7 @@ function parseRegistry(raw: string | null): ServerRegistry | null {
       ? parsed.profiles
           .map(normalizeProfile)
           .filter((profile): profile is StoredServerProfile => profile !== null)
+          .slice(0, MAX_SERVER_PROFILES)
       : []
     const activeID =
       typeof parsed.activeID === "string" && profiles.some((profile) => profile.id === parsed.activeID)
@@ -198,7 +206,7 @@ export async function loadServerRegistry(): Promise<ServerRegistry> {
     SecureStore.getItemAsync(WORKSPACE_KEY).catch(() => null),
     SecureStore.getItemAsync(AUTO_ACCEPT_KEY).catch(() => null),
   ])
-  const normalized = legacyUrl ? normalizeServerUrl(legacyUrl) : null
+  const normalized = legacyUrl ? normalizeServerUrl(legacyUrl, { allowInsecure: true }) : null
   if (!legacyUrl || !normalized || !normalized.ok) return { profiles: [], activeID: null }
 
   const profile: StoredServerProfile = {
@@ -218,7 +226,6 @@ export async function loadServerRegistry(): Promise<ServerRegistry> {
     activeID: legacyToken ? profile.id : null,
   }
   await SecureStore.setItemAsync(SERVERS_KEY, JSON.stringify(registry))
-  await SecureStore.setItemAsync(ACTIVE_SERVER_KEY, registry.activeID ?? "")
   if (legacyToken) await SecureStore.setItemAsync(`${TOKEN_PREFIX}${profile.id}`, legacyToken)
   if (legacyAutoAccept) {
     await SecureStore.setItemAsync(`${AUTO_ACCEPT_KEY}.${profile.id}`, legacyAutoAccept).catch(() => {})
@@ -234,10 +241,19 @@ export async function loadServerRegistry(): Promise<ServerRegistry> {
   return registry
 }
 
-export async function saveServerRegistry(registry: ServerRegistry): Promise<void> {
-  await SecureStore.setItemAsync(SERVERS_KEY, JSON.stringify(registry))
-  if (registry.activeID) await SecureStore.setItemAsync(ACTIVE_SERVER_KEY, registry.activeID)
-  else await SecureStore.deleteItemAsync(ACTIVE_SERVER_KEY)
+/**
+ * Serialized read/write queue for the registry. Rapid connect/expire/update
+ * calls must land in order: an older SecureStore write completing late used to
+ * resurrect a stale `activeID` or profile list.
+ */
+let registryWrite: Promise<void> = Promise.resolve()
+
+export function saveServerRegistry(registry: ServerRegistry): Promise<void> {
+  const write = registryWrite.then(async () => {
+    await SecureStore.setItemAsync(SERVERS_KEY, JSON.stringify(registry))
+  })
+  registryWrite = write.catch(() => {})
+  return write
 }
 
 export function newServerID(): string {

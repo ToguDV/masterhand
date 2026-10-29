@@ -13,6 +13,21 @@ test("first run connects the current origin and remembers it", async ({ page }) 
   await expect(page.getByRole("button", { name: /^Server: / })).toBeVisible()
 })
 
+test("accepts a plain-http serving origin and restores it after reload", async ({ page, harness }) => {
+  const port = new URL(harness.bffURL).port
+  const origin = `http://app.localhost:${port}`
+
+  await page.goto(`${origin}/`)
+  await expect(page.locator("#server-url")).toHaveValue(origin)
+  await page.locator("#password").fill("e2e-password")
+  await page.getByRole("button", { name: "Connect", exact: true }).click()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
+  await expect(page.locator("#password")).toHaveCount(0)
+})
+
 test("a saved session restores without asking for the password again", async ({ page }) => {
   await login(page)
   await page.reload()
@@ -136,6 +151,6 @@ test("switching servers never leaks the previous server's data", async ({ page, 
   expect(cookie).toBeUndefined()
 
   // Nothing from the previous server's cache survives the switch.
-  await expect(page.getByText(localWorkspace)).toBeHidden()
+  await expect(page.getByText(localWorkspace)).toHaveCount(0)
   await expect(page.getByText("No sessions yet.")).toBeVisible()
 })

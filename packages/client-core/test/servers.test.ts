@@ -38,6 +38,36 @@ describe("normalizeServerUrl", () => {
     })
   })
 
+  it("allows plain http only for the serving origin or an explicit legacy migration", () => {
+    expect(normalizeServerUrl("http://192.168.1.20:8787")).toEqual({
+      ok: false,
+      error: "https_required",
+    })
+    expect(
+      normalizeServerUrl("http://192.168.1.20:8787", {
+        allowInsecureOrigin: "http://192.168.1.20:8787",
+      }),
+    ).toEqual({
+      ok: true,
+      server: {
+        url: "http://192.168.1.20:8787",
+        origin: "http://192.168.1.20:8787",
+        hostname: "192.168.1.20",
+      },
+    })
+    // A different http origin is still rejected.
+    expect(
+      normalizeServerUrl("http://192.168.1.21:8787", {
+        allowInsecureOrigin: "http://192.168.1.20:8787",
+      }),
+    ).toEqual({ ok: false, error: "https_required" })
+    // Legacy mobile migration may accept the stored LAN URL once.
+    expect(normalizeServerUrl("http://192.168.1.20:8787", { allowInsecure: true })).toMatchObject({
+      ok: true,
+      server: { url: "http://192.168.1.20:8787" },
+    })
+  })
+
   it("rejects credentials, queries, hashes and non-root paths", () => {
     expect(normalizeServerUrl("https://user:pass@example.com")).toEqual({
       ok: false,

@@ -61,6 +61,8 @@ describe("ServersScreen", () => {
     expect((screen.getByLabelText("Server URL") as HTMLInputElement).value).toBe(
       "https://masterhand.example.com",
     )
+    // A remote target must not attract the serving origin's saved password.
+    expect(screen.getByLabelText("Password").getAttribute("autocomplete")).toBe("off")
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } })
     fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Home" } })
     fireEvent.click(screen.getByRole("button", { name: "Connect" }))
@@ -158,7 +160,32 @@ describe("ServersScreen", () => {
       />,
     )
     expect(screen.getByRole("heading", { name: "Reconnect to VPS" })).toBeTruthy()
+    expect(screen.getByLabelText("Password").getAttribute("autocomplete")).toBe("current-password")
     expect(screen.getByRole("alert").textContent).toContain("Wrong password. Try again.")
+  })
+
+  it("shows a failed switch error on the list, not only inside forms", () => {
+    const home = profile()
+    render(
+      <ServersScreen
+        profiles={[home]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error="The saved session expired. Enter the password again."
+        notice={null}
+        connecting={null}
+        reauthProfile={null}
+        onSubmit={noop}
+        onSelect={noop}
+        onCancel={noop}
+        onCancelConnect={noop}
+      />,
+    )
+
+    const alert = screen.getByRole("alert")
+    expect(alert.textContent).toContain("saved session expired")
+    expect(screen.getByText("Home")).toBeTruthy()
   })
 
   it("renders the connecting transition with its label and a cancel action", () => {
@@ -290,7 +317,13 @@ describe("Settings > Servers", () => {
       />,
     )
     fireEvent.click(screen.getByRole("button", { name: "Remove Studio" }))
-    expect(screen.getByRole("dialog", { name: "Remove Studio" })).toBeTruthy()
+    const confirm = screen.getByRole("dialog", { name: "Remove Studio" })
+    fireEvent.keyDown(confirm, { key: "Escape" })
+    expect(screen.queryByRole("dialog", { name: "Remove Studio" })).toBeNull()
+    // Escape closed only the confirmation, not the Settings dialog behind it.
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Studio" }))
     fireEvent.click(screen.getByRole("button", { name: "Remove" }))
     expect(props.onRemove).toHaveBeenCalledWith(props.profiles[1])
   })
