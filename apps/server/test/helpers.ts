@@ -591,6 +591,7 @@ export async function startTestApp(
     connectKeyBudgetMs?: number
     finishBudgetMs?: number
     workspaceDeleteBudgetMs?: number
+    workspaceDeleteBackgroundMs?: number
     fetchImpl?: typeof fetch
     preview?: PreviewManager
     sessionsCacheMs?: number
@@ -652,6 +653,7 @@ export async function startTestApp(
     connectKeyBudgetMs: options.connectKeyBudgetMs,
     finishBudgetMs: options.finishBudgetMs,
     workspaceDeleteBudgetMs: options.workspaceDeleteBudgetMs,
+    workspaceDeleteBackgroundMs: options.workspaceDeleteBackgroundMs,
     fetchImpl: options.fetchImpl,
     preview,
     sessionsCacheMs: options.sessionsCacheMs,

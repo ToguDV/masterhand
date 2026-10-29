@@ -123,6 +123,8 @@ export interface AppDeps {
   finishBudgetMs?: number
   /** Overridable for tests: whole-request budget of workspace deletion. */
   workspaceDeleteBudgetMs?: number
+  /** Overridable for tests: cap for the cleanup detached after a delete 504. */
+  workspaceDeleteBackgroundMs?: number
   /** Overridable for tests: TTL of the per-directory session aggregation cache. */
   sessionsCacheMs?: number
   /** Overridable for tests: frames an SSE client may fall behind before it is dropped. */
@@ -196,14 +198,30 @@ const CONNECT_KEY_RETRY_MS = 400
 const FINISH_BUDGET_MS = 225_000
 /**
  * Whole-request budget for workspace deletion (issue #204): child releases
- * are individually bounded, but their sum is not. Expiry aborts the in-flight
- * git/file work, lets the remaining releases continue in the background (the
- * row is already gone) and answers ambiguous `504 delete_timeout` — the
- * client reconciles by refetching the workspace list. Kept below the client's
- * 30 s deadline with headroom, so the 504 body is actually readable (a budget
- * tied with the client deadline would lose the race on any network latency).
+ * are individually bounded, but their sum is not. It starts before the
+ * active-session guard (issue #225) so a slow guard listing cannot outlive the
+ * client deadline: expiry during the guard fails closed (`502
+ * busy_check_failed`, nothing mutated) and expiry after the row removal lets
+ * the route answer ambiguous `504 delete_timeout` — the client reconciles by
+ * refetching the workspace list. Kept below the client's 30 s deadline with
+ * headroom, so the 504 body is actually readable (a budget tied with the
+ * client deadline would lose the race on any network latency). The detached
+ * cleanup is not cancelled by this budget; it has its own cap below.
  */
 const WORKSPACE_DELETE_BUDGET_MS = 25_000
+/**
+ * Admission/listing cap for the detached cleanup after the delete response
+ * (issue #225). The request budget above bounds the guard and the response;
+ * this one caps the base-folder listing and stops new releases from starting,
+ * so a 504 neither keeps paginating up to 50 pages nor strands the worktrees
+ * that start after the response. It is **not** a hard wall-clock ceiling:
+ * admitted releases finish under their own deadlines (finish 225 s, git 60 s,
+ * opencode 10 s), and an in-flight `git worktree remove` is deliberately not
+ * cancelled (aborting it would drop the isolated record while leaving the
+ * worktree). A skipped release still runs the bounded lifecycle cleanup
+ * (goal/preview/PTY) and keeps its record/worktree for manual cleanup.
+ */
+const WORKSPACE_DELETE_BACKGROUND_MS = 300_000
 /** Parallel worktree releases on workspace delete: faster without an unbounded git burst. */
 const DELETE_RELEASE_CONCURRENCY = 4
 
@@ -720,8 +738,6 @@ export function createApp(deps: AppDeps): CreatedApp {
      * the usual lookup cannot resolve it.
      */
     repoPath?: string
-    /** Aborts the in-flight git removal when the delete budget expires. */
-    signal?: AbortSignal
     /**
      * Log a cleanup failure and keep releasing the remaining children
      * (workspace deletion, the out-of-band `session.deleted` event: once the
@@ -783,7 +799,7 @@ export function createApp(deps: AppDeps): CreatedApp {
    * rethrown to the shared `503` mapping and a retry can still clean it.
    */
   function releaseSession(sessionID: string, options: ReleaseOptions = {}): Promise<void> {
-    const { directory, repoPath, signal } = options
+    const { directory, repoPath } = options
     const bestEffort = options.bestEffort ?? true
     const existing = releasing.get(sessionID)
     if (existing) {
@@ -868,7 +884,11 @@ export function createApp(deps: AppDeps): CreatedApp {
       }
       if (repo) {
         try {
-          await worktrees.remove(repo, record.path, record.branch, { signal })
+          // No signal: cancelling a git removal mid-flight would drop the
+          // record while leaving the worktree behind. The child has its own
+          // 60 s deadline; the delete's background cap only prevents new
+          // releases from starting.
+          await worktrees.remove(repo, record.path, record.branch)
         } catch (error) {
           // best effort: never block dropping the record
           console.warn(`[masterhand] could not remove the worktree for ${sessionID}:`, error)
@@ -887,6 +907,43 @@ export function createApp(deps: AppDeps): CreatedApp {
     })
     releasing.set(sessionID, entry)
     return entry.promise
+  }
+
+  /**
+   * Lifecycle-only cleanup for a release the delete cleanup cap did not start.
+   * Skipping the git removal (and the record drop) keeps the worktree and its
+   * record consistent, but a leaked preview tunnel/PTY/goal would outlive the
+   * folder: run those bounded steps and keep the worktree/record for manual
+   * cleanup (issue #225 residual). A base-folder session has no record; only
+   * its lifecycles need releasing.
+   */
+  async function releaseSkippedSession(sessionID: string, directory: string | null): Promise<void> {
+    try {
+      await goals.forget(sessionID)
+    } catch (error) {
+      console.warn(`[masterhand] cleanup cap: could not forget goal ${sessionID}:`, error)
+    }
+    try {
+      await preview.forget(sessionID)
+    } catch (error) {
+      console.warn(`[masterhand] cleanup cap: could not forget preview ${sessionID}:`, error)
+    }
+    if (directory) {
+      try {
+        await runs.stop(sessionID, directory)
+      } catch (error) {
+        console.warn(`[masterhand] cleanup cap: could not stop run ${sessionID}:`, error)
+      }
+    } else {
+      try {
+        runs.forget(sessionID)
+      } catch (error) {
+        console.warn(`[masterhand] cleanup cap: could not forget run ${sessionID}:`, error)
+      }
+    }
+    console.warn(
+      `[masterhand] cleanup cap: released session lifecycles for ${sessionID}; its worktree/record (if any) is kept for manual cleanup`,
+    )
   }
 
   /**
@@ -1228,51 +1285,72 @@ export function createApp(deps: AppDeps): CreatedApp {
    */
   const sessionsInflight = new Map<string, Promise<OpencodeSession[]>>()
 
-  /** Lists every session in a directory, following opencode's v2 cursor pagination. */
-  async function fetchSessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
+  /**
+   * Lists every session in a directory, following opencode's v2 cursor
+   * pagination. Concurrent callers share one in-flight fetch per directory
+   * (#197). A caller with a deadline signal deliberately bypasses that sharing
+   * (issue #225): aborting a shared fetch would fail unrelated waiters, and a
+   * fetch started without the signal could not honor this caller's budget.
+   * The pagination checks the signal before every page, so a slow upstream
+   * cannot keep walking up to 50 pages after the caller gave up.
+   */
+  async function fetchSessionsInDirectory(
+    directory: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<OpencodeSession[]> {
+    const { signal } = options
+    if (signal) return fetchSessionPages(directory, signal)
     const inflight = sessionsInflight.get(directory)
     if (inflight) return inflight
-    const task = (async (): Promise<OpencodeSession[]> => {
-      const sessions: OpencodeSession[] = []
-      let cursor: string | undefined
-      // Upstream cap, not the BFF page contract: exhausting all 50 pages
-      // (>10k sessions) still truncates silently here — the BFF-level
-      // `truncated` flag only covers `?limit=`/`?cursor=` paging. Loud enough
-      // to notice in the logs; scheduler retention keeps the realistic case
-      // small, but a >10k user directory would lose sessions without signal.
-      let pages = 0
-      for (let page = 0; page < 50; page += 1) {
-        pages = page + 1
-        const target = new URL("/api/session", config.opencodeUrl)
-        target.searchParams.set("directory", directory)
-        target.searchParams.set("limit", "200")
-        if (cursor) target.searchParams.set("cursor", cursor)
-        const response = await fetchOpencode(target, {
-          headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
-        })
-        if (!response.ok) throw new Error(`opencode ${response.status}`)
-        const body = (await response.json()) as {
-          data?: OpencodeSession[]
-          cursor?: { next?: string | null }
-        }
-        sessions.push(...(body.data ?? []))
-        const next = body.cursor?.next
-        if (!next) break
-        cursor = next
-      }
-      if (pages >= 50) {
-        console.warn(
-          `[masterhand] session list for ${directory} hit the 50-page upstream cap; sessions beyond 10k are dropped without a truncated flag`,
-        )
-      }
-      return sessions
-    })()
+    const task = fetchSessionPages(directory)
     sessionsInflight.set(directory, task)
     try {
       return await task
     } finally {
       if (sessionsInflight.get(directory) === task) sessionsInflight.delete(directory)
     }
+  }
+
+  async function fetchSessionPages(directory: string, signal?: AbortSignal): Promise<OpencodeSession[]> {
+    const sessions: OpencodeSession[] = []
+    let cursor: string | undefined
+    // Upstream cap, not the BFF page contract: exhausting all 50 pages
+    // (>10k sessions) still truncates silently here — the BFF-level
+    // `truncated` flag only covers `?limit=`/`?cursor=` paging. Loud enough
+    // to notice in the logs; scheduler retention keeps the realistic case
+    // small, but a >10k user directory would lose sessions without signal.
+    let pages = 0
+    for (let page = 0; page < 50; page += 1) {
+      signal?.throwIfAborted()
+      pages = page + 1
+      const target = new URL("/api/session", config.opencodeUrl)
+      target.searchParams.set("directory", directory)
+      target.searchParams.set("limit", "200")
+      if (cursor) target.searchParams.set("cursor", cursor)
+      const response = await fetchOpencode(
+        target,
+        {
+          headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
+        },
+        signal,
+      )
+      if (!response.ok) throw new Error(`opencode ${response.status}`)
+      const body = (await response.json()) as {
+        data?: OpencodeSession[]
+        cursor?: { next?: string | null }
+      }
+      sessions.push(...(body.data ?? []))
+      const next = body.cursor?.next
+      if (!next) break
+      cursor = next
+    }
+    signal?.throwIfAborted()
+    if (pages >= 50) {
+      console.warn(
+        `[masterhand] session list for ${directory} hit the 50-page upstream cap; sessions beyond 10k are dropped without a truncated flag`,
+      )
+    }
+    return sessions
   }
 
   async function sessionsInDirectory(directory: string): Promise<OpencodeSession[]> {
@@ -1899,6 +1977,15 @@ export function createApp(deps: AppDeps): CreatedApp {
       tasksPausedHere.length = 0
     }
 
+    // The request budget starts before the guard (issue #225): a slow upstream
+    // listing must not outlive the client deadline before the destructive
+    // phase even starts. Expiry during the guard fails closed (nothing was
+    // mutated); expiry after the row removal is the ambiguous 504 below.
+    const deleteBudget = new AbortController()
+    const deleteBudgetMs = deps.workspaceDeleteBudgetMs ?? WORKSPACE_DELETE_BUDGET_MS
+    const deleteTimer = setTimeout(() => deleteBudget.abort(), deleteBudgetMs)
+    deleteTimer.unref?.()
+
     // Read the isolated records after the pause waits: a record created during
     // an in-flight fire belongs to the guard too.
     let records: IsolatedSessionRecord[]
@@ -1908,20 +1995,24 @@ export function createApp(deps: AppDeps): CreatedApp {
 
       // Deleting the folder under a running turn is destructive: refuse it while
       // any session of the base folder or an isolated worktree is active. The
-      // guard fails closed (see `activeSessionGuard`).
+      // guard fails closed (see `activeSessionGuard`) and stops listing when the
+      // delete budget expires.
       if (deleteFiles) {
-        busy = await activeSessionGuard(c, [
-          workspace.path,
-          ...records.map((record) => record.path),
-        ])
+        busy = await activeSessionGuard(
+          c,
+          [workspace.path, ...records.map((record) => record.path)],
+          deleteBudget.signal,
+        )
       }
     } catch (error) {
       // Any refusal before the row removal (including a storage failure) must
       // leave the workspace's schedules as they were.
+      clearTimeout(deleteTimer)
       await resumeTasksPausedHere()
       throw error
     }
     if (busy) {
+      clearTimeout(deleteTimer)
       await resumeTasksPausedHere()
       return busy
     }
@@ -1937,6 +2028,7 @@ export function createApp(deps: AppDeps): CreatedApp {
     } catch (error) {
       // The delete did not happen: the folder and row are still there, so the
       // paused schedules must stay active.
+      clearTimeout(deleteTimer)
       await resumeTasksPausedHere()
       throw error
     }
@@ -1948,57 +2040,110 @@ export function createApp(deps: AppDeps): CreatedApp {
     // inserted its record during the guard/pause awaits is still reachable
     // here (its own pre-insert re-check now fails), so no record is stranded.
     // The repo path is passed explicitly because the workspace row (the usual
-    // lookup) is already gone. Releases run with bounded concurrency under one
-    // budget (issue #204): sequentially they outlive the client's deadline,
-    // and unbounded they fan out to a burst of git children.
-    const deleteBudget = new AbortController()
-    const deleteBudgetMs = deps.workspaceDeleteBudgetMs ?? WORKSPACE_DELETE_BUDGET_MS
+    // lookup) is already gone. Releases run with bounded concurrency under a
+    // cleanup budget (issues #204/#225): the request budget above bounds the
+    // response; this one caps the base-folder listing and stops new releases.
+    // It is an admission/listing cap, not a hard duration ceiling: admitted
+    // releases finish under their own deadlines, and an in-flight git removal
+    // is never cancelled (that would drop the record with the worktree).
+    const cleanupBudget = new AbortController()
+    const cleanupMs = deps.workspaceDeleteBackgroundMs ?? WORKSPACE_DELETE_BACKGROUND_MS
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      cleanupBudget.abort()
+      console.warn(
+        `[masterhand] workspace ${workspace.id} cleanup cap (${cleanupMs}ms) reached: stopping new releases and aborting the base-folder listing; admitted releases finish under their own deadlines`,
+      )
+    }, cleanupMs)
+    cleanupTimer.unref?.()
+    const clearCleanupTimer = (): void => {
+      if (!cleanupTimer) return
+      clearTimeout(cleanupTimer)
+      cleanupTimer = undefined
+    }
+
+    // Start the base listing alongside the isolated releases: if the isolated
+    // phase uses most of the cap, a late listing would start with an
+    // already-aborted signal and release nothing. The signal bypasses the
+    // shared in-flight fetch; the cap bounds the pagination.
+    const baseListing = fetchSessionsInDirectory(workspace.path, { signal: cleanupBudget.signal }).then(
+      (sessions) => ({ sessions, error: null as unknown }),
+      (error: unknown) => ({ sessions: [] as OpencodeSession[], error }),
+    )
+
     const releaseWork: Promise<void> = (async () => {
-      await eachLimit(deps.store.listIsolatedSessions(workspace.id), DELETE_RELEASE_CONCURRENCY, (record) =>
-        releaseSession(record.sessionID, {
-          directory: record.path,
-          repoPath: workspace.path,
-          signal: deleteBudget.signal,
-        }),
+      // Isolated and base-folder sessions release concurrently: starting the
+      // base listing only earlier is not enough if its releases then queue
+      // behind a slow isolated phase (issue #225). Each track keeps its own
+      // concurrency bound.
+      const isolatedWork = eachLimit(
+        deps.store.listIsolatedSessions(workspace.id),
+        DELETE_RELEASE_CONCURRENCY,
+        async (record) => {
+          if (cleanupBudget.signal.aborted) {
+            await releaseSkippedSession(record.sessionID, record.path)
+            return
+          }
+          await releaseSession(record.sessionID, {
+            directory: record.path,
+            repoPath: workspace.path,
+          })
+        },
       )
 
       // Base-folder sessions own the same lifecycles (`sessionRunContext`
       // resolves them too): stop their PTY/preview/goal run before the folder
       // disappears. Best effort: a delete must not fail because opencode is
-      // unreachable.
-      try {
-        const sessions = await fetchSessionsInDirectory(workspace.path)
-        await eachLimit(sessions, DELETE_RELEASE_CONCURRENCY, (session) =>
-          releaseSession(session.id, { directory: workspace.path, signal: deleteBudget.signal }),
-        )
-      } catch (error) {
-        console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, error)
-      }
+      // unreachable. The listing is deliberately NOT tied to the request
+      // budget — a 504 caused by a slow release must not leave base sessions'
+      // PTYs/previews alive; the cleanup cap bounds it instead.
+      const baseWork = (async () => {
+        const listing = await baseListing
+        if (listing.error !== null && !cleanupBudget.signal.aborted) {
+          console.warn(`[masterhand] could not release sessions of ${workspace.path}:`, listing.error)
+        }
+        await eachLimit(listing.sessions, DELETE_RELEASE_CONCURRENCY, async (session) => {
+          if (cleanupBudget.signal.aborted) {
+            await releaseSkippedSession(session.id, workspace.path)
+            return
+          }
+          await releaseSession(session.id, { directory: workspace.path })
+        })
+      })()
+
+      await Promise.all([isolatedWork, baseWork])
 
       // `rm` has no abort channel, so the budget race below bounds the wait:
       // on expiry the removal continues detached while the route answers.
       if (deleteFiles) await removeDir(workspace.path)
-    })()
-    let deleteTimer: ReturnType<typeof setTimeout> | undefined
-    const budgetHit = new Promise<false>((resolve) => {
-      deleteTimer = setTimeout(() => {
-        deleteBudget.abort()
+    })().finally(() => {
+      clearCleanupTimer()
+      // The cleanup settled (or failed early): stop a still-running base
+      // listing so an early rejection cannot leave it paginating without the
+      // admission cap.
+      cleanupBudget.abort()
+    })
+
+    // The request-budget timer owns the response deadline; its abort event
+    // resolves the race without a second timer. It does not cancel the
+    // detached cleanup, which has its own admission/listing cap above.
+    const budgetHit = new Promise<boolean>((resolve) => {
+      if (deleteBudget.signal.aborted) {
         resolve(false)
-      }, deleteBudgetMs)
-      deleteTimer.unref?.()
+        return
+      }
+      deleteBudget.signal.addEventListener("abort", () => resolve(false), { once: true })
     })
     let released: boolean
     try {
       released = await Promise.race([releaseWork.then(() => true as const), budgetHit])
     } finally {
-      if (deleteTimer) clearTimeout(deleteTimer)
+      clearTimeout(deleteTimer)
     }
     if (!released) {
       // The row is already gone, so the delete did apply — but the remaining
-      // child releases are still running. Answer ambiguous (never a hard
-      // failure, never an auto-retry): the client reconciles by refetching
-      // the workspace list, and the releases continue in the background
-      // (docs/past-mistakes.md rules 1/2/4).
+      // child releases are still running under their own cap. Answer ambiguous
+      // (never a hard failure, never an auto-retry): the client reconciles by
+      // refetching the workspace list (docs/past-mistakes.md rules 1/2/4).
       releaseWork.catch((error) => {
         console.warn(`[masterhand] workspace ${workspace.id} background release failed:`, error)
       })
@@ -2037,14 +2182,18 @@ export function createApp(deps: AppDeps): CreatedApp {
    * created moments ago may already be running. It fails closed — when
    * opencode cannot confirm, the mutation is not attempted.
    */
-  async function activeSessionGuard(c: Context, directories: string[]): Promise<Response | null> {
+  async function activeSessionGuard(
+    c: Context,
+    directories: string[],
+    signal?: AbortSignal,
+  ): Promise<Response | null> {
     try {
       const lists = await mapLimit(directories, SESSION_LIST_FANOUT, (directory) =>
-        fetchSessionsInDirectory(directory),
+        fetchSessionsInDirectory(directory, { signal }),
       )
       const sessions = lists.flat()
       if (sessions.length > 0) {
-        const response = await callOpencode("/api/session/active")
+        const response = await callOpencode("/api/session/active", { signal })
         if (!response.ok) throw new Error(`opencode ${response.status}`)
         const body = (await response.json()) as { data?: Record<string, unknown> }
         const active = new Set(Object.keys(body.data ?? {}))
@@ -2054,7 +2203,10 @@ export function createApp(deps: AppDeps): CreatedApp {
       }
     } catch (error) {
       return c.json(
-        { error: "busy_check_failed", detail: error instanceof Error ? error.message : "unknown" },
+        {
+          error: "busy_check_failed",
+          detail: signal?.aborted ? "delete budget expired" : error instanceof Error ? error.message : "unknown",
+        },
         502,
       )
     }

@@ -1,14 +1,18 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-29. 2 open issues: #134 (one-click BFF updater, deliberately
-deferred) and #225 (delete-path abort channels, follow-up of the C20 review). Everything else
-from the 2026-10-21 snapshot (27 issues) is merged: C15 (#131 #133), C18 residuals
-(#216–#219), C20–C22 and the client follow-ups (#164, #172).
+**Snapshot:** 2026-10-29. 1 open issue: #134 (one-click BFF updater, deliberately
+deferred). #225 (delete-path abort channels, follow-up of the C20 review) is fixed in
+[#237](https://github.com/ToguDV/masterhand/pull/237). Everything else from the 2026-10-21 snapshot
+(27 issues) is merged: C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client
+follow-ups (#164, #172).
 
-**Last updated:** 2026-10-29 — **all pending chunks landed**: C20 (#226), C21 transport
-(#227) + data (#228), C22 (#229), C15 (#230) and C23 mobile parity (#164 #172, #231),
-each with pre-merge reviewer passes and review hardening. Remaining: #134 (deferred),
-#225 and #211-step-2 (per-card board frames, needs #196).
+**Last updated:** 2026-10-29 — **#225 landed**: the delete request now owns one 25 s budget for
+the active-session guard and the response, plus a separate 300 s cleanup admission/listing cap for
+the detached base-folder listing and the start of releases. The base listing/releases run
+concurrently with the isolated releases, skipped releases still release their goal/preview/PTY
+lifecycles, and in-flight removals are never cancelled; a 504 neither keeps paginating 50 pages
+nor strands the worktrees that start after it. Remaining: #134 (deferred) and #211-step-2
+(per-card board frames, needs #196).
 
 **Last updated:** 2026-10-21 — **C19 has landed (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
 merged #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
@@ -189,11 +193,16 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   established by #186.
 - **Notes:** test shutdown with an in-flight write; never trade the bounded budget for a longer
   client deadline.
-- **Status:** 4/4 implemented 2026-10-28 on `fix/c20-shutdown-reliability` (#192 → #194 → #204 → #208,
-  one commit per issue with red → green evidence each): ordered/bounded shutdown with goal drain
-  (`shutdown.ts`), whole-loop connect-key budget, finish/delete operation budgets with abort threaded
-  into git plus ambiguous 504s, and the single-instance data-dir lock. Pending reviewer pass; PR not
-  yet opened.
+- **Status:** 4/4 merged in [#226](https://github.com/ToguDV/masterhand/pull/226) (2026-10-29), with the
+  pre-merge reviewer pass and review hardening (25 s delete budget, shutdown drain, per-item resilient
+  releases, lock-release bound, timer unref). Residual **#225** (delete-path abort channels) is fixed in
+  [#237](https://github.com/ToguDV/masterhand/pull/237): the guard runs under the 25 s request budget,
+  while the base-folder listing and the start of detached releases run under a separate 300 s cleanup
+  admission/listing cap (`fetchSessionsInDirectory` takes an optional signal, bypasses the shared
+  in-flight fetch and checks before every page). The base listing/releases run concurrently with the
+  isolated releases, skipped releases still release their goal/preview/PTY lifecycles, and in-flight
+  `worktree remove` calls are never cancelled, so a 504 no longer hands them an already-aborted signal
+  or drops a record while leaving its worktree behind.
 
 ### C21 — Transport, memory and growth
 

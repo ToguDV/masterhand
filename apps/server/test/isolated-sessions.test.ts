@@ -72,11 +72,21 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
   const ptys: Array<{ id: string; title: string; status: string; pid: number; command: string; args: string[]; cwd: string }> = []
   const active = new Set<string>()
   const calls: OpencodeCall[] = []
+  /** Signal handed to every session-list fetch, so tests can assert abort wiring. */
+  const listSignals: Array<AbortSignal | null | undefined> = []
   let counter = 0
   let ptyCounter = 0
   let nextCreateGate: Promise<void> | null = null
   let nextActiveGate: Promise<void> | null = null
   let nextListGate: Promise<void> | null = null
+
+  /** Resolves when `signal` aborts, so a held request can release its handler. */
+  function waitForAbort(signal?: AbortSignal | null): Promise<void> {
+    if (!signal || signal.aborted) return Promise.resolve()
+    return new Promise((resolve) => {
+      signal.addEventListener("abort", () => resolve(), { once: true })
+    })
+  }
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
@@ -94,10 +104,16 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     calls.push({ method, path: url.pathname, directory, query: url.searchParams, body, parsedBody })
 
     if (method === "GET" && url.pathname === "/api/session") {
+      listSignals.push(init?.signal)
       if (nextListGate) {
         const gate = nextListGate
         nextListGate = null
-        await gate
+        // A held list must also settle when its caller's budget aborts, so the
+        // production abort path is observable without waiting for the gate.
+        await Promise.race([gate, waitForAbort(init?.signal)])
+      }
+      if (init?.signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError")
       }
       const list = sessions.get(directory ?? "") ?? []
       const limit = options.pageSize ?? Number(url.searchParams.get("limit") ?? "200")
@@ -167,6 +183,7 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
     sessions,
     ptys,
     calls,
+    listSignals,
     holdNextCreate(gate: Promise<void>) {
       nextCreateGate = gate
     },
@@ -185,7 +202,11 @@ function createOpencodeMock(options: { pageSize?: number } = {}) {
 
 async function setupApp(
   mockOptions: { pageSize?: number } = {},
-  appOptions: { sessionsCacheMs?: number } = {},
+  appOptions: {
+    sessionsCacheMs?: number
+    workspaceDeleteBudgetMs?: number
+    workspaceDeleteBackgroundMs?: number
+  } = {},
 ) {
   const opencode = createOpencodeMock(mockOptions)
   const worktrees = createFakeWorktreeManager()
@@ -1481,13 +1502,199 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 })
 
 describe("DELETE /api/workspaces/:id", () => {
-  it("releases worktrees in parallel and answers ambiguous 504 past its budget (issue #204)", async () => {
+  it("fails the active-session guard closed when the delete budget expires before any mutation (issue #225)", async () => {
+    const { app, opencode, worktrees, headers, workspace } = await setupApp(
+      {},
+      { workspaceDeleteBudgetMs: 100 },
+    )
+    const gate = deferred()
+    opencode.holdNextList(gate.promise)
+    // A guard refusal must also resume the schedules this request paused.
+    app.store.createScheduledTask({
+      id: "task_guard",
+      name: "Guard",
+      prompt: "check",
+      model: { providerID: "test", id: "test-model" },
+      schedule: { kind: "interval", intervalMinutes: 60 },
+      timezone: "",
+      directory: workspace.path,
+      paused: false,
+      lastRunAt: null,
+      nextRunAt: new Date(Date.now() + 60_000).toISOString(),
+      createdAt: new Date().toISOString(),
+    })
+    // A slow upstream must not hold the route past its budget. The fallback
+    // keeps the pre-fix run terminating (it would otherwise wait forever).
+    const fallback = setTimeout(() => gate.resolve(), 400)
+    try {
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(502)
+      expect(await response.json()).toMatchObject({ error: "busy_check_failed" })
+      // The guard failed closed: nothing was removed, so a retry is safe.
+      expect(app.store.getWorkspace(workspace.id)).not.toBeNull()
+      expect(worktrees.calls.some((call) => call.startsWith("remove:"))).toBe(false)
+      expect(app.store.getScheduledTask("task_guard")?.paused).toBe(false)
+    } finally {
+      clearTimeout(fallback)
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("aborts the base-folder listing at the cleanup cap and stops pagination (issue #225)", async () => {
+    const { app, opencode, headers, workspace } = await setupApp(
+      { pageSize: 1 },
+      { workspaceDeleteBudgetMs: 100, workspaceDeleteBackgroundMs: 1000 },
+    )
+    opencode.sessions.set(workspace.path, [
+      { id: "ses_a", directory: workspace.path },
+      { id: "ses_b", directory: workspace.path },
+    ])
+    const gate = deferred()
+    opencode.holdNextList(gate.promise)
+    try {
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(504)
+      expect(await response.json()).toEqual({ error: "delete_timeout" })
+      // The base listing belongs to the detached cleanup, not to the response
+      // deadline: a 504 must still release base sessions. Its own cap bounds
+      // it and aborts the fetch.
+      expect(opencode.listSignals[0]?.aborted).toBe(false)
+      await waitFor(() => opencode.listSignals[0]?.aborted === true, 2000)
+      gate.resolve()
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      const lists = opencode.calls.filter((call) => call.method === "GET" && call.path === "/api/session")
+      expect(lists).toHaveLength(1)
+    } finally {
+      gate.resolve()
+      await app.close()
+    }
+  })
+
+  it("stops starting new releases at the cleanup cap and keeps the remaining record (issue #225)", async () => {
     const removeGate = deferred()
     const started: string[] = []
     const finished: string[] = []
     const worktrees = createFakeWorktreeManager({
       remove: async (_repo, _path, branch) => {
         started.push(branch)
+        await removeGate.promise
+        finished.push(branch)
+      },
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({
+      worktrees,
+      fetchImpl: opencode.fetchImpl,
+      workspaceDeleteBudgetMs: 600,
+      workspaceDeleteBackgroundMs: 100,
+    })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string } }
+      const sessionIDs: string[] = []
+      for (let i = 0; i < 5; i += 1) {
+        const sessionResponse = await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ isolated: true }),
+        })
+        const { session } = (await sessionResponse.json()) as { session: { id: string } }
+        sessionIDs.push(session.id)
+      }
+      const forgetPreview = vi.spyOn(app.preview, "forget")
+
+      const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      await waitFor(() => started.length === 4, 5000)
+      const response = await deletion
+      expect(response.status).toBe(504)
+      removeGate.resolve()
+      await waitFor(() => finished.length === 4)
+      // The skipped release keeps its isolated record (and worktree) rather
+      // than dropping the record and leaving an untracked worktree behind,
+      // but its lifecycles still release: no preview tunnel or PTY survives.
+      expect(started).toHaveLength(4)
+      expect(app.store.listIsolatedSessions()).toHaveLength(1)
+      await waitFor(
+        () => forgetPreview.mock.calls.filter(([id]) => sessionIDs.includes(id)).length === 5,
+        2000,
+      )
+    } finally {
+      removeGate.resolve()
+      await app.close()
+    }
+  })
+
+  it("releases base sessions when an isolated release outlives the response budget (issue #225)", async () => {
+    const removeGate = deferred()
+    const worktrees = createFakeWorktreeManager({
+      remove: async () => {
+        await removeGate.promise
+      },
+    })
+    const opencode = createOpencodeMock()
+    const app = await startTestApp({
+      worktrees,
+      fetchImpl: opencode.fetchImpl,
+      workspaceDeleteBudgetMs: 100,
+      workspaceDeleteBackgroundMs: 5000,
+    })
+    try {
+      const cookie = await login(app.url)
+      const headers = { cookie, "content-type": "application/json" }
+      const created = await fetch(`${app.url}/api/workspaces`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "app" }),
+      })
+      const { workspace } = (await created.json()) as { workspace: { id: string; path: string } }
+      await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ isolated: true }),
+      })
+      // A base-folder session owns a preview/PTY lifecycle too: the base
+      // listing must not be starved by an isolated release that outlives the
+      // response deadline (it used to start after it with an aborted signal).
+      opencode.sessions.set(workspace.path, [{ id: "ses_base", directory: workspace.path }])
+      const forgetPreview = vi.spyOn(app.preview, "forget")
+
+      const response = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+        method: "DELETE",
+        headers,
+      })
+      expect(response.status).toBe(504)
+      await waitFor(() => forgetPreview.mock.calls.some(([id]) => id === "ses_base"), 2000)
+    } finally {
+      removeGate.resolve()
+      await app.close()
+    }
+  })
+
+  it("keeps releasing worktrees that start after the response budget (issue #225)", async () => {
+    const removeGate = deferred()
+    const started: string[] = []
+    const finished: string[] = []
+    const abortedAtStart: boolean[] = []
+    const worktrees = createFakeWorktreeManager({
+      remove: async (_repo, _path, branch, options) => {
+        started.push(branch)
+        abortedAtStart.push(options?.signal?.aborted ?? false)
         await removeGate.promise
         finished.push(branch)
       },
@@ -1503,7 +1710,10 @@ describe("DELETE /api/workspaces/:id", () => {
         body: JSON.stringify({ name: "app" }),
       })
       const { workspace } = (await created.json()) as { workspace: { id: string } }
-      for (let i = 0; i < 2; i += 1) {
+      // Five records with concurrency 4: the fifth release starts only after
+      // the response budget expired, which is the case that used to receive an
+      // already-aborted signal and silently skip the git work.
+      for (let i = 0; i < 5; i += 1) {
         await fetch(`${app.url}/api/workspaces/${workspace.id}/sessions`, {
           method: "POST",
           headers,
@@ -1511,15 +1721,12 @@ describe("DELETE /api/workspaces/:id", () => {
         })
       }
 
-      // The removals stay held past the budget; the gate opens later so the
-      // background releases can still finish.
-      setTimeout(() => removeGate.resolve(), 1000)
       const deletion = fetch(`${app.url}/api/workspaces/${workspace.id}`, {
         method: "DELETE",
         headers,
       })
-      // Parallel, not sequential: both releases start while neither finished.
-      await waitFor(() => started.length === 2, 5000)
+      // Parallel, not sequential: the first batch starts while none finished.
+      await waitFor(() => started.length === 4, 5000)
       expect(finished).toEqual([])
       const response = await deletion
       // Ambiguous, never a hard failure: the row is already gone, so the
@@ -1530,8 +1737,15 @@ describe("DELETE /api/workspaces/:id", () => {
         workspaces: Array<{ id: string }>
       }
       expect(list.workspaces.some((entry) => entry.id === workspace.id)).toBe(false)
-      // The background releases still complete: nothing is stranded.
-      await waitFor(() => finished.length === 2)
+      // The detached cleanup continues: the fifth removal is not cancelled by
+      // the 504 (removals have no signal of their own) and nothing is dropped
+      // from the store before its worktree attempt.
+      // Anti-regression guard: before #225 the fifth removal received the
+      // already-aborted request signal (the real manager then refused to spawn
+      // git). Removals now carry no signal at all, so every entry is false.
+      removeGate.resolve()
+      await waitFor(() => finished.length === 5)
+      expect(abortedAtStart).toEqual([false, false, false, false, false])
       expect(app.store.listIsolatedSessions()).toHaveLength(0)
     } finally {
       removeGate.resolve()
