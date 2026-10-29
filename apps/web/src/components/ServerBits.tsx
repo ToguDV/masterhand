@@ -165,9 +165,13 @@ export function ServerForm({
 
   const showUrl = mode !== "reauth"
   const showName = mode !== "reauth"
-  const servingOriginTarget = isSameOrigin(url || initialUrl || "", browserOrigin())
-  const passwordAutoComplete =
-    mode === "reauth" || servingOriginTarget ? "current-password" : "off"
+  // A password manager fills for the page's origin. Only let it do so when the
+  // credential target is the serving origin; a remote add/re-auth must stay off
+  // or the manager could offer the serving origin's password for another server.
+  const credentialTarget = mode === "reauth" ? (profile?.url ?? "") : url || initialUrl || ""
+  const passwordAutoComplete = isSameOrigin(credentialTarget, browserOrigin())
+    ? "current-password"
+    : "off"
   const title =
     mode === "first-run"
       ? "Connect your first server"

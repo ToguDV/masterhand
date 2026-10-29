@@ -160,8 +160,37 @@ describe("ServersScreen", () => {
       />,
     )
     expect(screen.getByRole("heading", { name: "Reconnect to VPS" })).toBeTruthy()
-    expect(screen.getByLabelText("Password").getAttribute("autocomplete")).toBe("current-password")
+    // The page origin is different from VPS: never let the browser offer the
+    // serving origin's saved password for another server.
+    expect(screen.getByLabelText("Password").getAttribute("autocomplete")).toBe("off")
     expect(screen.getByRole("alert").textContent).toContain("Wrong password. Try again.")
+  })
+
+  it("keeps current-password autofill for a serving-origin re-auth", () => {
+    const home = profile({
+      url: window.location.origin,
+      authMode: "cookie",
+      expired: true,
+    })
+    render(
+      <ServersScreen
+        profiles={[home]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error={null}
+        notice={null}
+        connecting={null}
+        reauthProfile={home}
+        onSubmit={noop}
+        onSelect={noop}
+        onCancel={noop}
+        onCancelConnect={noop}
+      />,
+    )
+
+    expect(screen.getByRole("heading", { name: "Reconnect to Home" })).toBeTruthy()
+    expect(screen.getByLabelText("Password").getAttribute("autocomplete")).toBe("current-password")
   })
 
   it("shows a failed switch error on the list, not only inside forms", () => {
