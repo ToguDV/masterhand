@@ -1,9 +1,10 @@
 # Issue chunks — batched follow-up plan
 
 **Snapshot:** 2026-10-29. 1 open issue: #134 (one-click BFF updater, deliberately
-deferred). #225 (delete-path abort channels, follow-up of the C20 review) is fixed on
-`fix/225-delete-abort-channels`. Everything else from the 2026-10-21 snapshot (27 issues) is merged:
-C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client follow-ups (#164, #172).
+deferred). #225 (delete-path abort channels, follow-up of the C20 review) is fixed in
+[#237](https://github.com/ToguDV/masterhand/pull/237). Everything else from the 2026-10-21 snapshot
+(27 issues) is merged: C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client
+follow-ups (#164, #172).
 
 **Last updated:** 2026-10-29 — **#225 landed**: the delete request now owns one 25 s budget for
 the active-session guard and the response, plus a separate 300 s cleanup admission/listing cap for
@@ -194,14 +195,14 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   client deadline.
 - **Status:** 4/4 merged in [#226](https://github.com/ToguDV/masterhand/pull/226) (2026-10-29), with the
   pre-merge reviewer pass and review hardening (25 s delete budget, shutdown drain, per-item resilient
-  releases, lock-release bound, timer unref). Residual **#225** (delete-path abort channels) is fixed on
-  `fix/225-delete-abort-channels`: the guard runs under the 25 s request budget, while the base-folder
-  listing and the start of detached releases run under a separate 300 s cleanup admission/listing cap
-  (`fetchSessionsInDirectory` takes an optional signal, bypasses the shared in-flight fetch and checks
-  before every page). The base listing/releases run concurrently with the isolated releases, skipped
-  releases still release their goal/preview/PTY lifecycles, and in-flight `worktree remove` calls are
-  never cancelled, so a 504 no longer hands them an already-aborted signal or drops a record while
-  leaving its worktree behind.
+  releases, lock-release bound, timer unref). Residual **#225** (delete-path abort channels) is fixed in
+  [#237](https://github.com/ToguDV/masterhand/pull/237): the guard runs under the 25 s request budget,
+  while the base-folder listing and the start of detached releases run under a separate 300 s cleanup
+  admission/listing cap (`fetchSessionsInDirectory` takes an optional signal, bypasses the shared
+  in-flight fetch and checks before every page). The base listing/releases run concurrently with the
+  isolated releases, skipped releases still release their goal/preview/PTY lifecycles, and in-flight
+  `worktree remove` calls are never cancelled, so a 504 no longer hands them an already-aborted signal
+  or drops a record while leaving its worktree behind.
 
 ### C21 — Transport, memory and growth
 
