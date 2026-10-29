@@ -6,7 +6,11 @@
     "jsx": "react-jsx",
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "noEmit": true
+    "noEmit": true,
+    // TypeScript 6 no longer picks up every `@types` package automatically
+    // (SDK 58 toolchain): list the global ones explicitly so `tsc` and the
+    // test runner resolve the same globals.
+    "types": ["jest", "node"]
   },
   "include": ["index.ts", "App.tsx", "src", "test"]
 }

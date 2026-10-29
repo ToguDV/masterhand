@@ -231,7 +231,7 @@ describe("ChatScreen", () => {
   })
 
   it("opens the pull request produced by a finish", async () => {
-    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true)
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
     const { client } = await setup({ isolation })
     client.api.sessions.finish.mockResolvedValue({
       committed: false,
@@ -250,7 +250,7 @@ describe("ChatScreen", () => {
   })
 
   it("opens the isolation pull request link from the header bar", async () => {
-    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true)
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
     await setup({ isolation: { ...isolation, prUrl: "https://github.com/ToguDV/masterhand/pull/7" } })
 
     await fireEvent.press(await screen.findByText("PR ↗"))

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-
 import type { BoardSnapshot, WorkspaceRecord } from "@masterhand/client-core"
 import { BoardScreen, indexForDrop, resetCancelledDrag } from "../src/screens/BoardScreen"
 import { ThemeProvider } from "../src/theme"
-import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
+import { fakeClient, GestureWrapper, makeQueryClient, QueryWrapper } from "./support/render"
 
 const WORKSPACES: WorkspaceRecord[] = [
   { id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 },
@@ -55,6 +55,7 @@ async function setup(
     onRemoveWorkspace: jest.fn(),
   }
   await render(
+    <GestureWrapper>
     <QueryWrapper client={queryClient}>
       <ThemeProvider>
         <BoardScreen
@@ -66,7 +67,8 @@ async function setup(
           onRemoveWorkspace={handlers.onRemoveWorkspace}
         />
       </ThemeProvider>
-    </QueryWrapper>,
+    </QueryWrapper>
+    </GestureWrapper>,
   )
   return { client, queryClient, handlers }
 }

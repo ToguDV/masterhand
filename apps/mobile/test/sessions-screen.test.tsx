@@ -2,6 +2,7 @@ import { Alert, Text } from "react-native"
 import { fireEvent, render, screen } from "@testing-library/react-native"
 import type { Session, SessionStatuses, WorkspaceRecord } from "@masterhand/client-core"
 import { SessionsScreen } from "../src/screens/SessionsScreen"
+import { GestureWrapper } from "./support/render"
 
 const workspace: WorkspaceRecord = {
   id: "ws1",
@@ -47,6 +48,7 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
     ...props,
   }
   await render(
+    <GestureWrapper>
     <SessionsScreen
       sessions={[standard, isolated, child]}
       loading={false}
@@ -58,7 +60,8 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
       workspaceID={workspace.id}
       canCreate
       {...handlers}
-    />,
+    />
+    </GestureWrapper>,
   )
   return handlers
 }
