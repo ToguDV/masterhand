@@ -142,6 +142,18 @@ export interface BffStatus {
     /** Free space below the configured watermark: clients warn the user. */
     low: boolean
   }
+  /**
+   * One-click updater capability (#134); absent on older BFFs. The sidecar is
+   * opt-in: `enabled` requires a configured URL/token, and `tracksLatest`
+   * requires the floating `latest` image tag (a pinned deployment keeps the
+   * manual `docker compose pull && up -d` flow).
+   */
+  updater?: {
+    enabled: boolean
+    tracksLatest: boolean
+    /** Image tag the deployment tracks, when the BFF reports it. */
+    track?: string
+  }
 }
 
 export interface PreviewPortRange {

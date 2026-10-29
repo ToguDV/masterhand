@@ -52,6 +52,14 @@ services:
       # Setuid dropper that launches managed runs as the unprivileged `agent`
       # user. The path is resolved inside the opencode container, not here.
       MANAGED_RUN_LAUNCHER: /usr/local/bin/agent-exec
+      # One-click self-updater (#134), opt-in. Empty URL/token keeps the v1
+      # manual flow; the sidecar is enabled with the `updater` profile and both
+      # values set in deploy/.env. The token never reaches clients.
+      MASTERHAND_UPDATE_URL: ${MASTERHAND_UPDATE_URL:-}
+      MASTERHAND_UPDATE_TOKEN: ${MASTERHAND_UPDATE_TOKEN:-}
+      # Image tag this deployment tracks; one-click updates need `latest`.
+      # Pinned deployments keep the copy-command flow in the UI.
+      MASTERHAND_UPDATE_TRACK: ${MASTERHAND_VERSION:-latest}
     volumes:
       - masterhand_data:/data
       # Shared with opencode: the BFF creates each workspace subfolder here.
@@ -141,6 +149,39 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # Opt-in one-click BFF updater (#134). Start it with:
+  #   docker compose --profile updater up -d
+  # and set MASTERHAND_UPDATE_URL=http://updater:8080 plus a strong
+  # MASTERHAND_UPDATE_TOKEN in deploy/.env. A pinned MASTERHAND_VERSION
+  # disables one-click updates in the UI (the sidecar only tracks the same tag
+  # the compose file uses, so a pin would never pull anything newer).
+  #
+  # The Docker socket is root-equivalent: this sidecar is the only consumer and
+  # the BFF never sees it. It can pull/recreate exactly the `masterhand`
+  # service; the deploy directory is mounted read-only for the compose file and
+  # `.env`, and it has no published ports.
+  updater:
+    image: ghcr.io/togudv/masterhand-updater:${MASTERHAND_VERSION:-latest}
+    profiles: ["updater"]
+    restart: unless-stopped
+    environment:
+      UPDATER_TOKEN: ${MASTERHAND_UPDATE_TOKEN:-}
+      COMPOSE_FILE: /deploy/docker-compose.yml
+      COMPOSE_ENV_FILE: /deploy/.env
+      COMPOSE_PROJECT: masterhand
+      TARGET_SERVICE: masterhand
+      TARGET_TAG: ${MASTERHAND_VERSION:-latest}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/deploy:ro
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-3}"
 
 networks:
   internal:

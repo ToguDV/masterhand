@@ -33,6 +33,28 @@ function parseSemver(version: string): [number, number, number] | null {
 }
 
 /**
+ * Numeric `major.minor.patch` comparison mirroring `client-core`. Unparseable
+ * input compares equal: an unknown version must never gate a destructive
+ * action (the self-update applier requires a strictly newer, parseable one).
+ */
+export function compareSemver(a: string, b: string): number {
+  const parsedA = parseSemver(a)
+  const parsedB = parseSemver(b)
+  if (!parsedA || !parsedB) return 0
+  for (let index = 0; index < 3; index += 1) {
+    const left = parsedA[index] ?? 0
+    const right = parsedB[index] ?? 0
+    if (left !== right) return left < right ? -1 : 1
+  }
+  return 0
+}
+
+/** True only when `latest` is strictly newer than `current`. */
+export function isNewerVersion(current: string, latest: string): boolean {
+  return compareSemver(current, latest) < 0
+}
+
+/**
  * Tolerant `version.json` normalizer (mirrors `normalizeVersionManifest` in
  * `client-core`: the BFF does not depend on client-core). Drops invalid
  * extras instead of rejecting; null when there is no usable version.

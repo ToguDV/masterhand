@@ -119,6 +119,7 @@ export {
   useSessionRun,
   useSessionStatuses,
   useSessions,
+  useApplyUpdate,
   useUpdate,
   useUpdateScheduledTask,
   useWebsearchSettings,
@@ -194,6 +195,7 @@ export {
   normalizeUpdateCheck,
   normalizeVersionManifest,
   UPDATE_MANIFEST_URL,
+  type UpdateApplyResult,
   type UpdateCheck,
   type VersionRelease,
 } from "./update"

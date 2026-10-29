@@ -105,6 +105,18 @@ export function useUpdate(client: Client, enabled = true) {
   })
 }
 
+/**
+ * One-click self-update (#134). Never retried: the request restarts the
+ * server, so a lost response is ambiguous. The UI reconciles by polling
+ * `/api/status` and comparing the running version with the target.
+ */
+export function useApplyUpdate(client: Client) {
+  return useMutation({
+    mutationFn: () => client.api.update.apply(),
+    retry: false,
+  })
+}
+
 export function useSessions(
   client: Client,
   enabled: boolean,

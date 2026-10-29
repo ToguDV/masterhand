@@ -58,6 +58,18 @@ export interface Config {
   updateManifestUrl: string
   /** TTL of the in-memory update manifest cache (10–15 min window). */
   updateCacheMs: number
+  /**
+   * Opt-in BFF self-updater sidecar (issue #134). `null` keeps the v1 manual
+   * flow (`docker compose pull && up -d`); the token is shared only with the
+   * updater service on the internal network and never reaches clients.
+   */
+  updateUrl: string | null
+  updateToken: string | null
+  /**
+   * Docker image tag this deployment tracks. One-click updates require the
+   * floating `latest` tag; a pinned deployment keeps the manual command.
+   */
+  updateTrack: string
   /** Enables the Cloudflare quick-tunnel preview feature. */
   previewEnabled: boolean
   /** Host (no port) where the agent's dev server listens, as seen by the tunnel. */
@@ -192,6 +204,65 @@ function hostFromUrl(value: string, fallback: string): string {
 
 const MAX_LAUNCHER_LENGTH = 256
 
+const UPDATE_TOKEN_MIN_BYTES = 16
+
+/**
+ * Opt-in self-updater sidecar (#134). Both the URL and the token are required
+ * to enable it; a pinned image tag disables the one-click path (the sidecar
+ * would only re-pull the same tag). Misconfiguration fails at boot: a
+ * half-configured updater would silently advertise a button that cannot work.
+ */
+function updaterFromEnv(env: NodeJS.ProcessEnv): {
+  url: string | null
+  token: string | null
+  track: string
+} {
+  const track = env.MASTERHAND_UPDATE_TRACK?.trim() || "latest"
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(track)) {
+    throw new Error(
+      `MASTERHAND_UPDATE_TRACK must be a Docker image tag (letters, digits, ".", "_", "-"; max 128); got "${track}"`,
+    )
+  }
+
+  const rawUrl = env.MASTERHAND_UPDATE_URL?.trim() ?? ""
+  const token = env.MASTERHAND_UPDATE_TOKEN?.trim() ?? ""
+  if (!rawUrl) {
+    if (token) {
+      throw new Error("MASTERHAND_UPDATE_TOKEN is set but MASTERHAND_UPDATE_URL is empty")
+    }
+    return { url: null, token: null, track }
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error(`MASTERHAND_UPDATE_URL is not a valid URL (got "${rawUrl}")`)
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("MASTERHAND_UPDATE_URL must be an http:// or https:// URL")
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("MASTERHAND_UPDATE_URL must not contain credentials")
+  }
+  if (parsed.pathname !== "/" && parsed.pathname !== "") {
+    throw new Error("MASTERHAND_UPDATE_URL must be an origin without a path")
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error("MASTERHAND_UPDATE_URL must not contain a query string or fragment")
+  }
+  if (!token) {
+    throw new Error("MASTERHAND_UPDATE_URL requires MASTERHAND_UPDATE_TOKEN")
+  }
+  if (Buffer.byteLength(token, "utf8") < UPDATE_TOKEN_MIN_BYTES) {
+    throw new Error(
+      `MASTERHAND_UPDATE_TOKEN must be at least ${UPDATE_TOKEN_MIN_BYTES} bytes (generate one with \`openssl rand -hex 32\`)`,
+    )
+  }
+
+  return { url: parsed.origin, token, track }
+}
+
 /**
  * The managed-run launcher is executed by opencode inside its own container, so
  * it must be an absolute container path — a host path or bare name would fail
@@ -243,6 +314,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const workspacesRoot = fromRepoRoot(env.WORKSPACES_ROOT, "workspace")
   const opencodeUrl = env.OPENCODE_URL ?? "http://127.0.0.1:4096"
+  const updater = updaterFromEnv(env)
   const cookieSecure = boolFromEnv("COOKIE_SECURE", env.COOKIE_SECURE, true)
   if (!cookieSecure) {
     // The BFF listens on every interface; without HTTPS the session cookie
@@ -285,6 +357,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       15 * 60 * 1000,
       Math.max(10 * 60 * 1000, intFromEnv(env.UPDATE_CACHE_MS, 12 * 60 * 1000)),
     ),
+    updateUrl: updater.url,
+    updateToken: updater.token,
+    updateTrack: updater.track,
     previewEnabled: boolFromEnv("PREVIEW_ENABLED", env.PREVIEW_ENABLED, true),
     // In Docker the tunnel targets the opencode container by service name; in
     // development both processes run on the host.

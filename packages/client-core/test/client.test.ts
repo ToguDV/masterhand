@@ -155,6 +155,17 @@ describe("createClient", () => {
     expect(unauthorized).toBe(1)
   })
 
+  it("posts the one-click update trigger and returns the accepted target", async () => {
+    const { calls, fetchImpl } = recordingFetch(() =>
+      jsonResponse({ accepted: true, target: "0.2.0" }, 202),
+    )
+    const client = createClient({ baseUrl: "", fetchImpl })
+
+    await expect(client.api.update.apply()).resolves.toEqual({ accepted: true, target: "0.2.0" })
+    expect(calls[0]?.url).toBe("/api/update/apply")
+    expect(calls[0]?.init?.method).toBe("POST")
+  })
+
   it("creates device tokens through the BFF", async () => {
     const { calls, fetchImpl } = recordingFetch(() =>
       jsonResponse({ token: "tok", device: { id: "dev_1", name: "Phone" } }, 201),

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { compareSemver, isNewerVersion } from "../src/update.js"
 import { login, startMockOpencode, startTestApp, type MockOpencode, type TestApp } from "./helpers.js"
 
 let app: TestApp | null = null
@@ -19,8 +20,19 @@ async function authedFetch(path: string, init?: RequestInit): Promise<Response> 
   })
 }
 
-describe("/api/status version fields (#131)", () => {
-  it("reports the configured version and build", async () => {
+describe("semver comparison for updates", () => {
+  it("compares numerically and treats unknown versions as equal", () => {
+    expect(compareSemver("0.1.0", "0.2.0")).toBe(-1)
+    expect(compareSemver("0.10.0", "0.9.0")).toBe(1)
+    expect(compareSemver("v1.2.3", "1.2.3")).toBe(0)
+    expect(compareSemver("nope", "1.0.0")).toBe(0)
+    expect(isNewerVersion("0.1.0", "0.1.1")).toBe(true)
+    expect(isNewerVersion("0.1.1", "0.1.0")).toBe(false)
+    expect(isNewerVersion("0.1.0", "nope")).toBe(false)
+  })
+})
+
+describe("/api/status version fields (#131)", () => {  it("reports the configured version and build", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({
       config: { opencodeUrl: upstream.url, version: "0.2.0", build: "abc1234" },
@@ -91,5 +103,58 @@ describe("GET /api/update (#131)", () => {
     const response = await authedFetch("/api/update")
     expect(response.ok).toBe(true)
     expect(((await response.json()) as { latest: unknown }).latest).toBeNull()
+  })
+})
+
+describe("POST /api/update/apply (#134)", () => {
+  it("reports updater capability in /api/status and accepts an update", async () => {
+    upstream = await startMockOpencode()
+    const apply = vi.fn(async () => ({ ok: true as const, target: "0.2.0" }))
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      updateApplier: { enabled: true, tracksLatest: true, apply },
+    })
+
+    const status = (await (await authedFetch("/api/status")).json()) as {
+      updater?: { enabled: boolean; tracksLatest: boolean }
+    }
+    expect(status.updater).toEqual({ enabled: true, tracksLatest: true, track: "latest" })
+
+    const response = await authedFetch("/api/update/apply", { method: "POST" })
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ accepted: true, target: "0.2.0" })
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it("maps disabled, unavailable and in-flight outcomes", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      updateApplier: {
+        enabled: false,
+        tracksLatest: true,
+        apply: async () => ({ ok: false, error: "updater_disabled", status: 409 }),
+      },
+    })
+
+    const status = (await (await authedFetch("/api/status")).json()) as {
+      updater?: { enabled: boolean; tracksLatest: boolean }
+    }
+    expect(status.updater).toEqual({ enabled: false, tracksLatest: true, track: "latest" })
+
+    const response = await authedFetch("/api/update/apply", { method: "POST" })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "updater_disabled" })
+  })
+
+  it("requires authentication", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      updateApplier: { enabled: true, tracksLatest: true, apply: async () => ({ ok: false, error: "update_in_progress", status: 409 }) },
+    })
+
+    const response = await fetch(`${app.url}/api/update/apply`, { method: "POST" })
+    expect(response.status).toBe(401)
   })
 })

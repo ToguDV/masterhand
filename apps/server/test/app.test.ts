@@ -163,6 +163,7 @@ describe("/api/status", () => {
       opencode: { healthy: true, version: "1.2.3" },
       preview: { enabled: true, available: true, portRange: { min: 32900, max: 32999 } },
       storage: { ok: true, freeBytes: 10 * 1024 ** 3, low: false },
+      updater: { enabled: false, tracksLatest: true, track: "latest" },
     })
   })
 

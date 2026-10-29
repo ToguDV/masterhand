@@ -65,7 +65,7 @@ import {
   type WebsearchTestResult,
 } from "./websearch"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
-import { normalizeUpdateCheck, type UpdateCheck } from "./update"
+import { normalizeUpdateCheck, type UpdateApplyResult, type UpdateCheck } from "./update"
 
 export class ApiError extends Error {
   constructor(
@@ -326,6 +326,8 @@ export interface Client {
      */
     update: {
       check(): Promise<UpdateCheck>
+      /** Ask the opt-in sidecar to pull/recreate the server (#134). */
+      apply(): Promise<UpdateApplyResult>
     }
   }
   workspaces: {
@@ -888,6 +890,15 @@ export function createClient(options: ClientOptions = {}): Client {
           request<unknown>("/api/update")
             .then((response) => normalizeUpdateCheck(response))
             .catch(() => ({ latest: null }) as UpdateCheck),
+        /**
+         * One-click self-update (#134). This is a non-idempotent restart:
+         * a lost response is ambiguous, so the caller reconciles through
+         * `/api/status` and never retries blind.
+         */
+        apply: () =>
+          request<UpdateApplyResult>("/api/update/apply", {
+            method: "POST",
+          }),
       },
     },
     workspaces: {
