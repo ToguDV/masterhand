@@ -36,8 +36,13 @@ const CARD_GAP = 8
  * Resets a card's drag state when its gesture is cancelled: `onFinalize` is
  * the only callback on cancel, so without this a scroll-stolen gesture leaves
  * the card visually offset at its last `onUpdate` value.
+ *
+ * Must stay a worklet: `onFinalize` runs on the UI runtime, and calling a
+ * plain JS helper there throws "Tried to synchronously call a Remote
+ * Function" and crashes the app (device-only).
  */
 export function resetCancelledDrag(dragging: { value: boolean }, translateY: { value: number }): void {
+  "worklet"
   dragging.value = false
   translateY.value = withSpring(0)
 }
@@ -104,6 +109,13 @@ function DraggableCard({
   const dragging = useSharedValue(false)
   const onDropRef = useRef(onDrop)
   onDropRef.current = onDrop
+  // The worklet must only capture a function defined on the JS runtime (a
+  // RemoteFunction). Capturing `onDropRef` itself serializes the ref into the
+  // UI runtime — it is then frozen and every `current` write warns "already
+  // passed to a worklet"; passing a locally created arrow to `runOnJS` throws.
+  const dispatchDrop = useCallback((id: string, dy: number) => {
+    onDropRef.current(id, dy)
+  }, [])
 
   const gesture = useMemo(
     () =>
@@ -118,12 +130,12 @@ function DraggableCard({
         .onEnd((event) => {
           dragging.value = false
           translateY.value = withSpring(0)
-          runOnJS((id: string, dy: number) => onDropRef.current(id, dy))(card.id, event.translationY)
+          runOnJS(dispatchDrop)(card.id, event.translationY)
         })
         .onFinalize(() => {
           resetCancelledDrag(dragging, translateY)
         }),
-    [card.id, dragging, translateY],
+    [card.id, dispatchDrop, dragging, translateY],
   )
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }, { scale: dragging.value ? 1.03 : 1 }],

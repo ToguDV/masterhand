@@ -14,6 +14,9 @@
  *   `KeyboardAvoidingView` or the composer ends up behind the IME.
  * - Native has no DOM events: the app must reconnect the stream itself when it
  *   returns to the foreground.
+ * - Reanimated worklets cross a runtime boundary: helpers called from a
+ *   gesture callback must be worklets, and `runOnJS` only accepts functions
+ *   defined on the JS runtime. Getting it wrong crashes the app on touch.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs"
 import { join, relative } from "node:path"
@@ -113,6 +116,23 @@ describe("foreground recovery", () => {
     const app = read("App.tsx")
     expect(app).toMatch(/AppState\.addEventListener\(\s*"change"/)
     expect(app).toMatch(/forceReconnect\(\)/)
+  })
+})
+
+describe("worklet boundary", () => {
+  const board = read("src/screens/BoardScreen.tsx")
+
+  it("keeps gesture-finalize helpers workletized", () => {
+    // `onFinalize` runs on the UI runtime; a plain JS helper called there
+    // throws "Tried to synchronously call a Remote Function" (device crash).
+    expect(board).toMatch(/export function resetCancelledDrag\([\s\S]{0,200}?"worklet"/)
+  })
+
+  it("only passes JS-runtime functions to runOnJS", () => {
+    // A function created inside the worklet does not exist on the JS runtime
+    // and throws "[Worklets] Locally defined function passed to scheduleOnRN".
+    expect(board).not.toMatch(/runOnJS\(\s*(\(|function\b)/)
+    expect(board).toMatch(/runOnJS\(dispatchDrop\)/)
   })
 })
 

@@ -81,6 +81,10 @@ The model: a workspace is agent-writable and **untrusted**; the BFF holds `/data
 
 31. **Listen before reconciling: boot serves first, maintenance settles in the background.** Awaiting an unbounded maintenance pass (`reconcileWorktrees`: N×2×60 s of git worst case) before `serve()` holds the healthcheck past its start period until the orchestrator restart-loops the container (#199). Build the app and listen first, run the pass in the background with a slow-pass budget that only warns (12 s), and split the probe: liveness (`/api/health` 200 while the store answers) responds immediately, readiness (`ready`) flips when the pass settles — success and warned failure alike, or one bad git pass pins the container unhealthy forever. The volume-health gate and quarantine semantics do not move (rule 11). Test the helper, not the entry point: `launchBackgroundReconcile` takes an injectable pass, contains failures (its `settled` never rejects), and evaluates the pass before notifying — `onSettled?.(await pass())` silently skips the pass itself when no observer is registered.
 
+### Native worklet rules (2026-10-28: board drag crash)
+
+32. **Respect the JS ↔ UI runtime boundary in Reanimated worklets.** A gesture callback (`onStart`/`onUpdate`/`onEnd`/`onFinalize`) runs on the UI runtime: any helper it calls synchronously must itself be a worklet (the `"worklet"` directive), or the call throws `Tried to synchronously call a Remote Function` and closes the app. `runOnJS`/`scheduleOnRN` only accept a function **defined on the RN runtime** (a captured function reference serialized as a `RemoteFunction`); an arrow created inside the worklet throws `[Worklets] Locally defined function passed to scheduleOnRN`. Keep the latest-callback pattern, but put the ref behind a stable JS callback — never capture the ref object itself in a worklet, because it is serialized, frozen and warns on every later `current` write (`Tried to modify key 'current' of an object which has already been passed to a worklet`). These are device-only failures Jest cannot reach: guard the source in `apps/mobile/test/app-guards.test.ts` and verify the gesture on a device before closing.
+
 ## Checklist for a new mutating operation
 
 - [ ] Request bounded by a deadline (or an explicit, justified override).
@@ -103,6 +107,7 @@ The model: a workspace is agent-writable and **untrusted**; the BFF holds `/data
 - [ ] A dropped-privilege child gets a cleared environment + allowlist, not just a different uid; every execution path uses the same dropper (a new PTY path defaults to the engine uid); engine DB/config/log are owner-only.
 - [ ] A schema change is a new ordered migration in `apps/server/src/migrations.ts`, never an edited shipped version or a boot-time `CREATE TABLE IF NOT EXISTS`; a newer `user_version` is refused with the restore pointer.
 - [ ] Identity comes from a stable client-owned key with a unique constraint, not a mutable display label; re-login keeps the label, sign-out keeps the key, and a concurrent duplicate is reconciled by re-reading the winner.
+- [ ] Native gesture helpers called from a worklet carry the `"worklet"` directive, `runOnJS`/`scheduleOnRN` targets are defined on the JS runtime, and no ref written after render is captured by a worklet (guards in `apps/mobile/test/app-guards.test.ts`).
 - [ ] Tests cover: lost response, timeout, slow success, double submit, unmount mid-flight.
 
 ## Already-established patterns (reuse, don't reinvent)
