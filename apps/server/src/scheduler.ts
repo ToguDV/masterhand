@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Cron } from "croner"
 import { AmbiguousMutationError, UpstreamStatusError, isTransientFailure, withRetry } from "./retry.js"
+import { createEntityChain } from "./serial.js"
 import { SCHEDULED_RUNS_KEEP_PER_TASK } from "./store.js"
 import {
   type ModelRef,
@@ -140,6 +141,16 @@ const MINUTE_MS = 60_000
 export const DEFAULT_TICK_MS = 20_000
 /** Bounds the look-ahead walk so garbage schedules can never stall a tick. */
 const MAX_SLOT_STEPS = 100_000
+/**
+ * Bounds the CRON walk only (issue #212): the interval kind is O(1)
+ * arithmetic, but the cron kind walks one croner step per missed slot — a
+ * 5-minute task anchored a year back performs ~105k steps, blocking the loop
+ * for hundreds of ms or seconds. A few thousand steps cover ~17 days of
+ * 5-minute slots (years for daily ones); anything older returns null and the
+ * caller surfaces it. The interval cap stays untouched: lowering it would
+ * change behavior for stale interval tasks.
+ */
+const MAX_CRON_SLOT_STEPS = 5_000
 
 const COMPLETED_EVENTS = new Set(["session.idle", "session.execution.succeeded"])
 const FAILED_EVENTS = new Set([
@@ -222,7 +233,11 @@ export function nextScheduledRunAt(
     }
     let slot = job.nextRun(new Date(anchorMs))
     for (let steps = 0; slot && slot.getTime() <= nowMs; steps += 1) {
-      if (steps >= MAX_SLOT_STEPS) return null
+      // A stale anchor (long-offline BFF) must not walk hundreds of thousands
+      // of slots on the event loop: after the bound, fall back to one O(1)
+      // step from now instead of stranding the task on null. Only an
+      // impossible expression (e.g. Feb 30) still resolves to null below.
+      if (steps >= MAX_CRON_SLOT_STEPS) return job.nextRun(new Date(nowMs))?.toISOString() ?? null
       slot = job.nextRun(slot)
     }
     return slot ? slot.toISOString() : null
@@ -346,41 +361,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   }
 
   /** Per-task transition queue: events and tick passes never interleave. */
-  const chains = new Map<string, Promise<unknown>>()
-
-  function enqueue(taskId: string, task: () => Promise<void>): Promise<void> {
-    const tail = chains.get(taskId) ?? Promise.resolve()
-    const next = tail.then(task).catch((error) => {
-      console.error(`[scheduler] ${taskId} transition failed:`, error)
-    })
-    chains.set(taskId, next)
-    void next.finally(() => {
-      if (chains.get(taskId) === next) chains.delete(taskId)
-    })
-    return next
-  }
-
-  /**
-   * Serialized check→create for a non-idempotent mutation (rule 12): two
-   * devices running a task now must not create two runs. Failures propagate.
-   */
-  function runExclusive<T>(taskId: string, task: () => Promise<T>): Promise<T> {
-    const tail = chains.get(taskId) ?? Promise.resolve()
-    const next = tail.then(task)
-    const settled = next.then(
-      () => undefined,
-      () => undefined,
-    )
-    chains.set(taskId, settled)
-    void settled.finally(() => {
-      if (chains.get(taskId) === settled) chains.delete(taskId)
-    })
-    return next
-  }
-
-  async function flush(): Promise<void> {
-    while (chains.size > 0) await Promise.allSettled([...chains.values()])
-  }
+  const { enqueue, runExclusive, flush } = createEntityChain("scheduler")
 
   function persistTask(record: ScheduledTask, silent = false): void {
     store.saveScheduledTask(record)
@@ -466,7 +447,14 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     const prev = parseMs(task.nextRunAt)
     if (prev !== null && prev > currentMs) return task.nextRunAt
     const anchor = prev ?? parseMs(task.createdAt) ?? currentMs
-    return nextScheduledRunAt(task.schedule, anchor, currentMs, task.timezone)
+    const next = nextScheduledRunAt(task.schedule, anchor, currentMs, task.timezone)
+    if (next === null) {
+      // Surfacing only (#212): an impossible schedule or a walk that hit the
+      // bound parks the task (the tick skips a null slot) — log the task id
+      // instead of silently returning null. Never a new error field.
+      console.warn(`[scheduler] ${task.id} has no schedulable slot; leaving nextRunAt unset`)
+    }
+    return next
   }
 
   /** One bounded opencode call; `includeTimeouts` only for reconcilable paths. */

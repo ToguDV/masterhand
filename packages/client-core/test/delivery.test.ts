@@ -16,6 +16,12 @@ function userMessage(metadata?: Record<string, unknown>): ChatMessage {
 }
 
 describe("delivery markers", () => {
+  it("pins the wire literal shared with the BFF", () => {
+    // Must match DELIVERY_MARKER_KEY in apps/server/src/proxy.ts: a typo on
+    // either side breaks prompt reconciliation (see goal-contract.test.ts).
+    expect(DELIVERY_MARKER_KEY).toBe("masterhand.delivery")
+  })
+
   it("round-trips the marker through prompt metadata and the message info", () => {
     const marker = createDeliveryMarker()
     expect(deliveryMarkerOf(userMessage(deliveryMetadata(marker)))).toBe(marker)

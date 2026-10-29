@@ -13,7 +13,7 @@ import {
   type SchedulerManager,
   type SchedulerOpencode,
 } from "../src/scheduler.js"
-import { createMemoryStore, type Store } from "../src/store.js"
+import { createSqliteStore, type Store } from "../src/store.js"
 
 // ---------------------------------------------------------------------------
 // Scripted fake opencode + injectable clock, modeled on goal.test.ts. Tests
@@ -171,7 +171,7 @@ function seedWorkspace(store: Store, path = "/workspace/app"): void {
 
 function harness(options: { tasks?: ScheduledTask[] } = {}): Harness {
   clockMs = BASE
-  const store = createMemoryStore()
+  const store = createSqliteStore(":memory:")
   seedWorkspace(store)
   const opencode = new FakeOpencode()
   const events: Harness["events"] = []
@@ -717,6 +717,49 @@ describe("scheduler validation", () => {
     expect(nextScheduledRunAt({ kind: "interval" as never }, BASE, BASE)).toBeNull()
     expect(nextScheduledRunAt({ kind: "cron", cron: "nope" }, BASE, BASE)).toBeNull()
   })
+
+  it("bounds the cron catch-up walk for a year-old anchor", () => {
+    // A 5-minute task anchored a year back misses ~105k slots. The walk must
+    // stop after a few thousand steps (one O(1) fallback step from now)
+    // instead of blocking the event loop for hundreds of ms or seconds (#212).
+    const nextRun = vi.spyOn(Cron.prototype, "nextRun")
+    try {
+      const yearAgo = BASE - 365 * 24 * 60 * MINUTE
+      const recovered = nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, yearAgo, BASE)
+      expect(recovered).not.toBeNull()
+      expect(Date.parse(recovered!)).toBeGreaterThanOrEqual(BASE)
+      // 1 initial + 5000 walk steps + 1 O(1) fallback, never ~105k.
+      expect(nextRun.mock.calls.length).toBeLessThanOrEqual(5002)
+    } finally {
+      nextRun.mockRestore()
+    }
+  })
+
+  it("recovers (not strands) a cron task stale past the walk bound", () => {
+    // 20 days at a 5-minute cadence (≈5.7k slots) exceeds the 5k walk bound:
+    // the task must resolve its next slot from now instead of nulling its
+    // anchor forever (review follow-up on #212).
+    const stale = BASE - 20 * 24 * 60 * MINUTE
+    const recovered = nextScheduledRunAt({ kind: "cron", cron: "*/5 * * * *" }, stale, BASE)
+    expect(recovered).not.toBeNull()
+    expect(Date.parse(recovered!)).toBeGreaterThanOrEqual(BASE)
+  })
+
+  it("warns with the task id when a task cannot be scheduled", () => {
+    // Feb 30 never fires: route validation rejects it, but a row that reaches
+    // the manager this way must surface a visible warning (log-only, never a
+    // new error field) instead of parking silently (#212).
+    const task = makeTask({ id: "task_impossible", schedule: { kind: "cron", cron: "0 0 30 2 *" } })
+    const h = harness({ tasks: [task] })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      h.manager.reconcileTasks()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("task_impossible"))
+      expect(h.store.getScheduledTask("task_impossible")?.nextRunAt).toBeNull()
+    } finally {
+      warn.mockRestore()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -787,7 +830,7 @@ describe("scheduler nextRunAt", () => {
 describe("scheduler boot reconciliation", () => {
   it("marks firing runs interrupted and queued runs skipped, then recomputes nextRunAt", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const firing: ScheduledRun = {
@@ -834,7 +877,7 @@ describe("scheduler boot reconciliation", () => {
 
   it("keeps an already-future nextRunAt and a completed history stable across reconciliations", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask({ nextRunAt: new Date(clockMs + 30 * MINUTE).toISOString() }))
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
@@ -844,7 +887,7 @@ describe("scheduler boot reconciliation", () => {
 
   it("never auto-fires after the boot reconciliation", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     seedWorkspace(store)
     store.createScheduledTask(makeTask())
     const opencode = new FakeOpencode()
@@ -982,14 +1025,14 @@ describe("scheduler plumbing", () => {
 
   it("stops its interval repeatedly", () => {
     clockMs = BASE
-    const manager = createScheduler({ store: createMemoryStore(), opencode: new FakeOpencode(), tickMs: 1000 })
+    const manager = createScheduler({ store: createSqliteStore(":memory:"), opencode: new FakeOpencode(), tickMs: 1000 })
     manager.stop()
     manager.stop()
   })
 
   it("surfaces storage write failures from run-now instead of swallowing them", async () => {
     clockMs = BASE
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     store.createWorkspace({ id: "ws_app", name: "app", path: "/workspace/app", createdAt: BASE })
     const manager = createScheduler({ store, opencode: new FakeOpencode(), tickMs: 0, now: () => clockMs })
     store.createScheduledTask(makeTask())

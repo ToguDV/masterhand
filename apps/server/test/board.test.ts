@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { createMemoryStore, createSqliteStore, type Store } from "../src/store.js"
+import { createSqliteStore, type Store } from "../src/store.js"
 
 /**
  * Counts executions of the column-scoped card SELECTs (#211): the snapshot
@@ -45,12 +45,13 @@ vi.mock("better-sqlite3", async (importOriginal) => {
 function stores(): Array<{ name: string; make: () => Store; close: (store: Store) => void }> {
   return [
     {
-      name: "memory",
-      make: () => createMemoryStore(),
+      // In-memory SQLite: same engine as production, no filesystem involved.
+      name: "sqlite-memory",
+      make: () => createSqliteStore(":memory:"),
       close: (store) => store.close(),
     },
     {
-      name: "sqlite",
+      name: "sqlite-file",
       make: () => {
         const dir = mkdtempSync(join(tmpdir(), "masterhand-board-"))
         const store = createSqliteStore(join(dir, "test.sqlite"))

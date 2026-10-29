@@ -5,7 +5,7 @@ import Database from "better-sqlite3"
 import { describe, expect, it } from "vitest"
 import { LATEST_SCHEMA_VERSION, MIGRATIONS, runMigrations } from "../src/migrations.js"
 import type { Migration } from "../src/migrations.js"
-import { backupDatabase, createMemoryStore, createSqliteStore, ensureDataDir } from "../src/store.js"
+import { backupDatabase, createSqliteStore, ensureDataDir } from "../src/store.js"
 import { DATA_DIR_LOCK_FILE, acquireDataDirLock } from "../src/store.js"
 import type { GoalRunRecord, ScheduledRun, ScheduledTask, Store } from "../src/store.js"
 
@@ -50,28 +50,56 @@ describe("sqlite device store", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
-})
 
-describe("memory device store", () => {
-  it("behaves like the sqlite store", () => {
-    const store = createMemoryStore()
-    store.create({ id: "dev_1", name: "Phone", installID: null, createdAt: 1, lastUsedAt: 1 })
-    store.touch("dev_1", 5)
-    expect(store.get("dev_1")?.lastUsedAt).toBe(5)
-    store.remove("dev_1")
-    expect(store.list()).toHaveLength(0)
-    store.close()
-  })
+  it("returns copies: mutating a fetched record without saving changes nothing", () => {
+    // Regression test for #207: the deleted in-memory duplicate returned the
+    // same object references it held, so `const x = getX(); mutate(x)` passed
+    // in tests and lost data in production. SQLite returns copies — a caller
+    // that forgets to save must see no change on the next read.
+    const store = createSqliteStore(":memory:")
+    try {
+      store.create({ id: "dev_1", name: "Laptop", installID: null, createdAt: 1, lastUsedAt: 1 })
+      const device = store.get("dev_1")!
+      device.name = "Mutated without save"
+      expect(store.get("dev_1")?.name).toBe("Laptop")
 
-  it("looks devices up by install id", () => {
-    const store = createMemoryStore()
-    store.create({ id: "dev_1", name: "Phone", installID: "install-1", createdAt: 1, lastUsedAt: 1 })
-    expect(store.getByInstallID("install-1")).toMatchObject({ id: "dev_1" })
-    expect(store.getByInstallID("missing")).toBeNull()
-    expect(() =>
-      store.create({ id: "dev_2", name: "Clone", installID: "install-1", createdAt: 2, lastUsedAt: 2 }),
-    ).toThrow(/UNIQUE/)
-    store.close()
+      store.saveGoalRun({
+        sessionID: "ses_goal",
+        runToken: "token_1",
+        goal: "Ship it",
+        state: "running",
+        round: 1,
+        maxRounds: 5,
+        mainModel: "test/model",
+        criticModel: null,
+        judgeModel: null,
+        criticSessionID: null,
+        judgeSessionID: null,
+        lastReport: null,
+        lastCritique: null,
+        lastVerdict: null,
+        history: [],
+        error: null,
+        awaitingKind: null,
+        awaitingSessionID: null,
+        awaitingAssistantID: null,
+        attempt: 0,
+        nudged: false,
+        lastError: null,
+        pausedPhase: null,
+        promptSerial: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      const run = store.getGoalRun("ses_goal")!
+      run.goal = "Mutated without save"
+      run.history.push({ round: 99, critique: null, verdict: null })
+      const reread = store.getGoalRun("ses_goal")!
+      expect(reread.goal).toBe("Ship it")
+      expect(reread.history).toEqual([])
+    } finally {
+      store.close()
+    }
   })
 })
 
@@ -489,29 +517,6 @@ describe("sqlite workspace store", () => {
   })
 })
 
-describe("memory workspace store", () => {
-  it("behaves like the sqlite store", () => {
-    const store = createMemoryStore()
-    store.createWorkspace({ id: "ws_1", name: "App", path: "/workspace/app", createdAt: 1 })
-    store.createWorkspace({ id: "ws_2", name: "Lib", path: "/workspace/lib", createdAt: 2 })
-    store.saveWorkspaceRun({
-      workspaceID: "ws_2",
-      command: "npm",
-      args: ["run", "dev"],
-      cwd: null,
-      source: "user",
-      updatedAt: 1,
-    })
-
-    expect(store.listWorkspaces().map((workspace) => workspace.id)).toEqual(["ws_1", "ws_2"])
-    expect(store.getWorkspaceByPath("/workspace/lib")?.id).toBe("ws_2")
-    store.removeWorkspace("ws_2")
-    expect(store.listWorkspaces()).toHaveLength(1)
-    expect(store.getWorkspaceRun("ws_2")).toBeNull()
-    store.close()
-  })
-})
-
 describe("isolated session store", () => {
   function isolatedSessionScenario(store: Store): void {
     store.createIsolatedSession({
@@ -558,10 +563,6 @@ describe("isolated session store", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
-
-  it("behaves the same in memory", () => {
-    isolatedSessionScenario(createMemoryStore())
-  })
 })
 
 describe("audit store", () => {
@@ -594,14 +595,6 @@ describe("audit store", () => {
       store.close()
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-
-  it("behaves the same in memory and keeps a bounded history", () => {
-    const store = createMemoryStore()
-    for (let index = 0; index < 520; index += 1) store.recordAudit({ ...event, at: index })
-    expect(store.listAudit(1000)).toHaveLength(500)
-    store.clearAudit()
-    expect(store.listAudit()).toHaveLength(0)
   })
 
   it("serves the newest-first audit list through the timestamp index", () => {
@@ -706,14 +699,6 @@ describe("workspace run store", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
-
-  it("behaves the same in memory", () => {
-    const store = createMemoryStore()
-    store.saveWorkspaceRun(run)
-    expect(store.getWorkspaceRun("ws_1")).toEqual(run)
-    store.removeWorkspaceRun("ws_1")
-    expect(store.getWorkspaceRun("ws_1")).toBeNull()
-  })
 })
 
 describe("preview port store", () => {
@@ -771,38 +756,6 @@ describe("preview port store", () => {
       store.close()
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-
-  it("behaves the same in memory", () => {
-    const store = createMemoryStore()
-    store.assignPreviewPort({ sessionID: "ses_1", port: 3200, createdAt: 1 })
-    expect(store.getPreviewPort("ses_1")).toBe(3200)
-    store.removePreviewPort("ses_1")
-    expect(store.getPreviewPort("ses_1")).toBeNull()
-  })
-
-  it("rejects a port reserved by another session and keeps the first row (memory)", () => {
-    const store = createMemoryStore()
-    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
-    store.assignPreviewPort(first)
-
-    expect(() => store.assignPreviewPort({ sessionID: "ses_2", port: 3200, createdAt: 2 })).toThrow(
-      /UNIQUE/i,
-    )
-
-    expect(store.getPreviewPort("ses_1")).toBe(3200)
-    expect(store.getPreviewPort("ses_2")).toBeNull()
-    expect(store.listPreviewPorts()).toEqual([first])
-  })
-
-  it("keeps the original reservation for a repeated same-session assignment (memory)", () => {
-    const store = createMemoryStore()
-    const first = { sessionID: "ses_1", port: 3200, createdAt: 1 }
-    store.assignPreviewPort(first)
-
-    expect(store.assignPreviewPort({ sessionID: "ses_1", port: 3201, createdAt: 2 })).toEqual(first)
-    expect(store.getPreviewPort("ses_1")).toBe(3200)
-    expect(store.listPreviewPorts()).toEqual([first])
   })
 })
 
@@ -966,10 +919,6 @@ describe("goal member projections", () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
-
-  it("resolves members through narrow projections in memory", () => {
-    memberScenario(createMemoryStore())
-  })
 })
 
 describe("scheduled run history limits", () => {
@@ -1015,10 +964,6 @@ describe("scheduled run history limits", () => {
     }
   })
 
-  it("pages run history with limit/offset in memory", () => {
-    historyScenario(createMemoryStore())
-  })
-
   function retentionScenario(store: Store): void {
     seedRuns(store, "task_r", 205)
     const rows = store.listScheduledRuns("task_r", { limit: 1000 })
@@ -1036,10 +981,6 @@ describe("scheduled run history limits", () => {
       store.close()
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-
-  it("retains only the newest 200 runs per task in memory", () => {
-    retentionScenario(createMemoryStore())
   })
 
   it("prunes run rows on status-update saves too", () => {
@@ -1089,10 +1030,6 @@ describe("scheduled task store", () => {
       store.close()
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-
-  it("behaves like the sqlite store in memory", () => {
-    scheduledStoreScenario(createMemoryStore())
   })
 
   it("reads corrupt scheduled rows inertly", () => {

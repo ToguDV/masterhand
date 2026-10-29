@@ -106,6 +106,25 @@ A goal run wraps a session in an adversarial review loop: the main agent works t
 | `POST` | `/api/sessions/:id/goal/cancel` | Interrupts the awaited turn, removes the internal critic/judge sessions and the goal instruction; run becomes `cancelled` (history kept). |
 | `GET` / `PUT` | `/api/goal/settings` | Single-user `{ maxRounds (default 5, 1..50), criticModel, judgeModel }`; `provider/model` refs are validated against `/api/model` (an empty catalog accepts well-formed refs). |
 
+`GoalRun` wire contract (issue #206): every route above and every `goal.updated` frame carries the `toGoalRun` projection — exactly these documented fields. Internal orchestration state (`runToken`, `awaitingSessionID`, `awaitingAssistantID`, `nudged`, `promptSerial`) is stored server-side but never serialized: old clients ignore unknown fields and never read them, so dropping them is not breaking.
+
+| Field | Type | Notes |
+|---|---|---|
+| `sessionID` | string | Main session the run wraps. |
+| `goal` | string | User's goal text. |
+| `state` | `running` / `critiquing` / `judging` / `approved` / `paused` / `cancelled` / `error` | Loop state. |
+| `round` / `maxRounds` | number | Current round and the round budget. |
+| `mainModel` / `criticModel` / `judgeModel` | string \| null | `provider/model` refs. |
+| `lastReport` / `lastCritique` / `lastVerdict` | object \| null | Latest completion marker, critic review, judge decision. |
+| `criticSessionID` / `judgeSessionID` | string \| null | Internal sessions (null until first use); openable from the review cards. |
+| `history` | `[{ round, critique, verdict }]` | Settled review rounds. |
+| `error` | string \| null | Terminal failure reason. |
+| `awaitingKind` | `main` / `critic` / `judge` \| null | Phase currently expected to answer (live activity). |
+| `attempt` | number | Phase attempts spent on transient failures. |
+| `lastError` | string \| null | Transient activity note (retrying, missing marker, …). |
+| `pausedPhase` | phase / `"cap"` \| null | Phase to re-drive on resume (`"cap"` = round budget exhausted). |
+| `createdAt` / `updatedAt` | number | Millisecond timestamps. |
+
 State machine: `running → critiquing → judging`, plus `approved`, `paused` (cap reached or manual), `cancelled` and `error`. Critic and judge are **internal sessions**: the pinned opencode (v2.0.6) silently drops `parentID` on `POST /api/session` (upstream added the field later), so they are created with `parentID` for forward compatibility plus a stable `masterhand.goal.internal` metadata role, and `GET /workspaces/:id/sessions` annotates them with `goalRole` (`critic`/`judge`) — resolved from that marker, the run store and, for legacy sessions, the `masterhand.goal.role` prefix. Clients filter the annotation through `rootSessions`, so the internal sessions never list while their work stays renderable; the same listing also **synthesizes the dropped `parentID`** from the run store, so opening a critic/judge session from the review cards behaves like a subagent child ("Back to main agent"). Deleting the main session (`forget`), cancelling a run, and starting a new run over a terminal one remove the internal sessions explicitly (nothing cascades upstream), and a lost create response is reconciled by looking the unique marker up **by directory** — not by `parentID`, which the pinned server drops, so a parent-scoped lookup would replay the create and duplicate the session. Completion is declared with markers parsed tolerantly from the last assistant reply: `<masterhand:goal status="complete|blocked">{…}</masterhand:goal>`, `<masterhand:critique>{…}</masterhand:critique>`, `<masterhand:verdict>{…}</masterhand:verdict>`; clients split the same blocks out of assistant text and render them as cards (never raw JSON).
 
 Reliability (see `ARCHITECTURE.md` §4.11 and `docs/past-mistakes.md`):

@@ -3,7 +3,7 @@ import { createFakeWorktreeManager, login, startMockOpencode, startTestApp, wait
 import { mapLimit } from "../src/app.js"
 import { pullRequestUrl } from "../src/worktrees.js"
 import type { RunManager } from "../src/runs.js"
-import { createMemoryStore, type GoalRunRecord } from "../src/store.js"
+import { createSqliteStore, type GoalRunRecord } from "../src/store.js"
 
 /** Promise a test can resolve explicitly to hold a request mid-operation. */
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -343,7 +343,7 @@ describe("POST /api/workspaces/:id/sessions", () => {
     const opencode = createOpencodeMock()
     const worktrees = createFakeWorktreeManager()
     const store = {
-      ...createMemoryStore(),
+      ...createSqliteStore(":memory:"),
       createIsolatedSession: () => {
         throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
       },
@@ -792,7 +792,6 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
     const gate = deferred()
     let commits = 0
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll: vi.fn(async () => {
         commits += 1
@@ -863,7 +862,6 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
     const gate = deferred()
     let commits = 0
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll: vi.fn(async () => {
         commits += 1
@@ -928,7 +926,6 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
     const commitAll = vi.fn(async () => true)
     const push = vi.fn(async () => {})
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll,
       push,
@@ -995,7 +992,6 @@ describe("DELETE /api/workspaces/:id/sessions/:sessionID", () => {
     const commitAll = vi.fn(async () => true)
     const push = vi.fn(async () => {})
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll,
       push,
@@ -1195,7 +1191,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("pushes and reports the PR URL when a remote and CLI exist", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       pullRequest: async () => "https://github.com/org/repo/pull/1",
     })
@@ -1235,7 +1230,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("falls back to a compare URL without a provider CLI but never persists it", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
     })
     const opencode = createOpencodeMock()
@@ -1272,7 +1266,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("replaces a legacy persisted compare URL with the real PR", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       pullRequest: async () => "https://github.com/org/repo/pull/12",
     })
@@ -1321,7 +1314,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
     const push = vi.fn(async () => {})
     const pullRequest = vi.fn(async () => "https://github.com/org/repo/pull/5")
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll,
       push,
@@ -1390,7 +1382,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
 
   it("reports a push failure and keeps the local commit", async () => {
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       push: vi.fn(() => {
         throw new Error("authentication failed")
@@ -1433,7 +1424,6 @@ describe("POST /api/isolated-sessions/:sessionID/finish", () => {
       await pushGate.promise
     })
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       push,
       pullRequest: async () => null,
@@ -1844,7 +1834,7 @@ describe("DELETE /api/workspaces/:id", () => {
 
   it("pauses scheduled tasks for the folder before removing it and refuses a later run", async () => {
     let pausedAtRemove: boolean | null = null
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const opencode = createOpencodeMock()
     const app = await startTestApp({
       store,
@@ -2055,7 +2045,6 @@ describe("DELETE /api/workspaces/:id", () => {
       return true
     })
     const worktrees = createFakeWorktreeManager({
-      hasRemote: async () => true,
       remoteUrl: async () => "git@github.com:org/repo.git",
       commitAll,
       push: async () => {},

@@ -4,7 +4,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AddressInfo } from "node:net"
-import { createMemoryStore, createSqliteStore } from "../src/store.js"
+import { createSqliteStore } from "../src/store.js"
 import type { Store } from "../src/store.js"
 import {
   cleanupOrphanTunnels,
@@ -27,7 +27,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 function setup(overrides: Parameters<typeof testConfig>[0] = {}, tunnel = createFakeTunnel()) {
   const config = testConfig(overrides)
-  const store = createMemoryStore()
+  const store = createSqliteStore(":memory:")
   const manager = createPreviewManager({
     config,
     store,
@@ -136,7 +136,7 @@ describe("preview tunnel lifecycle", () => {
 
   it("refuses to start when the dev server is not listening", async () => {
     const config = testConfig()
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const manager = createPreviewManager({
       config,
       store,
@@ -158,7 +158,7 @@ describe("preview tunnel lifecycle", () => {
 
   it("times out when the tunnel never announces a URL", async () => {
     const config = testConfig()
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const tunnel = createFakeTunnel("https://unused.trycloudflare.com", { silent: true })
     const manager = createPreviewManager({
       config,
@@ -176,7 +176,7 @@ describe("preview tunnel lifecycle", () => {
 
   it("fails when the public URL never becomes reachable", async () => {
     const config = testConfig()
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const tunnel = createFakeTunnel()
     const manager = createPreviewManager({
       config,
@@ -196,7 +196,7 @@ describe("preview tunnel lifecycle", () => {
 
   it("skips the readiness check when it is disabled", async () => {
     const config = testConfig({ previewReadinessMs: 0 })
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const tunnel = createFakeTunnel()
     const manager = createPreviewManager({
       config,
@@ -241,7 +241,7 @@ describe("preview tunnel lifecycle", () => {
   it("waits for an in-flight start before forgetting, so the tunnel is killed and untracked", async () => {
     const gate = deferred()
     const config = testConfig()
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const tunnel = createFakeTunnel()
     const manager = createPreviewManager({
       config,
@@ -364,7 +364,7 @@ describe("orphan tunnel cleanup", () => {
     const tunnel = createFakeTunnel("https://fake-preview.trycloudflare.com", { pid: 4242 })
     const manager = createPreviewManager({
       config: testConfig({ dataDir: dir }),
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       spawnImpl: tunnel.spawnImpl,
       probe: async () => true,
       availableImpl: () => true,
@@ -386,7 +386,7 @@ describe("orphan tunnel cleanup", () => {
     const tunnel = createFakeTunnel("https://fake-preview.trycloudflare.com", { pid: 4242 })
     const manager = createPreviewManager({
       config: testConfig({ dataDir: dir }),
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       spawnImpl: tunnel.spawnImpl,
       probe: async () => true,
       availableImpl: () => true,
@@ -414,7 +414,7 @@ describe("preview availability", () => {
     let calls = 0
     const manager = createPreviewManager({
       config,
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
       availableImpl: () => {
         calls += 1
         return false
@@ -429,7 +429,7 @@ describe("preview availability", () => {
   it("reports unavailable when the binary does not exist", async () => {
     const manager = createPreviewManager({
       config: testConfig({ cloudflaredBin: "/nonexistent/cloudflared-xyz" }),
-      store: createMemoryStore(),
+      store: createSqliteStore(":memory:"),
     })
     await expect(manager.available()).resolves.toBe(false)
   })

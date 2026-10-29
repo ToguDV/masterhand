@@ -15,9 +15,10 @@ import {
   type GoalManager,
   type GoalModelRef,
   type GoalOpencode,
+  type GoalRunView,
 } from "../src/goal.js"
 import { OpencodeTimeoutError, UpstreamStatusError } from "../src/retry.js"
-import { createMemoryStore, createSqliteStore, type GoalRunRecord, type Store } from "../src/store.js"
+import { createSqliteStore, type GoalRunRecord, type Store } from "../src/store.js"
 
 // ---------------------------------------------------------------------------
 // Scripted fake opencode: records calls and holds scripted failures per call.
@@ -273,12 +274,12 @@ interface Harness {
   store: Store
   opencode: FakeOpencode
   manager: GoalManager
-  events: Array<{ sessionID: string; goal: GoalRunRecord | null }>
+  events: Array<{ sessionID: string; goal: GoalRunView | null }>
   delays: number[]
 }
 
 function harness(options: { settings?: { maxRounds?: number; criticModel?: string | null; judgeModel?: string | null } } = {}): Harness {
-  const store = createMemoryStore()
+  const store = createSqliteStore(":memory:")
   const opencode = new FakeOpencode()
   const events: Harness["events"] = []
   const delays: number[] = []
@@ -681,7 +682,7 @@ describe("goal manager", () => {
   })
 
   it("pauses in-flight runs on boot instead of auto-resuming them", async () => {
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const running: GoalRunRecord = {
       sessionID: "ses_main",
       runToken: "tok_boot",
@@ -1290,7 +1291,7 @@ describe("goal manager reliability", () => {
   })
 
   it("stops its watchdog", () => {
-    const store = createMemoryStore()
+    const store = createSqliteStore(":memory:")
     const manager: GoalManager = createGoalManager({
       store,
       opencode: new FakeOpencode(),

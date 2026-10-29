@@ -18,7 +18,7 @@ const FORWARD_REQUEST_HEADERS = [
 const FORWARD_RESPONSE_HEADERS = ["content-type", "cache-control", "etag", "last-modified"]
 
 /** Must match `DELIVERY_MARKER_KEY` in client-core (`delivery.ts`). */
-const DELIVERY_MARKER_KEY = "masterhand.delivery"
+export const DELIVERY_MARKER_KEY = "masterhand.delivery"
 
 /** Idempotent POSTs (full state replacement) safe to replay on transient failures. */
 const IDEMPOTENT_POST_PATHS = [/^\/api\/session\/[^/]+\/(agent|model)$/]

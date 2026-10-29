@@ -66,7 +66,6 @@ export interface WorktreeManager {
   list(repoPath: string): Promise<WorktreeInfo[]>
   /** Stages and commits everything; false when the tree was already clean. */
   commitAll(worktreePath: string, message: string, options?: GitRunOptions): Promise<boolean>
-  hasRemote(worktreePath: string): Promise<boolean>
   remoteUrl(worktreePath: string, options?: GitRunOptions): Promise<string | null>
   push(worktreePath: string, branch: string, options?: GitRunOptions): Promise<void>
   /** PR URL from `gh`/`glab` when available; null to fall back to a compare URL. */
@@ -445,11 +444,6 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         options,
       )
       return true
-    },
-
-    async hasRemote(worktreePath) {
-      const result = await git(["remote"], worktreePath)
-      return result.status === 0 && result.stdout.trim().length > 0
     },
 
     async remoteUrl(worktreePath, options = {}) {

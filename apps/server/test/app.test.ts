@@ -13,7 +13,7 @@ import {
   type MockOpencode,
   type TestApp,
 } from "./helpers.js"
-import { createMemoryStore, type Store } from "../src/store.js"
+import { createSqliteStore, type Store } from "../src/store.js"
 import { createCachedDiskFree } from "../src/app.js"
 
 let app: TestApp | null = null
@@ -215,7 +215,7 @@ describe("/api/status", () => {
 
 describe("storage resilience", () => {
   function failingStore(patch: Partial<Store>): Store {
-    return { ...createMemoryStore(), ...patch }
+    return { ...createSqliteStore(":memory:"), ...patch }
   }
 
   it("answers 503 on /api/health when storage does not answer", async () => {
@@ -393,7 +393,7 @@ describe("storage resilience", () => {
       }
       let inserted = false
       const store: Store = {
-        ...createMemoryStore(),
+        ...createSqliteStore(":memory:"),
         getByInstallID: (installID) => (installID === "install-race" && inserted ? winner : null),
         create: () => {
           inserted = true
@@ -757,8 +757,11 @@ describe("audit log", () => {
     expect(app.store.listAudit()[0]).toMatchObject({ command: "killall node" })
 
     for (let index = 0; index < 3; index += 1) {
+      // Fresh timestamps: the SQLite store prunes rows older than 30 days on
+      // write (#203) — ancient `at` values vanish in production too, so the
+      // limit cap is exercised with live rows, not 1970 ones.
       app.store.recordAudit({
-        at: index,
+        at: Date.now() + index,
         sessionID: "ses_1",
         workspaceID: null,
         kind: "permission_denied",
@@ -928,7 +931,7 @@ describe("managed run errors", () => {
 
   it("lets storage failures on run and preview routes reach the typed 503 mapping", async () => {
     const store = {
-      ...createMemoryStore(),
+      ...createSqliteStore(":memory:"),
       getPreviewPort: () => {
         throw Object.assign(new Error("disk full"), { code: "SQLITE_FULL" })
       },

@@ -4,11 +4,12 @@ import { PassThrough } from "node:stream"
 import type { AddressInfo } from "node:net"
 import type { ChildProcess } from "node:child_process"
 import { serve } from "@hono/node-server"
-import { createApp, type AppWithScheduler } from "../src/app.js"
+import { bootstrapApp } from "../src/bootstrap.js"
 import type { Config } from "../src/config.js"
 import { createEventHub, type EventHub } from "../src/events.js"
 import { createPreviewManager, type PreviewManager } from "../src/preview.js"
-import { createMemoryStore, type DeviceRecord, type Store } from "../src/store.js"
+import { type SchedulerManager } from "../src/scheduler.js"
+import { createSqliteStore, type DeviceRecord, type Store } from "../src/store.js"
 import type { CustomProviderStore } from "../src/providers.js"
 import type { WorktreeManager } from "../src/worktrees.js"
 
@@ -483,7 +484,6 @@ export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = 
       calls.push(`commit:${path}`)
       return true
     },
-    hasRemote: async () => false,
     remoteUrl: async () => null,
     push: async (path, branch) => {
       calls.push(`push:${path}:${branch}`)
@@ -510,7 +510,7 @@ export interface TestApp {
   hub: EventHub
   preview: PreviewManager
   /** The manager the app built, so tests can drive a tick deterministically. */
-  scheduler: NonNullable<AppWithScheduler["scheduler"]>
+  scheduler: SchedulerManager
   close(): Promise<void>
 }
 
@@ -610,7 +610,11 @@ export async function startTestApp(
   } = {},
 ): Promise<TestApp> {
   const config = testConfig(options.config)
-  const store = options.store ?? createMemoryStore()
+  // Route tests run against a real SQLite store in memory (#207): the old
+  // duplicate in-memory implementation returned the same object references
+  // it held, so mutating a fetched record without saving passed in tests
+  // and lost data in production. SQLite returns copies, like production.
+  const store = options.store ?? createSqliteStore(":memory:")
   const hub = createEventHub({
     url: new URL("/api/event", config.opencodeUrl).toString(),
     authHeader: config.opencodeAuth,
@@ -630,7 +634,7 @@ export async function startTestApp(
       readinessTimeoutMs: options.previewOptions?.readinessTimeoutMs,
       readinessIntervalMs: options.previewOptions?.readinessIntervalMs,
     })
-  const app = createApp({
+  const built = bootstrapApp({
     config,
     store,
     hub,
@@ -653,6 +657,7 @@ export async function startTestApp(
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
   })
+  const app = built.app
   const server = serve({
     fetch: (request, ...rest) => {
       options.onRequest?.(request)
@@ -672,11 +677,14 @@ export async function startTestApp(
     store,
     hub,
     preview,
-    scheduler: (app as AppWithScheduler).scheduler!,
+    scheduler: built.scheduler,
     close: async () => {
       await preview.stopAll()
       hub.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))
+      // Since #207 the default test store is a real SQLite handle
+      // (":memory:"): leave no open database per started app.
+      store.close()
     },
   }
 }
