@@ -368,6 +368,19 @@ describe("App — sessions", () => {
     alert.mockRestore()
   })
 
+  it("hides the bottom nav in a chat and returns to the session list", async () => {
+    await renderAuthenticated({ sessions: [makeSession()] })
+
+    await fireEvent.press(screen.getByText("My session"))
+    expect(await screen.findByPlaceholderText("Write a message…")).toBeOnTheScreen()
+    expect(screen.queryByLabelText("Show sessions")).toBeNull()
+    expect(screen.queryByLabelText("Settings")).toBeNull()
+
+    await fireEvent.press(screen.getByLabelText("Back"))
+    expect(await screen.findByLabelText("Show sessions")).toBeOnTheScreen()
+    expect(screen.getByText("My session")).toBeOnTheScreen()
+  })
+
   it("banners a failed deletion", async () => {
     client = makeClient()
     client.api.sessions.remove.mockRejectedValue(new Error("nope"))

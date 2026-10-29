@@ -149,7 +149,8 @@ describe("App", () => {
 
     expect(await screen.findByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
-    // Sign out lives in the sessions panel options box.
+    // Sign out lives inside Settings, reached from the bottom nav.
+    await fireEvent.press(screen.getByLabelText("Settings"))
     await fireEvent.press(screen.getByLabelText("Sign out"))
 
     expect(mocked.clearToken).toHaveBeenCalled()

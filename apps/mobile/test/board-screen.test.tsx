@@ -1,9 +1,20 @@
 import { Alert } from "react-native"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import * as gestureHandlerMock from "react-native-gesture-handler"
 import type { BoardSnapshot, WorkspaceRecord } from "@masterhand/client-core"
-import { BoardScreen, indexForDrop, resetCancelledDrag } from "../src/screens/BoardScreen"
+import { BoardScreen, autoScrollStep, dropTarget, indexForDrop, indexForPoint } from "../src/screens/BoardScreen"
 import { ThemeProvider } from "../src/theme"
 import { fakeClient, GestureWrapper, makeQueryClient, QueryWrapper } from "./support/render"
+
+/** Callback shape the board's Pan gesture receives from the handler mock. */
+type DragEvent = { absoluteX: number; absoluteY: number; x: number; y: number; translationY?: number }
+
+/** Callbacks captured by the gesture-handler Jest mock (see test/setup.ts). */
+const gestureHandlers = (
+  gestureHandlerMock as unknown as {
+    __gestureHandlers: Record<string, ((event?: DragEvent) => void) | undefined>
+  }
+).__gestureHandlers
 
 const WORKSPACES: WorkspaceRecord[] = [
   { id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 },
@@ -452,6 +463,48 @@ describe("BoardScreen card editing (#164)", () => {
   })
 })
 
+describe("BoardScreen drag (#164)", () => {
+  beforeEach(() => {
+    for (const key of Object.keys(gestureHandlers)) delete gestureHandlers[key]
+  })
+
+  it("lifts the card into the board preview and clears it on release", async () => {
+    await setup()
+    expect(await screen.findByText("Third")).toBeOnTheScreen()
+
+    // The last card rendered owns the shared mocked gesture chain (card_2).
+    await act(async () => {
+      gestureHandlers.onStart?.({ absoluteX: 200, absoluteY: 300, x: 12, y: 14 })
+    })
+    // The source card stays in place while the lifted preview renders above it.
+    expect(screen.getByText("Third")).toBeOnTheScreen()
+    expect(screen.getByTestId("drag-preview", { includeHiddenElements: true })).toBeOnTheScreen()
+
+    await act(async () => {
+      gestureHandlers.onUpdate?.({ absoluteX: 220, absoluteY: 340, x: 32, y: 54 })
+      gestureHandlers.onEnd?.({ absoluteX: 220, absoluteY: 340, x: 32, y: 54, translationY: 40 })
+      gestureHandlers.onFinalize?.()
+    })
+    expect(screen.queryByTestId("drag-preview", { includeHiddenElements: true })).toBeNull()
+    expect(screen.getByText("Third")).toBeOnTheScreen()
+  })
+})
+
+describe("autoScrollStep (#164 cross-column drag)", () => {
+  it("scrolls toward an edge and clamps to the content bounds", () => {
+    const viewport = { x: 12, width: 366 }
+    // Left edge (trigger zone ends at 56), right edge (starts at 334).
+    expect(autoScrollStep(20, viewport, 1000, 100)).toBe(-10)
+    expect(autoScrollStep(370, viewport, 1000, 100)).toBe(10)
+    expect(autoScrollStep(200, viewport, 1000, 100)).toBe(0)
+    // Already at the left edge or the maximum scroll.
+    expect(autoScrollStep(20, viewport, 1000, 0)).toBe(0)
+    expect(autoScrollStep(370, viewport, 1000, 634)).toBe(0)
+    // Content fits the viewport: no scroll.
+    expect(autoScrollStep(370, viewport, 300, 0)).toBe(0)
+  })
+})
+
 describe("indexForDrop (#164)", () => {
   it("maps a drag distance to the slot containing the dragged center", () => {
     const board = makeBoard()
@@ -476,12 +529,87 @@ describe("indexForDrop (#164)", () => {
   })
 })
 
-describe("resetCancelledDrag (#164 review)", () => {
-  it("clears the dragging flag and returns the offset to rest", () => {
-    const dragging = { value: true }
-    const translateY = { value: 128 }
-    resetCancelledDrag(dragging, translateY)
-    expect(dragging.value).toBe(false)
-    expect(translateY.value).toBe(0)
+describe("indexForPoint (#164 cross-column drag)", () => {
+  it("maps a finger offset inside the card stack to a slot", () => {
+    const cards = makeBoard().columns[0]!.cards
+    const heights = new Map([
+      ["card_0", 60],
+      ["card_1", 60],
+    ])
+    expect(indexForPoint(cards, -20, heights)).toBe(0)
+    expect(indexForPoint(cards, 0, heights)).toBe(0)
+    expect(indexForPoint(cards, 59, heights)).toBe(0)
+    expect(indexForPoint(cards, 60, heights)).toBe(1)
+    expect(indexForPoint(cards, 10_000, heights)).toBe(1)
+    // An empty column always accepts the card at position 0.
+    expect(indexForPoint([], 120, heights)).toBe(0)
+    // Unknown heights use the estimate.
+    expect(indexForPoint(cards, 70, new Map())).toBe(1)
+  })
+})
+
+describe("dropTarget (#164 cross-column drag)", () => {
+  const columns = makeBoard().columns
+  const layouts = new Map([
+    ["col_0", { x: 0, width: 280, cardsY: 60 }],
+    ["col_1", { x: 292, width: 280, cardsY: 60 }],
+  ])
+  const heights = new Map([
+    ["card_0", 60],
+    ["card_1", 60],
+    ["card_2", 60],
+  ])
+
+  it("resolves the finger to a column and a card slot", () => {
+    // Viewport starts at x=12, no scroll. Finger at 12+300 lands in col_1
+    // (a single-card column), below its only card.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 312, absoluteY: 230, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_1", position: 0 })
+
+    // Finger over the first card row.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 100, absoluteY: 130, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_0", position: 0 })
+
+    // Below the last card of the source column: last slot.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 100, absoluteY: 500, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_0", position: 1 })
+  })
+
+  it("accounts for the horizontal scroll offset", () => {
+    // contentX = 100 + 212 - 12 = 300 -> col_1.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 212, absoluteY: 170, scrollX: 100, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_1", position: 0 })
+  })
+
+  it("snaps a drop in the gap to the nearest column", () => {
+    // contentX = 290, 2px above col_1's left edge.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 302, absoluteY: 170, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_1", position: 0 })
+    // contentX = 200, deep inside col_0.
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 212, absoluteY: 170, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_0", position: 0 })
+  })
+
+  it("returns null until the viewport and column layouts are measured", () => {
+    expect(
+      dropTarget(columns, new Map(), { absoluteX: 100, absoluteY: 130, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toBeNull()
+    expect(
+      dropTarget(columns, layouts, { absoluteX: 100, absoluteY: 130, scrollX: 0, viewport: { x: 0, y: 0, width: 0 } }, heights),
+    ).toBeNull()
+  })
+
+  it("drops into an empty destination at position 0", () => {
+    const empty = makeBoard()
+    empty.columns[1]!.cards = []
+    expect(
+      dropTarget(empty.columns, layouts, { absoluteX: 312, absoluteY: 230, scrollX: 0, viewport: { x: 12, y: 100, width: 366 } }, heights),
+    ).toEqual({ columnID: "col_1", position: 0 })
   })
 })

@@ -41,19 +41,29 @@ jest.mock("react-native/src/private/assets/AssetRegistry", () => ({
 jest.mock("react-native-gesture-handler", () => {
   const React = require("react")
   const { ScrollView: RNScrollView, View } = require("react-native")
+  // Last callback registered for each gesture-builder method. The board drag is
+  // device-only, so its suite drives these callbacks directly (no native host).
+  const gestureHandlers: Record<string, ((...args: unknown[]) => unknown) | undefined> = {}
   const chainStub: unknown = new Proxy(
     {},
     {
       get: (target, property) => {
         if (property === "then") return undefined
+        if (property === "__handlers") return gestureHandlers
         if (property in (target as object)) return (target as Record<PropertyKey, unknown>)[property]
-        return () => chainStub
+        return (...args: unknown[]) => {
+          if (typeof args[0] === "function") {
+            gestureHandlers[property as string] = args[0] as (...args: unknown[]) => unknown
+          }
+          return chainStub
+        }
       },
     },
   )
   const gestureFactory = () => chainStub
   return {
     __esModule: true,
+    __gestureHandlers: gestureHandlers,
     GestureHandlerRootView: ({ children, style }: { children: React.ReactNode; style: unknown }) =>
       React.createElement(View, { style }, children),
     GestureDetector: ({ children }: { children: React.ReactNode }) =>

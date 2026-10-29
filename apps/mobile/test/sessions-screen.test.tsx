@@ -39,7 +39,6 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
   const handlers = {
     onOpen: jest.fn(),
     onNew: jest.fn(),
-    onSignOut: jest.fn(),
     onOpenSettings: jest.fn(),
     onSelectWorkspace: jest.fn(),
     onAddWorkspace: jest.fn(async () => {}),
@@ -157,7 +156,7 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("No sessions match this filter.")).toBeOnTheScreen()
   })
 
-  it("opens the settings modal from the options box gear", async () => {
+  it("opens the settings modal from the bottom nav", async () => {
     const handlers = await setup()
 
     await fireEvent.press(screen.getByLabelText("Settings"))
@@ -165,18 +164,10 @@ describe("SessionsScreen", () => {
     expect(handlers.onOpenSettings).toHaveBeenCalled()
   })
 
-  it("signs out from the options box", async () => {
-    const handlers = await setup()
-
-    await fireEvent.press(screen.getByLabelText("Sign out"))
-
-    expect(handlers.onSignOut).toHaveBeenCalled()
-  })
-
   it("groups the new-session + with the Sessions title (#122)", async () => {
     await setup()
 
-    const title = screen.getByText("Sessions")
+    const title = screen.getByTestId("screen-title")
     const plus = screen.getByLabelText("New session")
 
     // Same left-aligned cluster, not the far right of the header.
@@ -209,10 +200,13 @@ describe("SessionsScreen", () => {
 })
 
 describe("SessionsScreen sections (#172)", () => {
-  it("hides the section switcher when no scheduler slot is provided", async () => {
+  it("keeps the sessions tab and settings action when no section slots are provided", async () => {
     await setup()
 
+    expect(screen.getByLabelText("Show sessions")).toBeOnTheScreen()
+    expect(screen.queryByLabelText("Show board")).toBeNull()
     expect(screen.queryByLabelText("Show scheduler")).toBeNull()
+    expect(screen.getByLabelText("Settings")).toBeOnTheScreen()
     expect(screen.getByText("Standard session")).toBeOnTheScreen()
   })
 
@@ -220,6 +214,7 @@ describe("SessionsScreen sections (#172)", () => {
     await setup({ section: "scheduler", scheduler: <Text>Scheduler stub</Text> })
 
     expect(screen.getByText("Scheduler stub")).toBeOnTheScreen()
+    expect(screen.getByTestId("screen-title")).toHaveTextContent("Scheduler")
     expect(screen.queryByText("Standard session")).toBeNull()
   })
 
@@ -240,6 +235,7 @@ describe("SessionsScreen board section (#164)", () => {
     await setup({ section: "board", board: <Text>Board stub</Text>, scheduler: <Text>Scheduler stub</Text> })
 
     expect(screen.getByText("Board stub")).toBeOnTheScreen()
+    expect(screen.getByTestId("screen-title")).toHaveTextContent("Board")
     expect(screen.queryByText("Standard session")).toBeNull()
   })
 

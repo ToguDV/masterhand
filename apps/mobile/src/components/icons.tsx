@@ -108,6 +108,11 @@ export function ClockIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="time-outline" size={size} color={color} />
 }
 
+/** Sessions section (chat bubble), mirroring the web rail. */
+export function ChatBubbleIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="chatbubble-outline" size={size} color={color} />
+}
+
 /** Board section (kanban columns), mirroring the web rail. */
 export function KanbanIcon({ size = 16, color }: IconProps) {
   return <MaterialCommunityIcons name="view-column" size={size} color={color} />

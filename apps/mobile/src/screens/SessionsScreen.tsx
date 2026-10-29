@@ -16,14 +16,19 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Screen } from "../components/Screen"
+import { BottomNav, type HomeSection } from "../components/BottomNav"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspaceModal } from "../components/WorkspaceModal"
-import { ClockIcon, GearIcon, KanbanIcon, LogOutIcon } from "../components/icons"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
-/** Home sections, mirroring the web sidebar rail (Sessions/Board/Scheduler). */
-export type HomeSection = "sessions" | "board" | "scheduler"
+export type { HomeSection }
+
+const SECTION_TITLES: Record<HomeSection, string> = {
+  sessions: "Sessions",
+  board: "Board",
+  scheduler: "Scheduler",
+}
 
 export function SessionsScreen({
   sessions,
@@ -38,7 +43,6 @@ export function SessionsScreen({
   activeSessionID = null,
   onOpen,
   onNew,
-  onSignOut,
   onOpenSettings,
   onSelectWorkspace,
   onAddWorkspace,
@@ -62,14 +66,13 @@ export function SessionsScreen({
   activeSessionID?: string | null
   onOpen: (sessionID: string) => void
   onNew: (isolated: boolean) => void
-  onSignOut: () => void
   /** Opens the app-level settings modal (owned by App). */
   onOpenSettings: () => void
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
   onDeleteSession: (id: string) => void
-  /** Active home section (web rail parity); the switcher shows when a slot is provided. */
+  /** Active home section; the bottom nav shows Board/Scheduler when their slots are provided. */
   section?: HomeSection
   onSelectSection?: (section: HomeSection) => void
   /** Kanban board rendered in place of the session list. */
@@ -115,55 +118,21 @@ export function SessionsScreen({
     <Screen>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.title}>Sessions</Text>
-          <NewSessionMenu
-            creating={creating}
-            disabled={!canCreate}
-            onCreate={onNew}
-          />
+          <Text style={styles.title} testID="screen-title">
+            {SECTION_TITLES[section]}
+          </Text>
+          {section === "sessions" ? (
+            <NewSessionMenu
+              creating={creating}
+              disabled={!canCreate}
+              onCreate={onNew}
+            />
+          ) : null}
         </View>
         <View style={styles.headerRight}>
           <View style={[styles.dot, { backgroundColor: connected ? colors.success : colors.warning }]} />
         </View>
       </View>
-
-      {board || scheduler ? (
-        <View style={styles.tabs}>
-          <Pressable
-            onPress={() => onSelectSection("sessions")}
-            accessibilityRole="button"
-            accessibilityLabel="Show sessions"
-            accessibilityState={{ selected: section === "sessions" }}
-            style={[styles.tab, section === "sessions" && styles.tabActive]}
-          >
-            <Text style={[styles.tabText, section === "sessions" && styles.tabTextActive]}>Sessions</Text>
-          </Pressable>
-          {board ? (
-            <Pressable
-              onPress={() => onSelectSection("board")}
-              accessibilityRole="button"
-              accessibilityLabel="Show board"
-              accessibilityState={{ selected: section === "board" }}
-              style={[styles.tab, section === "board" && styles.tabActive]}
-            >
-              <KanbanIcon size={14} color={section === "board" ? colors.canvas : colors.textMuted} />
-              <Text style={[styles.tabText, section === "board" && styles.tabTextActive]}>Board</Text>
-            </Pressable>
-          ) : null}
-          {scheduler ? (
-            <Pressable
-              onPress={() => onSelectSection("scheduler")}
-              accessibilityRole="button"
-              accessibilityLabel="Show scheduler"
-              accessibilityState={{ selected: section === "scheduler" }}
-              style={[styles.tab, section === "scheduler" && styles.tabActive]}
-            >
-              <ClockIcon size={14} color={section === "scheduler" ? colors.canvas : colors.textMuted} />
-              <Text style={[styles.tabText, section === "scheduler" && styles.tabTextActive]}>Scheduler</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
 
       {section === "board" && board ? (
         <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
@@ -233,30 +202,13 @@ export function SessionsScreen({
       </>
       )}
 
-      <View style={styles.optionsWrap}>
-        <View style={styles.optionsBox}>
-          <Pressable
-            onPress={onOpenSettings}
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-            testID="settings-button"
-            hitSlop={4}
-            style={styles.option}
-          >
-            <GearIcon size={20} color={colors.textMuted} />
-          </Pressable>
-          <Pressable
-            onPress={onSignOut}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-            hitSlop={4}
-            style={styles.option}
-          >
-            <LogOutIcon size={18} color={colors.textMuted} />
-            <Text style={styles.optionText}>Sign out</Text>
-          </Pressable>
-        </View>
-      </View>
+      <BottomNav
+        section={section}
+        onSelectSection={onSelectSection}
+        onOpenSettings={onOpenSettings}
+        showBoard={Boolean(board)}
+        showScheduler={Boolean(scheduler)}
+      />
 
       <WorkspaceModal
         visible={workspaceOpen}
@@ -358,34 +310,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       width: 8,
       height: 8,
       borderRadius: 4,
-    },
-    optionsWrap: {
-      alignItems: "flex-start",
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-    },
-    optionsBox: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 10,
-      backgroundColor: colors.surface,
-      padding: 4,
-    },
-    option: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      minHeight: 40,
-      paddingHorizontal: 10,
-      justifyContent: "center",
-    },
-    optionText: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 13,
     },
     workspaceBar: {
       flexDirection: "row",
@@ -528,38 +452,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
-    },
-    tabs: {
-      flexDirection: "row",
-      gap: 6,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.hairline,
-    },
-    tab: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      minHeight: 44,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 999,
-      paddingHorizontal: 14,
-      justifyContent: "center",
-    },
-    tabActive: {
-      backgroundColor: colors.text,
-      borderColor: colors.text,
-    },
-    tabText: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 13,
-    },
-    tabTextActive: {
-      color: colors.canvas,
-      fontWeight: "600",
     },
     filters: {
       flexDirection: "row",
