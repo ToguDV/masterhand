@@ -93,3 +93,18 @@ test("the updater sidecar image is published next to the server image", () => {
   assert.match(release, /\$\{\{ env\.IMAGE \}\}-updater:\$\{\{ steps\.meta\.outputs\.version \}\}/)
 })
 
+test("the Android SDK action is the maintained v4 (no removed 'tools' package)", () => {
+  assert.match(release, /android-actions\/setup-android@v4/)
+  assert.doesNotMatch(release, /android-actions\/setup-android@v3/)
+})
+
+test("desktop signing is opt-in and never exports an empty CSC_LINK", () => {
+  const desktop = release.slice(release.indexOf("\n  desktop:"), release.indexOf("\n  publish:"))
+  // An empty CSC_LINK makes electron-builder treat it as a certificate path;
+  // on macOS it resolves the project directory and fails with "not a file".
+  assert.doesNotMatch(desktop, /^\s+CSC_LINK:/m)
+  assert.match(desktop, /WINDOWS_CSC_LINK/)
+  assert.match(desktop, /MACOS_CSC_LINK/)
+  assert.match(desktop, /export CSC_LINK=/)
+})
+

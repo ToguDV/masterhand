@@ -178,7 +178,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
 
       - name: Install dependencies
         run: npm ci
@@ -313,11 +313,27 @@ jobs:
       # from being picked up accidentally.
       - name: Package ${{ matrix.name }}
         working-directory: apps/desktop
+        shell: bash
         env:
-          CSC_LINK: ${{ matrix.target == 'win' && secrets.WINDOWS_CSC_LINK || matrix.target == 'mac' && secrets.MACOS_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && secrets.WINDOWS_CSC_KEY_PASSWORD || matrix.target == 'mac' && secrets.MACOS_CSC_KEY_PASSWORD || '' }}
+          # Keep the raw secrets under distinct names: an empty CSC_LINK is
+          # treated as a certificate path (macOS then resolves the project
+          # directory and fails with "not a file"). The step exports CSC_LINK
+          # only when a certificate is actually configured.
+          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          MACOS_CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
+          MACOS_CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --${{ matrix.target }} --publish never
+        run: |
+          if [ "${{ matrix.target }}" = "win" ] && [ -n "$WINDOWS_CSC_LINK" ]; then
+            export CSC_LINK="$WINDOWS_CSC_LINK"
+            export CSC_KEY_PASSWORD="$WINDOWS_CSC_KEY_PASSWORD"
+          fi
+          if [ "${{ matrix.target }}" = "mac" ] && [ -n "$MACOS_CSC_LINK" ]; then
+            export CSC_LINK="$MACOS_CSC_LINK"
+            export CSC_KEY_PASSWORD="$MACOS_CSC_KEY_PASSWORD"
+          fi
+          npx electron-builder --${{ matrix.target }} --publish never
 
       - name: Collect release artifacts
         working-directory: apps/desktop
