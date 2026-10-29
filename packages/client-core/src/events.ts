@@ -57,7 +57,11 @@ export function createEventStream(options: EventStreamOptions): EventStream {
       if (stopped) return
       if (token) headers.authorization = `Bearer ${token}`
 
-      const response = await fetchImpl(`${options.baseUrl}${urlPath}`, { headers, signal })
+      const response = await fetchImpl(`${options.baseUrl}${urlPath}`, {
+        headers,
+        signal,
+        redirect: "error",
+      })
       if (!response.ok || !response.body) throw new Error(`SSE ${response.status}`)
 
       lastMessageAt = Date.now()

@@ -387,7 +387,10 @@ export function createClient(options: ClientOptions = {}): Client {
       else external.addEventListener("abort", forwardAbort, { once: true })
     }
     try {
-      return await fetchImpl(input, { ...init, signal: controller.signal })
+      // Never follow redirects: a cross-origin API call must not be replayed
+      // as a same-origin request (which would attach the serving origin's
+      // cookie). Remote servers answer their own API directly.
+      return await fetchImpl(input, { ...init, redirect: "error", signal: controller.signal })
     } catch (error) {
       if (timedOut) throw new RequestTimeoutError()
       throw error
@@ -411,7 +414,13 @@ export function createClient(options: ClientOptions = {}): Client {
       overrideMs,
     )
     if (!response.ok) {
-      if (response.status === 401) options.onUnauthorized?.()
+      // A rejected login is a form error, never an expired session. Only the
+      // two credential-issuing POSTs are exempt; protected GET/DELETE calls on
+      // the same paths must still report an expired session.
+      const method = (init.method ?? "GET").toUpperCase()
+      const credentialAttempt =
+        method === "POST" && (path === "/api/login" || path === "/api/devices")
+      if (response.status === 401 && !credentialAttempt) options.onUnauthorized?.()
       const text = await response.text().catch(() => "")
       throw new ApiError(response.status, text || `HTTP ${response.status}`)
     }

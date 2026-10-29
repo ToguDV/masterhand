@@ -862,6 +862,16 @@ describe("client error handling", () => {
     expect(unauthorized).toBe(0)
   })
 
+  it("treats a rejected login as a form error, not an expired session", async () => {
+    let unauthorized = 0
+    const { fetchImpl } = recordingFetch(() => new Response("invalid_password", { status: 401 }))
+    const client = createClient({ onUnauthorized: () => unauthorized++, fetchImpl })
+
+    await expect(client.auth.login("wrong")).rejects.toBeInstanceOf(ApiError)
+    await expect(client.auth.loginDevice("wrong", "Phone")).rejects.toBeInstanceOf(ApiError)
+    expect(unauthorized).toBe(0)
+  })
+
   it("propagates network failures untouched", async () => {
     const failure = new TypeError("fetch failed")
     const fetchImpl = (async () => {
@@ -869,6 +879,16 @@ describe("client error handling", () => {
     }) as typeof fetch
     const client = createClient({ fetchImpl })
     await expect(client.api.sessions.list("ws_1")).rejects.toBe(failure)
+  })
+
+  it("refuses cross-origin redirects instead of replaying the request", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ ok: true }))
+    const client = createClient({ baseUrl: "https://remote.example", fetchImpl })
+
+    await client.auth.status()
+    await client.api.agents().catch(() => {})
+    expect(calls[0]?.init?.redirect).toBe("error")
+    expect(calls[1]?.init?.redirect).toBe("error")
   })
 
   it("omits the Authorization header when no token is available", async () => {
@@ -927,6 +947,19 @@ describe("client error handling", () => {
 })
 
 describe("createEventStream", () => {
+  it("refuses redirects on the SSE request", async () => {
+    let init: RequestInit | undefined
+    const fetchImpl = (async (_input: RequestInfo | URL, options?: RequestInit) => {
+      init = options
+      throw new TypeError("redirect refused")
+    }) as typeof fetch
+    const stream = createEventStream({ baseUrl: "https://mh.example", fetchImpl, onEvent: () => {} })
+    stream.start()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    stream.stop()
+    expect(init?.redirect).toBe("error")
+  })
+
   it("parses server-sent events and reports connection changes", async () => {
     const events: unknown[] = []
     const states: boolean[] = []

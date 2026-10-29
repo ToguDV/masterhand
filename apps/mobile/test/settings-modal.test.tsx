@@ -39,6 +39,14 @@ function Harness({
       onSelectPalette={setPalette}
       onSignOut={onSignOut}
       onClose={onClose}
+      servers={{
+        profiles: [],
+        activeID: null,
+        onRename: jest.fn(),
+        onDisconnect: jest.fn(),
+        onRemove: jest.fn(),
+        onAdd: jest.fn(),
+      }}
     />
   )
 }
@@ -99,7 +107,7 @@ describe("SettingsModal section navigation", () => {
     const onSignOut = jest.fn()
     await setup(undefined, { onSignOut })
 
-    await fireEvent.press(screen.getByLabelText("Sign out"))
+    await fireEvent.press(screen.getByLabelText("Disconnect from the active server"))
 
     expect(onSignOut).toHaveBeenCalledTimes(1)
   })
@@ -462,5 +470,111 @@ describe("SettingsModal custom providers ", () => {
 
     await waitFor(() => expect(client.api.removeCustomProvider).toHaveBeenCalledWith("acme"))
     alert.mockRestore()
+  })
+})
+
+describe("SettingsModal servers module", () => {
+  it("disconnects and removes a profile after confirmation", async () => {
+    const onDisconnect = jest.fn()
+    const onRemove = jest.fn()
+    const client = fakeClient()
+    const queryClient = makeQueryClient()
+    const profile = {
+      id: "home",
+      label: "Home",
+      url: "https://home.example.com",
+      device: { id: "d1", name: "Pixel" },
+      lastWorkspaceID: null,
+      lastSessionID: null,
+      expired: false,
+      lastUsedAt: 1,
+    }
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
+    await render(
+      <QueryWrapper client={queryClient}>
+        <ThemeProvider>
+          <SettingsModal
+            visible
+            client={client}
+            mode="light"
+            onSelectMode={() => {}}
+            palette={DEFAULT_PALETTE}
+            onSelectPalette={() => {}}
+            onSignOut={jest.fn()}
+            onClose={jest.fn()}
+            initialSection="servers"
+            servers={{
+              profiles: [profile],
+              activeID: "home",
+              onRename: jest.fn(),
+              onDisconnect,
+              onRemove,
+              onAdd: jest.fn(),
+            }}
+          />
+        </ThemeProvider>
+      </QueryWrapper>,
+    )
+
+    await fireEvent.press(screen.getByLabelText("Disconnect Home"))
+    alert.mock.calls.at(-1)?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+    expect(onDisconnect).toHaveBeenCalledWith(profile)
+
+    await fireEvent.press(screen.getByLabelText("Remove Home"))
+    alert.mock.calls.at(-1)?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+    expect(onRemove).toHaveBeenCalledWith(profile)
+    alert.mockRestore()
+  })
+
+  it("lists profiles, renames the active server and opens add", async () => {
+    const onRename = jest.fn()
+    const onAdd = jest.fn()
+    const client = fakeClient()
+    const queryClient = makeQueryClient()
+    const profile = {
+      id: "home",
+      label: "Home",
+      url: "https://home.example.com",
+      device: { id: "d1", name: "Pixel" },
+      lastWorkspaceID: null,
+      lastSessionID: null,
+      expired: false,
+      lastUsedAt: 1,
+    }
+    await render(
+      <QueryWrapper client={queryClient}>
+        <ThemeProvider>
+          <SettingsModal
+            visible
+            client={client}
+            mode="light"
+            onSelectMode={() => {}}
+            palette={DEFAULT_PALETTE}
+            onSelectPalette={() => {}}
+            onSignOut={jest.fn()}
+            onClose={jest.fn()}
+            initialSection="servers"
+            servers={{
+              profiles: [profile],
+              activeID: "home",
+              onRename,
+              onDisconnect: jest.fn(),
+              onRemove: jest.fn(),
+              onAdd,
+            }}
+          />
+        </ThemeProvider>
+      </QueryWrapper>,
+    )
+
+    expect(screen.getByText("Home")).toBeOnTheScreen()
+    expect(screen.getByText("Connected")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Add server"))
+    expect(onAdd).toHaveBeenCalled()
+
+    await fireEvent.press(screen.getByLabelText("Rename Home"))
+    await fireEvent.changeText(screen.getByLabelText("Name for Home"), "Home lab")
+    await fireEvent.press(screen.getByLabelText("Save name"))
+    expect(onRename).toHaveBeenCalledWith(profile, "Home lab")
   })
 })

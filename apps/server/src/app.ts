@@ -563,10 +563,31 @@ export function createApp(deps: AppDeps): CreatedApp {
   const createDir = deps.createDir ?? createWorkspaceDir
   const removeDir = deps.removeDir ?? removeWorkspaceDir
   const app = new Hono()
+  /**
+   * Bearer-only CORS (ADR-39): any origin may read responses with a device
+   * token, but credentials are never allowed, so a browser can never replay a
+   * cookie cross-origin. `ALLOWED_ORIGINS` keeps its separate CSRF role.
+   * Headers must survive error responses and the SSE stream, so they are
+   * applied on the context (which Hono copies into every response it builds).
+   */
+  const applyCorsHeaders = (c: Context): void => {
+    c.header("access-control-allow-origin", "*")
+    c.header("access-control-allow-methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+    c.header("access-control-allow-headers", "Authorization, Content-Type")
+    c.header("access-control-max-age", "600")
+  }
+  app.use("/api/*", async (c, next) => {
+    applyCorsHeaders(c)
+    if (c.req.method === "OPTIONS") return c.body(null, 204)
+    await next()
+  })
   // One structured error path for every uncaught route/middleware failure:
   // method + path in the log, a typed JSON body for clients, and storage
-  // failures mapped to an actionable 503 (issue #88/#86).
+  // failures mapped to an actionable 503 (issue #88/#86). CORS applies here
+  // too, so a cross-origin client can read the failure instead of seeing an
+  // opaque network error.
   app.onError((error, c) => {
+    applyCorsHeaders(c)
     const storage = isStorageError(error)
     console.error(`[masterhand] ${c.req.method} ${c.req.path} failed${storage ? " (storage)" : ""}:`, error)
     if (storage) return c.json({ error: "storage_unavailable" }, 503)

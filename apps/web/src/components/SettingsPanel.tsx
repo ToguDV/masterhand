@@ -7,9 +7,12 @@ import {
   CircleIcon,
   KeyIcon,
   LogOutIcon,
+  PencilIcon,
   SearchIcon,
+  ServerIcon,
   SparkleIcon,
   SunIcon,
+  TrashIcon,
   XIcon,
   type IconProps,
 } from "./icons"
@@ -17,6 +20,8 @@ import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
 import { AboutSection } from "./UpdateNotice"
+import { ServerMonogram, ServerStatus } from "./ServerBits"
+import type { ServerProfile } from "../servers"
 import type { ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
@@ -24,9 +29,10 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
   { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
-type SettingsModule = "appearance" | "goal" | "websearch" | "providers" | "about"
+export type SettingsModule = "servers" | "appearance" | "goal" | "websearch" | "providers" | "about"
 
 const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: ComponentType<IconProps> }> = [
+  { id: "servers", label: "Servers", desc: "Connections and credentials", icon: ServerIcon },
   { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
@@ -47,21 +53,32 @@ export function SettingsDialog({
   onSelectPalette,
   onSignOut,
   onClose,
+  initialModule,
+  servers,
 }: {
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
   onSelectPalette: (palette: PaletteID) => void
-  /** Mobile only: the bottom nav no longer hosts a sign-out action. */
+  /** Kept for the mobile settings list; the active server's Disconnect lives in Servers. */
   onSignOut: () => void
   onClose: () => void
+  initialModule?: SettingsModule
+  servers?: {
+    profiles: ServerProfile[]
+    activeID: string | null
+    onRename: (profile: ServerProfile, label: string) => void
+    onDisconnect: (profile: ServerProfile) => void
+    onRemove: (profile: ServerProfile) => void
+    onAdd: () => void
+  }
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onClose)
-  const [module, setModule] = useState<SettingsModule>("appearance")
+  const [module, setModule] = useState<SettingsModule>(initialModule ?? "appearance")
   // Mobile (<768px) is a master-detail flow: the dialog opens on the vertical
   // section list and shows only the selected section, with a back control.
   // Desktop keeps the two-pane layout and ignores this flag.
-  const [mobileList, setMobileList] = useState(true)
+  const [mobileList, setMobileList] = useState(initialModule === undefined)
 
   function openModule(id: SettingsModule): void {
     setModule(id)
@@ -132,14 +149,18 @@ export function SettingsDialog({
             type="button"
             onClick={onSignOut}
             className="mh-settings__signout"
-            aria-label="Sign out"
+            aria-label="Disconnect from the active server"
           >
             <LogOutIcon size={16} />
-            Sign out
+            Disconnect
           </button>
 
           <div className="mh-settings__content scroll-thin">
-            {module === "appearance" ? (
+            {module === "servers" ? (
+              servers ? (
+                <ServersSection {...servers} />
+              ) : null
+            ) : module === "appearance" ? (
               <AppearanceSection
                 mode={mode}
                 onSelectMode={onSelectMode}
@@ -156,6 +177,194 @@ export function SettingsDialog({
               <ProvidersSection />
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ServersSection({
+  profiles,
+  activeID,
+  onRename,
+  onDisconnect,
+  onRemove,
+  onAdd,
+}: {
+  profiles: ServerProfile[]
+  activeID: string | null
+  onRename: (profile: ServerProfile, label: string) => void
+  onDisconnect: (profile: ServerProfile) => void
+  onRemove: (profile: ServerProfile) => void
+  onAdd: () => void
+}) {
+  const [renamingID, setRenamingID] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [removing, setRemoving] = useState<ServerProfile | null>(null)
+
+  function startRename(profile: ServerProfile) {
+    setRenamingID(profile.id)
+    setRenameValue(profile.label)
+  }
+
+  function commitRename(profile: ServerProfile) {
+    const next = renameValue.trim()
+    if (next && next !== profile.label) onRename(profile, next)
+    setRenamingID(null)
+  }
+
+  return (
+    <section aria-labelledby="settings-servers">
+      <div className="mh-srv-settings__head">
+        <div>
+          <h3 id="settings-servers" className="mh-settings__title">
+            Servers
+          </h3>
+          <p className="mh-settings__desc">
+            Each profile keeps its own URL and credential. One is connected at a time.
+          </p>
+        </div>
+        <button type="button" className="mh-btn mh-btn--secondary mh-btn--sm" onClick={onAdd}>
+          Add server
+        </button>
+      </div>
+
+      <div className="mh-srv-settings__list">
+        {profiles.map((profile) => {
+          const active = profile.id === activeID
+          return (
+            <div key={profile.id} className="mh-srv-settings__row" aria-current={active ? "true" : undefined}>
+              <ServerMonogram label={profile.label} active={active} />
+              <div className="mh-server__body">
+                {renamingID === profile.id ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      commitRename(profile)
+                    }}
+                  >
+                    <input
+                      className="mh-input h-9 min-h-0 flex-1"
+                      aria-label={`Name for ${profile.label}`}
+                      value={renameValue}
+                      maxLength={64}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      autoFocus
+                    />
+                    <button type="submit" className="mh-btn mh-btn--secondary mh-btn--sm">
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      className="mh-btn mh-btn--ghost mh-btn--sm"
+                      onClick={() => setRenamingID(null)}
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="mh-server__name">{profile.label}</span>
+                    <span className="mh-server__host">{new URL(profile.url).host}</span>
+                  </>
+                )}
+              </div>
+              {renamingID === profile.id ? null : (
+                <>
+                  <ServerStatus status={active ? "connected" : profile.expired ? "expired" : "saved"} />
+                  <div className="mh-srv-settings__actions">
+                    <button
+                      type="button"
+                      className="mh-srv-settings__action"
+                      aria-label={`Rename ${profile.label}`}
+                      title="Rename"
+                      onClick={() => startRename(profile)}
+                    >
+                      <PencilIcon size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="mh-srv-settings__action"
+                      aria-label={`Disconnect ${profile.label}`}
+                      title="Disconnect (keeps the profile)"
+                      onClick={() => onDisconnect(profile)}
+                    >
+                      <LogOutIcon size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="mh-srv-settings__action"
+                      aria-label={`Remove ${profile.label}`}
+                      title="Remove server"
+                      onClick={() => setRemoving(profile)}
+                    >
+                      <TrashIcon size={16} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="mh-srv-settings__note">
+        Disconnect clears this device&apos;s session but keeps the profile. Remove forgets the profile and
+        revokes its device token when the server is reachable.
+      </p>
+
+      {removing && (
+        <RemoveServerDialog
+          profile={removing}
+          onClose={() => setRemoving(null)}
+          onConfirm={(profile) => {
+            setRemoving(null)
+            onRemove(profile)
+          }}
+        />
+      )}
+    </section>
+  )
+}
+
+function RemoveServerDialog({
+  profile,
+  onClose,
+  onConfirm,
+}: {
+  profile: ServerProfile
+  onClose: () => void
+  onConfirm: (profile: ServerProfile) => void
+}) {
+  const dialogRef = useModalFocus<HTMLDivElement>(onClose)
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center mh-overlay md:items-center md:p-4">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Remove ${profile.label}`}
+        className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
+      >
+        <h4 className="mh-dialog__title mh-heading-4">Remove server</h4>
+        <p className="mh-body-sm text-ink-muted">
+          Remove <span className="font-medium text-ink">{profile.label}</span> from this device?
+          Sessions keep running on that server; you can add it again later.
+        </p>
+        <div className="mh-dialog__actions">
+          <button type="button" className="mh-btn mh-btn--secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="mh-btn mh-btn--danger"
+            onClick={() => onConfirm(profile)}
+          >
+            Remove
+          </button>
         </div>
       </div>
     </div>

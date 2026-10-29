@@ -30,6 +30,8 @@ export function useModalFocus<T extends HTMLElement>(onClose: () => void) {
     else container.focus()
 
     function onKeyDown(event: KeyboardEvent) {
+      // Never let a nested dialog's Escape/Tab bubble into an outer dialog.
+      event.stopPropagation()
       if (event.key === "Escape") {
         event.preventDefault()
         closeRef.current()

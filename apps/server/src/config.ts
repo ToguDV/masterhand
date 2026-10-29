@@ -32,6 +32,10 @@ export interface Config {
   cookieSecure: boolean
   dataDir: string
   webDist: string | null
+  /**
+   * CSRF allowlist for cookie mutations; NOT the CORS allowlist. Bearer
+   * requests are CORS-open (`*`, without credentials) by design (ADR-39).
+   */
   allowedOrigins: string[]
   /** Base directory under which every workspace subfolder is created. */
   workspacesRoot: string

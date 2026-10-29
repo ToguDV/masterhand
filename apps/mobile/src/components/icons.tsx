@@ -142,3 +142,28 @@ export function BrainIcon({ size = 16, color }: IconProps) {
 export function BranchIcon({ size = 16, color }: IconProps) {
   return <MaterialCommunityIcons name="source-branch" size={size} color={color} />
 }
+
+/** Saved server profile (Servers screen, header chip, settings). */
+export function ServerIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="server-outline" size={size} color={color} />
+}
+
+/** Server URL field. */
+export function GlobeIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="globe-outline" size={size} color={color} />
+}
+
+/** Rename a saved server. */
+export function PencilIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="pencil-outline" size={size} color={color} />
+}
+
+/** Reveal a password field. */
+export function EyeIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="eye-outline" size={size} color={color} />
+}
+
+/** Hide a password field. */
+export function EyeOffIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="eye-off-outline" size={size} color={color} />
+}
