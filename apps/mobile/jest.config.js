@@ -1,4 +1,17 @@
+const path = require("node:path")
 const { moduleNameMapper } = require("jest-expo/jest-preset")
+
+// React Native 0.88 moved the asset registry to `src/private/assets`, which
+// the package `exports` map does not expose. `expo-asset` (via `expo-font`
+// and `@expo/vector-icons`) reaches it through the `react-native` root, so
+// `jest-expo`'s mock of the legacy `react-native/asset-registry` entry point
+// no longer intercepts it and every font load throws "missing from the asset
+// registry" under Jest. Map the canonical path to an absolute file (the same
+// trick `jest-expo` uses) so `test/setup.ts` can mock it.
+const reactNativeAssetRegistryPrivate = path.join(
+  path.dirname(require.resolve("react-native/package.json")),
+  "src/private/assets/AssetRegistry.js",
+)
 
 /** @type {import('jest').Config} */
 module.exports = {
@@ -14,6 +27,7 @@ module.exports = {
   // Keep the preset's react-native mappings and add the ESM-only SDK stub.
   moduleNameMapper: {
     ...moduleNameMapper,
+    "^react-native/src/private/assets/AssetRegistry$": reactNativeAssetRegistryPrivate,
     "^@opencode/client$": "<rootDir>/test/mocks/opencode-client.ts",
     "^@ronradtke/react-native-markdown-display$":
       "<rootDir>/test/mocks/react-native-markdown-display.tsx",

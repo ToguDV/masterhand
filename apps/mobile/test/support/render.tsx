@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { GestureHandlerRootView } from "react-native-gesture-handler"
 import type { Client, GoalRun, PreviewStatus, RunStatus } from "@masterhand/client-core"
 
 export const STOPPED_RUN: RunStatus = {
@@ -44,6 +45,15 @@ export function makeQueryClient(): QueryClient {
 
 export function QueryWrapper({ client, children }: { client: QueryClient; children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
+
+/**
+ * Mirrors `App`'s root: gesture-handler v3 builds `ScrollView` (and the
+ * board's drag detector) on `GestureDetector`, which throws outside a
+ * `GestureHandlerRootView`. v2 only warned, so unwrapped renders passed.
+ */
+export function GestureWrapper({ children }: { children: ReactNode }) {
+  return <GestureHandlerRootView style={{ flex: 1 }}>{children}</GestureHandlerRootView>
 }
 
 /**

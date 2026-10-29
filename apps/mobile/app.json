@@ -19,7 +19,9 @@
         {
           "enforceContrast": false
         }
-      ]
+      ],
+      "expo-font",
+      "expo-secure-store"
     ]
   }
 }
