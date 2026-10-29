@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from "react"
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View, type ScrollViewInstance, type ViewInstance } from "react-native"
 import { Gesture, GestureDetector, ScrollView } from "react-native-gesture-handler"
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated"
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   queryKeys,
@@ -20,32 +20,23 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
  * Workspace kanban board (issue #164): one board per workspace over the
- * frozen `client-core` board contract. Cards drag within their column
- * (long-press + pan, committed as an absolute `(columnID, position)`); across
- * columns they travel through a "Move to…" picker, and reordering stays
- * reachable through Move up/down buttons. Every mutation is
- * idempotent-positional: the client commits optimistically then PATCHes the
- * absolute position, and a failure refetches with readable copy — never a
- * blind retry (`docs/past-mistakes.md`). `board.updated` frames write the
- * snapshot through the shared hooks, so this screen never polls.
+ * frozen `client-core` board contract. Cards drag within and across columns
+ * (long-press + pan, committed as an absolute `(columnID, position)`); the
+ * dragged card lives in a board-level preview so it paints above adjacent
+ * columns, and dragging near a horizontal edge auto-scrolls the board. The
+ * "Move to…" picker and Move up/down buttons remain for accessibility. Every
+ * mutation is idempotent-positional: the client commits optimistically then
+ * PATCHes the absolute position, and a failure refetches with readable copy —
+ * never a blind retry (`docs/past-mistakes.md`). `board.updated` frames write
+ * the snapshot through the shared hooks, so this screen never polls.
  */
 
 const CARD_GAP = 8
+/** Distance from the board viewport edge that starts the horizontal auto-scroll. */
+const AUTO_SCROLL_EDGE = 44
+/** Pixels scrolled per auto-scroll tick (16 ms). */
+const AUTO_SCROLL_STEP = 10
 
-/**
- * Resets a card's drag state when its gesture is cancelled: `onFinalize` is
- * the only callback on cancel, so without this a scroll-stolen gesture leaves
- * the card visually offset at its last `onUpdate` value.
- *
- * Must stay a worklet: `onFinalize` runs on the UI runtime, and calling a
- * plain JS helper there throws "Tried to synchronously call a Remote
- * Function" and crashes the app (device-only).
- */
-export function resetCancelledDrag(dragging: { value: boolean }, translateY: { value: number }): void {
-  "worklet"
-  dragging.value = false
-  translateY.value = withSpring(0)
-}
 /** Fallback row height when a card has not reported its layout yet. */
 const ESTIMATED_ROW_HEIGHT = 64
 
@@ -61,6 +52,14 @@ function boardErrorMessage(error: unknown): string {
   if (/invalid_title/i.test(text)) return "Give it a title (1–200 characters)"
   if (/workspace/i.test(text)) return "Select a workspace first"
   return "Could not save the board change"
+}
+
+function findCard(board: BoardSnapshot, cardID: string): BoardCard | null {
+  for (const column of board.columns) {
+    const card = column.cards.find((entry) => entry.id === cardID)
+    if (card) return card
+  }
+  return null
 }
 
 /**
@@ -88,64 +87,178 @@ export function indexForDrop(cards: BoardCard[], from: number, dy: number, heigh
 }
 
 /**
- * One card: a long-press pan drags it within its column (the drop commits an
- * absolute position through `onDrop`), a tap opens the edit sheet. The drag
- * is device-only chrome — render suites drive the same commit through the
- * Move up/down buttons and the "Move to…" picker.
+ * Slot whose measured span contains a y offset inside a card stack. Unlike
+ * `indexForDrop`, the y is the finger's position (the cross-column drag has no
+ * source offset), so an empty column and the space below the last card both
+ * resolve to a valid position.
+ */
+export function indexForPoint(cards: BoardCard[], y: number, heights: Map<string, number>): number {
+  if (cards.length === 0) return 0
+  let top = 0
+  for (let index = 0; index < cards.length; index++) {
+    const height = heights.get(cards[index]!.id) ?? ESTIMATED_ROW_HEIGHT
+    if (y < top + height) return index
+    top += height
+  }
+  return cards.length - 1
+}
+
+/** One column's measured box inside the board's horizontal scroll content. */
+export type ColumnGeometry = { x: number; width: number; cardsY: number }
+
+/** Finger position and board viewport, both used to hit-test a drop. */
+export type DropPoint = {
+  absoluteX: number
+  absoluteY: number
+  scrollX: number
+  viewport: { x: number; y: number; width: number }
+}
+
+/**
+ * Horizontal scroll delta for one auto-scroll tick: scrolling only while the
+ * finger is inside an edge zone, clamped to the content bounds. Exported for
+ * unit tests; the interval that applies it is device-only chrome.
+ */
+export function autoScrollStep(
+  fingerX: number,
+  viewport: { x: number; width: number },
+  contentWidth: number,
+  scrollX: number,
+): number {
+  let direction = 0
+  if (fingerX < viewport.x + AUTO_SCROLL_EDGE) direction = -1
+  else if (fingerX > viewport.x + viewport.width - AUTO_SCROLL_EDGE) direction = 1
+  if (direction === 0) return 0
+  const max = Math.max(0, contentWidth - viewport.width)
+  const next = Math.max(0, Math.min(max, scrollX + direction * AUTO_SCROLL_STEP))
+  return next - scrollX
+}
+
+/**
+ * Maps a finger position to a `(columnID, position)` target in the live board
+ * snapshot. The finger x is translated to scroll-content coordinates through
+ * the viewport origin and the current scroll offset; a drop in the gap between
+ * columns snaps to the nearest column, and the y is measured from the column's
+ * card stack top. Exported for unit tests; the gesture is device-only chrome.
+ */
+export function dropTarget(
+  columns: BoardColumn[],
+  layouts: Map<string, ColumnGeometry>,
+  point: DropPoint,
+  heights: Map<string, number>,
+): { columnID: string; position: number } | null {
+  if (point.viewport.width <= 0) return null
+  const contentX = point.scrollX + point.absoluteX - point.viewport.x
+  let column: BoardColumn | null = null
+  let geometry: ColumnGeometry | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (const candidate of columns) {
+    const layout = layouts.get(candidate.id)
+    if (!layout) continue
+    if (contentX >= layout.x && contentX <= layout.x + layout.width) {
+      column = candidate
+      geometry = layout
+      break
+    }
+    const distance = Math.abs(contentX - (layout.x + layout.width / 2))
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      column = candidate
+      geometry = layout
+    }
+  }
+  if (!column || !geometry) return null
+  const yInCards = point.absoluteY - point.viewport.y - geometry.cardsY
+  return { columnID: column.id, position: indexForPoint(column.cards, yInCards, heights) }
+}
+
+/** Title/description body shared by the in-place card and the drag preview. */
+function CardBody({ card }: { card: BoardCard }) {
+  const styles = useThemedStyles(createStyles)
+  return (
+    <>
+      <Text style={styles.cardTitle} numberOfLines={1}>
+        {card.title}
+      </Text>
+      {card.description ? (
+        <Text style={styles.cardDescription} numberOfLines={2}>
+          {card.description}
+        </Text>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * One card: a tap opens the edit sheet, a long-press pan drags it anywhere on
+ * the board. The card itself stays in place (dimmed); the board renders the
+ * moving preview above every column. The gesture is device-only chrome —
+ * render suites drive the same commit through Move up/down and "Move to…".
  */
 function DraggableCard({
   card,
   onLayoutHeight,
-  onDrop,
   onOpen,
+  beginDrag,
+  endDrag,
+  dropCard,
+  dragX,
+  dragY,
+  grabX,
+  grabY,
 }: {
   card: BoardCard
   onLayoutHeight: (id: string, height: number) => void
-  onDrop: (cardID: string, dy: number) => void
   onOpen: (card: BoardCard) => void
+  beginDrag: (cardID: string, width: number) => void
+  endDrag: () => void
+  dropCard: (cardID: string, absoluteX: number, absoluteY: number, translationY: number) => void
+  dragX: SharedValue<number>
+  dragY: SharedValue<number>
+  grabX: SharedValue<number>
+  grabY: SharedValue<number>
 }) {
   const styles = useThemedStyles(createStyles)
-  const translateY = useSharedValue(0)
   const dragging = useSharedValue(false)
-  const onDropRef = useRef(onDrop)
-  onDropRef.current = onDrop
-  // The worklet must only capture a function defined on the JS runtime (a
-  // RemoteFunction). Capturing `onDropRef` itself serializes the ref into the
-  // UI runtime — it is then frozen and every `current` write warns "already
-  // passed to a worklet"; passing a locally created arrow to `runOnJS` throws.
-  const dispatchDrop = useCallback((id: string, dy: number) => {
-    onDropRef.current(id, dy)
-  }, [])
+  const width = useSharedValue(0)
 
   const gesture = useMemo(
     () =>
       Gesture.Pan()
         .activateAfterLongPress(250)
-        .onStart(() => {
+        .onStart((event) => {
           dragging.value = true
+          dragX.value = event.absoluteX
+          dragY.value = event.absoluteY
+          grabX.value = event.x
+          grabY.value = event.y
+          runOnJS(beginDrag)(card.id, width.value)
         })
         .onUpdate((event) => {
-          translateY.value = event.translationY
+          dragX.value = event.absoluteX
+          dragY.value = event.absoluteY
         })
         .onEnd((event) => {
-          dragging.value = false
-          translateY.value = withSpring(0)
-          runOnJS(dispatchDrop)(card.id, event.translationY)
+          runOnJS(dropCard)(card.id, event.absoluteX, event.absoluteY, event.translationY)
         })
         .onFinalize(() => {
-          resetCancelledDrag(dragging, translateY)
+          dragging.value = false
+          runOnJS(endDrag)()
         }),
-    [card.id, dispatchDrop, dragging, translateY],
+    [beginDrag, card.id, dragX, dragY, dropCard, dragging, endDrag, grabX, grabY, width],
   )
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }, { scale: dragging.value ? 1.03 : 1 }],
-    zIndex: dragging.value ? 10 : 0,
+    opacity: dragging.value ? 0.35 : 1,
   }))
 
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View
-        onLayout={(event) => onLayoutHeight(card.id, event.nativeEvent.layout.height + CARD_GAP)}
+        onLayout={(event) => {
+          const layout = event.nativeEvent.layout
+          width.value = layout.width
+          onLayoutHeight(card.id, layout.height + CARD_GAP)
+        }}
         style={[styles.card, animatedStyle]}
       >
         <Pressable
@@ -153,17 +266,51 @@ function DraggableCard({
           accessibilityRole="button"
           accessibilityLabel={`Edit card ${card.title}`}
         >
-          <Text style={styles.cardTitle} numberOfLines={1}>
-            {card.title}
-          </Text>
-          {card.description ? (
-            <Text style={styles.cardDescription} numberOfLines={2}>
-              {card.description}
-            </Text>
-          ) : null}
+          <CardBody card={card} />
         </Pressable>
       </Animated.View>
     </GestureDetector>
+  )
+}
+
+/** The lifted card that follows the finger above every column. */
+function DragPreview({
+  card,
+  width,
+  dragX,
+  dragY,
+  boardX,
+  boardY,
+  grabX,
+  grabY,
+}: {
+  card: BoardCard
+  width: number
+  dragX: SharedValue<number>
+  dragY: SharedValue<number>
+  boardX: SharedValue<number>
+  boardY: SharedValue<number>
+  grabX: SharedValue<number>
+  grabY: SharedValue<number>
+}) {
+  const styles = useThemedStyles(createStyles)
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: dragX.value - boardX.value - grabX.value },
+      { translateY: dragY.value - boardY.value - grabY.value },
+    ],
+  }))
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      testID="drag-preview"
+      style={[styles.card, styles.dragPreview, { width }, animatedStyle]}
+    >
+      <CardBody card={card} />
+    </Animated.View>
   )
 }
 
@@ -344,6 +491,23 @@ export function BoardScreen({
   const [error, setError] = useState<string | null>(null)
   const lastDragEndRef = useRef(0)
   const rowHeights = useRef(new Map<string, number>())
+  // Board-level drag state: the preview follows the finger in window
+  // coordinates, so it paints above adjacent columns (a card transformed
+  // inside its column would slide under the next column's surface).
+  const boardRef = useRef<ViewInstance>(null)
+  const scrollRef = useRef<ScrollViewInstance>(null)
+  const scrollX = useRef(0)
+  const contentWidth = useRef(0)
+  const viewport = useRef({ x: 0, y: 0, width: 0 })
+  const columnLayouts = useRef(new Map<string, { x: number; y: number; width: number }>())
+  const cardsOffsets = useRef(new Map<string, number>())
+  const [dragPreview, setDragPreview] = useState<{ card: BoardCard; width: number } | null>(null)
+  const dragX = useSharedValue(0)
+  const dragY = useSharedValue(0)
+  const grabX = useSharedValue(0)
+  const grabY = useSharedValue(0)
+  const boardX = useSharedValue(0)
+  const boardY = useSharedValue(0)
 
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
 
@@ -412,22 +576,95 @@ export function BoardScreen({
   const commitCardMoveRef = useRef(commitCardMove)
   commitCardMoveRef.current = commitCardMove
 
-  /** Drop handler for the within-column drag: resolves the index from the dy. */
-  const dropCard = useCallback(
-    (cardID: string, dy: number) => {
+  /** Measures the board viewport in window coordinates (origin + width). */
+  const measureBoard = useCallback(() => {
+    boardRef.current?.measureInWindow((x, y, width) => {
+      viewport.current = { x, y, width }
+      boardX.value = x
+      boardY.value = y
+    })
+  }, [boardX, boardY])
+
+  /** Lifts a card into the board-level preview and measures the viewport. */
+  const beginDrag = useCallback(
+    (cardID: string, width: number) => {
+      const base = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID)) ?? null
+      const card = base ? findCard(base, cardID) : null
+      if (!card) return
+      // A long press is a drag even when the finger never moves: suppress the
+      // tap that follows the gesture release.
       lastDragEndRef.current = Date.now()
-      const base = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID)) ?? boardQuery.data ?? null
+      setError(null)
+      // Show the preview immediately, then refresh the board origin/width (the
+      // outer list may have scrolled since the last layout measurement).
+      setDragPreview({ card, width })
+      const node = boardRef.current
+      if (!node || typeof node.measureInWindow !== "function") return
+      node.measureInWindow((x, y, measuredWidth) => {
+        viewport.current = { x, y, width: measuredWidth }
+        boardX.value = x
+        boardY.value = y
+      })
+    },
+    [boardX, boardY, queryClient, workspaceID],
+  )
+
+  const endDrag = useCallback(() => setDragPreview(null), [])
+
+  // Horizontal edge auto-scroll while a card is lifted: drag close to either
+  // side of the board viewport and the columns move under the preview, so a
+  // card can reach a column that was off-screen when the gesture started.
+  useEffect(() => {
+    if (!dragPreview) return
+    const timer = setInterval(() => {
+      const area = viewport.current
+      if (area.width <= 0) return
+      const delta = autoScrollStep(dragX.value, area, contentWidth.current, scrollX.current)
+      if (delta === 0) return
+      scrollX.current += delta
+      scrollRef.current?.scrollTo({ x: scrollX.current, animated: false })
+    }, 16)
+    return () => clearInterval(timer)
+  }, [dragPreview, dragX])
+
+  /** Drop handler: maps the finger to a `(columnID, position)` and commits it. */
+  const dropCard = useCallback(
+    (cardID: string, absoluteX: number, absoluteY: number, translationY: number) => {
+      lastDragEndRef.current = Date.now()
+      const base = queryClient.getQueryData<BoardSnapshot>(queryKeys.board(workspaceID)) ?? null
       if (!base) return
-      for (const column of base.columns) {
-        const index = column.cards.findIndex((card) => card.id === cardID)
-        if (index < 0) continue
-        const target = indexForDrop(column.cards, index, dy, rowHeights.current)
-        if (target === index) return
-        void commitCardMoveRef.current(cardID, column.id, target)
+      const source = base.columns.find((column) => column.cards.some((card) => card.id === cardID))
+      if (!source) return
+      const index = source.cards.findIndex((card) => card.id === cardID)
+      if (index < 0) return
+
+      // Combine the column and card-stack layouts measured on the content.
+      const layouts = new Map<string, ColumnGeometry>()
+      for (const [id, layout] of columnLayouts.current) {
+        layouts.set(id, {
+          x: layout.x,
+          width: layout.width,
+          cardsY: layout.y + (cardsOffsets.current.get(id) ?? 0),
+        })
+      }
+      const target = dropTarget(
+        base.columns,
+        layouts,
+        { absoluteX, absoluteY, scrollX: scrollX.current, viewport: viewport.current },
+        rowHeights.current,
+      )
+      if (target) {
+        if (target.columnID === source.id && target.position === index) return
+        void commitCardMoveRef.current(cardID, target.columnID, target.position)
         return
       }
+
+      // Viewport not measured yet (first paint): keep the within-column drop.
+      const fallback = indexForDrop(source.cards, index, translationY, rowHeights.current)
+      if (fallback === index) return
+      void commitCardMoveRef.current(cardID, source.id, fallback)
     },
-    [boardQuery.data, queryClient, workspaceID],
+    [queryClient, workspaceID],
   )
 
   function openCard(card: BoardCard) {
@@ -717,132 +954,177 @@ export function BoardScreen({
           </View>
         </View>
       ) : (
-        <ScrollView horizontal contentContainerStyle={styles.columnsRow} showsHorizontalScrollIndicator={false}>
-          {columns.map((column, columnIndex) => (
-            <View key={column.id} style={styles.column} accessibilityLabel={`Column ${column.title}`}>
-              <View style={styles.columnHeader}>
-                {editingColumnID === column.id ? (
-                  <>
-                    <TextInput
-                      value={editingColumnTitle}
-                      onChangeText={setEditingColumnTitle}
-                      accessibilityLabel="Column title"
-                      maxLength={200}
-                      autoFocus
-                      style={[styles.input, styles.columnRename]}
-                    />
-                    <Pressable
-                      onPress={() => void renameColumn(column.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Save column title"
-                      style={styles.iconButton}
-                    >
-                      <CheckIcon size={16} color={colors.accent} />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setEditingColumnID(null)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Cancel rename"
-                      style={styles.iconButton}
-                    >
-                      <CloseIcon size={16} color={colors.textMuted} />
-                    </Pressable>
-                  </>
-                ) : (
-                  <>
-                    <Pressable
-                      onPress={() => {
-                        setEditingColumnID(column.id)
-                        setEditingColumnTitle(column.title)
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Rename column ${column.title}`}
-                      style={styles.columnTitleButton}
-                    >
-                      <Text style={styles.columnTitle} numberOfLines={1}>
-                        {column.title}
+        <View ref={boardRef} style={styles.boardArea} onLayout={measureBoard}>
+          <ScrollView
+            ref={scrollRef}
+            horizontal
+            contentContainerStyle={styles.columnsRow}
+            showsHorizontalScrollIndicator={false}
+            onScroll={(event) => {
+              scrollX.current = event.nativeEvent.contentOffset.x
+            }}
+            scrollEventThrottle={16}
+            onContentSizeChange={(width) => {
+              contentWidth.current = width
+            }}
+          >
+            {columns.map((column, columnIndex) => (
+              <View
+                key={column.id}
+                style={styles.column}
+                accessibilityLabel={`Column ${column.title}`}
+                onLayout={(event) => {
+                  const { x, y, width } = event.nativeEvent.layout
+                  columnLayouts.current.set(column.id, { x, y, width })
+                }}
+              >
+                <View style={styles.columnHeader}>
+                  {editingColumnID === column.id ? (
+                    <>
+                      <TextInput
+                        value={editingColumnTitle}
+                        onChangeText={setEditingColumnTitle}
+                        accessibilityLabel="Column title"
+                        maxLength={200}
+                        autoFocus
+                        style={[styles.input, styles.columnRename]}
+                      />
+                      <Pressable
+                        onPress={() => void renameColumn(column.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Save column title"
+                        style={styles.iconButton}
+                      >
+                        <CheckIcon size={16} color={colors.accent} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setEditingColumnID(null)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel rename"
+                        style={styles.iconButton}
+                      >
+                        <CloseIcon size={16} color={colors.textMuted} />
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        onPress={() => {
+                          setEditingColumnID(column.id)
+                          setEditingColumnTitle(column.title)
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Rename column ${column.title}`}
+                        style={styles.columnTitleButton}
+                      >
+                        <Text style={styles.columnTitle} numberOfLines={1}>
+                          {column.title}
+                        </Text>
+                      </Pressable>
+                      <Text
+                        style={styles.countBadge}
+                        accessibilityLabel={`${column.cards.length} ${column.cards.length === 1 ? "card" : "cards"}`}
+                      >
+                        {column.cards.length}
                       </Text>
-                    </Pressable>
-                    <Text
-                      style={styles.countBadge}
-                      accessibilityLabel={`${column.cards.length} ${column.cards.length === 1 ? "card" : "cards"}`}
-                    >
-                      {column.cards.length}
-                    </Text>
-                    <Pressable
-                      onPress={() => columnOptions(column, columnIndex, columns.length)}
-                      accessibilityRole="button"
-                      accessibilityLabel="Column options"
-                      style={styles.iconButton}
-                    >
-                      <Text style={styles.ellipsis}>⋯</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
+                      <Pressable
+                        onPress={() => columnOptions(column, columnIndex, columns.length)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Column options"
+                        style={styles.iconButton}
+                      >
+                        <Text style={styles.ellipsis}>⋯</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
 
-              <View style={styles.cards}>
-                {column.cards.map((card) => (
-                  <DraggableCard
-                    key={card.id}
-                    card={card}
-                    onLayoutHeight={(id, height) => rowHeights.current.set(id, height)}
-                    onDrop={dropCard}
-                    onOpen={openCard}
+                <View
+                  style={styles.cards}
+                  onLayout={(event) => {
+                    cardsOffsets.current.set(column.id, event.nativeEvent.layout.y)
+                  }}
+                >
+                  {column.cards.map((card) => (
+                    <DraggableCard
+                      key={card.id}
+                      card={card}
+                      onLayoutHeight={(id, height) => rowHeights.current.set(id, height)}
+                      onOpen={openCard}
+                      beginDrag={beginDrag}
+                      endDrag={endDrag}
+                      dropCard={dropCard}
+                      dragX={dragX}
+                      dragY={dragY}
+                      grabX={grabX}
+                      grabY={grabY}
+                    />
+                  ))}
+                  {column.cards.length === 0 ? (
+                    <Text style={styles.muted}>No cards — add one below.</Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.quickAdd}>
+                  <TextInput
+                    value={newCardTitles[column.id] ?? ""}
+                    onChangeText={(value) => setNewCardTitles((prev) => ({ ...prev, [column.id]: value }))}
+                    placeholder="New card"
+                    placeholderTextColor={colors.textFaint}
+                    accessibilityLabel={`New card title in ${column.title}`}
+                    maxLength={200}
+                    style={[styles.input, styles.quickAddInput]}
                   />
-                ))}
-                {column.cards.length === 0 ? (
-                  <Text style={styles.muted}>No cards — add one below.</Text>
-                ) : null}
+                  <Pressable
+                    onPress={() => void createCard(column.id)}
+                    disabled={creatingCardColumn === column.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add card to ${column.title}`}
+                    style={styles.iconButton}
+                  >
+                    <PlusIcon size={16} color={colors.textMuted} />
+                  </Pressable>
+                </View>
               </View>
+            ))}
 
+            <View style={styles.column}>
+              <Text style={styles.columnTitle}>Add column</Text>
               <View style={styles.quickAdd}>
                 <TextInput
-                  value={newCardTitles[column.id] ?? ""}
-                  onChangeText={(value) => setNewCardTitles((prev) => ({ ...prev, [column.id]: value }))}
-                  placeholder="New card"
+                  value={newColumnTitle}
+                  onChangeText={setNewColumnTitle}
+                  placeholder="Column title"
                   placeholderTextColor={colors.textFaint}
-                  accessibilityLabel={`New card title in ${column.title}`}
+                  accessibilityLabel="New column title"
                   maxLength={200}
                   style={[styles.input, styles.quickAddInput]}
                 />
                 <Pressable
-                  onPress={() => void createCard(column.id)}
-                  disabled={creatingCardColumn === column.id}
+                  onPress={() => void createColumn()}
+                  disabled={creatingColumn}
                   accessibilityRole="button"
-                  accessibilityLabel={`Add card to ${column.title}`}
+                  accessibilityLabel="Add column"
                   style={styles.iconButton}
                 >
                   <PlusIcon size={16} color={colors.textMuted} />
                 </Pressable>
               </View>
             </View>
-          ))}
-
-          <View style={styles.column}>
-            <Text style={styles.columnTitle}>Add column</Text>
-            <View style={styles.quickAdd}>
-              <TextInput
-                value={newColumnTitle}
-                onChangeText={setNewColumnTitle}
-                placeholder="Column title"
-                placeholderTextColor={colors.textFaint}
-                accessibilityLabel="New column title"
-                maxLength={200}
-                style={[styles.input, styles.quickAddInput]}
-              />
-              <Pressable
-                onPress={() => void createColumn()}
-                disabled={creatingColumn}
-                accessibilityRole="button"
-                accessibilityLabel="Add column"
-                style={styles.iconButton}
-              >
-                <PlusIcon size={16} color={colors.textMuted} />
-              </Pressable>
-            </View>
-          </View>
-        </ScrollView>
+          </ScrollView>
+          {dragPreview ? (
+            <DragPreview
+              card={dragPreview.card}
+              width={dragPreview.width}
+              dragX={dragX}
+              dragY={dragY}
+              boardX={boardX}
+              boardY={boardY}
+              grabX={grabX}
+              grabY={grabY}
+            />
+          ) : null}
+        </View>
       )}
 
       {error && !editingCard ? <Text style={styles.error}>{error}</Text> : null}
@@ -872,6 +1154,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingHorizontal: 12,
       paddingTop: 10,
       paddingBottom: 24,
+    },
+    boardArea: {
+      position: "relative",
+    },
+    dragPreview: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      zIndex: 30,
+      elevation: 8,
+      shadowColor: "#000000",
+      shadowOpacity: 0.18,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 8 },
     },
     workspaceBar: {
       flexDirection: "row",

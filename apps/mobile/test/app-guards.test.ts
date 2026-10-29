@@ -122,17 +122,13 @@ describe("foreground recovery", () => {
 describe("worklet boundary", () => {
   const board = read("src/screens/BoardScreen.tsx")
 
-  it("keeps gesture-finalize helpers workletized", () => {
-    // `onFinalize` runs on the UI runtime; a plain JS helper called there
-    // throws "Tried to synchronously call a Remote Function" (device crash).
-    expect(board).toMatch(/export function resetCancelledDrag\([\s\S]{0,200}?"worklet"/)
-  })
-
   it("only passes JS-runtime functions to runOnJS", () => {
     // A function created inside the worklet does not exist on the JS runtime
     // and throws "[Worklets] Locally defined function passed to scheduleOnRN".
     expect(board).not.toMatch(/runOnJS\(\s*(\(|function\b)/)
-    expect(board).toMatch(/runOnJS\(dispatchDrop\)/)
+    for (const callback of ["beginDrag", "dropCard", "endDrag"]) {
+      expect(board).toContain(`runOnJS(${callback})`)
+    }
   })
 })
 
