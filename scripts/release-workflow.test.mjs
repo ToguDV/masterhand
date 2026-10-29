@@ -62,3 +62,34 @@ test("creating the GitHub release is retry-safe", () => {
   assert.match(release, /gh release view "\$TAG"/)
   assert.match(release, /gh release upload "\$TAG" --clobber/)
 })
+
+test("a preflight gates the release on the tag matching every version", () => {
+  assert.match(release, /\n  preflight:/)
+  assert.match(release, /node scripts\/check-release-versions\.mjs "\$GITHUB_REF_NAME"/)
+  const image = release.slice(release.indexOf("\n  image:"), release.indexOf("\n  android:"))
+  assert.match(image, /needs: preflight/)
+  const desktop = release.slice(release.indexOf("\n  desktop:"), release.indexOf("\n  publish:"))
+  assert.match(desktop, /needs: preflight/)
+})
+
+test("the desktop job packages Linux, Windows and macOS with electron-builder", () => {
+  const desktop = release.slice(release.indexOf("\n  desktop:"), release.indexOf("\n  publish:"))
+  for (const target of ["linux", "win", "mac"]) {
+    assert.match(desktop, new RegExp(`target: ${target}`), `missing desktop target ${target}`)
+  }
+  assert.match(desktop, /electron-builder --\$\{\{ matrix\.target \}\} --publish never/)
+  assert.match(desktop, /latest\*\.yml/)
+  assert.match(desktop, /if-no-files-found: error/)
+  assert.match(release, /needs: \[image, android, desktop\]/)
+})
+
+test("the publish job attaches the desktop channel files", () => {
+  assert.match(release, /find assets\/desktop-\* -maxdepth 1 -type f -print0/)
+  assert.match(release, /gh release upload "\$TAG" --clobber "\$file"/)
+})
+
+test("the updater sidecar image is published next to the server image", () => {
+  assert.match(release, /context: deploy\s*\n\s*file: deploy\/updater\.Dockerfile/s)
+  assert.match(release, /\$\{\{ env\.IMAGE \}\}-updater:\$\{\{ steps\.meta\.outputs\.version \}\}/)
+})
+

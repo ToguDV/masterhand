@@ -30,9 +30,28 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The tag is the single source of truth. Fail before any image or
+      # installer is built when a package/app version (or the monotonic
+      # versionCode) does not match it.
+      - name: Check versions match the tag
+        run: node scripts/check-release-versions.mjs "$GITHUB_REF_NAME"
+
   image:
     name: Server image + version.json
     runs-on: ubuntu-latest
+    needs: preflight
     permissions:
       contents: read
       packages: write
@@ -80,6 +99,18 @@ jobs:
           build-args: |
             MASTERHAND_VERSION=${{ steps.meta.outputs.version }}
             MASTERHAND_BUILD=${{ steps.meta.outputs.build }}
+
+      # Opt-in one-click updater sidecar (#134). It is the only container with
+      # the Docker socket; the BFF talks to it with a shared token.
+      - name: Build and push the updater image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy
+          file: deploy/updater.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}-updater:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE }}-updater:latest
 
       - name: Generate version.json
         run: |
@@ -236,10 +267,80 @@ jobs:
           name: android-apk
           path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
 
+  # Desktop installers + the electron-updater channel files (`latest*.yml`).
+  # The shell is a thin Electron wrapper around the BFF-served web app; its
+  # auto-updater reads these assets from the GitHub release.
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    needs: preflight
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            target: linux
+            artifact: desktop-linux
+          - name: Windows
+            os: windows-latest
+            target: win
+            artifact: desktop-windows
+          - name: macOS
+            os: macos-latest
+            target: mac
+            artifact: desktop-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the Electron shell
+        run: npm run build -w @masterhand/desktop
+
+      # Signing is optional and comes from secrets. Without them the installer
+      # is unsigned: Windows shows a SmartScreen warning and macOS needs the
+      # usual Gatekeeper bypass; macOS auto-update only applies to signed apps.
+      # `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps a runner keychain identity
+      # from being picked up accidentally.
+      - name: Package ${{ matrix.name }}
+        working-directory: apps/desktop
+        env:
+          CSC_LINK: ${{ matrix.target == 'win' && secrets.WINDOWS_CSC_LINK || matrix.target == 'mac' && secrets.MACOS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && secrets.WINDOWS_CSC_KEY_PASSWORD || matrix.target == 'mac' && secrets.MACOS_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --${{ matrix.target }} --publish never
+
+      - name: Collect release artifacts
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find release -maxdepth 1 -type f \( \
+            -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \
+            -o -name 'latest*.yml' -o -name '*.blockmap' \
+          \) -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Upload the desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: apps/desktop/release-assets/*
+          if-no-files-found: error
+
   publish:
     name: GitHub release + F-Droid repo
     runs-on: ubuntu-latest
-    needs: [image, android]
+    needs: [image, android, desktop]
     permissions:
       contents: write
     env:
@@ -268,6 +369,16 @@ jobs:
           gh release upload "$TAG" --clobber \
             "assets/version-json/version.json#version.json" \
             "assets/android-apk/app-release.apk#app-release.apk"
+          # Desktop installers + electron-updater channel files (`latest*.yml`,
+          # blockmaps). Keep the per-file loop so filenames with spaces survive.
+          count="$(find assets/desktop-* -maxdepth 1 -type f | wc -l)"
+          if [ "$count" -eq 0 ]; then
+            echo "no desktop artifacts to attach"
+            exit 1
+          fi
+          find assets/desktop-* -maxdepth 1 -type f -print0 | while IFS= read -r -d '' file; do
+            gh release upload "$TAG" --clobber "$file"
+          done
 
       # Self-hosted F-Droid repo (#133): the `fdroid` branch carries the repo
       # under `fdroid/` (config + `repo/*.apk` + generated index), served by

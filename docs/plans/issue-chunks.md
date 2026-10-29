@@ -1,18 +1,11 @@
 # Issue chunks — batched follow-up plan
 
-**Snapshot:** 2026-10-29. 1 open issue: #134 (one-click BFF updater, deliberately
-deferred). #225 (delete-path abort channels, follow-up of the C20 review) is fixed in
+**Snapshot:** 2026-10-29. **#134 (one-click BFF updater) landed** in the first-release session as a first-party opt-in sidecar (no Watchtower, no Docker socket in the BFF); the desktop installers + auto-update and the release pipeline also shipped. Remaining: #211-step-2 (per-card board frames). #225 (delete-path abort channels, follow-up of the C20 review) is fixed in
 [#237](https://github.com/ToguDV/masterhand/pull/237). Everything else from the 2026-10-21 snapshot
 (27 issues) is merged: C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client
 follow-ups (#164, #172).
 
-**Last updated:** 2026-10-29 — **#225 landed**: the delete request now owns one 25 s budget for
-the active-session guard and the response, plus a separate 300 s cleanup admission/listing cap for
-the detached base-folder listing and the start of releases. The base listing/releases run
-concurrently with the isolated releases, skipped releases still release their goal/preview/PTY
-lifecycles, and in-flight removals are never cancelled; a 504 neither keeps paginating 50 pages
-nor strands the worktrees that start after it. Remaining: #134 (deferred) and #211-step-2
-(per-card board frames, needs #196).
+**Last updated:** 2026-10-29 — **#134 landed** in the first-release session: the one-click BFF updater is a first-party opt-in sidecar (`deploy/updater/`), `POST /api/update/apply` writes a pre-update SQLite backup and triggers it, and web/desktop show **Update now** only when the deployment tracks `latest`. The same session shipped desktop installers + auto-update and the release pipeline (version preflight, desktop matrix, updater image, release runbook). Remaining: #211-step-2 (per-card board frames).
 
 **Last updated:** 2026-10-21 — **C19 has landed (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
 merged #185–#189, #191, #193 and #195 (forward-only migrations with the v2 device install id,
@@ -77,7 +70,7 @@ in the sessions options box per #136/#137).
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
 | C15 — Releases and in-app updates | #131 #133 | ✅ Merged 2026-10-29 — #230 (review hardening included); #134 stays deferred |
-| C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
+| C16 — Standardized BFF updater | #134 | ✅ 2026-10-29 — first-party opt-in sidecar (`deploy/updater/`), `POST /api/update/apply`, pre-update backup, web Update now |
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, merged #224) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ✅ Merged 2026-10-29 — #226 (review hardening included; #208 approved breaking) |
@@ -372,18 +365,18 @@ migrations; v1/v2 are immutable); C16 stays deferred (opt-in).
   additive APIs, a tolerant `version.json`, forward-only SQLite migrations, a stable F-Droid
   signing key/URL and a non-decreasing `versionCode`.
 
-### C16 — Standardized BFF updater (deferred)
+### C16 — Standardized BFF updater
 
 - **Issues:** [#134](https://github.com/ToguDV/masterhand/issues/134) standardized one-click BFF
   updater (opt-in sidecar over GHCR).
-- **Surface:** `deploy/docker-compose.yml` (opt-in profile: scoped Watchtower or a minimal
-  privileged sidecar), `deploy/.env.example`, a BFF trigger endpoint, Settings > About UI state,
-  `docs/runbooks/deployment.md`, `docs/past-mistakes.md`.
-- **Why together:** one issue; deliberately deferred — v1 (#131) keeps the BFF update manual
-  (`docker compose pull && up -d`) and only notifies.
-- **Order:** after #131 (needs GHCR images + `/api/update`).
-- **Dependencies:** #131. Never mount `/var/run/docker.sock` into the BFF; Docker access stays in
-  the isolated sidecar.
+- **Status:** ✅ Implemented 2026-10-29 in the first-release session. A first-party sidecar
+  (`deploy/updater/updater.mjs` + `deploy/updater.Dockerfile`, Compose profile `updater`) owns the
+  Docker socket; the BFF calls it with a shared token through `POST /api/update/apply`, which
+  re-checks the manifest, writes an online SQLite backup and answers `202` before the restart. The
+  web banner/About offer **Update now** only when the deployment tracks `latest`; pinned tags keep
+  the manual command. The sidecar pulls/recreates only the `masterhand` service and resolves the
+  host `/workspace` bind. Not Watchtower: the original is archived (Dec 2025) and its Docker SDK
+  cannot talk to Docker Engine 29+. See ADR-41 and `docs/runbooks/release.md` §6.
 
 ### C23 — Mobile board + scheduler parity
 

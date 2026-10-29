@@ -114,9 +114,9 @@ order:
    identity handling (SecureStore install id). Document native-only differences.
 4. **Verify the behavior on desktop.** The shell serves the web build unchanged,
    so there is no separate UI to port; confirm the change works under the
-   origin-locked navigation (`MASTERHAND_URL`) and the hardened renderer. If a
-   change requires desktop-specific code in `apps/desktop/src`, treat it as a
-   port with its own tests.
+   origin-locked navigation (first-run connect screen, persisted server origin)
+   and the hardened renderer. If a change requires desktop-specific code in
+   `apps/desktop/src`, treat it as a port with its own tests.
 5. **Verify parity** (next section) and only then run the code review when one
    is required.
 

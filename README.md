@@ -2,7 +2,25 @@
 
 Self-hosted server to use your [opencode](https://opencode.ai) agents from any device — web, desktop and mobile. Open source, single-user across multiple devices.
 
-> Status: Phase 3 completed (BFF + web + Electron + React Native) and deploy-ready. Public release polish, host deployment and real-device testing are deferred. See `PROGRESS.md`.
+> Status: v0.1.0 — BFF + web + Electron + React Native, deploy-ready. See `PROGRESS.md`.
+
+## Install
+
+- **Web / self-hosted server:** pull `ghcr.io/togudv/masterhand:<version>` and
+  run the Compose stack ([deployment runbook](docs/runbooks/deployment.md)).
+  The web UI is served by the BFF; there is no separate static site.
+- **Desktop:** Linux AppImage, Windows installer and macOS DMG/ZIP from the
+  [latest release](https://github.com/ToguDV/masterhand/releases/latest). The
+  first launch asks for your server URL; the app updates itself from GitHub
+  releases.
+- **Android:** signed APK from the same release, or add the self-hosted F-Droid
+  repo `https://togudv.github.io/masterhand/fdroid/`.
+
+Updating: the desktop app checks every 6 hours and prompts to restart; Android
+notifies through F-Droid; the server shows an update banner and, when the
+[one-click updater](docs/runbooks/release.md#6-one-click-bff-updater-opt-in) is
+enabled, an **Update now** button. A pinned `MASTERHAND_VERSION` keeps the
+manual `docker compose pull && up -d` flow.
 
 ## How it works
 
@@ -66,7 +84,7 @@ Docker Compose reads `deploy/.env` and injects it into the containers; inside th
 ## Stack
 
 - **Web:** React 19 + Vite + TypeScript + Tailwind
-- **Desktop:** Electron (loads the BFF-served web app; `MASTERHAND_URL`)
+- **Desktop:** Electron (loads the BFF-served web app; first-run server URL, persisted locally, `electron-updater` from GitHub Releases)
 - **Mobile:** React Native + Expo
 - **Shared:** `packages/client-core` (API client, query hooks, SSE, auth adapters)
 - **BFF:** Node 22 + Hono (auth, proxy, SSE relay)
