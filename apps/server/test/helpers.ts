@@ -445,6 +445,10 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     providersAllowLoopback: false,
     customProvidersFile: "/tmp/masterhand-test/masterhand-providers.json",
     managedRunLauncher: "",
+    version: "0.1.0",
+    build: "dev",
+    updateManifestUrl: "https://github.com/togudv/masterhand/releases/latest/download/version.json",
+    updateCacheMs: 12 * 60 * 1000,
     ...overrides,
   }
 }

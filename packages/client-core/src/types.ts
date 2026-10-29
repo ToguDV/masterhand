@@ -123,6 +123,10 @@ export interface CreateWorkspaceInput {
 
 export interface BffStatus {
   ok: boolean
+  /** Release version baked into the server image (#131); absent on older BFFs. */
+  version?: string
+  /** Build id baked into the server image (#131); absent on older BFFs. */
+  build?: string
   opencode?: {
     healthy: boolean
     version?: string

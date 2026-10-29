@@ -1,0 +1,327 @@
+# Release (#131 + #133): tag-triggered only (`v*`, e.g. `v0.2.0`).
+#
+# - `image`: builds the server image with the release identity baked in
+#   (`MASTERHAND_VERSION` = the tag without `v`, `MASTERHAND_BUILD` = the
+#   commit SHA), pushes it to GHCR as `:version` plus `:latest`, and generates
+#   the `version.json` manifest the BFF's `GET /api/update` reads.
+# - `android`: builds the signed release APK (`expo prebuild` + Gradle; the
+#   keystore comes from Actions secrets and is never committed).
+# - `publish`: creates the GitHub release with `version.json` + the APK
+#   attached, then refreshes the self-hosted F-Droid repo on the `fdroid`
+#   branch (stable URL `https://togudv.github.io/masterhand/fdroid/`).
+#
+# Deliberately separate from `ci.yml` (untouched): releases run on tags, CI
+# on PRs and `main`. The Android/F-Droid path is release-only: day-to-day
+# mobile CI stays `mobile-e2e.yml` (manual emulator runs).
+#
+# Tag discipline: cut only final `vX.Y.Z` tags (prereleases notify stable
+# users as if they were final — the semver compare strips suffixes). Every
+# release bumps the version string; code-only releases (same version, higher
+# code) are not supported, so the BFF semver path always sees new releases
+# and `versionCode` strictly follows the tag (see the versions check below).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Server image + version.json
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY: ghcr.io
+      IMAGE: ghcr.io/togudv/masterhand
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      build: ${{ steps.meta.outputs.build }}
+      date: ${{ steps.meta.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive the release identity
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/server.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          build-args: |
+            MASTERHAND_VERSION=${{ steps.meta.outputs.version }}
+            MASTERHAND_BUILD=${{ steps.meta.outputs.build }}
+
+      - name: Generate version.json
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          NOTES="$(git tag -l --format='%(contents:subject)' "$TAG" | head -c 500)"
+          VERSION="${{ steps.meta.outputs.version }}" DATE="${{ steps.meta.outputs.date }}" NOTES="$NOTES" node -e '
+            const fs = require("node:fs");
+            const notes = (process.env.NOTES ?? "").trim();
+            const manifest = {
+              version: process.env.VERSION,
+              tag: process.env.TAG,
+              publishedAt: process.env.DATE,
+              notes: notes === "" ? null : notes,
+            };
+            fs.writeFileSync("version.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+
+      - name: Upload version.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-json
+          path: version.json
+
+  android:
+    name: Signed release APK
+    runs-on: ubuntu-latest
+    needs: image
+    permissions:
+      contents: read
+    outputs:
+      version-code: ${{ steps.versions.outputs.version-code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the mobile version matches the tag
+        id: versions
+        run: |
+          APP_VERSION="$(node -p "require('./apps/mobile/app.json').expo.version")"
+          if [ "$APP_VERSION" != "${{ needs.image.outputs.version }}" ]; then
+            echo "apps/mobile/app.json version ($APP_VERSION) != tag version (${{ needs.image.outputs.version }}); bump it before tagging (see docs/runbooks/fdroid.md)"
+            exit 1
+          fi
+          # versionCode strictly follows the tag (helper androidVersionCode()
+          # in client-core, unit-tested): every release bumps the version
+          # string, so code-only releases cannot slip through silently.
+          EXPECTED_CODE="$(node -e 'const v = process.argv[1].split(".").map(Number); console.log(v[0] * 10000 + v[1] * 100 + v[2])' "${{ needs.image.outputs.version }}")"
+          APP_CODE="$(node -p "require('./apps/mobile/app.json').expo.android.versionCode")"
+          if [ "$APP_CODE" != "$EXPECTED_CODE" ]; then
+            echo "apps/mobile/app.json android.versionCode ($APP_CODE) != derived from tag ($EXPECTED_CODE = major*10000+minor*100+patch)"
+            exit 1
+          fi
+          echo "version-code=$APP_CODE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Write the signing keystore (secrets only, never committed)
+        working-directory: apps/mobile
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 is not set; add the signing keystore (see docs/runbooks/fdroid.md)"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+
+      - name: Prebuild the Android shell
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_TELEMETRY: "1"
+          CI: "1"
+        run: npx expo prebuild --platform android --non-interactive
+
+      # Stock `expo prebuild` signs the release build with the debug key
+      # (verified by dry-run: `signingConfig signingConfigs.debug` in the
+      # release buildType, `key.properties` read by nothing). Patch in a
+      # release signing config fed by secrets, so the APK matches the key
+      # that signs the F-Droid index — a debug-signed APK would fail to
+      # install over the release-key lineage.
+      - name: Wire the release signing config
+        working-directory: apps/mobile
+        run: |
+          cp release.keystore android/app/release.keystore
+          python3 - <<'EOF'
+          from pathlib import Path
+          path = Path("android/app/build.gradle")
+          text = path.read_text()
+          anchor = "            keyPassword 'android'\n        }\n"
+          assert text.count(anchor) == 1, "debug signingConfigs block not found exactly once"
+          text = text.replace(
+              anchor,
+              anchor
+              + "        release {\n"
+              + '            storeFile file(\'release.keystore\')\n'
+              + '            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")\n'
+              + '            keyAlias System.getenv("ANDROID_KEY_ALIAS")\n'
+              + '            keyPassword System.getenv("ANDROID_KEY_PASSWORD")\n'
+              + "        }\n",
+          )
+          marker = "buildTypes {"
+          release_at = text.index("release {", text.index(marker))
+          old = "signingConfig signingConfigs.debug"
+          pos = text.index(old, release_at)
+          text = text[:pos] + "signingConfig signingConfigs.release" + text[pos + len(old):]
+          path.write_text(text)
+          print("release signingConfig wired")
+          EOF
+
+      - name: Build the signed APK
+        working-directory: apps/mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Verify the APK signature matches the release keystore
+        working-directory: apps/mobile
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -e
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          APK_CERT="$("$APKSIGNER" verify --print-certs "$APK" | grep -oE '[Ss][Hh][Aa]-256 digest: [0-9a-fA-F:]+' | head -1 | awk '{print $NF}' | tr 'A-Z' 'a-z')"
+          KEY_CERT="$(keytool -list -v -keystore android/app/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | grep -oE 'SHA256: [0-9A-F:]+' | head -1 | awk '{print $NF}' | tr 'A-Z' 'a-z')"
+          if [ -z "$APK_CERT" ] || [ "$APK_CERT" != "$KEY_CERT" ]; then
+            echo "APK is not signed with the release keystore (apk=$APK_CERT key=$KEY_CERT)"
+            exit 1
+          fi
+          echo "APK signature matches the release key ($APK_CERT)"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+
+  publish:
+    name: GitHub release + F-Droid repo
+    runs-on: ubuntu-latest
+    needs: [image, android]
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.image.outputs.tag }}
+      VERSION: ${{ needs.image.outputs.version }}
+      VERSION_CODE: ${{ needs.android.outputs.version-code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download the release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists (job retry); reusing it"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" --clobber \
+            "assets/version-json/version.json#version.json" \
+            "assets/android-apk/app-release.apk#app-release.apk"
+
+      # Self-hosted F-Droid repo (#133): the `fdroid` branch carries the repo
+      # under `fdroid/` (config + `repo/*.apk` + generated index), served by
+      # GitHub Pages at https://togudv.github.io/masterhand/fdroid/ (see
+      # docs/runbooks/fdroid.md for setup and key custody).
+      - name: Refresh the F-Droid repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          git fetch origin fdroid || true
+          if git rev-parse --verify origin/fdroid >/dev/null 2>&1; then
+            git checkout fdroid
+          else
+            git checkout --orphan fdroid
+            git rm -rf . || true
+          fi
+          mkdir -p fdroid/repo
+          APK="fdroid/repo/dev.togudv.masterhand_${VERSION_CODE}.apk"
+          cp "assets/android-apk/app-release.apk" "$APK"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > fdroid/repo.keystore
+          if [ ! -f fdroid/config.py ]; then
+            cat > fdroid/config.py <<'EOF'
+          repo_url = "https://togudv.github.io/masterhand/fdroid/"
+          repo_name = "MasterHand"
+          repo_icon = "icon.png"
+          keystore = "repo.keystore"
+          EOF
+          fi
+          # The repo keystore is the Android signing keystore (same file the
+          # APK job used): one stable key signs APKs and the index forever.
+          # Passwords live only in a throwaway copy of the config: fdroidserver
+          # reads them from `config.py`, and the committed file must never
+          # carry secrets (it is pushed to the public `fdroid` branch).
+          sed -i 's|^keystore *=.*|keystore = "repo.keystore"|' fdroid/config.py
+          grep -q '^keyalias' fdroid/config.py || echo "keyalias = \"$ANDROID_KEY_ALIAS\"" >> fdroid/config.py
+          cp fdroid/config.py fdroid/config.py.keep
+          cat >> fdroid/config.py <<EOF
+          keystorepass = "$ANDROID_KEYSTORE_PASSWORD"
+          keypass = "$ANDROID_KEY_PASSWORD"
+          EOF
+          pip install --quiet fdroidserver
+          (cd fdroid && fdroid update)
+          mv fdroid/config.py.keep fdroid/config.py
+          rm -f fdroid/repo.keystore
+          git add fdroid
+          if git diff --cached --quiet; then
+            echo "F-Droid repo unchanged"
+          else
+            git -c user.name="MasterHand release" -c user.email="masterhand@localhost" \
+              commit -m "F-Droid repo for $TAG (versionCode $VERSION_CODE)"
+            git push origin fdroid
+          fi

@@ -40,6 +40,20 @@ export interface Config {
   /** Author used for commits MasterHand creates in isolated worktrees. */
   gitUserName: string
   gitUserEmail: string
+  /**
+   * Release identity served by `/api/status` (#131). Baked in at image build
+   * time (`MASTERHAND_VERSION`/`MASTERHAND_BUILD`); local builds report the
+   * package version with a `dev` build id.
+   */
+  version: string
+  build: string
+  /**
+   * `version.json` manifest fetched by `GET /api/update` (#131). Defaults to
+   * the file attached to the latest GitHub release.
+   */
+  updateManifestUrl: string
+  /** TTL of the in-memory update manifest cache (10–15 min window). */
+  updateCacheMs: number
   /** Enables the Cloudflare quick-tunnel preview feature. */
   previewEnabled: boolean
   /** Host (no port) where the agent's dev server listens, as seen by the tunnel. */
@@ -258,6 +272,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : resolve(workspacesRoot, ".worktrees"),
     gitUserName: env.GIT_COMMIT_NAME?.trim() || "MasterHand",
     gitUserEmail: env.GIT_COMMIT_EMAIL?.trim() || "masterhand@localhost",
+    version: env.MASTERHAND_VERSION?.trim() || "0.1.0",
+    build: env.MASTERHAND_BUILD?.trim() || "dev",
+    updateManifestUrl:
+      env.UPDATE_MANIFEST_URL?.trim() ||
+      "https://github.com/togudv/masterhand/releases/latest/download/version.json",
+    updateCacheMs: Math.min(
+      15 * 60 * 1000,
+      Math.max(10 * 60 * 1000, intFromEnv(env.UPDATE_CACHE_MS, 12 * 60 * 1000)),
+    ),
     previewEnabled: boolFromEnv("PREVIEW_ENABLED", env.PREVIEW_ENABLED, true),
     // In Docker the tunnel targets the opencode container by service name; in
     // development both processes run on the host.

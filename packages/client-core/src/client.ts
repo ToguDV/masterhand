@@ -65,6 +65,7 @@ import {
   type WebsearchTestResult,
 } from "./websearch"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
+import { normalizeUpdateCheck, type UpdateCheck } from "./update"
 
 export class ApiError extends Error {
   constructor(
@@ -317,6 +318,14 @@ export interface Client {
       runNow(taskID: string): Promise<ScheduledTask>
       /** Run history of a task, newest first as served by the BFF (paged; default is the newest 50). */
       runs(taskID: string, options?: { limit?: number; offset?: number }): Promise<ScheduledRun[]>
+    }
+    /**
+     * Release updates (#131). `latest` is null when the upstream manifest is
+     * unknown (fetch failure, malformed manifest) or when the BFF predates the
+     * route — all degrade to "no notice", never to an error state.
+     */
+    update: {
+      check(): Promise<UpdateCheck>
     }
   }
   workspaces: {
@@ -862,6 +871,14 @@ export function createClient(options: ClientOptions = {}): Client {
             `/api/scheduled-tasks/${encodeURIComponent(taskID)}/runs${query ? `?${query}` : ""}`,
           ).then((response) => response.runs)
         },
+      },
+      update: {
+        // Advisory by design: any failure (old BFF without the route,
+        // timeout, unreachable) degrades to "no notice", never an error.
+        check: () =>
+          request<unknown>("/api/update")
+            .then((response) => normalizeUpdateCheck(response))
+            .catch(() => ({ latest: null }) as UpdateCheck),
       },
     },
     workspaces: {

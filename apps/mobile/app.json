@@ -10,7 +10,8 @@
       "bundleIdentifier": "dev.togudv.masterhand"
     },
     "android": {
-      "package": "dev.togudv.masterhand"
+      "package": "dev.togudv.masterhand",
+      "versionCode": 100
     },
     "plugins": [
       [

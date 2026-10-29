@@ -67,7 +67,7 @@ in the sessions options box per #136/#137).
 | C13 — Provider credentials in settings | #128 | ✅ 2026-10-06 — session batch (settings/chat/providers) |
 | C14 — /goal (server + clients) | #129 #130 | ✅ Merged 2026-10-09 — session batch (goal mode + shared retry engine) |
 | C17 — Scheduler (web + client-core + BFF) | #147 | ✅ 2026-10-17 — session batch (scheduler; mobile parity deferred to a follow-up issue) |
-| C15 — Releases and in-app updates | #131 #133 | ⬜ Pending — #186 landed; add v3+ migrations |
+| C15 — Releases and in-app updates | #131 #133 | 🟡 2/2 implemented 2026-10-29 on `fix/c15-releases` (#131 → #133, one commit per issue with red → green evidence each) — pending reviewer pass, PR not yet opened; #134 stays deferred |
 | C16 — Standardized BFF updater (deferred) | #134 | ⬜ Pending |
 | C18 — Security boundary and input hardening (BFF) | #178 #179 #180 #181 #182 #183 #184 #209 #210 | ✅ 2026-10-20 (all 9) — #214 merged 8/9 (#178 #180–#184 #209 #210); #179 in [#220](https://github.com/ToguDV/masterhand/pull/220); engine-side residuals #216–#219 resolved 2026-10-28 (session batch, PR pending) |
 | C19 — Persistence and mutation integrity | #185 #186 #187 #188 #189 #191 #193 #195 | ✅ Merged 2026-10-21 — [#221](https://github.com/ToguDV/masterhand/pull/221) (8/8 + review hardening) |

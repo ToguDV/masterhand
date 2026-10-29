@@ -119,6 +119,7 @@ export {
   useSessionRun,
   useSessionStatuses,
   useSessions,
+  useUpdate,
   useUpdateScheduledTask,
   useWebsearchSettings,
   useWebsearchSources,
@@ -185,6 +186,17 @@ export {
   type ComposerPopoverItem,
   type ComposerTrigger,
 } from "./commands"
+export {
+  androidVersionCode,
+  compareSemver,
+  isNewerVersion,
+  isSemver,
+  normalizeUpdateCheck,
+  normalizeVersionManifest,
+  UPDATE_MANIFEST_URL,
+  type UpdateCheck,
+  type VersionRelease,
+} from "./update"
 export {
   GOAL_EVENT_TYPE,
   goalActivityLabel,

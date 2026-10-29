@@ -66,6 +66,13 @@ CMD ["sh", "-c", "umask 002; exec node scripts/dev.mjs web --host 0.0.0.0"]
 
 # ---------- build ----------
 FROM base AS build
+# Release identity baked into the server (`/api/status`) and the web bundle
+# (stale-bundle notice). The release workflow passes the tag; local builds
+# keep the package version with a `dev` build id.
+ARG MASTERHAND_VERSION=0.1.0
+ARG MASTERHAND_BUILD=dev
+ENV MASTERHAND_VERSION=${MASTERHAND_VERSION}
+ENV MASTERHAND_BUILD=${MASTERHAND_BUILD}
 COPY tsconfig.base.json ./
 COPY packages/client-core packages/client-core
 COPY apps/server apps/server
@@ -80,8 +87,16 @@ RUN npm prune --omit=dev
 
 # ---------- runtime ----------
 FROM toolchain AS runtime
+# Build args are stage-scoped: re-declare them here so the runtime image
+# carries the same release identity the `build` stage compiled in.
+ARG MASTERHAND_VERSION=0.1.0
+ARG MASTERHAND_BUILD=dev
 ENV NODE_ENV=production
 ENV DATA_DIR=/data
+# Release identity served by `/api/status` (overridable at run time, but the
+# build args above are the source of truth for published images).
+ENV MASTERHAND_VERSION=${MASTERHAND_VERSION}
+ENV MASTERHAND_BUILD=${MASTERHAND_BUILD}
 WORKDIR /app
 
 COPY --from=prod-deps /app/node_modules ./node_modules

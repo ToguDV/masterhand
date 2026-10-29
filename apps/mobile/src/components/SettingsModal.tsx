@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
 import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
 import { Screen } from "./Screen"
+import { AboutSection } from "./UpdateNotice"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
@@ -10,6 +11,7 @@ import {
   BackIcon,
   ChevronRightIcon,
   CloseIcon,
+  ExternalLinkIcon,
   GearIcon,
   KeyIcon,
   SearchIcon,
@@ -35,13 +37,14 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
 const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
-type SectionID = "appearance" | "goal" | "websearch" | "providers"
+type SectionID = "appearance" | "goal" | "websearch" | "providers" | "about"
 
 const SECTIONS: Array<{ id: SectionID; label: string; desc: string; icon: ComponentType<IconProps> }> = [
   { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
   { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
+  { id: "about", label: "About", desc: "Version and updates", icon: ExternalLinkIcon },
 ]
 
 /**
@@ -208,6 +211,7 @@ export function SettingsModal({
           {section === "goal" && <GoalReviewSection client={client} />}
           {section === "websearch" && <WebSearchSection client={client} />}
           {section === "providers" && <ProvidersSection client={client} />}
+          {section === "about" && <AboutSection client={client} />}
           </ScrollView>
         )}
       </Screen>

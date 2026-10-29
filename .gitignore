@@ -41,3 +41,8 @@ e2e/test-results/
 e2e/playwright-report/
 playwright-report/
 test-results/
+
+# Generated / secret mobile artifacts (the release workflow regenerates them)
+apps/mobile/android/
+*.keystore
+key.properties

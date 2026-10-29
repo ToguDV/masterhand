@@ -38,6 +38,7 @@ import { SessionsScreen } from "./src/screens/SessionsScreen"
 import { ChatScreen } from "./src/screens/ChatScreen"
 import { PermissionModal } from "./src/components/PermissionModal"
 import { SettingsModal } from "./src/components/SettingsModal"
+import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
 import { ThemedSystemBars } from "./src/components/SystemBars"
 import { ActivityIndicator, Text } from "react-native"
@@ -620,6 +621,9 @@ function AuthenticatedApp({
 
   return (
     <>
+      {/* Release update banner (#133): BFF manifest first, F-Droid index as
+          fallback; the only action deep-links into F-Droid. */}
+      <UpdateBanner client={client} />
       {sessionID ? (
         <View style={styles.screenWrap}>
           {banner ? (
