@@ -370,9 +370,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download the release assets
+      # Download only the release artifacts. Docker buildx also uploads
+      # `.dockerbuild` cache artifacts; they are not release assets and are not
+      # extractable zips, so downloading "all artifacts" fails.
+      - name: Download version.json
         uses: actions/download-artifact@v4
         with:
+          name: version-json
+          path: assets/version-json
+
+      - name: Download the Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: assets/android-apk
+
+      - name: Download the desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
           path: assets
 
       - name: Create the GitHub release
@@ -398,6 +414,15 @@ jobs:
             gh release upload "$TAG" --clobber "$file"
           done
 
+      # fdroidserver needs Java (jarsigner/keytool) and the Android build-tools
+      # (aapt/apksigner) to inspect the APK and sign the index.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v4
+
       # Self-hosted F-Droid repo (#133): the `fdroid` branch carries the repo
       # under `fdroid/` (config + `repo/*.apk` + generated index), served by
       # GitHub Pages at https://togudv.github.io/masterhand/fdroid/ (see
@@ -421,6 +446,10 @@ jobs:
           mkdir -p fdroid/repo
           APK="fdroid/repo/dev.togudv.masterhand_${VERSION_CODE}.apk"
           cp "assets/android-apk/app-release.apk" "$APK"
+          # Repo icon + no Jekyll: the branch root is served by Pages, the repo
+          # lives under fdroid/. The icon is the same desktop brand mark.
+          git show "$TAG:apps/desktop/assets/icon.png" > fdroid/icon.png
+          touch .nojekyll
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > fdroid/repo.keystore
           if [ ! -f fdroid/config.py ]; then
             cat > fdroid/config.py <<'EOF'
@@ -446,7 +475,7 @@ jobs:
           (cd fdroid && fdroid update)
           mv fdroid/config.py.keep fdroid/config.py
           rm -f fdroid/repo.keystore
-          git add fdroid
+          git add fdroid .nojekyll
           if git diff --cached --quiet; then
             echo "F-Droid repo unchanged"
           else
