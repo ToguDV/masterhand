@@ -129,23 +129,19 @@ export function ChatScreen({
   const userScrollingRef = useRef(false)
   const [showJump, setShowJump] = useState(false)
   const didInitialScroll = useRef(false)
+  // The list mounts at the top and only knows its full height after layout:
+  // pinning it then flashes the top of the chat on heavy sessions. Keep the
+  // list invisible until the first bottom pin lands, so entry starts at the
+  // bottom with no visible scroll at all.
+  const [enteredReady, setEnteredReady] = useState(false)
 
   useEffect(() => {
     followRef.current = true
     userScrollingRef.current = false
     didInitialScroll.current = false
     setShowJump(false)
+    setEnteredReady(false)
   }, [sessionID])
-
-  useEffect(() => {
-    if (messages.length === 0 || didInitialScroll.current) return
-    didInitialScroll.current = true
-    // Respect a scroll-away that already happened (followRef flipped by
-    // handleScroll): the entry pin must never yank the user back down nor
-    // hide the shortcut they just earned.
-    if (userScrollingRef.current || !followRef.current) return
-    listRef.current?.scrollToEnd({ animated: false })
-  }, [messages.length, sessionID])
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
@@ -164,10 +160,21 @@ export function ChatScreen({
   }, [])
 
   const handleContentSizeChange = useCallback(() => {
-    if (!didInitialScroll.current) didInitialScroll.current = true
-    if (userScrollingRef.current || !followRef.current) return
-    listRef.current?.scrollToEnd({ animated: false })
-  }, [])
+    if (messages.length === 0) return
+    if (!didInitialScroll.current) {
+      didInitialScroll.current = true
+      // Respect a scroll-away that already happened (followRef flipped by
+      // handleScroll): the entry pin must never yank the user back down nor
+      // hide the shortcut they just earned.
+      if (followRef.current && !userScrollingRef.current) {
+        listRef.current?.scrollToEnd({ animated: false })
+      }
+      setEnteredReady(true)
+    } else {
+      if (userScrollingRef.current || !followRef.current) return
+      listRef.current?.scrollToEnd({ animated: false })
+    }
+  }, [messages.length])
 
   const scrollToBottom = useCallback(() => {
     followRef.current = true
@@ -373,7 +380,10 @@ export function ChatScreen({
         </Pressable>
       ) : null}
 
-      <View style={styles.listWrap}>
+      <View
+        style={[styles.listWrap, messages.length > 0 && !enteredReady ? styles.listHidden : null]}
+        testID="chat-list-wrap"
+      >
         <FlatList
           ref={listRef}
           testID="chat-list"
@@ -544,6 +554,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     listWrap: {
       flex: 1,
+    },
+    listHidden: {
+      opacity: 0,
     },
     jumpWrap: {
       position: "absolute",

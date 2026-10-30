@@ -351,6 +351,26 @@ describe("ChatScreen", () => {
     await waitFor(() => expect(screen.queryByLabelText("Close run and preview")).toBeNull())
   })
 
+  it("starts at the bottom with no visible scroll on entry", async () => {
+    await setup({}, (client) => {
+      client.api.messages.mockResolvedValue([assistant])
+    })
+    expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
+    // Messages are in but the list has not pinned to the bottom yet: it stays
+    // invisible so the user never sees the top of the chat flash by.
+    expect(screen.getByTestId("chat-list-wrap").props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
+    )
+
+    fireEvent(screen.getByTestId("chat-list"), "contentSizeChange", 300, 5000)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-list-wrap").props.style).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
+      )
+    })
+  })
+
   it("shows a scroll-to-bottom shortcut when scrolled up", async () => {
     await setup({}, (client) => {
       client.api.messages.mockResolvedValue([assistant])
@@ -370,8 +390,7 @@ describe("ChatScreen", () => {
     expect(await screen.findByLabelText("Scroll to bottom")).toBeOnTheScreen()
   })
 
-  it("hides the shortcut after jumping back to the bottom", async () => {
-    await setup({}, (client) => {
+  it("hides the shortcut after jumping back to the bottom", async () => {    await setup({}, (client) => {
       client.api.messages.mockResolvedValue([assistant])
     })
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
