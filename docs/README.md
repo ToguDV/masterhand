@@ -24,5 +24,6 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 | [`runbooks/mobile-e2e.md`](runbooks/mobile-e2e.md) | Mobile E2E with Maestro (emulator/simulator and CI) | ✅ 2026-10-01 |
 | [`runbooks/fdroid.md`](runbooks/fdroid.md) | Self-hosted F-Droid repo and Android update notices (#133) | ✅ 2026-10-29 |
 | [`runbooks/release.md`](runbooks/release.md) | Cutting a release: version guard, server image, Android APK/F-Droid, desktop installers, rollback and the opt-in BFF updater | ✅ 2026-10-29 |
+| [`runbooks/agent-worktrees.md`](runbooks/agent-worktrees.md) | One worktree + branch per agent: setup, gates without a `GIT_DIR` leak, teardown | ✅ 2026-10-30 |
 | [`reviews/2026-10-01-pr-24-25-code-review.md`](reviews/2026-10-01-pr-24-25-code-review.md) | Code review of PR #24/#25: open findings, evidence and fix plan | ✅ 2026-10-01 |
 | `runbooks/host-setup.md` | Host preparation: Docker, DNS, user and firewall | ⬜ Phase 0 |

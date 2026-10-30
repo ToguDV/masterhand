@@ -2,6 +2,10 @@
 # Pre-push: full gate before sharing a branch (mirrors CI).
 set -e
 
+# Rule 30 (docs/past-mistakes.md): never run git-spawning gates with
+# GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE set (see pre-commit).
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 if [ -n "$MASTERHAND_SKIP_HOOKS" ]; then
   echo "[pre-push] skipped (MASTERHAND_SKIP_HOOKS)"
   exit 0

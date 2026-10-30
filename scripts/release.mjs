@@ -46,7 +46,10 @@ function bumpJson(file, mutate) {
 }
 
 function run(command, args) {
-  execFileSync(command, args, { cwd: repoRoot, stdio: "inherit" })
+  // Rule 30 (docs/past-mistakes.md): never let a leaked GIT_DIR/WORK_TREE
+  // redirect a release commit/tag into another repository.
+  const { GIT_DIR: _dir, GIT_WORK_TREE: _work, GIT_INDEX_FILE: _index, ...cleanEnv } = process.env
+  execFileSync(command, args, { cwd: repoRoot, stdio: "inherit", env: cleanEnv })
 }
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url

@@ -115,8 +115,15 @@ test("builds follow the changed areas, not the E2E verdict", () => {
 
 // --- git-range integration: real repos, real ranges ---
 
+// Rule 30 (docs/past-mistakes.md): temp-repo git must never inherit a leaked
+// GIT_DIR/WORK_TREE/INDEX_FILE from the runner's environment.
+function cleanEnv() {
+  const { GIT_DIR: _dir, GIT_WORK_TREE: _work, GIT_INDEX_FILE: _index, ...clean } = process.env
+  return clean
+}
+
 function git(cwd, ...args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim()
+  return execFileSync("git", args, { cwd, encoding: "utf8", env: cleanEnv() }).trim()
 }
 
 function tempRepo() {
@@ -138,11 +145,13 @@ function commit(cwd, file, message) {
 }
 
 function runScript(cwd, env) {
+  // Keep the runner's own GIT_* out too: the script under test scrubs them,
+  // but the harness must not depend on that to target the right repo.
   return execFileSync(process.execPath, [scriptPath], {
     cwd,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...cleanEnv(),
       CI_EVENT_NAME: "",
       CI_BASE_SHA: "",
       CI_HEAD_SHA: "",
@@ -163,6 +172,32 @@ function parseOutput(stdout) {
   }
   return out
 }
+
+test("temp-repo setup ignores a leaked GIT_DIR (rule 30)", () => {
+  const victim = tempRepo()
+  try {
+    commit(victim, "base.txt", "victim base")
+    process.env.GIT_DIR = victim + "/.git"
+    process.env.GIT_WORK_TREE = victim
+    process.env.GIT_INDEX_FILE = victim + "/.git/index"
+    try {
+      const repo = tempRepo()
+      try {
+        commit(repo, "work.txt", "work")
+        assert.equal(git(victim, "log", "--format=%s").split("\n").length, 1)
+        assert.equal(git(victim, "log", "--format=%s"), "victim base")
+      } finally {
+        rmSync(repo, { recursive: true, force: true })
+      }
+    } finally {
+      delete process.env.GIT_DIR
+      delete process.env.GIT_WORK_TREE
+      delete process.env.GIT_INDEX_FILE
+    }
+  } finally {
+    rmSync(victim, { recursive: true, force: true })
+  }
+})
 
 test("push ranges classify exactly the pushed commits", () => {
   const repo = tempRepo()
