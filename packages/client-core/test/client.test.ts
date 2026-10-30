@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { ApiError, RequestTimeoutError, createClient } from "../src/client"
 import { createEventStream } from "../src/events"
 import type { SessionMessageInfo, SessionMessageUser } from "../src/types"
@@ -1316,5 +1316,139 @@ describe("goal mode", () => {
     const client = createClient({ baseUrl: "", fetchImpl })
 
     expect(await client.api.goal.settings()).toEqual({ maxRounds: 5, criticModel: null, judgeModel: null })
+  })
+})
+
+describe("native attachments", () => {
+  const attachment = {
+    id: "a1",
+    name: "photo.jpg",
+    mime: "image/jpeg",
+    size: 10,
+    path: "/workspace/app/.masterhand/attachments/ses_1/a1-photo.jpg",
+    uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-photo.jpg",
+    url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+  }
+
+  it("uses the injected native uploader instead of fetch for a uri", async () => {
+    const nativeUpload = vi.fn(async () => ({ status: 201, body: JSON.stringify({ attachment }) }))
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({}))
+    const client = createClient({
+      baseUrl: "https://mh.example",
+      fetchImpl,
+      getToken: () => "tok",
+      nativeUpload,
+    })
+
+    const uploaded = await client.api.attachments.upload("ws_1", "ses_1", {
+      id: "a1",
+      name: "photo.jpg",
+      mime: "image/jpeg",
+      size: 10,
+      uri: "file:///tmp/photo.jpg",
+    })
+
+    expect(uploaded).toEqual(attachment)
+    expect(calls).toHaveLength(0)
+    expect(nativeUpload).toHaveBeenCalledWith({
+      url: "https://mh.example/api/workspaces/ws_1/attachments",
+      headers: { authorization: "Bearer tok" },
+      fileUri: "file:///tmp/photo.jpg",
+      fieldName: "file",
+      mimeType: "image/jpeg",
+      parameters: { sessionID: "ses_1", attachmentID: "a1", name: "photo.jpg" },
+    })
+  })
+
+  it("maps a native upload error status to ApiError", async () => {
+    const nativeUpload = vi.fn(async () => ({ status: 413, body: '{"error":"attachment_too_large"}' }))
+    const client = createClient({ nativeUpload, fetchImpl: (async () => jsonResponse({})) as typeof fetch })
+
+    await expect(
+      client.api.attachments.upload("ws_1", "ses_1", {
+        id: "a1",
+        name: "photo.jpg",
+        mime: "image/jpeg",
+        size: 10,
+        uri: "file:///tmp/photo.jpg",
+      }),
+    ).rejects.toMatchObject({ status: 413 })
+  })
+})
+
+describe("attachments", () => {
+  it("uploads multipart without forcing a JSON content type and with the device token", async () => {
+    const attachment = {
+      id: "a1",
+      name: "notes.txt",
+      mime: "text/plain",
+      size: 4,
+      path: "/workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+      uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+      url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+    }
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ attachment }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl, getToken: () => "tok" })
+
+    const uploaded = await client.api.attachments.upload("ws_1", "ses_1", {
+      id: "a1",
+      name: "notes.txt",
+      mime: "text/plain",
+      size: 4,
+      body: new Blob(["hola"], { type: "text/plain" }),
+    })
+
+    expect(uploaded).toEqual(attachment)
+    expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/attachments")
+    expect(calls[0]?.init?.method).toBe("POST")
+    expect(calls[0]?.init?.body).toBeInstanceOf(FormData)
+    const headers = new Headers(calls[0]?.init?.headers)
+    expect(headers.get("authorization")).toBe("Bearer tok")
+    expect(headers.get("content-type")).toBeNull()
+  })
+
+  it("downloads a stored attachment with the same auth contract", async () => {
+    const { calls, fetchImpl } = recordingFetch(
+      () => new Response(new Blob(["bytes"]), { status: 200, headers: { "content-type": "image/png" } }),
+    )
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl, getToken: () => "tok" })
+
+    const blob = await client.api.attachments.download("/api/workspaces/ws_1/attachments/ses_1/a1")
+
+    expect(await blob.text()).toBe("bytes")
+    expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/attachments/ses_1/a1")
+    expect(new Headers(calls[0]?.init?.headers).get("authorization")).toBe("Bearer tok")
+  })
+
+  it("forwards prompt files to opencode", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ data: {} }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    await client.api.prompt("ses_1", {
+      text: "look",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      text: "look",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+  })
+
+  it("forwards files to slash commands too", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => new Response(null, { status: 204 }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    await client.api.runCommand("ses_1", {
+      name: "review",
+      text: "this",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      name: "review",
+      text: "this",
+      files: [{ name: "notes.txt" }],
+    })
   })
 })

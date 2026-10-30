@@ -1,5 +1,26 @@
 export * from "./types"
 export {
+  ATTACHMENT_INLINE_IMAGE_BYTES,
+  ATTACHMENT_INLINE_PDF_BYTES,
+  ATTACHMENT_INLINE_TEXT_BYTES,
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_COUNT,
+  ATTACHMENT_MAX_TOTAL_BYTES,
+  ATTACHMENT_METADATA_KEY,
+  UPLOAD_TIMEOUT_MS,
+  attachmentKind,
+  attachmentMetadata,
+  buildAttachmentContext,
+  createAttachmentID,
+  formatFileSize,
+  inlineAttachmentFiles,
+  isInlineAttachment,
+  mimeFromName,
+  parseChatAttachments,
+  stripAttachmentContext,
+  type AttachmentKind,
+} from "./attachments"
+export {
   ApiError,
   RequestTimeoutError,
   createClient,
@@ -7,6 +28,9 @@ export {
   FINISH_TIMEOUT_MS,
   type Client,
   type ClientOptions,
+  type NativeUploader,
+  type NativeUploadInput,
+  type NativeUploadResult,
 } from "./client"
 export {
   DELIVERY_MARKER_KEY,
@@ -35,6 +59,7 @@ export { usePendingSend, type PendingSend, type PendingSendController } from "./
 export {
   conversationErrorMessage,
   composerErrorMessage,
+  attachmentErrorMessage,
   branchErrorMessage,
   goalErrorMessage,
   isAmbiguousError,

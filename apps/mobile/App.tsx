@@ -51,6 +51,7 @@ import { ServerSwitcher } from "./src/components/ServerSwitcher"
 import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
 import { ThemedSystemBars } from "./src/components/SystemBars"
+import { nativeUpload } from "./src/upload"
 import { ActivityIndicator, Text } from "react-native"
 import * as SystemNotifications from "expo-notifications"
 import { decideAgentActivity } from "./src/agent-activity"
@@ -208,6 +209,7 @@ function Root() {
         // client send the new profile's credential.
         getToken: () => token,
         fetchImpl,
+        nativeUpload,
         onUnauthorized: () => expireRef.current(profile.id, nextClient),
       })
       connectionRef.current = nextClient

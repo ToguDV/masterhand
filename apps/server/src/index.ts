@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { bootstrapApp } from "./bootstrap.js"
+import { pruneAttachments } from "./attachments.js"
 import { loadConfig } from "./config.js"
 import { createEventHub } from "./events.js"
 import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./preview.js"
@@ -122,6 +123,87 @@ hub.start()
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`[masterhand] listening on :${info.port} → opencode ${config.opencodeUrl}`)
 })
+
+/**
+ * Attachment retention: remove stale `.part` debris and sessions that no
+ * longer exist after the configured window. If opencode cannot list a
+ * workspace, that workspace is skipped (never delete on an uncertain read).
+ * Runs after listening and once a day; `unref` keeps it out of shutdown.
+ */
+let sweepingAttachments = false
+async function sweepAttachments(): Promise<void> {
+  if (sweepingAttachments || config.attachmentTtlDays <= 0) return
+  sweepingAttachments = true
+  try {
+    const active = new Map<string, Set<string>>()
+    for (const workspace of store.listWorkspaces()) {
+      const directories = [
+        workspace.path,
+        ...store.listIsolatedSessions(workspace.id).map((record) => record.path),
+      ].filter((directory) => existsSync(directory))
+      const ids = new Set<string>()
+      let complete = true
+      for (const directory of directories) {
+        const listed = await listSessionIDs(directory)
+        if (!listed) {
+          complete = false
+          break
+        }
+        for (const id of listed) ids.add(id)
+      }
+      if (complete) active.set(workspace.path, ids)
+    }
+    const result = await pruneAttachments(config.workspacesRoot, {
+      ttlMs: config.attachmentTtlDays * 24 * 60 * 60 * 1000,
+      isSessionActive: (workspacePath, sessionID) => active.get(workspacePath)?.has(sessionID) ?? true,
+    })
+    if (result.removedSessions > 0 || result.removedParts > 0) {
+      console.log(
+        `[masterhand] attachments pruned: ${result.removedSessions} orphan session(s), ${result.removedParts} stale part(s)`,
+      )
+    }
+  } catch (error) {
+    console.warn("[masterhand] attachment sweep skipped:", error)
+  } finally {
+    sweepingAttachments = false
+  }
+}
+
+/** Session ids of one directory, or null when opencode cannot answer. */
+async function listSessionIDs(directory: string): Promise<Set<string> | null> {
+  const ids = new Set<string>()
+  let cursor: string | undefined
+  try {
+    for (let page = 0; page < 20; page += 1) {
+      const target = new URL("/api/session", config.opencodeUrl)
+      target.searchParams.set("directory", directory)
+      target.searchParams.set("limit", "200")
+      if (cursor) target.searchParams.set("cursor", cursor)
+      const response = await fetch(target, {
+        headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
+        signal: AbortSignal.timeout(config.opencodeTimeoutMs),
+      })
+      if (!response.ok) return null
+      const body = (await response.json()) as {
+        data?: Array<{ id?: string }>
+        cursor?: { next?: string | null }
+      }
+      for (const item of body.data ?? []) if (item.id) ids.add(item.id)
+      const next = body.cursor?.next
+      if (!next) return ids
+      cursor = next
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+void sweepAttachments()
+const attachmentSweep = setInterval(() => {
+  void sweepAttachments()
+}, 24 * 60 * 60 * 1000)
+attachmentSweep.unref?.()
 
 // Worktree reconciliation (issue #199) settles AFTER the server listens: the
 // pass can cost N×2×60 s of git, and awaiting it before `serve()` held the

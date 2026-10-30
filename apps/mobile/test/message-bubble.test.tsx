@@ -82,6 +82,24 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("   ")).toBeNull()
   })
 
+  it("renders user attachments even without text", async () => {
+    await render(
+      bubble(
+        {
+          role: "user",
+          attachments: [
+            { id: "a1", name: "notes.txt", mime: "text/plain", size: 1234, url: "", inline: true },
+          ],
+        },
+        [textPart("")],
+      ),
+    )
+
+    expect(screen.getByTestId("user-attachments")).toBeOnTheScreen()
+    expect(screen.getByText("notes.txt")).toBeOnTheScreen()
+    expect(screen.getByText("1.2 KB")).toBeOnTheScreen()
+  })
+
   it("renders assistant markdown text", async () => {
     await render(bubble({ time: { created: 1, completed: 2 } }, [textPart("# Heading\n\nbody text")]))
 

@@ -248,8 +248,15 @@ export interface PromptInput {
   /** Subagents mentioned with `@` in `text`. */
   agents?: PromptAgentMention[]
   /**
+   * Files opencode materializes into the model context. Only data: and file:
+   * URIs are accepted; MasterHand's proxy confines file: to its attachment
+   * store (`.masterhand/attachments`).
+   */
+  files?: PromptFileAttachmentInput[]
+  /**
    * Metadata opencode persists on the created user message. MasterHand uses it
-   * for the per-send delivery marker (see `delivery.ts`).
+   * for the per-send delivery marker (see `delivery.ts`) and the attachment
+   * index (`masterhand.attachments`).
    */
   metadata?: Record<string, JsonValue>
 }
@@ -263,6 +270,63 @@ export interface RunCommandInput {
   agent?: string
   model?: ModelRef
   agents?: PromptAgentMention[]
+  /** Same prompt-file attachments as `PromptInput.files`. */
+  files?: PromptFileAttachmentInput[]
+}
+
+/** One prompt `files` entry accepted by opencode. */
+export interface PromptFileAttachmentInput {
+  /** data: URL or file: URL (MasterHand attachments only). */
+  uri: string
+  name?: string
+  description?: string
+}
+
+/**
+ * A file uploaded to the BFF's attachment store. `path`/`uri` are only used
+ * while building the prompt; the message metadata keeps `url` for the UI.
+ */
+export interface UploadedAttachment {
+  /** Client-generated id; retrying an upload with the same id is idempotent. */
+  id: string
+  name: string
+  /** MIME sniffed by the BFF, not the browser's guess. */
+  mime: string
+  size: number
+  /** Absolute path on the server (the agent's tools read it from here). */
+  path: string
+  /** `file:` URL for opencode's prompt files. */
+  uri: string
+  /** Authenticated BFF URL for previews/downloads. */
+  url: string
+}
+
+/** A file the composer is about to send (local until Send uploads it). */
+export interface AttachmentUpload {
+  /** Client-generated id, reused by retries. */
+  id: string
+  name: string
+  /** Browser/RN MIME hint; the BFF sniffs the real one. */
+  mime: string
+  size: number
+  /** Web: the File/Blob body. */
+  body?: Blob
+  /** React Native: the local file URI returned by the document picker. */
+  uri?: string
+}
+
+/** Attachment summary persisted in a user message's metadata. */
+export interface ChatAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  /** BFF download/preview URL; empty only for legacy messages without metadata. */
+  url: string
+  /** Whether opencode received the bytes as a prompt file part. */
+  inline: boolean
+  /** Inline image preview (from the message's `files[].data`). */
+  previewDataUrl?: string
 }
 
 /** A subagent mention attached to a prompt, with the range it occupies in the text. */
@@ -307,6 +371,8 @@ export interface ChatMessageInfo {
   error?: SessionStructuredError
   /** Metadata opencode persisted on the message (user messages carry the send marker). */
   metadata?: Record<string, unknown>
+  /** Files the user attached (user messages only). */
+  attachments?: ChatAttachment[]
 }
 
 export type ChatToolStatus = "pending" | "running" | "completed" | "error"

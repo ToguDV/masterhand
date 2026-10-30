@@ -660,6 +660,44 @@
               </div>
             </div>
 
+            <div class="mh-demo mh-demo--full">
+              <div class="mh-demo__label"><span>attachment-chip · staged files in the composer</span><span>paperclip + chips</span></div>
+              <div class="mh-demo__stage" style="background: var(--mh-canvas)">
+                <div class="mh-chat-col">
+                  <div class="mh-composer-dock">
+                    <div class="mh-composer-dock__body" style="position: relative">
+                      <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 2px">
+                        <div style="display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); background: var(--mh-surface-muted)">
+                          <span style="display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 8px; background: var(--mh-surface); color: var(--mh-text-muted); font-size: 16px">▤</span>
+                          <span style="display: flex; flex-direction: column; min-width: 0; max-width: 220px">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500">spec.pdf</span>
+                            <span style="color: var(--mh-text-muted); font-size: 11px">2.4 MB</span>
+                          </span>
+                          <span style="display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px; color: var(--mh-text-muted); font-size: 14px">×</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px; border: 1px solid var(--mh-hairline); border-radius: var(--r-md); background: var(--mh-surface-muted)">
+                          <span style="display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 8px; background: var(--mh-surface); color: var(--mh-text-muted); font-size: 16px">▤</span>
+                          <span style="display: flex; flex-direction: column; min-width: 0; max-width: 220px">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500">screenshot.png</span>
+                            <span style="color: var(--mh-text-muted); font-size: 11px">Uploading…</span>
+                          </span>
+                          <span style="flex: none; width: 14px; height: 14px; margin: 0 5px; border: 2px solid var(--mh-hairline-strong); border-top-color: var(--mh-accent); border-radius: 50%"></span>
+                        </div>
+                      </div>
+                      <textarea class="mh-composer-dock__field" rows="1" data-autoresize placeholder="Write a message…"></textarea>
+                    </div>
+                    <div class="mh-composer-dock__toolbar">
+                      <button class="mh-icon-btn" style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:0;border-radius:var(--r-md);background:transparent;color:var(--mh-text-muted);cursor:pointer" type="button" aria-label="Attach files" title="Attach files">📎</button>
+                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">build</button>
+                      <span style="flex: 1"></span>
+                      <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">Send</button>
+                    </div>
+                  </div>
+                  <p class="mh-caption mh-muted" style="margin-top: 8px">The clip opens a file picker; images keep a 36px thumbnail, everything else a glyph. Drop files anywhere on the chat column for the dashed accent overlay; paste an image with Ctrl+V on web/desktop.</p>
+                </div>
+              </div>
+            </div>
+
             <div class="mh-demo">
               <div class="mh-demo__label"><span>composer-bar · worktree strip</span><span>isolated</span></div>
               <div class="mh-demo__stage" style="background: var(--mh-canvas)">

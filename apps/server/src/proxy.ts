@@ -1,4 +1,7 @@
 import type { Context } from "hono"
+import { lstat, realpath } from "node:fs/promises"
+import { resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { Config } from "./config.js"
 import {
   AmbiguousMutationError,
@@ -77,6 +80,68 @@ const ALLOWED_OPENCODE_ROUTES: ReadonlyArray<{ method: string; pattern: RegExp }
 export function isAllowedOpencodePath(method: string, path: string): boolean {
   if (/%2f/i.test(path)) return false
   return ALLOWED_OPENCODE_ROUTES.some((route) => route.method === method && route.pattern.test(path))
+}
+
+/** Prompts and commands may carry `files`; both need the same confinement. */
+const FILES_PATH = /^\/api\/session\/[^/]+\/(prompt|command)$/
+
+/**
+ * Rejects prompt attachments that are not inert data: URLs or files inside the
+ * MasterHand attachment store. Without this an authenticated client could ask
+ * opencode's prompt materializer to read `/proc/self/environ`, the credential
+ * store, or any other engine file (it bypasses the tool permission rules).
+ * Symlinks are refused too: a workspace is agent-writable and must not become
+ * a read primitive for the engine user.
+ */
+async function invalidPromptFiles(body: ArrayBuffer | undefined, workspacesRoot: string): Promise<boolean> {
+  if (!body) return false
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body))
+  } catch {
+    // Let opencode answer the malformed JSON; there is nothing to validate.
+    return false
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false
+  const files = (parsed as { files?: unknown }).files
+  if (files === undefined) return false
+  if (!Array.isArray(files) || files.length > 20) return true
+
+  const root = resolve(workspacesRoot)
+  const realRoot = await realpath(root).catch(() => root)
+  const marker = `${sep}.masterhand${sep}attachments${sep}`
+  for (const file of files) {
+    if (!file || typeof file !== "object" || Array.isArray(file)) return true
+    const uri = (file as { uri?: unknown }).uri
+    if (typeof uri !== "string" || uri.length === 0) return true
+    if (uri.startsWith("data:")) continue
+    if (!uri.startsWith("file:")) return true
+
+    let target: string
+    try {
+      const url = new URL(uri)
+      url.search = ""
+      url.hash = ""
+      target = fileURLToPath(url)
+    } catch {
+      return true
+    }
+    const path = resolve(target)
+    if (!path.startsWith(root + sep) || !path.includes(marker)) return true
+    try {
+      const info = await lstat(path)
+      if (!info.isFile()) return true
+      // `workspacesRoot` itself may be behind a symlink (macOS /tmp): compare
+      // the resolved file against the resolved root, or a valid attachment is
+      // rejected for a path that differs only in its prefix.
+      const real = await realpath(path)
+      const underRoot = real.startsWith(realRoot + sep) || real.startsWith(root + sep)
+      if (!underRoot || !real.includes(marker)) return true
+    } catch {
+      return true
+    }
+  }
+  return false
 }
 
 export interface ProxyRetryOptions {
@@ -186,6 +251,12 @@ export function createOpencodeProxy(
     if (method !== "GET" && method !== "HEAD") {
       const raw = await c.req.arrayBuffer()
       if (raw.byteLength > 0) body = raw
+    }
+
+    // Attachment URIs are a server-side read primitive: confine them before
+    // the request can reach opencode (see `invalidPromptFiles`).
+    if (method === "POST" && FILES_PATH.test(path) && (await invalidPromptFiles(body, config.workspacesRoot))) {
+      return c.json({ error: "invalid_attachment" }, 400)
     }
 
     const idempotent =

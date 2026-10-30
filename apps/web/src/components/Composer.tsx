@@ -1,19 +1,30 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_COUNT,
+  ATTACHMENT_MAX_TOTAL_BYTES,
+  ATTACHMENT_METADATA_KEY,
+  attachmentErrorMessage,
+  attachmentMetadata,
+  buildAttachmentContext,
   buildComposerPopover,
   collectAgentMentions,
   composerErrorMessage,
   composerTrigger,
+  createAttachmentID,
   createDeliveryMarker,
   defaultModelValue,
   deliveryMetadata,
   flattenModels,
+  formatFileSize,
   goalErrorMessage,
+  inlineAttachmentFiles,
   isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
+  mimeFromName,
   parseModel,
   queryKeys,
   recentModelValue,
@@ -28,19 +39,23 @@ import {
   type ComposerPopover,
   type ComposerTrigger,
   type PendingSendController,
+  type UploadedAttachment,
 } from "@masterhand/client-core"
 import { client } from "../client"
+import { AttachmentChip, type ComposerAttachment } from "./Attachments"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { ArrowUpIcon, BrainIcon, ShieldCheckIcon, SlidersIcon, StopIcon } from "./icons"
+import { ArrowUpIcon, BrainIcon, PaperclipIcon, ShieldCheckIcon, SlidersIcon, StopIcon } from "./icons"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
 
 /** Imperative surface for the chat container's ghost-bubble retry (#125). */
 export interface ComposerHandle {
   retry: () => void
+  /** Adds files dropped onto the chat column. */
+  attach: (files: File[]) => void
 }
 
 interface SessionPreferences {
@@ -134,7 +149,11 @@ export function Composer({
   const textRef = useRef(text)
   textRef.current = text
   /** Synchronous in-flight guard; the visible pending state lives in `pending`. */
-  const inFlight = useRef<{ text: string; marker: string } | null>(null)
+  const inFlight = useRef<{ text: string; marker: string; attachmentIDs: string[] } | null>(null)
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [agent, setAgent] = useState(stored.agent ?? "")
   const [model, setModel] = useState(stored.model ?? "")
   const [variant, setVariant] = useState(stored.variant ?? "")
@@ -235,8 +254,154 @@ export function Composer({
     }
   }, [])
 
-  /** Releases the composer and clears the text that was actually sent. */
-  function completeSend(pending: { text: string; marker: string }): void {
+  /** Adds files from the picker, a drop or a paste, enforcing the limits. */
+  function addFiles(files: File[]): void {
+    if (files.length === 0) return
+    const next = [...attachmentsRef.current]
+    let total = next.reduce((sum, item) => sum + item.size, 0)
+    let message: string | null = null
+
+    for (const file of files) {
+      if (next.length >= ATTACHMENT_MAX_COUNT) {
+        message = `You can attach up to ${ATTACHMENT_MAX_COUNT} files per message.`
+        break
+      }
+      if (file.size > ATTACHMENT_MAX_BYTES) {
+        message = `${file.name || "This file"} is larger than ${formatFileSize(ATTACHMENT_MAX_BYTES)}.`
+        continue
+      }
+      if (total + file.size > ATTACHMENT_MAX_TOTAL_BYTES) {
+        message = `Attachments are limited to ${formatFileSize(ATTACHMENT_MAX_TOTAL_BYTES)} per message.`
+        continue
+      }
+      const name = file.name || "file"
+      if (
+        next.some(
+          (item) =>
+            item.name === name && item.size === file.size && item.file.lastModified === file.lastModified,
+        )
+      ) {
+        continue
+      }
+      const mime = file.type || mimeFromName(name)
+      next.push({
+        id: createAttachmentID(),
+        file,
+        name,
+        mime,
+        size: file.size,
+        ...(mime.startsWith("image/") ? { previewUrl: URL.createObjectURL(file) } : {}),
+        status: "ready",
+      })
+      total += file.size
+    }
+
+    setAttachments(next)
+    setError(message)
+    if (!message) setDismissed(false)
+  }
+
+  function removeAttachment(id: string): void {
+    const item = attachmentsRef.current.find((entry) => entry.id === id)
+    if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    setAttachments((current) => current.filter((entry) => entry.id !== id))
+  }
+
+  function removeAttachmentsByID(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    const sent = new Set(ids)
+    for (const item of attachmentsRef.current) {
+      if (sent.has(item.id) && item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    }
+    setAttachments((current) => current.filter((entry) => !sent.has(entry.id)))
+  }
+
+  // Object URLs for local previews must not outlive the composer.
+  useEffect(() => {
+    return () => {
+      for (const item of attachmentsRef.current) {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      }
+    }
+  }, [])
+
+  // A session switch must never reuse a file uploaded for the previous
+  // session (its `uri` points at the old session directory).
+  const sessionRef = useRef(sessionID)
+  useEffect(() => {
+    if (sessionRef.current === sessionID) return
+    sessionRef.current = sessionID
+    for (const item of attachmentsRef.current) {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    }
+    setAttachments([])
+  }, [sessionID])
+
+  /**
+   * Uploads every staged file (two at a time, so two 50 MB multiparts never
+   * overlap). Already-uploaded files from a failed attempt are reused.
+   */
+  async function uploadAttachments(
+    list: ReadonlyArray<ComposerAttachment>,
+  ): Promise<{ uploaded: UploadedAttachment[]; failed: { name: string; message: string } | null }> {
+    if (!workspaceID) {
+      return { uploaded: [], failed: { name: "the file", message: "Select a workspace before attaching files." } }
+    }
+    const queue = list.filter((item) => !item.uploaded)
+    const results = new Map<string, UploadedAttachment>()
+    let failed: { name: string; message: string } | null = null
+    let cursor = 0
+
+    const worker = async (): Promise<void> => {
+      while (cursor < queue.length) {
+        const item = queue[cursor]
+        cursor += 1
+        if (!item) return
+        setAttachments((current) =>
+          current.map((entry) =>
+            entry.id === item.id ? { ...entry, status: "uploading", error: undefined } : entry,
+          ),
+        )
+        try {
+          const uploaded = await client.api.attachments.upload(workspaceID, sessionID, {
+            id: item.id,
+            name: item.name,
+            mime: item.mime,
+            size: item.size,
+            body: item.file,
+          })
+          results.set(item.id, uploaded)
+          setAttachments((current) =>
+            current.map((entry) =>
+              entry.id === item.id ? { ...entry, status: "ready", uploaded, error: undefined } : entry,
+            ),
+          )
+        } catch (uploadError) {
+          const message = attachmentErrorMessage(uploadError, item.name)
+          if (!failed) failed = { name: item.name, message }
+          setAttachments((current) =>
+            current.map((entry) =>
+              entry.id === item.id ? { ...entry, status: "error", error: message } : entry,
+            ),
+          )
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker))
+    // Preserve the selection order; a file removed during the upload is not
+    // sent (its uploaded bytes become TTL debris, never a silent attachment).
+    const stillStaged = new Set(attachmentsRef.current.map((entry) => entry.id))
+    const uploaded = list.flatMap((item) => {
+      if (!stillStaged.has(item.id)) return []
+      const found = results.get(item.id) ?? item.uploaded
+      return found ? [found] : []
+    })
+    return { uploaded, failed }
+  }
+
+  /** Releases the composer and clears the text/attachments that were sent. */
+  function completeSend(pending: { text: string; marker: string; attachmentIDs: string[] }): void {
     inFlight.current = null
     setSending(false)
     // Only clear what was actually sent: text typed while the request was in
@@ -245,6 +410,7 @@ export function Composer({
       setText("")
       setCaret(0)
     }
+    removeAttachmentsByID(pending.attachmentIDs)
     setDismissed(false)
   }
 
@@ -284,12 +450,34 @@ export function Composer({
    * Runs one prompt request. Plain prompts are tracked by the shared pending
    * controller (ghost bubble); slash commands keep the button-only feedback.
    */
-  async function deliver(text: string, marker: string, command: ReturnType<typeof splitCommand>) {
+  async function deliver(
+    text: string,
+    marker: string,
+    command: ReturnType<typeof splitCommand>,
+    prepared?: ReadonlyArray<UploadedAttachment>,
+  ) {
+    const staged = attachmentsRef.current
+    const current = { text, marker, attachmentIDs: staged.map((item) => item.id) }
+    inFlight.current = current
     setSending(true)
     setError(null)
-    const current = { text, marker }
-    inFlight.current = current
     try {
+      let uploaded: ReadonlyArray<UploadedAttachment> = prepared ?? []
+      if (!prepared && staged.length > 0) {
+        const result = await uploadAttachments(staged)
+        if (result.failed) {
+          // No prompt was sent, so no ghost: the draft (with the failed chip)
+          // stays in the composer and Send retries it.
+          if (inFlight.current === current) setError(result.failed.message)
+          return
+        }
+        uploaded = result.uploaded
+      }
+
+      // Begin the ghost only once a prompt is actually being sent: an upload
+      // failure must never look like a lost prompt.
+      if (!command) pending.begin(text, marker, uploaded)
+
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
       const mentionText = command ? command.text : text
       const mentions = collectAgentMentions(mentionText, subagents)
@@ -298,16 +486,27 @@ export function Composer({
         ...(modelValue ? { model: modelValue } : {}),
         ...(mentions.length > 0 ? { agents: mentions } : {}),
       }
+      const files = inlineAttachmentFiles(uploaded)
+      const promptText = `${text}${buildAttachmentContext(uploaded)}`
+      const metadata = {
+        ...(command ? {} : deliveryMetadata(marker)),
+        ...(uploaded.length > 0 ? { [ATTACHMENT_METADATA_KEY]: attachmentMetadata(uploaded) } : {}),
+      }
       if (command) {
         await client.api.runCommand(
           sessionID,
-          { name: command.command.name, text: command.text, ...context },
+          {
+            name: command.command.name,
+            text: `${command.text}${buildAttachmentContext(uploaded)}`,
+            ...(files.length > 0 ? { files } : {}),
+            ...context,
+          },
           { agent: session?.agent, model: session?.model },
         )
       } else {
         await client.api.prompt(
           sessionID,
-          { text, metadata: deliveryMetadata(marker), ...context },
+          { text: promptText, ...(files.length > 0 ? { files } : {}), metadata, ...context },
           { agent: session?.agent, model: session?.model },
         )
       }
@@ -331,21 +530,30 @@ export function Composer({
 
   async function send() {
     const trimmed = text.trim()
+    const staged = attachmentsRef.current
     // Refs, not the `sending` state: two events in the same tick must not both
     // pass this check and fire two prompts (#72).
-    if (!trimmed || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
-    const command = splitCommand(trimmed, commands)
+    if ((!trimmed && staged.length === 0) || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) {
+      return
+    }
+    const command = trimmed ? splitCommand(trimmed, commands) : null
     if (command?.command.name === "btw") {
       await askSideQuestion(command.text)
       return
     }
     if (command?.command.name === "goal") {
+      if (staged.length > 0) {
+        setError(
+          "Attachments are not supported with /goal. Send the file in a normal message first, then start the goal.",
+        )
+        return
+      }
       await startGoal(command.text)
       return
     }
     const marker = createDeliveryMarker()
     // v1: only plain prompts get the ghost; commands keep the button feedback.
-    if (!command) pending.begin(trimmed, marker)
+    // `deliver` begins it after the attachments finish uploading.
     await deliver(trimmed, marker, command)
   }
 
@@ -353,6 +561,12 @@ export function Composer({
   async function startGoal(goal: string) {
     if (!goal) {
       setError("Describe the goal after /goal")
+      return
+    }
+    if (attachmentsRef.current.length > 0) {
+      setError(
+        "Attachments are not supported with /goal. Send the file in a normal message first, then start the goal.",
+      )
       return
     }
     if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
@@ -391,11 +605,10 @@ export function Composer({
     if (!current || current.status !== "failed") return
     if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const marker = createDeliveryMarker()
-    pending.begin(current.text, marker)
-    void deliver(current.text, marker, null)
+    void deliver(current.text, marker, null, current.attachments)
   }
 
-  useImperativeHandle(ref, () => ({ retry }))
+  useImperativeHandle(ref, () => ({ retry, attach: addFiles }))
 
   /** `/btw`: fork the session, ask the question there and show the answer in a panel. */
   async function askSideQuestion(question: string) {
@@ -406,8 +619,18 @@ export function Composer({
     setStartingSideQuestion(true)
     startingSideQuestionRef.current = true
     setError(null)
+    const staged = attachmentsRef.current
     let created: string | null = null
     try {
+      let uploaded: ReadonlyArray<UploadedAttachment> = staged.map((item) => item.uploaded).filter(Boolean) as UploadedAttachment[]
+      if (staged.some((item) => !item.uploaded)) {
+        const result = await uploadAttachments(staged)
+        if (result.failed) {
+          setError(result.failed.message)
+          return
+        }
+        uploaded = result.uploaded
+      }
       const fork = await client.api.forkSession(sessionID)
       created = fork.id
       // The composer unmounted while the fork was in flight: its cleanup
@@ -425,8 +648,11 @@ export function Composer({
         void client.api.removeSession(previous).catch(() => {})
       }
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
+      const files = inlineAttachmentFiles(uploaded)
       await client.api.prompt(fork.id, {
-        text: question,
+        text: `${question}${buildAttachmentContext(uploaded)}`,
+        ...(files.length > 0 ? { files } : {}),
+        ...(uploaded.length > 0 ? { metadata: { [ATTACHMENT_METADATA_KEY]: attachmentMetadata(uploaded) } } : {}),
         ...(agent ? { agent } : {}),
         ...(modelValue ? { model: modelValue } : {}),
       })
@@ -435,6 +661,7 @@ export function Composer({
         setText("")
         setCaret(0)
       }
+      removeAttachmentsByID(staged.map((item) => item.id))
       setDismissed(false)
     } catch (err) {
       // A fork created in this attempt must not leak when the prompt fails.
@@ -505,6 +732,13 @@ export function Composer({
                 onSelect={selectSuggestion}
               />
             )}
+            {attachments.length > 0 && (
+              <div className="mh-attachment-strip" aria-label="Attached files">
+                {attachments.map((attachment) => (
+                  <AttachmentChip key={attachment.id} attachment={attachment} onRemove={removeAttachment} />
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={text}
@@ -521,6 +755,21 @@ export function Composer({
                 setText(event.target.value)
                 setCaret(event.target.selectionStart ?? event.target.value.length)
                 setDismissed(false)
+              }}
+              onPaste={(event) => {
+                const items = Array.from(event.clipboardData?.items ?? [])
+                const files = items
+                  .filter((item) => item.kind === "file")
+                  .flatMap((item) => {
+                    const file = item.getAsFile()
+                    return file ? [file] : []
+                  })
+                const fallback = Array.from(event.clipboardData?.files ?? [])
+                const pasted = files.length > 0 ? files : fallback
+                if (pasted.length > 0) {
+                  event.preventDefault()
+                  addFiles(pasted)
+                }
               }}
               onKeyDown={(event) => {
                 if (popover && popover.items.length > 0) {
@@ -567,6 +816,29 @@ export function Composer({
           </div>
 
           <div className="mh-composer-dock__toolbar">
+            <button
+              type="button"
+              className="mh-icon-btn shrink-0"
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach files"
+              aria-label="Attach files"
+            >
+              <PaperclipIcon size={16} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? [])
+                // Reset so selecting the same file again fires `change`.
+                event.target.value = ""
+                addFiles(files)
+              }}
+            />
             <SearchSelect
               compact
               ghost
@@ -637,7 +909,7 @@ export function Composer({
               <button
                 type="button"
                 onClick={() => void send()}
-                disabled={!text.trim() || sending || startingSideQuestion}
+                disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion}
                 title="Send message"
                 className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
               >

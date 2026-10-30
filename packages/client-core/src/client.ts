@@ -3,6 +3,7 @@ import type { Permission, PermissionResponse } from "./types"
 import type {
   AgentInfo,
   AuditEvent,
+  AttachmentUpload,
   BffStatus,
   ChatMessage,
   CreateSessionInput,
@@ -25,6 +26,7 @@ import type {
   Session,
   SessionStatuses,
   SlashCommand,
+  UploadedAttachment,
   WorkspaceRecord,
   WorkspaceRunConfig,
 } from "./types"
@@ -66,6 +68,7 @@ import {
 } from "./websearch"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 import { normalizeUpdateCheck, type UpdateApplyResult, type UpdateCheck } from "./update"
+import { UPLOAD_TIMEOUT_MS } from "./attachments"
 
 export class ApiError extends Error {
   constructor(
@@ -85,6 +88,27 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+/** Native multipart upload input (the mobile React Native fetch bridge). */
+export interface NativeUploadInput {
+  /** Absolute upload URL, including the BFF origin. */
+  url: string
+  headers: Record<string, string>
+  /** Local `file://` (or content) URI from the document picker. */
+  fileUri: string
+  /** Multipart field name (always `file`). */
+  fieldName: string
+  mimeType: string
+  /** Additional multipart fields (`sessionID`, `attachmentID`). */
+  parameters: Record<string, string>
+}
+
+export interface NativeUploadResult {
+  status: number
+  body: string
+}
+
+export type NativeUploader = (input: NativeUploadInput) => Promise<NativeUploadResult>
+
 export interface ClientOptions {
   /** Base server URL (e.g. "https://masterhand.example.com"). Empty means same-origin. */
   baseUrl?: string
@@ -93,6 +117,12 @@ export interface ClientOptions {
   /** Called when a request fails with 401. */
   onUnauthorized?: () => void
   fetchImpl?: typeof fetch
+  /**
+   * Native multipart uploader. `expo/fetch` (which replaces the global fetch)
+   * cannot serialize React Native's `{ uri, name, type }` file object, so the
+   * mobile app sends it through React Native's `XMLHttpRequest` instead.
+   */
+  nativeUpload?: NativeUploader
   /**
    * Aborts requests that stall for longer than this, so a hung socket (paused
    * or unreachable server, lost mobile network) rejects instead of latching
@@ -149,6 +179,16 @@ export interface Client {
     }
     /** Full message history of a session, oldest first (v2 cursor API paginated). */
     messages(sessionID: string): Promise<ChatMessage[]>
+    /**
+     * Attachments stored in the workspace by the BFF. Uploads are idempotent
+     * per client id; `download` streams a previously uploaded file with the
+     * active credentials (cookie or device token).
+     */
+    attachments: {
+      upload(workspaceID: string, sessionID: string, input: AttachmentUpload): Promise<UploadedAttachment>
+      remove(workspaceID: string, sessionID: string, attachmentID: string): Promise<void>
+      download(url: string): Promise<Blob>
+    }
     /**
      * Sends a prompt. When `current` is provided, the agent/model are switched
      * first only if they differ (opencode records a message per switch).
@@ -360,6 +400,7 @@ function resolveOrigin(baseUrl: string): string {
 export function createClient(options: ClientOptions = {}): Client {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "")
   const fetchImpl = options.fetchImpl ?? fetch
+  const nativeUpload = options.nativeUpload
   const timeoutMs = options.timeoutMs ?? 30_000
   const finishTimeoutMs = options.finishTimeoutMs ?? FINISH_TIMEOUT_MS
   const branchTimeoutMs = options.branchTimeoutMs ?? BRANCH_TIMEOUT_MS
@@ -402,9 +443,28 @@ export function createClient(options: ClientOptions = {}): Client {
     }
   }
 
+  /** Bounds a native bridge call that has no AbortSignal of its own. */
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new RequestTimeoutError()), ms)
+      promise.then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
+  }
+
   async function request<T>(path: string, init: RequestInit = {}, overrideMs?: number): Promise<T> {
     const headers = new Headers(init.headers)
-    if (init.body !== undefined && !headers.has("content-type")) {
+    // FormData sets its own multipart boundary; forcing JSON would corrupt it.
+    const isForm = typeof FormData !== "undefined" && init.body instanceof FormData
+    if (init.body !== undefined && !isForm && !headers.has("content-type")) {
       headers.set("content-type", "application/json")
     }
     const token = await options.getToken?.()
@@ -428,6 +488,24 @@ export function createClient(options: ClientOptions = {}): Client {
     }
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
+  }
+
+  /** Binary download with the same auth/401 contract as `request`. */
+  async function requestBlob(path: string, overrideMs?: number): Promise<Blob> {
+    const headers = new Headers()
+    const token = await options.getToken?.()
+    if (token) headers.set("authorization", `Bearer ${token}`)
+    const response = await fetchWithTimeout(
+      `${baseUrl}${path}`,
+      { headers, credentials: "same-origin" },
+      overrideMs,
+    )
+    if (!response.ok) {
+      if (response.status === 401) options.onUnauthorized?.()
+      const text = await response.text().catch(() => "")
+      throw new ApiError(response.status, text || `HTTP ${response.status}`)
+    }
+    return response.blob()
   }
 
   /**
@@ -560,12 +638,66 @@ export function createClient(options: ClientOptions = {}): Client {
           ).then((response) => response.directories),
       },
       messages: (sessionID) => listAllMessages(sessionID),
+      attachments: {
+        upload: async (workspaceID, sessionID, input) => {
+          const path = `/api/workspaces/${encodeURIComponent(workspaceID)}/attachments`
+          if (input.uri && nativeUpload) {
+            // The native bridge sends the multipart body itself via RN's
+            // `XMLHttpRequest`; `expo/fetch` cannot serialize React Native's
+            // `{ uri, name, type }` file object.
+            const token = await options.getToken?.()
+            const result = await withTimeout(
+              nativeUpload({
+                url: `${baseUrl}${path}`,
+                headers: token ? { authorization: `Bearer ${token}` } : {},
+                fileUri: input.uri,
+                fieldName: "file",
+                mimeType: input.mime,
+                parameters: { sessionID, attachmentID: input.id, name: input.name },
+              }),
+              UPLOAD_TIMEOUT_MS,
+            )
+            if (result.status === 401) options.onUnauthorized?.()
+            if (result.status < 200 || result.status >= 300) {
+              throw new ApiError(result.status, result.body || `HTTP ${result.status}`)
+            }
+            try {
+              return (JSON.parse(result.body) as { attachment: UploadedAttachment }).attachment
+            } catch {
+              throw new ApiError(result.status, "invalid attachment response")
+            }
+          }
+
+          const form = new FormData()
+          form.append("sessionID", sessionID)
+          form.append("attachmentID", input.id)
+          if (input.body) form.append("file", input.body, input.name)
+          else if (input.uri) {
+            // React Native's FormData accepts a file descriptor, not a Blob.
+            form.append("file", { uri: input.uri, name: input.name, type: input.mime } as unknown as Blob)
+          } else {
+            return Promise.reject(new Error("attachment body or uri is required"))
+          }
+          return request<{ attachment: UploadedAttachment }>(
+            path,
+            { method: "POST", body: form },
+            UPLOAD_TIMEOUT_MS,
+          ).then((response) => response.attachment)
+        },
+        remove: (workspaceID, sessionID, attachmentID) =>
+          request<void>(
+            `/api/workspaces/${encodeURIComponent(workspaceID)}/attachments/${encodeURIComponent(sessionID)}/${encodeURIComponent(attachmentID)}`,
+            { method: "DELETE" },
+          ),
+        download: (url) => requestBlob(url, UPLOAD_TIMEOUT_MS),
+      },
       prompt: (sessionID, input, current) =>
         opencodeRequest(async () => {
           await applyContext(sessionID, input.agent, input.model, current)
           await opencode.session.prompt({
             sessionID,
             text: input.text,
+            ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
             ...(input.agents && input.agents.length > 0 ? { agents: input.agents } : {}),
             ...(input.metadata ? { metadata: input.metadata } : {}),
           })
@@ -577,6 +709,7 @@ export function createClient(options: ClientOptions = {}): Client {
             sessionID,
             name: input.name,
             text: input.text,
+            ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
             ...(input.agents && input.agents.length > 0 ? { agents: input.agents } : {}),
           })
         }),

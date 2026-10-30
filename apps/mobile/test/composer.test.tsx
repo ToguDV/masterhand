@@ -3,6 +3,8 @@ import { Text } from "react-native"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 import {
   ApiError,
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_TOTAL_BYTES,
   RequestTimeoutError,
   queryKeys,
   usePendingSend,
@@ -23,11 +25,20 @@ jest.mock("../src/storage", () => ({
   saveSessionPreferences: jest.fn(async () => {}),
 }))
 
+jest.mock("expo-document-picker", () => ({
+  getDocumentAsync: jest.fn(async () => ({ canceled: true, assets: [] })),
+}))
+
+import * as DocumentPicker from "expo-document-picker"
+
+const pickDocument = DocumentPicker.getDocumentAsync as unknown as jest.Mock
+
 const loadPreferences = loadSessionPreferences as unknown as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
   loadPreferences.mockResolvedValue({})
+  pickDocument.mockResolvedValue({ canceled: true, assets: [] })
 })
 
 const agents: AgentInfo[] = [
@@ -637,5 +648,199 @@ describe("Composer", () => {
     expect(await screen.findByText("dock-header")).toBeOnTheScreen()
     expect(screen.getByText("dock-isolation")).toBeOnTheScreen()
     expect(screen.getByTestId("composer-dock")).toBeOnTheScreen()
+  })
+
+  it("picks, uploads and sends an attachment", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    expect(await screen.findByText("notes.txt")).toBeOnTheScreen()
+
+    await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "read this")
+    await fireEvent.press(screen.getByText("Send"))
+
+    await waitFor(() =>
+      expect(client.api.attachments.upload).toHaveBeenCalledWith(
+        "ws_1",
+        "s1",
+        expect.objectContaining({ name: "notes.txt", uri: "file:///tmp/notes.txt", mime: "text/plain" }),
+      ),
+    )
+    await waitFor(() =>
+      expect(client.api.prompt).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({
+          text: expect.stringContaining("<masterhand-attachments>"),
+          files: [{ uri: expect.stringContaining("a1-notes.txt"), name: "notes.txt" }],
+          metadata: expect.objectContaining({ "masterhand.attachments": expect.any(Array) }),
+          agent: "build",
+          model: { providerID: "test", id: "test-model" },
+        }),
+        { agent: undefined, model: undefined },
+      ),
+    )
+    expect(screen.queryByTestId("composer-attachments")).toBeNull()
+  })
+
+  it("sends an attachment without text", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.press(screen.getByText("Send"))
+
+    await waitFor(() => expect(client.api.prompt).toHaveBeenCalled())
+    const input = client.api.prompt.mock.calls[0]?.[1] as { text: string }
+    expect(input.text.trim().startsWith("<masterhand-attachments>")).toBe(true)
+  })
+
+  it("removes a staged attachment", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.press(await screen.findByLabelText("Remove notes.txt"))
+
+    expect(screen.queryByText("notes.txt")).toBeNull()
+    await fireEvent.press(screen.getByText("Send"))
+    expect(client.api.prompt).not.toHaveBeenCalled()
+  })
+
+  it("keeps the draft when an upload fails", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    client.api.attachments.upload.mockRejectedValueOnce(new ApiError(413, "too large"))
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "read this")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect((await screen.findAllByText(/too large/)).length).toBeGreaterThan(0)
+    expect(client.api.prompt).not.toHaveBeenCalled()
+    expect(screen.getByDisplayValue("read this")).toBeOnTheScreen()
+    expect(screen.getByText("notes.txt")).toBeOnTheScreen()
+  })
+
+  it("rejects attachments with /goal", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "/goal improve")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText(/Attachments are not supported with \/goal/)).toBeOnTheScreen()
+    expect(client.api.goal.start).not.toHaveBeenCalled()
+    expect(client.api.attachments.upload).not.toHaveBeenCalled()
+  })
+
+  it("caps the file count", async () => {
+    await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: Array.from({ length: 11 }, (_, index) => ({
+        uri: `file:///tmp/f${index}.txt`,
+        name: `f${index}.txt`,
+        mimeType: "text/plain",
+        size: 1,
+      })),
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    expect(await screen.findByText(/up to 10 files/)).toBeOnTheScreen()
+  })
+
+  it("rejects a file over the per-file limit", async () => {
+    await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [
+        {
+          uri: "file:///tmp/huge.bin",
+          name: "huge.bin",
+          mimeType: "application/octet-stream",
+          size: ATTACHMENT_MAX_BYTES + 1,
+        },
+      ],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    expect(await screen.findByText(/larger than 50 MB/)).toBeOnTheScreen()
+  })
+
+  it("caps the total message size", async () => {
+    await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [
+        { uri: "file:///tmp/a.bin", name: "a.bin", mimeType: "application/octet-stream", size: 40 * 1024 * 1024 },
+        { uri: "file:///tmp/b.bin", name: "b.bin", mimeType: "application/octet-stream", size: 40 * 1024 * 1024 },
+        { uri: "file:///tmp/c.bin", name: "c.bin", mimeType: "application/octet-stream", size: 40 * 1024 * 1024 },
+      ],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    expect(
+      await screen.findByText(new RegExp(`limited to ${Math.round(ATTACHMENT_MAX_TOTAL_BYTES / 1024 / 1024)} MB`)),
+    ).toBeOnTheScreen()
+  })
+
+  it("surfaces a file-picker failure", async () => {
+    await setup({ workspaceID: "ws_1" })
+    pickDocument.mockRejectedValueOnce(new Error("picker exploded"))
+
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    expect(await screen.findByText("Could not open the file picker.")).toBeOnTheScreen()
+  })
+
+  it("asks for a workspace before uploading", async () => {
+    const { client } = await setup({ workspaceID: null })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText("Select a workspace before attaching files.")).toBeOnTheScreen()
+    expect(client.api.attachments.upload).not.toHaveBeenCalled()
+  })
+
+  it("requires a question after /btw", async () => {
+    await setup({ workspaceID: "ws_1" })
+    await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "/btw")
+    await fireEvent.press(screen.getByText("Send"))
+
+    expect(await screen.findByText("Write a question after /btw")).toBeOnTheScreen()
+  })
+
+  it("uploads attachments for a /btw side question", async () => {
+    const { client } = await setup({ workspaceID: "ws_1" })
+    pickDocument.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain", size: 5 }],
+    })
+    await fireEvent.press(await screen.findByTestId("composer-attach"))
+    await fireEvent.changeText(screen.getByPlaceholderText("Write a message…"), "/btw summarize")
+    await fireEvent.press(screen.getByText("Send"))
+
+    await waitFor(() =>
+      expect(client.api.prompt).toHaveBeenCalledWith(
+        "fork_1",
+        expect.objectContaining({
+          text: expect.stringContaining("<masterhand-attachments>"),
+          files: [{ uri: expect.stringContaining("a1-notes.txt"), name: "notes.txt" }],
+        }),
+      ),
+    )
   })
 })

@@ -172,3 +172,13 @@ export function EyeOffIcon({ size = 16, color }: IconProps) {
 export function BellIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="notifications-outline" size={size} color={color} />
 }
+
+/** Attach a file from the composer. */
+export function PaperclipIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="attach-outline" size={size} color={color} />
+}
+
+/** Generic file glyph for attachment chips. */
+export function FileIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="document-outline" size={size} color={color} />
+}

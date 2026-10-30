@@ -35,7 +35,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 |---|---|---|
 | FR-1 | Authentication | Password login; HttpOnly cookie for web/desktop on the serving origin; per-server Bearer device tokens for remote servers and mobile; multiple saved server profiles with independent credentials and one active connection; persistent session; disconnect/logout; login rate limiting |
 | FR-2 | Sessions | List sessions grouped by project; create, open and delete; distinguish states (idle / busy / error) |
-| FR-3 | Chat | Send text prompts; choose agent and model; render history (text, tool calls, reasoning); live streaming of the response |
+| FR-3 | Chat | Send text prompts and attach files (clip, drag & drop and clipboard paste on web/desktop; the native document picker on mobile); choose agent and model; render history (text, tool calls, reasoning, attachments); live streaming of the response |
 | FR-4 | Approvals | Show permission requests (`permission.updated`) with title, type, pattern and metadata; answer "once" / "always" / "reject"; reflect `permission.replied` |
 | FR-5 | Clients | Web app, Electron desktop app and React Native mobile app sharing one `client-core` package |
 | FR-6 | Notifications | In-app notifications over SSE for `session.idle`, `permission.updated` and `session.error`; tapping opens the corresponding session (deep link). Android additionally shows local system notifications for agent finishes, failures, permission requests and question forms when the app is backgrounded (opt-in, no Play Console/Firebase); a periodic background check covers the closed-app case best-effort |
@@ -44,6 +44,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 | FR-9 | Self-hosting | Generic configuration (no hardcoded domain); deployer provides the reverse proxy and TLS |
 | FR-10 | Previews | Preview any web project the agent runs: a fixed port is reserved per session and exposed through a Cloudflare quick tunnel with explicit Start/Stop, embedded in the web/desktop UI and the mobile app. Public and ephemeral by design; for testing only, never for production data |
 | FR-11 | Scheduled tasks | Recurring agent tasks managed from the Scheduler section (the desktop sidebar panel, the web/native mobile tab): schedule presets or a custom cron expression, model, workspace and timezone; each fire starts a new opencode session with the stored prompt and model; tasks appear in the section with run history, pause/resume and run-now; fires surface over SSE (`scheduler.updated`, extending FR-6) |
+| FR-12 | Attachments | Attach any file type in the chat: clip/file picker, drag & drop and image paste on web/desktop, document picker on mobile. Files are stored in the workspace, previewed in the composer and the user bubble, downloadable from web/desktop history (mobile shows chips and image previews; non-image download is a follow-up), and reachable by the agent (text/images/PDF inline, everything else by absolute path). Limits: 50 MB per file, 10 files and 100 MB per message; 90-day orphan retention |
 
 ## 6. Non-functional requirements
 
