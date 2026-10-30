@@ -257,6 +257,16 @@ export function MessageBubble({
  * can be megabytes of base64). The custom comparator only re-renders when
  * visible content actually changed.
  */
+interface MessageBubbleProps {
+  entry: ChatMessage
+  onOpenSession?: (id: string) => void
+  forms?: FormInfo[]
+  answeredForms?: Array<{ form: FormInfo; answer: FormAnswer }>
+  busyFormID?: string | null
+  onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
+  onCancelForm?: (form: FormInfo) => void
+}
+
 const MessageBubbleView = memo(
   function MessageBubbleView({
     entry,
@@ -266,15 +276,7 @@ const MessageBubbleView = memo(
     busyFormID = null,
     onRespondForm,
     onCancelForm,
-  }: {
-    entry: ChatMessage
-    onOpenSession?: (id: string) => void
-    forms?: FormInfo[]
-    answeredForms?: Array<{ form: FormInfo; answer: FormAnswer }>
-    busyFormID?: string | null
-    onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
-    onCancelForm?: (form: FormInfo) => void
-  }) {
+  }: MessageBubbleProps) {
   const styles = useThemedStyles(createStyles)
   const info = entry.info
 
@@ -319,15 +321,25 @@ const MessageBubbleView = memo(
     </View>
   )
   },
-  (prev, next) =>
+  isSameMessageBubbleProps,
+)
+
+/**
+ * Row equality for the memoized chat row. Callback identities are
+ * deliberately ignored: every parent render recreates them, and a behavior
+ * change in any of them always coincides with a data change that IS compared
+ * (a new session brings new entries, answering a form replaces `forms` /
+ * `answeredForms` / `busyFormID`). Comparing them by identity would re-render
+ * every row on every SSE event and defeat the memo entirely.
+ */
+export function isSameMessageBubbleProps(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
+  return (
     isSameChatEntry(prev.entry, next.entry) &&
     prev.forms === next.forms &&
     prev.answeredForms === next.answeredForms &&
-    prev.busyFormID === next.busyFormID &&
-    prev.onOpenSession === next.onOpenSession &&
-    prev.onRespondForm === next.onRespondForm &&
-    prev.onCancelForm === next.onCancelForm,
-)
+    prev.busyFormID === next.busyFormID
+  )
+}
 
 /**
  * Structural equality for a chat row. New object identities from a refetch or
@@ -436,6 +448,7 @@ const UserAttachments = memo(function UserAttachments({
               source={{ uri: attachment.previewDataUrl }}
               style={styles.userAttachmentThumb}
               resizeMode="cover"
+              resizeMethod="resize"
               fadeDuration={0}
             />
           ) : (

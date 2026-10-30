@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   FlatList,
   Linking,
@@ -118,13 +118,15 @@ export function ChatScreen({
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
   // Follow-output scroll: only stay pinned when the user is already near the
-  // bottom. The old effect called `scrollToEnd({ animated: true })` on every
-  // messages/goal update, so it fought the user's own scroll while heavy rows
-  // (inline image previews) were still decoding — the list blanked for
-  // seconds and then snapped back. `onContentSizeChange` covers both new
-  // messages and the growing goal-review footer; expanding a round is local
-  // state and must NOT yank the user when they scrolled up.
+  // bottom AND not actively scrolling. The old effect called
+  // `scrollToEnd({ animated: true })` on every messages/goal update, so it
+  // fought the user's own fling while heavy rows (inline image previews) were
+  // still decoding — the list blanked for seconds and then snapped back, and
+  // repeated scrolls to the bottom jittered. `onContentSizeChange` covers both
+  // new messages and the growing goal-review footer; expanding a round is
+  // local state and must NOT yank the user when they scrolled up.
   const followRef = useRef(true)
+  const userScrollingRef = useRef(false)
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
@@ -132,11 +134,36 @@ export function ChatScreen({
     followRef.current = distance < 120
   }, [])
 
+  const handleScrollBegin = useCallback(() => {
+    userScrollingRef.current = true
+  }, [])
+
+  const handleScrollEnd = useCallback(() => {
+    userScrollingRef.current = false
+  }, [])
+
   const handleContentSizeChange = useCallback(() => {
-    if (followRef.current) listRef.current?.scrollToEnd({ animated: false })
+    if (userScrollingRef.current || !followRef.current) return
+    listRef.current?.scrollToEnd({ animated: false })
   }, [])
 
   const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
+
+  const listFooter = useMemo(
+    () => (
+      <>
+        <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
+        {pendingSend.pending ? (
+          <PendingBubble
+            pending={pendingSend.pending}
+            onRetry={() => composerRef.current?.retry()}
+            onDismiss={pendingSend.dismiss}
+          />
+        ) : null}
+      </>
+    ),
+    [client, sessionID, onOpenSession, pendingSend.pending, pendingSend.dismiss],
+  )
 
   const renderItem = useCallback(
     ({ item }: { item: ChatMessage }) => (
@@ -330,23 +357,21 @@ export function ChatScreen({
         maxToRenderPerBatch={5}
         initialNumToRender={10}
         updateCellsBatchingPeriod={50}
-        removeClippedSubviews
+        // Rows are memoized by content: keep their native views mounted once
+        // rendered so revisiting them never re-decodes the inline images.
+        // Clipping (true) unmounted rows just outside the window and every
+        // return trip paid a full remount + base64 decode — the repeated
+        // scroll-to-bottom flicker.
+        removeClippedSubviews={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
+        onScrollBeginDrag={handleScrollBegin}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollBegin={handleScrollBegin}
+        onMomentumScrollEnd={handleScrollEnd}
         onContentSizeChange={handleContentSizeChange}
         {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
-        ListFooterComponent={
-          <>
-            <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
-            {pendingSend.pending ? (
-              <PendingBubble
-                pending={pendingSend.pending}
-                onRetry={() => composerRef.current?.retry()}
-                onDismiss={pendingSend.dismiss}
-              />
-            ) : null}
-          </>
-        }
+        ListFooterComponent={listFooter}
         ListEmptyComponent={
           messagesQuery.isLoading ? (
             <Text style={styles.empty}>Loading conversation…</Text>

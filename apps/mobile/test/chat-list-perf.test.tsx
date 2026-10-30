@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native"
 import type { ChatMessage, ChatMessageInfo, ChatPart } from "@masterhand/client-core"
 import { queryKeys } from "@masterhand/client-core"
 import { ChatScreen } from "../src/screens/ChatScreen"
-import { isSameChatEntry } from "../src/components/MessageBubble"
+import { isSameChatEntry, isSameMessageBubbleProps } from "../src/components/MessageBubble"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
 
 const previewDataUrl = `data:image/png;base64,${"A".repeat(4096)}`
@@ -74,16 +74,64 @@ describe("chat list perf (flicker at bottom)", () => {
     const list = await screen.findByTestId("chat-list")
     expect(list.props.windowSize).toBeLessThanOrEqual(7)
     expect(list.props.maxToRenderPerBatch).toBeLessThanOrEqual(10)
-    expect(list.props.removeClippedSubviews).toBe(true)
+    // Rows are memoized by content: never unmount their native views, or
+    // every revisit re-decodes the inline images (repeated-scroll flicker).
+    expect(list.props.removeClippedSubviews).toBe(false)
   })
 
-  it("tracks whether the user is near the bottom for follow-scroll", async () => {
+  it("keeps a stable footer across re-renders", async () => {
+    const client = fakeClient()
+    client.api.messages.mockResolvedValue([userMessage()])
+    const queryClient = makeQueryClient()
+    queryClient.setQueryData<ChatMessage[]>(queryKeys.messages("s1"), [userMessage()])
+    const element = (
+      <ChatScreen
+        client={client}
+        sessionID="s1"
+        title="s"
+        busy={false}
+        connected
+        workspaceID={null}
+        autoAccept={false}
+        onToggleAutoAccept={() => {}}
+        onBack={() => {}}
+      />
+    )
+    const rendered = await render(element, {
+      wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper>,
+    })
+    const first = screen.getByTestId("chat-list").props.ListFooterComponent
+    await rendered.rerender(element)
+    expect(screen.getByTestId("chat-list").props.ListFooterComponent).toBe(first)
+  })
+
+  it("ignores recreated callbacks when the row content is identical", () => {
+    const entry = userMessage()
+    const prev = { entry, onRespondForm: () => {}, onCancelForm: () => {} }
+    const next = { entry, onRespondForm: () => {}, onCancelForm: () => {} }
+    // Every parent render recreates these; they must not remount image rows.
+    expect(next.onRespondForm).not.toBe(prev.onRespondForm)
+    expect(isSameMessageBubbleProps(prev, next)).toBe(true)
+    expect(isSameMessageBubbleProps({ ...next, busyFormID: "f1" }, next)).toBe(false)
+  })
+
+  // NOTE: this test stays last in the describe. Firing a full begin+end
+  // drag sequence in Jest leaves VirtualizedList's mocked responder in a
+  // state that breaks the next mount in the same file (a test-env-only
+  // artifact — real devices fling constantly). Nothing may mount after it.
+  it("tracks scroll position and drag state for follow-scroll", async () => {
     await setupList()
     const list = await screen.findByTestId("chat-list")
     expect(list.props.onScroll).toBeDefined()
     expect(list.props.onContentSizeChange).toBeDefined()
-    // Near the bottom and far from it must not throw; the handler only flips
-    // the follow flag (the content-size handler owns the actual scroll).
+    // While the user drags/flings, content-size growth must not yank the
+    // offset (the repeated scroll-to-bottom jumps).
+    expect(list.props.onScrollBeginDrag).toBeDefined()
+    expect(list.props.onScrollEndDrag).toBeDefined()
+    expect(list.props.onMomentumScrollBegin).toBeDefined()
+    expect(list.props.onMomentumScrollEnd).toBeDefined()
+    // Near the bottom and far from it must not throw; the handlers only flip
+    // flags (the content-size handler owns the actual scroll).
     fireEvent.scroll(list, {
       nativeEvent: {
         contentOffset: { y: 4000, x: 0 },
@@ -91,6 +139,8 @@ describe("chat list perf (flicker at bottom)", () => {
         layoutMeasurement: { height: 800, width: 300 },
       },
     })
+    fireEvent(list, "scrollBeginDrag", { nativeEvent: {} })
+    fireEvent(list, "scrollEndDrag", { nativeEvent: {} })
     fireEvent.scroll(list, {
       nativeEvent: {
         contentOffset: { y: 0, x: 0 },

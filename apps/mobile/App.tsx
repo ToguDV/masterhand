@@ -1372,35 +1372,57 @@ function AuthenticatedApp({
     }
   }
 
-  async function respondForm(form: FormInfo, answer: FormAnswer) {
-    setBusyFormID(form.id)
-    setBanner(null)
-    try {
-      // The form id resolves the question regardless of the active workspace.
-      await client.api.respondForm(form.sessionID, form.id, answer)
-      setForms((prev) => prev.filter((item) => item.id !== form.id))
-      // Keep the local answer so the inline card can render it read-only.
-      setAnsweredForms((prev) =>
-        [...prev.filter((entry) => entry.form.id !== form.id), { form, answer }].slice(-50),
-      )
-    } catch {
-      setBanner("Could not answer the question")
-    } finally {
-      setBusyFormID(null)
-    }
-  }
+  // Stable callbacks for the chat screen: it memoizes every row by content,
+  // so a new function identity on each App render would re-render the whole
+  // list on every SSE event (the repeated scroll-to-bottom flicker).
+  const respondForm = useCallback(
+    async (form: FormInfo, answer: FormAnswer) => {
+      setBusyFormID(form.id)
+      setBanner(null)
+      try {
+        // The form id resolves the question regardless of the active workspace.
+        await client.api.respondForm(form.sessionID, form.id, answer)
+        setForms((prev) => prev.filter((item) => item.id !== form.id))
+        // Keep the local answer so the inline card can render it read-only.
+        setAnsweredForms((prev) =>
+          [...prev.filter((entry) => entry.form.id !== form.id), { form, answer }].slice(-50),
+        )
+      } catch {
+        setBanner("Could not answer the question")
+      } finally {
+        setBusyFormID(null)
+      }
+    },
+    [client],
+  )
 
-  async function cancelForm(form: FormInfo) {
-    setBusyFormID(form.id)
-    try {
-      await client.api.cancelForm(form.sessionID, form.id)
-      setForms((prev) => prev.filter((item) => item.id !== form.id))
-    } catch {
-      setBanner("Could not dismiss the question")
-    } finally {
-      setBusyFormID(null)
-    }
-  }
+  const cancelForm = useCallback(
+    async (form: FormInfo) => {
+      setBusyFormID(form.id)
+      try {
+        await client.api.cancelForm(form.sessionID, form.id)
+        setForms((prev) => prev.filter((item) => item.id !== form.id))
+      } catch {
+        setBanner("Could not dismiss the question")
+      } finally {
+        setBusyFormID(null)
+      }
+    },
+    [client],
+  )
+
+  const respondFormHandler = useCallback(
+    (form: FormInfo, answer: FormAnswer) => {
+      void respondForm(form, answer)
+    },
+    [respondForm],
+  )
+  const cancelFormHandler = useCallback(
+    (form: FormInfo) => {
+      void cancelForm(form)
+    },
+    [cancelForm],
+  )
 
   const waitingForm = forms.find((form) => formIsQuestion(form) && form.sessionID !== sessionID) ?? null
 
@@ -1433,8 +1455,8 @@ function AuthenticatedApp({
             forms={forms}
             answeredForms={answeredForms}
             busyFormID={busyFormID}
-            onRespondForm={(form, answer) => void respondForm(form, answer)}
-            onCancelForm={(form) => void cancelForm(form)}
+            onRespondForm={respondFormHandler}
+            onCancelForm={cancelFormHandler}
             waitingQuestion={Boolean(waitingForm)}
             onOpenWaiting={() => {
               if (waitingForm) setSessionID(waitingForm.sessionID)
