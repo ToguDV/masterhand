@@ -350,4 +350,42 @@ describe("ChatScreen", () => {
 
     await waitFor(() => expect(screen.queryByLabelText("Close run and preview")).toBeNull())
   })
+
+  it("shows a scroll-to-bottom shortcut when scrolled up", async () => {
+    await setup({}, (client) => {
+      client.api.messages.mockResolvedValue([assistant])
+    })
+    expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
+    const list = await screen.findByTestId("chat-list")
+    expect(screen.queryByLabelText("Scroll to bottom")).toBeNull()
+
+    fireEvent.scroll(list, {
+      nativeEvent: {
+        contentOffset: { y: 0, x: 0 },
+        contentSize: { height: 5000, width: 300 },
+        layoutMeasurement: { height: 800, width: 300 },
+      },
+    })
+
+    expect(await screen.findByLabelText("Scroll to bottom")).toBeOnTheScreen()
+  })
+
+  it("hides the shortcut after jumping back to the bottom", async () => {
+    await setup({}, (client) => {
+      client.api.messages.mockResolvedValue([assistant])
+    })
+    expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
+    const list = await screen.findByTestId("chat-list")
+    fireEvent.scroll(list, {
+      nativeEvent: {
+        contentOffset: { y: 0, x: 0 },
+        contentSize: { height: 5000, width: 300 },
+        layoutMeasurement: { height: 800, width: 300 },
+      },
+    })
+    const jump = await screen.findByLabelText("Scroll to bottom")
+    await fireEvent.press(jump)
+
+    await waitFor(() => expect(screen.queryByLabelText("Scroll to bottom")).toBeNull())
+  })
 })

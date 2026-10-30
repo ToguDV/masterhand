@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
   FlatList,
   Linking,
@@ -41,7 +41,7 @@ import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { Deco } from "../components/Deco"
-import { PlayIcon } from "../components/icons"
+import { ArrowDownIcon, PlayIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export function ChatScreen({
@@ -127,11 +127,32 @@ export function ChatScreen({
   // local state and must NOT yank the user when they scrolled up.
   const followRef = useRef(true)
   const userScrollingRef = useRef(false)
+  const [showJump, setShowJump] = useState(false)
+  const didInitialScroll = useRef(false)
+
+  useEffect(() => {
+    followRef.current = true
+    userScrollingRef.current = false
+    didInitialScroll.current = false
+    setShowJump(false)
+  }, [sessionID])
+
+  useEffect(() => {
+    if (messages.length === 0 || didInitialScroll.current) return
+    didInitialScroll.current = true
+    // Respect a scroll-away that already happened (followRef flipped by
+    // handleScroll): the entry pin must never yank the user back down nor
+    // hide the shortcut they just earned.
+    if (userScrollingRef.current || !followRef.current) return
+    listRef.current?.scrollToEnd({ animated: false })
+  }, [messages.length, sessionID])
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
     const distance = contentSize.height - (contentOffset.y + layoutMeasurement.height)
-    followRef.current = distance < 120
+    const nearBottom = distance < 120
+    followRef.current = nearBottom
+    setShowJump(!nearBottom)
   }, [])
 
   const handleScrollBegin = useCallback(() => {
@@ -143,8 +164,15 @@ export function ChatScreen({
   }, [])
 
   const handleContentSizeChange = useCallback(() => {
+    if (!didInitialScroll.current) didInitialScroll.current = true
     if (userScrollingRef.current || !followRef.current) return
     listRef.current?.scrollToEnd({ animated: false })
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    followRef.current = true
+    setShowJump(false)
+    listRef.current?.scrollToEnd({ animated: true })
   }, [])
 
   const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
@@ -345,44 +373,61 @@ export function ChatScreen({
         </Pressable>
       ) : null}
 
-      <FlatList
-        ref={listRef}
-        testID="chat-list"
-        data={messages}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        style={styles.listContainer}
-        windowSize={5}
-        maxToRenderPerBatch={5}
-        initialNumToRender={10}
-        updateCellsBatchingPeriod={50}
-        // Rows are memoized by content: keep their native views mounted once
-        // rendered so revisiting them never re-decodes the inline images.
-        // Clipping (true) unmounted rows just outside the window and every
-        // return trip paid a full remount + base64 decode — the repeated
-        // scroll-to-bottom flicker.
-        removeClippedSubviews={false}
-        scrollEventThrottle={16}
-        onScroll={handleScroll}
-        onScrollBeginDrag={handleScrollBegin}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollBegin={handleScrollBegin}
-        onMomentumScrollEnd={handleScrollEnd}
-        onContentSizeChange={handleContentSizeChange}
-        {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
-        ListFooterComponent={listFooter}
-        ListEmptyComponent={
-          messagesQuery.isLoading ? (
-            <Text style={styles.empty}>Loading conversation…</Text>
-          ) : (
-            <View style={styles.emptyWrap}>
-              <Deco variant="dots" style={styles.emptyDeco} />
-              <Text style={styles.emptyTitle}>Write a message to start working with the agent.</Text>
-            </View>
-          )
-        }
-      />
+      <View style={styles.listWrap}>
+        <FlatList
+          ref={listRef}
+          testID="chat-list"
+          data={messages}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          contentContainerStyle={styles.list}
+          style={styles.listContainer}
+          windowSize={5}
+          maxToRenderPerBatch={5}
+          initialNumToRender={10}
+          updateCellsBatchingPeriod={50}
+          // Rows are memoized by content: keep their native views mounted once
+          // rendered so revisiting them never re-decodes the inline images.
+          // Clipping (true) unmounted rows just outside the window and every
+          // return trip paid a full remount + base64 decode — the repeated
+          // scroll-to-bottom flicker.
+          removeClippedSubviews={false}
+          scrollEventThrottle={16}
+          onScroll={handleScroll}
+          onScrollBeginDrag={handleScrollBegin}
+          onScrollEndDrag={handleScrollEnd}
+          onMomentumScrollBegin={handleScrollBegin}
+          onMomentumScrollEnd={handleScrollEnd}
+          onContentSizeChange={handleContentSizeChange}
+          {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
+          ListFooterComponent={listFooter}
+          ListEmptyComponent={
+            messagesQuery.isLoading ? (
+              <Text style={styles.empty}>Loading conversation…</Text>
+            ) : (
+              <View style={styles.emptyWrap}>
+                <Deco variant="dots" style={styles.emptyDeco} />
+                <Text style={styles.emptyTitle}>Write a message to start working with the agent.</Text>
+              </View>
+            )
+          }
+        />
+        {showJump ? (
+          <View style={styles.jumpWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.jumpButton}
+              onPress={scrollToBottom}
+              accessibilityRole="button"
+              accessibilityLabel="Scroll to bottom"
+              accessibilityHint="Jumps to the newest message"
+              testID="scroll-to-bottom"
+              hitSlop={8}
+            >
+              <ArrowDownIcon size={20} color={colors.text} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
 
       <GoalStrip client={client} sessionID={sessionID} />
 
@@ -496,6 +541,26 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     listContainer: {
       flex: 1,
+    },
+    listWrap: {
+      flex: 1,
+    },
+    jumpWrap: {
+      position: "absolute",
+      right: 16,
+      bottom: 16,
+      zIndex: 10,
+    },
+    jumpButton: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      elevation: 4,
     },
     list: {
       gap: 16,
