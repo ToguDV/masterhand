@@ -1,4 +1,4 @@
-import { Linking } from "react-native"
+import { FlatList, Linking } from "react-native"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import type { ChatMessage, SessionIsolation } from "@masterhand/client-core"
 import { queryKeys, RequestTimeoutError } from "@masterhand/client-core"
@@ -351,24 +351,20 @@ describe("ChatScreen", () => {
     await waitFor(() => expect(screen.queryByLabelText("Close run and preview")).toBeNull())
   })
 
-  it("starts at the bottom with no visible scroll on entry", async () => {
+  it("starts at the bottom on entry without scrolling", async () => {
     await setup({}, (client) => {
       client.api.messages.mockResolvedValue([assistant])
     })
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
-    // Messages are in but the list has not pinned to the bottom yet: it stays
-    // invisible so the user never sees the top of the chat flash by.
-    expect(screen.getByTestId("chat-list-wrap").props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
-    )
+    const list = await screen.findByTestId("chat-list")
+    const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset")
 
-    fireEvent(screen.getByTestId("chat-list"), "contentSizeChange", 300, 5000)
-
-    await waitFor(() => {
-      expect(screen.getByTestId("chat-list-wrap").props.style).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
-      )
-    })
+    // Inverted: offset 0 is the newest message, so the session is already at
+    // the bottom before any scroll happens — no entry pin, no animation.
+    expect(list.props.inverted).toBe(true)
+    expect(list.props.data[0].info.id).toBe("a1")
+    expect(scrollToOffset).not.toHaveBeenCalled()
+    scrollToOffset.mockRestore()
   })
 
   it("shows a scroll-to-bottom shortcut when scrolled up", async () => {
@@ -381,8 +377,8 @@ describe("ChatScreen", () => {
 
     fireEvent.scroll(list, {
       nativeEvent: {
-        contentOffset: { y: 0, x: 0 },
-        contentSize: { height: 5000, width: 300 },
+        contentOffset: { y: 3000, x: 0 },
+        contentSize: { height: 9000, width: 300 },
         layoutMeasurement: { height: 800, width: 300 },
       },
     })
@@ -390,21 +386,26 @@ describe("ChatScreen", () => {
     expect(await screen.findByLabelText("Scroll to bottom")).toBeOnTheScreen()
   })
 
-  it("hides the shortcut after jumping back to the bottom", async () => {    await setup({}, (client) => {
+  it("jumps to the bottom instantly", async () => {
+    await setup({}, (client) => {
       client.api.messages.mockResolvedValue([assistant])
     })
     expect(await screen.findByText("reply from agent")).toBeOnTheScreen()
     const list = await screen.findByTestId("chat-list")
     fireEvent.scroll(list, {
       nativeEvent: {
-        contentOffset: { y: 0, x: 0 },
-        contentSize: { height: 5000, width: 300 },
+        contentOffset: { y: 3000, x: 0 },
+        contentSize: { height: 9000, width: 300 },
         layoutMeasurement: { height: 800, width: 300 },
       },
     })
     const jump = await screen.findByLabelText("Scroll to bottom")
+    const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset")
+
     await fireEvent.press(jump)
 
-    await waitFor(() => expect(screen.queryByLabelText("Scroll to bottom")).toBeNull())
+    expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: false })
+    expect(screen.queryByLabelText("Scroll to bottom")).toBeNull()
+    scrollToOffset.mockRestore()
   })
 })

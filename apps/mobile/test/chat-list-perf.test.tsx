@@ -79,7 +79,7 @@ describe("chat list perf (flicker at bottom)", () => {
     expect(list.props.removeClippedSubviews).toBe(false)
   })
 
-  it("keeps a stable footer across re-renders", async () => {
+  it("keeps a stable bottom block across re-renders", async () => {
     const client = fakeClient()
     client.api.messages.mockResolvedValue([userMessage()])
     const queryClient = makeQueryClient()
@@ -100,9 +100,9 @@ describe("chat list perf (flicker at bottom)", () => {
     const rendered = await render(element, {
       wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper>,
     })
-    const first = screen.getByTestId("chat-list").props.ListFooterComponent
+    const first = screen.getByTestId("chat-list").props.ListHeaderComponent
     await rendered.rerender(element)
-    expect(screen.getByTestId("chat-list").props.ListFooterComponent).toBe(first)
+    expect(screen.getByTestId("chat-list").props.ListHeaderComponent).toBe(first)
   })
 
   it("ignores recreated callbacks when the row content is identical", () => {

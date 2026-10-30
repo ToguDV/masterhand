@@ -118,35 +118,30 @@ export function ChatScreen({
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
   // Follow-output scroll: only stay pinned when the user is already near the
-  // bottom AND not actively scrolling. The old effect called
-  // `scrollToEnd({ animated: true })` on every messages/goal update, so it
-  // fought the user's own fling while heavy rows (inline image previews) were
-  // still decoding — the list blanked for seconds and then snapped back, and
-  // repeated scrolls to the bottom jittered. `onContentSizeChange` covers both
-  // new messages and the growing goal-review footer; expanding a round is
-  // local state and must NOT yank the user when they scrolled up.
+  // bottom AND not actively scrolling. `onContentSizeChange` covers both new
+  // messages and the growing goal-review footer; expanding a round is local
+  // state and must NOT yank the user when they scrolled up.
+  //
+  // The list is inverted (newest first, rendered bottom-up), so offset 0 IS
+  // the bottom: entering a session starts at the newest message with no
+  // scroll of any kind — no mount-at-top flash, no entry pin, no animation.
   const followRef = useRef(true)
   const userScrollingRef = useRef(false)
   const [showJump, setShowJump] = useState(false)
-  const didInitialScroll = useRef(false)
-  // The list mounts at the top and only knows its full height after layout:
-  // pinning it then flashes the top of the chat on heavy sessions. Keep the
-  // list invisible until the first bottom pin lands, so entry starts at the
-  // bottom with no visible scroll at all.
-  const [enteredReady, setEnteredReady] = useState(false)
+
+  // Reversed so the newest message is index 0, which the inverted list anchors
+  // at the visual bottom.
+  const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
 
   useEffect(() => {
     followRef.current = true
     userScrollingRef.current = false
-    didInitialScroll.current = false
     setShowJump(false)
-    setEnteredReady(false)
   }, [sessionID])
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-    const distance = contentSize.height - (contentOffset.y + layoutMeasurement.height)
-    const nearBottom = distance < 120
+    // Inverted list: distance from the newest message is the offset itself.
+    const nearBottom = event.nativeEvent.contentOffset.y < 120
     followRef.current = nearBottom
     setShowJump(!nearBottom)
   }, [])
@@ -160,26 +155,15 @@ export function ChatScreen({
   }, [])
 
   const handleContentSizeChange = useCallback(() => {
-    if (messages.length === 0) return
-    if (!didInitialScroll.current) {
-      didInitialScroll.current = true
-      // Respect a scroll-away that already happened (followRef flipped by
-      // handleScroll): the entry pin must never yank the user back down nor
-      // hide the shortcut they just earned.
-      if (followRef.current && !userScrollingRef.current) {
-        listRef.current?.scrollToEnd({ animated: false })
-      }
-      setEnteredReady(true)
-    } else {
-      if (userScrollingRef.current || !followRef.current) return
-      listRef.current?.scrollToEnd({ animated: false })
-    }
-  }, [messages.length])
+    if (userScrollingRef.current || !followRef.current) return
+    listRef.current?.scrollToOffset({ offset: 0, animated: false })
+  }, [])
 
   const scrollToBottom = useCallback(() => {
     followRef.current = true
     setShowJump(false)
-    listRef.current?.scrollToEnd({ animated: true })
+    // Instant by design: the shortcut is "get me there now", not a ride.
+    listRef.current?.scrollToOffset({ offset: 0, animated: false })
   }, [])
 
   const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
@@ -380,48 +364,53 @@ export function ChatScreen({
         </Pressable>
       ) : null}
 
-      <View
-        style={[styles.listWrap, messages.length > 0 && !enteredReady ? styles.listHidden : null]}
-        testID="chat-list-wrap"
-      >
-        <FlatList
-          ref={listRef}
-          testID="chat-list"
-          data={messages}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          contentContainerStyle={styles.list}
-          style={styles.listContainer}
-          windowSize={5}
-          maxToRenderPerBatch={5}
-          initialNumToRender={10}
-          updateCellsBatchingPeriod={50}
-          // Rows are memoized by content: keep their native views mounted once
-          // rendered so revisiting them never re-decodes the inline images.
-          // Clipping (true) unmounted rows just outside the window and every
-          // return trip paid a full remount + base64 decode — the repeated
-          // scroll-to-bottom flicker.
-          removeClippedSubviews={false}
-          scrollEventThrottle={16}
-          onScroll={handleScroll}
-          onScrollBeginDrag={handleScrollBegin}
-          onScrollEndDrag={handleScrollEnd}
-          onMomentumScrollBegin={handleScrollBegin}
-          onMomentumScrollEnd={handleScrollEnd}
-          onContentSizeChange={handleContentSizeChange}
-          {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
-          ListFooterComponent={listFooter}
-          ListEmptyComponent={
-            messagesQuery.isLoading ? (
+      <View style={styles.listWrap}>
+        {messages.length === 0 ? (
+          <View style={styles.listWrap}>
+            {messagesQuery.isLoading ? (
               <Text style={styles.empty}>Loading conversation…</Text>
             ) : (
               <View style={styles.emptyWrap}>
                 <Deco variant="dots" style={styles.emptyDeco} />
                 <Text style={styles.emptyTitle}>Write a message to start working with the agent.</Text>
               </View>
-            )
-          }
-        />
+            )}
+            {/* Goals and the pending ghost stay reachable without history. */}
+            {listFooter}
+          </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            testID="chat-list"
+            inverted
+            data={orderedMessages}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            contentContainerStyle={styles.list}
+            style={styles.listContainer}
+            windowSize={5}
+            maxToRenderPerBatch={5}
+            initialNumToRender={10}
+            updateCellsBatchingPeriod={50}
+            // Rows are memoized by content: keep their native views mounted once
+            // rendered so revisiting them never re-decodes the inline images.
+            // Clipping (true) unmounted rows just outside the window and every
+            // return trip paid a full remount + base64 decode — the repeated
+            // scroll-to-bottom flicker.
+            removeClippedSubviews={false}
+            scrollEventThrottle={16}
+            onScroll={handleScroll}
+            onScrollBeginDrag={handleScrollBegin}
+            onScrollEndDrag={handleScrollEnd}
+            onMomentumScrollBegin={handleScrollBegin}
+            onMomentumScrollEnd={handleScrollEnd}
+            onContentSizeChange={handleContentSizeChange}
+            {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
+            // Inverted: the header renders at the visual bottom, under the
+            // newest message, so the goal review and pending ghost stay there.
+            ListHeaderComponent={listFooter}
+          />
+        )}
         {showJump ? (
           <View style={styles.jumpWrap} pointerEvents="box-none">
             <Pressable
@@ -554,9 +543,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     listWrap: {
       flex: 1,
-    },
-    listHidden: {
-      opacity: 0,
     },
     jumpWrap: {
       position: "absolute",
