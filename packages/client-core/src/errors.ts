@@ -44,7 +44,7 @@ export function attachmentErrorMessage(error: unknown, name?: string): string {
     if (error.status === 404) return "The workspace or session no longer exists."
     return `Could not upload ${label} (HTTP ${error.status}).`
   }
-  return `Could not upload ${label}. Try again.`
+  return `Could not upload ${label}: ${error instanceof Error ? error.message : String(error)}.`
 }
 
 /**

@@ -28,6 +28,9 @@ export {
   FINISH_TIMEOUT_MS,
   type Client,
   type ClientOptions,
+  type NativeUploader,
+  type NativeUploadInput,
+  type NativeUploadResult,
 } from "./client"
 export {
   DELIVERY_MARKER_KEY,

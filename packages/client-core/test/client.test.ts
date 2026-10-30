@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { ApiError, RequestTimeoutError, createClient } from "../src/client"
 import { createEventStream } from "../src/events"
 import type { SessionMessageInfo, SessionMessageUser } from "../src/types"
@@ -1316,6 +1316,63 @@ describe("goal mode", () => {
     const client = createClient({ baseUrl: "", fetchImpl })
 
     expect(await client.api.goal.settings()).toEqual({ maxRounds: 5, criticModel: null, judgeModel: null })
+  })
+})
+
+describe("native attachments", () => {
+  const attachment = {
+    id: "a1",
+    name: "photo.jpg",
+    mime: "image/jpeg",
+    size: 10,
+    path: "/workspace/app/.masterhand/attachments/ses_1/a1-photo.jpg",
+    uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-photo.jpg",
+    url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+  }
+
+  it("uses the injected native uploader instead of fetch for a uri", async () => {
+    const nativeUpload = vi.fn(async () => ({ status: 201, body: JSON.stringify({ attachment }) }))
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({}))
+    const client = createClient({
+      baseUrl: "https://mh.example",
+      fetchImpl,
+      getToken: () => "tok",
+      nativeUpload,
+    })
+
+    const uploaded = await client.api.attachments.upload("ws_1", "ses_1", {
+      id: "a1",
+      name: "photo.jpg",
+      mime: "image/jpeg",
+      size: 10,
+      uri: "file:///tmp/photo.jpg",
+    })
+
+    expect(uploaded).toEqual(attachment)
+    expect(calls).toHaveLength(0)
+    expect(nativeUpload).toHaveBeenCalledWith({
+      url: "https://mh.example/api/workspaces/ws_1/attachments",
+      headers: { authorization: "Bearer tok" },
+      fileUri: "file:///tmp/photo.jpg",
+      fieldName: "file",
+      mimeType: "image/jpeg",
+      parameters: { sessionID: "ses_1", attachmentID: "a1" },
+    })
+  })
+
+  it("maps a native upload error status to ApiError", async () => {
+    const nativeUpload = vi.fn(async () => ({ status: 413, body: '{"error":"attachment_too_large"}' }))
+    const client = createClient({ nativeUpload, fetchImpl: (async () => jsonResponse({})) as typeof fetch })
+
+    await expect(
+      client.api.attachments.upload("ws_1", "ses_1", {
+        id: "a1",
+        name: "photo.jpg",
+        mime: "image/jpeg",
+        size: 10,
+        uri: "file:///tmp/photo.jpg",
+      }),
+    ).rejects.toMatchObject({ status: 413 })
   })
 })
 

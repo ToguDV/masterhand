@@ -88,6 +88,27 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+/** Native multipart upload input (the mobile `expo-file-system` bridge). */
+export interface NativeUploadInput {
+  /** Absolute upload URL, including the BFF origin. */
+  url: string
+  headers: Record<string, string>
+  /** Local `file://` (or content) URI from the document picker. */
+  fileUri: string
+  /** Multipart field name (always `file`). */
+  fieldName: string
+  mimeType: string
+  /** Additional multipart fields (`sessionID`, `attachmentID`). */
+  parameters: Record<string, string>
+}
+
+export interface NativeUploadResult {
+  status: number
+  body: string
+}
+
+export type NativeUploader = (input: NativeUploadInput) => Promise<NativeUploadResult>
+
 export interface ClientOptions {
   /** Base server URL (e.g. "https://masterhand.example.com"). Empty means same-origin. */
   baseUrl?: string
@@ -96,6 +117,12 @@ export interface ClientOptions {
   /** Called when a request fails with 401. */
   onUnauthorized?: () => void
   fetchImpl?: typeof fetch
+  /**
+   * Native multipart uploader. React Native's `expo/fetch` does not understand
+   * the `{ uri, name, type }` file object that native `FormData` uses, so the
+   * mobile app injects `expo-file-system`'s `uploadAsync` instead.
+   */
+  nativeUpload?: NativeUploader
   /**
    * Aborts requests that stall for longer than this, so a hung socket (paused
    * or unreachable server, lost mobile network) rejects instead of latching
@@ -373,6 +400,7 @@ function resolveOrigin(baseUrl: string): string {
 export function createClient(options: ClientOptions = {}): Client {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "")
   const fetchImpl = options.fetchImpl ?? fetch
+  const nativeUpload = options.nativeUpload
   const timeoutMs = options.timeoutMs ?? 30_000
   const finishTimeoutMs = options.finishTimeoutMs ?? FINISH_TIMEOUT_MS
   const branchTimeoutMs = options.branchTimeoutMs ?? BRANCH_TIMEOUT_MS
@@ -413,6 +441,23 @@ export function createClient(options: ClientOptions = {}): Client {
       clearTimeout(timer)
       external?.removeEventListener("abort", forwardAbort)
     }
+  }
+
+  /** Bounds a native bridge call that has no AbortSignal of its own. */
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new RequestTimeoutError()), ms)
+      promise.then(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
   }
 
   async function request<T>(path: string, init: RequestInit = {}, overrideMs?: number): Promise<T> {
@@ -594,7 +639,34 @@ export function createClient(options: ClientOptions = {}): Client {
       },
       messages: (sessionID) => listAllMessages(sessionID),
       attachments: {
-        upload: (workspaceID, sessionID, input) => {
+        upload: async (workspaceID, sessionID, input) => {
+          const path = `/api/workspaces/${encodeURIComponent(workspaceID)}/attachments`
+          if (input.uri && nativeUpload) {
+            // The native bridge sends the multipart body itself; `expo/fetch`
+            // cannot serialize React Native's `{ uri, name, type }` file object.
+            const token = await options.getToken?.()
+            const result = await withTimeout(
+              nativeUpload({
+                url: `${baseUrl}${path}`,
+                headers: token ? { authorization: `Bearer ${token}` } : {},
+                fileUri: input.uri,
+                fieldName: "file",
+                mimeType: input.mime,
+                parameters: { sessionID, attachmentID: input.id },
+              }),
+              UPLOAD_TIMEOUT_MS,
+            )
+            if (result.status === 401) options.onUnauthorized?.()
+            if (result.status < 200 || result.status >= 300) {
+              throw new ApiError(result.status, result.body || `HTTP ${result.status}`)
+            }
+            try {
+              return (JSON.parse(result.body) as { attachment: UploadedAttachment }).attachment
+            } catch {
+              throw new ApiError(result.status, "invalid attachment response")
+            }
+          }
+
           const form = new FormData()
           form.append("sessionID", sessionID)
           form.append("attachmentID", input.id)
@@ -606,7 +678,7 @@ export function createClient(options: ClientOptions = {}): Client {
             return Promise.reject(new Error("attachment body or uri is required"))
           }
           return request<{ attachment: UploadedAttachment }>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/attachments`,
+            path,
             { method: "POST", body: form },
             UPLOAD_TIMEOUT_MS,
           ).then((response) => response.attachment)
