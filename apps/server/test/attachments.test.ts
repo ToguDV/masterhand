@@ -266,6 +266,23 @@ describe("attachment routes", () => {
     expect(gone.status).toBe(404)
   })
 
+  it("accepts a display-name override from the native uploader", async () => {
+    const { workspacePath } = setupWorkspace()
+    const testApp = await startApp(workspacePath)
+    const cookie = await login(testApp.url)
+    const form = uploadForm("a1", "cache-1234.jpg", "hello", "image/jpeg")
+    form.set("name", "holiday.jpg")
+
+    const response = await fetch(`${testApp.url}/api/workspaces/ws_1/attachments`, {
+      method: "POST",
+      headers: { cookie },
+      body: form,
+    })
+    expect(response.status).toBe(201)
+    const { attachment } = (await response.json()) as { attachment: { name: string } }
+    expect(attachment.name).toBe("holiday.jpg")
+  })
+
   it("is idempotent per client id and conflicts on different bytes", async () => {
     const { workspacePath } = setupWorkspace()
     const testApp = await startApp(workspacePath)

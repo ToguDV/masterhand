@@ -2037,6 +2037,9 @@ export function createApp(deps: AppDeps): CreatedApp {
       const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
       const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
       const attachmentID = typeof body.attachmentID === "string" ? body.attachmentID : ""
+      // The native uploader (expo-file-system) uses the cache basename; the
+      // explicit field keeps the display name the user picked.
+      const requestedName = typeof body.name === "string" ? body.name.trim().slice(0, 200) : ""
       if (!rawFile || typeof rawFile === "string" || !sessionID || !attachmentID) {
         return c.json({ error: "invalid_attachment" }, 400)
       }
@@ -2050,7 +2053,7 @@ export function createApp(deps: AppDeps): CreatedApp {
           workspacePath: workspace.path,
           sessionID,
           attachmentID,
-          name: rawFile.name || "file",
+          name: requestedName || rawFile.name || "file",
           bytes: new Uint8Array(await rawFile.arrayBuffer()),
           maxFileBytes: config.attachmentMaxMb * 1024 * 1024,
           maxSessionBytes: config.attachmentMaxPerSessionMb * 1024 * 1024,

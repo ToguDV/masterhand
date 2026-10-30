@@ -652,7 +652,7 @@ export function createClient(options: ClientOptions = {}): Client {
                 fileUri: input.uri,
                 fieldName: "file",
                 mimeType: input.mime,
-                parameters: { sessionID, attachmentID: input.id },
+                parameters: { sessionID, attachmentID: input.id, name: input.name },
               }),
               UPLOAD_TIMEOUT_MS,
             )

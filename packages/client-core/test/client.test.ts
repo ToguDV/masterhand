@@ -1356,7 +1356,7 @@ describe("native attachments", () => {
       fileUri: "file:///tmp/photo.jpg",
       fieldName: "file",
       mimeType: "image/jpeg",
-      parameters: { sessionID: "ses_1", attachmentID: "a1" },
+      parameters: { sessionID: "ses_1", attachmentID: "a1", name: "photo.jpg" },
     })
   })
 
