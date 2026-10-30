@@ -88,7 +88,7 @@ export class RequestTimeoutError extends Error {
   }
 }
 
-/** Native multipart upload input (the mobile `expo-file-system` bridge). */
+/** Native multipart upload input (the mobile React Native fetch bridge). */
 export interface NativeUploadInput {
   /** Absolute upload URL, including the BFF origin. */
   url: string
@@ -120,7 +120,7 @@ export interface ClientOptions {
   /**
    * Native multipart uploader. React Native's `expo/fetch` does not understand
    * the `{ uri, name, type }` file object that native `FormData` uses, so the
-   * mobile app injects `expo-file-system`'s `uploadAsync` instead.
+   * mobile app injects React Native's global fetch for uploads.
    */
   nativeUpload?: NativeUploader
   /**

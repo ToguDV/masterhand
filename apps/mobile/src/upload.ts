@@ -1,26 +1,35 @@
-import * as FileSystem from "expo-file-system/legacy"
 import type { NativeUploadInput, NativeUploadResult } from "@masterhand/client-core"
 
 /**
- * Native multipart upload. The app's `expo/fetch` cannot serialize React
- * Native's `{ uri, name, type }` file object, so attachments go through the
- * file-system bridge, which reads the picked `file://`/`content://` URI with
- * the native networking stack.
+ * Multipart attachment upload through React Native's **global** `fetch`.
+ *
+ * The app streams API/SSE traffic through `expo/fetch`, which stringifies
+ * React Native's `{ uri, name, type }` FormData file part instead of sending
+ * the file, so uploads must not use `ClientOptions.fetchImpl`.
+ *
+ * Global fetch is React Native's own XHR implementation: it builds a real
+ * multipart body and reads the file through the native networking stack.
+ *
+ * Do not replace this with `expo-file-system`'s `uploadAsync`: in Expo Go its
+ * permission service only allows paths inside the experience-scoped
+ * directories (`ScopedFilePermissionService`), while `expo-document-picker`
+ * copies into Expo Go's shared cache (`.../cache/DocumentPicker/...`). That
+ * path is rejected with "Location 'file:///...' isn't readable" before any
+ * byte leaves the device.
  */
 export async function nativeUpload(input: NativeUploadInput): Promise<NativeUploadResult> {
-  // Android's picker can hand back `file:////data/...` (an extra leading
-  // slash); expo-file-system then resolves the path as `//data/...` and the
-  // permission service rejects it as unreadable. Normalize to one `file:///`.
-  const fileUri = input.fileUri.replace(/^file:\/\/*/, "file:///")
-  const result = await FileSystem.uploadAsync(input.url, fileUri, {
-    httpMethod: "POST",
-    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-    fieldName: input.fieldName,
-    mimeType: input.mimeType,
-    parameters: input.parameters,
+  const form = new FormData()
+  for (const [key, value] of Object.entries(input.parameters)) form.append(key, value)
+  form.append(input.fieldName, {
+    uri: input.fileUri,
+    name: input.parameters.name || "file",
+    type: input.mimeType,
+  } as unknown as Blob)
+
+  const response = await fetch(input.url, {
+    method: "POST",
     headers: input.headers,
-    // Foreground keeps the promise alive while the composer owns the send.
-    sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+    body: form,
   })
-  return { status: result.status, body: result.body }
+  return { status: response.status, body: await response.text() }
 }

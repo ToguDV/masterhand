@@ -132,6 +132,18 @@ describe("worklet boundary", () => {
   })
 })
 
+describe("native attachment uploads", () => {
+  it("sends RN FormData through the global fetch, not an Expo API", () => {
+    const upload = read("src/upload.ts")
+    expect(importedNames(upload, "expo/fetch")).toEqual([])
+    // Expo Go scopes expo-file-system's permissions to the experience
+    // directories; the document picker writes to Expo Go's shared cache, so
+    // uploadAsync rejects every picked file as unreadable (rule 49).
+    expect(upload).not.toMatch(/from\s+"expo-file-system/)
+    expect(upload).toMatch(/fetch\(input\.url/)
+  })
+})
+
 describe("design system", () => {
   it("has no indigo palette left (the ink-on-paper port replaced it)", () => {
     const offenders = sourceFilesList
