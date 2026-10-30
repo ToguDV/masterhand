@@ -2,6 +2,11 @@
 # Pre-commit: fast gate. Full E2E and builds run in pre-push and CI.
 set -e
 
+# Rule 30 (docs/past-mistakes.md): never run git-spawning gates with
+# GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE set. A leak redirects every temp-repo
+# `git init/config/add/commit` from the test suites into the real branch.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 if [ -n "$MASTERHAND_SKIP_HOOKS" ]; then
   echo "[pre-commit] skipped (MASTERHAND_SKIP_HOOKS)"
   exit 0

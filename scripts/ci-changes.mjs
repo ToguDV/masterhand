@@ -105,8 +105,11 @@ function assertSha(sha, label) {
 
 /** Resolves the changed files for the event, or throws when it cannot. */
 export function detectChangedFiles({ eventName, baseSha, headSha, beforeSha, afterSha }) {
+  // Rule 30 (docs/past-mistakes.md): never let a leaked GIT_DIR/WORK_TREE
+  // redirect this diff into another repository.
+  const { GIT_DIR: _dir, GIT_WORK_TREE: _work, GIT_INDEX_FILE: _index, ...cleanEnv } = process.env
   const diff = (range) =>
-    execFileSync("git", ["diff", "--name-only", range], { encoding: "utf8" })
+    execFileSync("git", ["diff", "--name-only", range], { encoding: "utf8", env: cleanEnv })
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)

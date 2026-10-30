@@ -83,17 +83,61 @@ describe("sandboxed git execution (#178)", () => {
     return dir
   }
 
+  /** Test-setup git must never inherit a leaked GIT_DIR/WORK_TREE/INDEX_FILE
+   * (rule 30): with those set, every `git init/config/add/commit` in a temp
+   * dir targets the leaked repository instead. */
+  function cleanGitEnv(): NodeJS.ProcessEnv {
+    const { GIT_DIR: _dir, GIT_WORK_TREE: _work, GIT_INDEX_FILE: _index, ...rest } = process.env
+    return rest
+  }
+
+  function gitSetup(args: string[], cwd: string): Buffer {
+    return execFileSync("git", args, { cwd, env: cleanGitEnv() })
+  }
+
   /** Real repository with one commit and a local identity (setup runs outside the BFF). */
   function makeRepo(): string {
     const dir = tempDir("mh-safe-git-")
-    execFileSync("git", ["init", "-q"], { cwd: dir })
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir })
-    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir })
+    gitSetup(["init", "-q"], dir)
+    gitSetup(["config", "user.name", "Test"], dir)
+    gitSetup(["config", "user.email", "test@example.com"], dir)
     writeFileSync(join(dir, "README.md"), "init\n")
-    execFileSync("git", ["add", "-A"], { cwd: dir })
-    execFileSync("git", ["commit", "-q", "--no-verify", "-m", "init"], { cwd: dir })
+    gitSetup(["add", "-A"], dir)
+    gitSetup(["commit", "-q", "--no-verify", "-m", "init"], dir)
     return dir
   }
+
+  it("ignores a leaked GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE when setting up temp repos (rule 30)", () => {
+    const victim = tempDir("mh-git-victim-")
+    gitSetup(["init", "-q", "-b", "main"], victim)
+    gitSetup(["config", "user.name", "Victim"], victim)
+    gitSetup(["config", "user.email", "victim@test.invalid"], victim)
+    writeFileSync(join(victim, "base.txt"), "base\n")
+    gitSetup(["add", "-A"], victim)
+    gitSetup(["commit", "-q", "--no-verify", "-m", "base"], victim)
+
+    const savedDir = process.env.GIT_DIR
+    const savedWorkTree = process.env.GIT_WORK_TREE
+    const savedIndex = process.env.GIT_INDEX_FILE
+    process.env.GIT_DIR = join(victim, ".git")
+    process.env.GIT_WORK_TREE = victim
+    process.env.GIT_INDEX_FILE = join(victim, ".git", "index")
+    try {
+      const repo = makeRepo()
+      // The victim must keep its identity and its single base commit.
+      expect(gitSetup(["config", "user.name"], victim).toString().trim()).toBe("Victim")
+      expect(gitSetup(["log", "--format=%s"], victim).toString().trim().split("\n")).toEqual(["base"])
+      // The temp repo is a real repo of its own with the Test identity.
+      expect(gitSetup(["config", "user.name"], repo).toString().trim()).toBe("Test")
+    } finally {
+      if (savedDir === undefined) delete process.env.GIT_DIR
+      else process.env.GIT_DIR = savedDir
+      if (savedWorkTree === undefined) delete process.env.GIT_WORK_TREE
+      else process.env.GIT_WORK_TREE = savedWorkTree
+      if (savedIndex === undefined) delete process.env.GIT_INDEX_FILE
+      else process.env.GIT_INDEX_FILE = savedIndex
+    }
+  })
 
   function executable(path: string, body: string): void {
     writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 })
@@ -119,7 +163,7 @@ describe("sandboxed git execution (#178)", () => {
     const hooks = join(repo, ".husky", "_")
     mkdirSync(hooks, { recursive: true })
     executable(join(hooks, "pre-commit"), `echo ran >> "${marker}"`)
-    execFileSync("git", ["config", "core.hooksPath", hooks], { cwd: repo })
+    gitSetup(["config", "core.hooksPath", hooks], repo)
     writeFileSync(join(repo, "change.txt"), "agent work\n")
 
     // Legitimate (husky) repos set this; the command-scope override disables
@@ -134,7 +178,7 @@ describe("sandboxed git execution (#178)", () => {
     const marker = join(repo, "fsmonitor-ran")
     const script = join(repo, "fsmonitor.sh")
     executable(script, `echo ran > "${marker}"\nexit 0`)
-    execFileSync("git", ["config", "core.fsmonitor", script], { cwd: repo })
+    gitSetup(["config", "core.fsmonitor", script], repo)
     writeFileSync(join(repo, "dirty.txt"), "agent work\n")
 
     // Layer 1: the sanitized child env alone disables the program.
@@ -165,7 +209,7 @@ describe("sandboxed git execution (#178)", () => {
       ["submodule.evil.update", "!evil"],
     ]
     for (const [key, value] of keys) {
-      execFileSync("git", ["config", key, value], { cwd: repo })
+      gitSetup(["config", key, value], repo)
     }
 
     const manager = createWorktreeManager()
