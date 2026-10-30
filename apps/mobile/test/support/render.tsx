@@ -109,8 +109,8 @@ export interface FakeClient {
     }
     /** Release updates (#131/#133). */
     update: { check: jest.Mock }
-    sessions: { list: jest.Mock; finish: jest.Mock }
-    branches: { list: jest.Mock; checkout: jest.Mock; create: jest.Mock }
+    sessions: { list: jest.Mock }
+    branches: { list: jest.Mock }
     /** Kanban board (#164): snapshot plus column/card mutations. */
     board: {
       get: jest.Mock
@@ -219,19 +219,9 @@ export function fakeClient(): FakeClient & Client {
       },
       sessions: {
         list: jest.fn(async () => ({ sessions: [] })),
-        finish: jest.fn(async () => ({
-          committed: true,
-          pushed: false,
-          prUrl: null,
-          branch: "branch",
-          path: "/worktree",
-          error: null,
-        })),
       },
       branches: {
         list: jest.fn(async () => ({ current: "main", branches: ["main"] })),
-        checkout: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
-        create: jest.fn(async (_workspaceID: string, name: string) => ({ current: name, branches: ["main", name] })),
       },
       board: {
         get: jest.fn(async (workspaceID: string) => ({ workspaceID, columns: [] })),

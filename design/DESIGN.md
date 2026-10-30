@@ -249,7 +249,7 @@ components:
     border: "1px solid {colors.hairline}"
     rounded: "{rounded.lg}"
     shadow: "level 1 resting, no focus ring (the dock stays quiet on focus)"
-    geometry: "one dock card: context bar (workspace menu, branch, stats) as the head with a bottom hairline, worktree strip as an inner row when active, borderless message field, and the agent/model/effort/auto-accept/send toolbar integrated below it. The Goal Mode control line renders just above the composer, constrained to the chat column width"
+    geometry: "one dock card: context bar (workspace menu, read-only branch viewer, stats) as the head with a bottom hairline, borderless message field, and the agent/model/effort/auto-accept/send toolbar integrated below it. The Goal Mode control line renders just above the composer, constrained to the chat column width"
   top-bar:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.text}"
@@ -289,19 +289,6 @@ components:
     backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
     indicator: "none (active is surface-muted only, no accent bar)"
-  filter-pill:
-    backgroundColor: "transparent"
-    textColor: "{colors.text-muted}"
-    typography: "{typography.caption}"
-    rounded: "{rounded.full}"
-    padding: "4px 10px"
-    border: "1px solid {colors.hairline}"
-  filter-pill-active:
-    backgroundColor: "{colors.text}"
-    textColor: "{colors.canvas}"
-    typography: "{typography.caption}"
-    rounded: "{rounded.full}"
-    padding: "4px 10px"
   workspace-picker:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -421,14 +408,14 @@ components:
     typography: "{typography.code-sm}"
     rounded: "{rounded.full}"
     padding: "3px 10px"
-  branch-picker:
+  branch-viewer:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    typography: "{typography.body-sm}"
+    textColor: "{colors.text-soft}"
+    typography: "{typography.mono-sm}"
     rounded: "{rounded.md}"
     padding: "{spacing.sm} {spacing.md}"
-    border: "1px solid {colors.hairline}"
-    geometry: "search field + branch list (switch on select) + create-from-current row; timeouts framed as may-have-applied with refetch, never auto-retried; isolated sessions show a read-only chip that opens no picker"
+    border: "1px solid {colors.hairline-strong}"
+    geometry: "non-interactive chip: branch glyph + current branch name, no chevron, no popover, no hover/focus affordance; refreshes every 5 s and hides when the workspace is not a git repository"
   banner-warning:
     backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text-soft}"
@@ -843,7 +830,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Forms
 
-**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise, and the model trigger carries the provider brand mark (ADR-28, monogram fallback) plus the short model name — the full `Provider · Model` label stays in the list rows and the tooltip. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, deliberately no focus ring): a context bar above the input — the workspace menu, branch and stats behind a bottom hairline, with the isolated-worktree strip as an inner row when active — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it. The Goal Mode control line renders just above the composer, constrained to the chat column width.
+**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise, and the model trigger carries the provider brand mark (ADR-28, monogram fallback) plus the short model name — the full `Provider · Model` label stays in the list rows and the tooltip. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, deliberately no focus ring): a context bar above the input — the workspace menu, read-only branch viewer and stats behind a bottom hairline — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it. The Goal Mode control line renders just above the composer, constrained to the chat column width.
 
 **`attachment-chip`** — staged files sit in a wrapping strip above the message field and in the user bubble after sending. One chip is a `{colors.surface-muted}` row (`{rounded.md}`, hairline border): a 36px square thumbnail (images) or a 36px glyph tile (others; history uses 64px), the name truncated to one line at 12px/500, the size or error at 11px/`{colors.text-muted}`, and a 24px remove/download icon button. Uploading swaps the trailing icon for a 14px spinner; an error switches the border to `{colors.danger-line}` and the background to `{colors.danger-soft}`. Inside the dark user bubble the chip uses a translucent white surface and `{colors.bubble-user-text}`. The paperclip lives at the start of the composer toolbar as a ghost `button-icon` (30px, 44px touch target). While a file is dragged over the chat column, a `dropzone` overlay covers the column with a 2px dashed `{colors.accent}` border, canvas wash, accent text and a paperclip glyph; it is `pointer-events: none` and never intercepts the drop.
 
@@ -851,17 +838,15 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`top-bar`** — 56px, canvas background, bottom hairline. Mobile: back chevron when a chat is open, truncated section/session title, status dot, overflow menu. Desktop: title, connection state, sessions count.
 
-**`sidebar`** — 272px canvas column, right hairline, desktop only (≥768px). Contains the session list, its filters and the new-session `+` action (its popover hosts the isolated-worktree option); workspace switching lives in the composer bar. It collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs. Below 768px the web build drops the sidebar entirely and navigates through `bottom-nav` (the session list is the Sessions screen, with the workspace picker above it); the React Native app does the same.
+**`sidebar`** — 272px canvas column, right hairline, desktop only (≥768px). Contains the session list and the new-session `+` action (which creates immediately); workspace switching lives in the composer bar. It collapses to a 60px icon rail (`{components.sidebar}` geometry): the rail keeps the collapse toggle, the new-session action and navigation glyphs. Below 768px the web build drops the sidebar entirely and navigates through `bottom-nav` (the session list is the Sessions screen, with the workspace picker above it); the React Native app does the same.
 
 **`bottom-nav`** — mobile primary navigation (web <768px and the React Native app), pinned above the bottom safe area: one canvas bar with a top `{colors.hairline}`, four equal actions (Sessions, Board, Scheduler, Settings) at ≥44px. Each action is a 20px glyph over a `{typography.caption}` label; the active section paints the glyph in an `{colors.accent-soft}` pill with an `{colors.accent}` label, inactive actions use `{colors.text-muted}`. Sessions opens the list (or the already-open chat), Board the kanban and Scheduler the task manager; Settings is an action (it opens the settings surface, where Disconnect lives on mobile), not a section. The bar is home chrome only: an open chat takes over the screen, hides it, and the `top-bar` back chevron returns to the section the chat was opened from.
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface to `{colors.surface-muted}` with no accent bar — the row weight does the work.
 
-**`filter-pill`** / **`filter-pill-active`** — All / Isolated / Standard. The active pill is filled with `{colors.text}` on `{colors.canvas}` (ink-on-paper inversion), not with emerald; emerald stays budgeted for actions.
-
 **`workspace-picker`** — compact menu in the composer bar: shows the current workspace and, on click, the workspace list plus the add/remove management actions.
 
-**`branch-picker`** — branch chip next to the workspace menu on standard sessions: search, switch and create-from-current with an ambiguity notice plus refetch on timeout (never auto-retried). Isolated sessions show their `masterhand/...` branch as a read-only chip that opens no picker.
+**`branch-viewer`** — non-interactive chip next to the workspace menu: branch glyph + the current branch name, no chevron and no popover. The clients poll it every 5 s so an agent-side switch appears on its own; it hides when the workspace is not a git repository.
 
 ### Conversation
 

@@ -10,7 +10,7 @@ import { cleanupOrphanTunnels, createPreviewManager, tunnelPidFile } from "./pre
 import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchDefault } from "./providers.js"
 import { shutdownServer } from "./shutdown.js"
 import { acquireDataDirLock, createSqliteStore, ensureDataDir, type DataDirLock } from "./store.js"
-import { createWorktreeManager, launchBackgroundReconcile } from "./worktrees.js"
+import { createGitManager } from "./git.js"
 
 const config = loadConfig()
 ensureDataDir(config.dataDir)
@@ -49,7 +49,7 @@ const hub = createEventHub({
   authHeader: config.opencodeAuth,
 })
 
-const worktrees = createWorktreeManager({
+const git = createGitManager({
   userName: config.gitUserName,
   userEmail: config.gitUserEmail,
 })
@@ -69,19 +69,14 @@ try {
   console.warn("[masterhand] web search default skipped:", error)
 }
 
-// `/api/health` readiness (issue #199): false until the background worktree
-// pass settles. Liveness answers immediately; only readiness waits.
-let worktreesReady = false
-
 const built = bootstrapApp({
   config,
   store,
   hub,
-  worktrees,
+  git,
   preview,
   providers,
   proxyBodyLimitBytes: config.proxyBodyLimitMb * 1024 * 1024,
-  isReady: () => worktreesReady,
 })
 const app = built.app
 // Scheduled tasks (issue #147): the manager starts its loop with the app;
@@ -137,18 +132,12 @@ async function sweepAttachments(): Promise<void> {
   try {
     const active = new Map<string, Set<string>>()
     for (const workspace of store.listWorkspaces()) {
-      const directories = [
-        workspace.path,
-        ...store.listIsolatedSessions(workspace.id).map((record) => record.path),
-      ].filter((directory) => existsSync(directory))
       const ids = new Set<string>()
       let complete = true
-      for (const directory of directories) {
-        const listed = await listSessionIDs(directory)
-        if (!listed) {
-          complete = false
-          break
-        }
+      const listed = await listSessionIDs(workspace.path)
+      if (!listed) {
+        complete = false
+      } else {
         for (const id of listed) ids.add(id)
       }
       if (complete) active.set(workspace.path, ids)
@@ -204,37 +193,6 @@ const attachmentSweep = setInterval(() => {
   void sweepAttachments()
 }, 24 * 60 * 60 * 1000)
 attachmentSweep.unref?.()
-
-// Worktree reconciliation (issue #199) settles AFTER the server listens: the
-// pass can cost N×2×60 s of git, and awaiting it before `serve()` held the
-// compose healthcheck (`GET /api/health`) past its start period until Docker
-// restart-looped the container. The volume-health gate and quarantine
-// semantics are unchanged (rule 11); only the waiting moved. Readiness flips
-// when the pass settles, liveness answers immediately.
-const worktreeReconcile = launchBackgroundReconcile({
-  store,
-  manager: worktrees,
-  root: config.worktreesRoot,
-  onSettled: (reconciled) => {
-    // Settles success and failure alike: a warned failure still serves (as
-    // before), so readiness must flip either way — otherwise one bad git
-    // pass would pin the container unhealthy forever.
-    worktreesReady = true
-    if (!reconciled) return
-    if (reconciled.skipped) {
-      console.warn(
-        `[masterhand] worktree reconciliation skipped (${reconciled.skipped}): no worktree data was touched`,
-      )
-    } else if (reconciled.droppedRecords.length || reconciled.quarantinedWorktrees.length) {
-      console.log(
-        `[masterhand] worktrees reconciled: ${reconciled.droppedRecords.length} stale record(s), ${reconciled.quarantinedWorktrees.length} orphan(s) quarantined`,
-      )
-    }
-  },
-})
-// `settled` never rejects (failures are warned inside), so there is nothing
-// to await or catch here; the handle stays for shutdown ordering if needed.
-void worktreeReconcile.settled
 
 async function shutdown(code = 0): Promise<void> {
   // Ordered, bounded (issue #192): HTTP first (long-lived SSE streams would

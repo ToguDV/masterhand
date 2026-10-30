@@ -6,12 +6,10 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native
 import { ScrollView } from "react-native-gesture-handler"
 import {
   directoryName,
-  filterSessions,
   formatRelative,
   rootSessions,
   type CreateWorkspaceInput,
   type Session,
-  type SessionFilter,
   type SessionStatuses,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
@@ -66,7 +64,7 @@ export function SessionsScreen({
   /** The session currently open in the chat (highlighted with the accent bar). */
   activeSessionID?: string | null
   onOpen: (sessionID: string) => void
-  onNew: (isolated: boolean) => void
+  onNew: () => void
   /** Opens the app-level settings modal (owned by App). */
   onOpenSettings: () => void
   /** Server chip + switcher sheet rendered in the header (owned by App). */
@@ -84,18 +82,11 @@ export function SessionsScreen({
   scheduler?: ReactNode
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
-  const [filter, setFilter] = useState<SessionFilter>("all")
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Subagent children are reachable from their parent's card, not the list.
-  const visible = filterSessions(rootSessions(sessions), filter)
-
-  const FILTERS: Array<{ value: SessionFilter; label: string }> = [
-    { value: "all", label: "All" },
-    { value: "isolated", label: "Isolated" },
-    { value: "standard", label: "Standard" },
-  ]
+  const visible = rootSessions(sessions)
 
   function confirmDeleteSession(session: Session): void {
     Alert.alert("Delete session", `Delete "${session.title || "Untitled"}" and all its data?`, [
@@ -148,22 +139,6 @@ export function SessionsScreen({
         </ScrollView>
       ) : (
       <>
-      <View style={styles.filterRow}>
-        <View style={styles.filters}>
-          {FILTERS.map((option) => (
-            <Pressable
-              key={option.value}
-              onPress={() => setFilter(option.value)}
-              style={[styles.chip, filter === option.value && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, filter === option.value && styles.chipTextActive]}>
-                {option.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
       <Pressable style={styles.workspaceBar} onPress={() => setWorkspaceOpen(true)}>
         <Text style={styles.workspaceLabel}>Workspace</Text>
         <Text style={styles.workspaceName} numberOfLines={1}>
@@ -186,9 +161,7 @@ export function SessionsScreen({
               {loading
                 ? "Loading…"
                 : canCreate
-                  ? filter === "all"
-                    ? "No sessions yet."
-                    : "No sessions match this filter."
+                  ? "No sessions yet."
                   : "Add a workspace to start working on a project."}
             </Text>
           </View>
@@ -257,13 +230,6 @@ function SessionRow({
           <Text style={styles.rowTitle} numberOfLines={1}>
             {session.title || "Untitled"}
           </Text>
-          {session.isolation ? (
-            <View style={styles.branchBadge}>
-              <Text style={styles.branchText} numberOfLines={1}>
-                {session.isolation.branch}
-              </Text>
-            </View>
-          ) : null}
         </View>
         <Text style={styles.rowMeta}>
           {directoryName(session.location.directory)} · {formatRelative(session.time.updated)}
@@ -421,18 +387,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 15,
       fontWeight: "600",
     },
-    branchBadge: {
-      maxWidth: 130,
-      backgroundColor: colors.accentSoft,
-      borderRadius: 999,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-    },
-    branchText: {
-      color: colors.accent,
-      fontFamily: fonts.mono,
-      fontSize: 10,
-    },
     rowMeta: {
       color: colors.textMuted,
       fontFamily: fonts.mono,
@@ -447,39 +401,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.textMuted,
       fontSize: 20,
       lineHeight: 22,
-    },
-    filterRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.hairline,
-    },
-    filters: {
-      flexDirection: "row",
-      gap: 6,
-    },
-    chip: {
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-    },
-    chipActive: {
-      backgroundColor: colors.text,
-      borderColor: colors.text,
-    },
-    chipText: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-    },
-    chipTextActive: {
-      color: colors.canvas,
-      fontWeight: "600",
     },
   })
 }

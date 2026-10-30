@@ -699,21 +699,13 @@
             </div>
 
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>composer-bar · worktree strip</span><span>isolated</span></div>
+              <div class="mh-demo__label"><span>composer-bar · branch viewer</span><span>read-only</span></div>
               <div class="mh-demo__stage" style="background: var(--mh-canvas)">
                 <div class="mh-composer-dock">
                   <div class="mh-composer-dock__head">
                     <div class="mh-demo__row" style="gap: 8px; font-size: 12px; color: var(--mh-text-muted)">
                       <span>masterhand</span>
-                      <span class="mh-chip mh-chip--mono">masterhand/ab12cd</span>
-                    </div>
-                  </div>
-                  <div class="mh-composer-dock__strip">
-                    <div class="mh-demo__row" style="gap: 8px; font-size: 12px">
-                      <span class="mh-chip mh-chip--outline">isolated worktree</span>
-                      <span style="flex: 1"></span>
-                      <button class="mh-btn mh-btn--ghost mh-btn--sm" type="button">PR</button>
-                      <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Finish</button>
+                      <span class="mh-chip mh-chip--mono">feature/sqlite-store</span>
                     </div>
                   </div>
                   <div class="mh-composer-dock__body">
@@ -725,6 +717,7 @@
                     <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" disabled>Send</button>
                   </div>
                 </div>
+                <p class="mh-caption mh-muted">The chip is not a button: no popover and no create/switch actions. It polls every 5 s and hides outside a git repository.</p>
               </div>
             </div>
 
@@ -770,7 +763,6 @@
                   <span class="mh-chip">busy</span>
                   <span class="mh-chip mh-chip--danger">error</span>
                   <span class="mh-chip mh-chip--mono">feature/sqlite-store</span>
-                  <span class="mh-chip mh-chip--outline">isolated</span>
                 </div>
               </div>
             </div>
@@ -779,18 +771,13 @@
           <h3 class="mh-heading-4" style="margin: 40px 0 12px">Navigation &amp; sessions</h3>
           <div class="mh-demos">
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>workspace-picker · filter-pill · session-item</span><span>sidebar</span></div>
+              <div class="mh-demo__label"><span>workspace-picker · session-item</span><span>sidebar</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-demo__col" style="max-width: 340px">
                   <select class="mh-select" aria-label="Workspace">
                     <option>masterhand — /home/togu/Proyectos/MasterHand</option>
                     <option>client-core — /home/togu/Proyectos/client-core</option>
                   </select>
-                  <div class="mh-pills">
-                    <button class="mh-pill is-active" type="button">All</button>
-                    <button class="mh-pill" type="button">Isolated</button>
-                    <button class="mh-pill" type="button">Standard</button>
-                  </div>
                   <div class="mh-session">
                     <button class="mh-session-item is-active" type="button">
                       <span class="mh-session-item__top">
@@ -839,26 +826,13 @@
               </div>
             </div>
             <div class="mh-demo">
-              <div class="mh-demo__label"><span>branch-picker</span><span>search · switch · create</span></div>
+              <div class="mh-demo__label"><span>branch-viewer</span><span>read-only · polls</span></div>
               <div class="mh-demo__stage">
                 <div class="mh-demo__row" style="gap: 8px">
                   <span class="mh-chip mh-chip--mono">feature/sqlite-store</span>
-                  <span class="mh-caption mh-muted">standard session</span>
+                  <span class="mh-caption mh-muted">current branch · refreshes every 5 s</span>
                 </div>
-                <div class="mh-search">
-                  <span class="mh-search__glyph" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>
-                  <input class="mh-input mh-search__field" type="search" placeholder="Search branches" aria-label="Search branches" />
-                </div>
-                <div class="mh-demo__col" style="gap: 4px">
-                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start">main</button>
-                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start; background: var(--mh-surface-muted); color: var(--mh-text)">✓ feature/sqlite-store</button>
-                  <button class="mh-btn mh-btn--ghost" type="button" style="justify-content: flex-start">fix/tunnel-flake</button>
-                </div>
-                <div class="mh-demo__row">
-                  <input class="mh-input" type="text" placeholder="new-branch-name" aria-label="New branch name" style="flex: 1" />
-                  <button class="mh-btn mh-btn--secondary mh-btn--sm" type="button">Create</button>
-                </div>
-                <p class="mh-caption mh-muted">Timeouts read as “may have applied” plus refetch — never auto-retried. Isolated sessions show a read-only chip that opens no picker.</p>
+                <p class="mh-caption mh-muted">No button, no popover, no create/switch action: the viewer only shows the branch the agent is working on. It hides when the workspace is not a git repository.</p>
               </div>
             </div>
             <div class="mh-demo">
@@ -1598,11 +1572,6 @@
                       <button class="mh-btn mh-btn--primary mh-btn--sm" type="button">+ New</button>
                     </div>
                     <div class="mh-app__chat">
-                      <div class="mh-pills">
-                        <button class="mh-pill is-active" type="button">All</button>
-                        <button class="mh-pill" type="button">Isolated</button>
-                        <button class="mh-pill" type="button">Standard</button>
-                      </div>
                       <div class="mh-session" style="margin-top: 12px">
                         <button class="mh-session-item is-active" type="button">
                           <span class="mh-session-item__top">
@@ -1852,11 +1821,6 @@
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
                             <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
                           </div>
-                          <div class="mh-pills">
-                            <button class="mh-pill is-active" type="button">All</button>
-                            <button class="mh-pill" type="button">Isolated</button>
-                            <button class="mh-pill" type="button">Standard</button>
-                          </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">
                               <span class="mh-session-item__top">
@@ -1906,11 +1870,6 @@
                           <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px 8px">
                             <h3 class="mh-heading-4" style="margin: 0">Sessions</h3>
                             <button class="mh-btn mh-btn--primary mh-btn--sm" style="padding: 7px 10px" type="button" aria-label="New session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
-                          </div>
-                          <div class="mh-pills">
-                            <button class="mh-pill is-active" type="button">All</button>
-                            <button class="mh-pill" type="button">Isolated</button>
-                            <button class="mh-pill" type="button">Standard</button>
                           </div>
                           <div class="mh-session">
                             <button class="mh-session-item is-active" type="button">
@@ -2665,11 +2624,6 @@
                 <button class="mh-btn mh-btn--primary mh-btn--sm" type="button" style="padding: 7px 10px" aria-label="New session">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
                 </button>
-              </div>
-              <div class="mh-pills" style="margin-bottom: 4px">
-                <button class="mh-pill is-active" type="button">All</button>
-                <button class="mh-pill" type="button">Isolated</button>
-                <button class="mh-pill" type="button">Standard</button>
               </div>
               <div class="mh-srv-aside__session is-active">
                 <span class="mh-srv-aside__session-title">Migrate session store to SQLite</span>

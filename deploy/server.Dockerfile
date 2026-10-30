@@ -2,7 +2,7 @@
 
 # ---------- toolchain ----------
 # Runtime tooling shared by the development and production images, so both run
-# the same `git`/`gh`/`cloudflared` commands. Kept separate from the build
+# the same `git`/`cloudflared` commands. Kept separate from the build
 # stages so neither shipped image carries a compiler.
 #
 # cloudflared powers session previews (Cloudflare quick tunnels). Pin the
@@ -10,7 +10,7 @@
 FROM node:22-slim AS toolchain
 ARG CLOUDFLARED_VERSION=2026.9.3
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git gh ca-certificates curl \
+  && apt-get install -y --no-install-recommends git ca-certificates curl \
   && curl -fsSL -o /usr/local/bin/cloudflared \
     "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-$(dpkg --print-architecture)" \
   && chmod +x /usr/local/bin/cloudflared \
@@ -20,8 +20,8 @@ RUN apt-get update \
   # otherwise refuse to operate on it ("dubious ownership"). Trust only the
   # shared workspaces mount — never `*`, which would let any repository in the
   # container (e.g. a cloned dependency) run as the BFF user. Workspace repos
-  # live one level down (`/workspace/<name>`), so worktrees.ts adds a
-  # command-scope safe.directory for the exact repository it resolves. See #178.
+  # live one level down (`/workspace/<name>`), so git.ts adds a command-scope
+  # safe.directory for the exact repository it resolves. See #178.
   && git config --system --add safe.directory '/workspace'
 
 # ---------- base ----------
@@ -107,6 +107,6 @@ COPY --from=prod-deps /app/apps/web/dist ./apps/web/dist
 
 USER node
 EXPOSE 8787
-# umask 002 keeps workspace folders and worktrees group-writable, so the agent
-# (same group, different uid) can write what the BFF creates and vice versa.
+# umask 002 keeps workspace folders group-writable, so the agent (same group,
+# different uid) can write what the BFF creates and vice versa.
 CMD ["sh", "-c", "umask 002; exec node apps/server/dist/index.js"]

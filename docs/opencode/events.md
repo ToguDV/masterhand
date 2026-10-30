@@ -154,6 +154,6 @@ Verified on **2.0.6** with a live run:
 
 ## Integration notes
 
-- List pending permissions: `GET /api/permission/request?location[directory]=<abs-path>` returns `Permission.Request[]`. It is per location — reconcile each workspace (base folder and worktrees), because SSE never replays.
+- List pending permissions: `GET /api/permission/request?location[directory]=<abs-path>` returns `Permission.Request[]`. It is per location — reconcile the workspace folder, because SSE never replays.
 - List pending forms: `GET /api/form?location[directory]=<abs-path>` returns `Form.Info[]`. The agent is blocked until the form is replied to or cancelled, so reconcile it exactly like permissions.
 - The UI must not rely on SSE alone for consistency: on open or reconnect, load history with `GET /api/session/:id/message` and pending permissions with the endpoint above.

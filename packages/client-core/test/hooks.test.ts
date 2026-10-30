@@ -43,12 +43,10 @@ describe("queryKeys", () => {
     expect(queryKeys.statuses).toEqual(["statuses"])
   })
 
-  it("scopes session keys by workspace and directory keys", () => {
+  it("scopes session keys by workspace and command keys by directory", () => {
     expect(queryKeys.sessionsFor("ws_1")).toEqual(["sessions", "ws_1"])
     expect(queryKeys.sessionsFor()).toEqual(["sessions", null])
     expect(queryKeys.sessionsFor(null)).toEqual(["sessions", null])
-    expect(queryKeys.directories("ws_1")).toEqual(["directories", "ws_1"])
-    expect(queryKeys.directories()).toEqual(["directories", null])
     expect(queryKeys.commands("/app")).toEqual(["commands", "/app"])
     expect(queryKeys.commands()).toEqual(["commands", null])
     expect(queryKeys.preview("ses_1")).toEqual(["preview", "ses_1"])
@@ -86,11 +84,10 @@ describe("createEventHandler", () => {
     const handler = createEventHandler(qc, { onServerConnected })
     emit(handler, "server.connected", {})
     expect(onServerConnected).toHaveBeenCalledTimes(1)
-    expect(invalidate).toHaveBeenCalledTimes(11)
+    expect(invalidate).toHaveBeenCalledTimes(10)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statuses })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["directories"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goal"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["scheduler"] })
@@ -687,13 +684,12 @@ describe("mergeStatuses", () => {
 })
 
 describe("invalidateOnReconnect", () => {
-  it("refreshes sessions, messages, statuses, directories and catalogs", () => {
+  it("refreshes sessions, messages, statuses and catalogs", () => {
     const { qc, invalidate } = makeQueryClient()
     invalidateOnReconnect(qc)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statuses })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["directories"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.agents })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.models })
   })

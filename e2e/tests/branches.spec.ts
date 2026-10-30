@@ -2,46 +2,37 @@ import { expect, test } from "../fixtures"
 import { addWorkspace, login, newSession } from "./helpers"
 
 /**
- * Branch picker/creator for standard sessions (#94): the chip next to the
- * workspace menu shows the current branch, and the popover creates and
- * switches branches through the BFF's git endpoints. Isolated sessions get a
- * read-only chip instead (their branch belongs to the worktree).
+ * The branch viewer is read-only: it shows the branch the agent is working on,
+ * refreshes on its own, and never opens a picker or mutates git.
  */
-test("creates and switches branches from the composer", async ({ page }) => {
+test("shows the current branch without opening a picker", async ({ page }) => {
   await login(page)
   await addWorkspace(page)
   await newSession(page)
 
-  const trigger = page.getByRole("button", { name: "Branch" })
-  await expect(trigger).toBeVisible()
+  const viewer = page.locator('[title^="Current branch:"]')
+  await expect(viewer).toBeVisible()
 
-  // Create a first branch (from the repo's initial branch).
-  await trigger.click()
-  await page.getByLabel("New branch name").fill("e2e/feature-one")
-  await page.getByRole("button", { name: "Create", exact: true }).click()
-  await expect(trigger).toContainText("e2e/feature-one")
-  await expect(page.getByText("Created and switched to e2e/feature-one")).toBeVisible()
-
-  // Create a second one so there is somewhere to switch back to.
-  await page.getByLabel("New branch name").fill("e2e/feature-two")
-  await page.getByRole("button", { name: "Create", exact: true }).click()
-  await expect(trigger).toContainText("e2e/feature-two")
-
-  // Search + switch back.
-  await page.getByLabel("Search branches").fill("one")
-  await page.getByRole("option", { name: "e2e/feature-one" }).click()
-  await expect(trigger).toContainText("e2e/feature-one")
-  await expect(page.getByText("Switched to e2e/feature-one")).toBeVisible()
+  // No button, no dialog: clicking the chip does nothing.
+  await expect(page.getByRole("button", { name: "Branch" })).toHaveCount(0)
+  await viewer.click()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 })
 
-test("isolated sessions show a read-only branch chip and no picker", async ({ page }) => {
+test("refreshes when the agent switches branches", async ({ page }) => {
+  let calls = 0
+  await page.route("**/api/workspaces/*/branches", async (route) => {
+    calls += 1
+    const current = calls < 2 ? "main" : "feature/agent"
+    await route.fulfill({ json: { current, branches: ["main", "feature/agent"] } })
+  })
+
   await login(page)
   await addWorkspace(page)
-  await newSession(page, { isolated: true })
+  await newSession(page)
 
-  await expect(page.getByRole("button", { name: "Branch" })).toBeHidden()
-  // Exactly one chip inside the chat dock: the worktree strip owns the branch,
-  // the dock header no longer repeats it. (The sessions sidebar keeps its own
-  // branch badge, out of scope here.)
-  await expect(page.locator(".mh-composer-dock .mh-chip", { hasText: "masterhand/" })).toHaveCount(1)
+  // The viewer polls every 5 s; the second response reflects the agent's switch.
+  await expect(page.locator('[title^="Current branch:"]')).toContainText("feature/agent", {
+    timeout: 15_000,
+  })
 })

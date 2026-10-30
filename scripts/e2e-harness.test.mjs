@@ -81,10 +81,9 @@ test("every run starts wiped and leaves no trace", () => {
   assert.ok(config.includes("globalSetup"), "config must wire a global setup")
   const setup = read("global-setup.ts")
   assert.ok((setup.match(/await rm\(/g) ?? []).length >= 2, "setup must wipe scratch before and after the run")
-  // The shortened client deadlines are baked into the web bundle at build time;
-  // losing them would silently slow down the stalled-send/lost-finish specs.
+  // The shortened client deadline is baked into the web bundle at build time;
+  // losing it would silently slow down the stalled-send specs.
   assert.match(setup, /VITE_REQUEST_TIMEOUT_MS/, "the web build must keep the shortened request deadline")
-  assert.match(setup, /VITE_FINISH_TIMEOUT_MS/, "the web build must keep the shortened finish deadline")
   // Each worker wipes its own dir before spawning its servers and after they die.
   const fixtures = read("fixtures.ts")
   assert.match(fixtures, /await rm\(scratchDir/, "the worker fixture must wipe its scratch dir")

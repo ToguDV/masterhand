@@ -1,9 +1,6 @@
 # Agent worktrees — several agents on the same repo without stepping on each other
 
-Two agents sharing one checkout will collide: the same `workspace/` and
-`workspace/.worktrees/` directories, the same git `HEAD`, the same dev ports,
-and test suites that shell out to `git`. The rule is simple: **one agent, one
-git worktree, one branch**.
+Two agents sharing one checkout will collide: the same `workspace/` directory, the same git `HEAD`, the same dev ports, and test suites that shell out to `git`. The rule is simple: **one agent, one git worktree, one branch**.
 
 ## Setup (main agent)
 

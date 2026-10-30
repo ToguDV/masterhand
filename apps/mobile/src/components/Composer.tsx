@@ -83,7 +83,6 @@ export function Composer({
   onToggleAutoAccept,
   pending,
   header,
-  isolationBar,
 }: {
   /** Retry handle used by the chat screen's ghost bubble. */
   ref?: Ref<ComposerHandle>
@@ -99,8 +98,6 @@ export function Composer({
   pending: PendingSendController
   /** Composer context bar (workspace menu, branch, stats). Rendered as the dock head. */
   header?: ReactNode
-  /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
-  isolationBar?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -660,7 +657,6 @@ export function Composer({
     <View style={styles.dockWrap}>
       <View style={styles.dock} testID="composer-dock">
         {header ? <View style={styles.dockHead}>{header}</View> : null}
-        {isolationBar ? <View style={styles.dockStrip}>{isolationBar}</View> : null}
 
         <View style={styles.dockBody}>
           {popover && (
@@ -893,12 +889,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
     dockHead: {
       paddingHorizontal: 12,
       paddingVertical: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.hairline,
-    },
-    dockStrip: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
     },

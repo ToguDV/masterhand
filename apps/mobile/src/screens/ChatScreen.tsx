@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   FlatList,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,10 +9,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native"
-import { useQueryClient } from "@tanstack/react-query"
 import {
-  finishResultFromIsolation,
-  isAmbiguousError,
   sessionUsage,
   useBffStatus,
   useMessages,
@@ -23,14 +19,12 @@ import {
   type ChatMessage,
   type Client,
   type CreateWorkspaceInput,
-  type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
-  type SessionIsolation,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { Composer, type ComposerHandle } from "../components/Composer"
-import { BranchChip, BranchPicker } from "../components/BranchPicker"
+import { BranchViewer } from "../components/BranchViewer"
 import { SessionToolbar } from "../components/SessionToolbar"
 import { SessionStats } from "../components/SessionStats"
 import { GoalReview } from "../components/GoalReview"
@@ -52,7 +46,6 @@ export function ChatScreen({
   connected,
   workspaceID,
   workspacePath = null,
-  isolation,
   autoAccept,
   onToggleAutoAccept,
   onOpenSession,
@@ -77,7 +70,6 @@ export function ChatScreen({
   connected: boolean
   workspaceID: string | null
   workspacePath?: string | null
-  isolation?: SessionIsolation
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
   onOpenSession?: (id: string) => void
@@ -97,7 +89,6 @@ export function ChatScreen({
   onAddWorkspace?: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace?: (id: string, options: { deleteFiles: boolean }) => void
 }) {
-  const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const pendingSend = usePendingSend(sessionID)
   const composerRef = useRef<ComposerHandle>(null)
@@ -109,10 +100,6 @@ export function ChatScreen({
   const [runPreviewOpen, setRunPreviewOpen] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
   const listRef = useRef<FlatList<ChatMessage>>(null)
-  const [finishing, setFinishing] = useState(false)
-  const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
-  const [finishError, setFinishError] = useState<string | null>(null)
-  const [finishNotice, setFinishNotice] = useState<string | null>(null)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
@@ -199,57 +186,6 @@ export function ChatScreen({
     [onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm],
   )
 
-  async function finish() {
-    setFinishing(true)
-    setFinishError(null)
-    setFinishNotice(null)
-    try {
-      const result = await client.api.sessions.finish(sessionID)
-      setFinishResult(result)
-      if (result.error) setFinishError(result.error)
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-    } catch (error) {
-      if (isAmbiguousError(error)) {
-        // Commit + push + PR may still be running (or already done). Never a
-        // hard failure: reconcile against the isolated-session record.
-        const isolation = await findIsolation()
-        const reconciled = finishResultFromIsolation(isolation)
-        if (reconciled) {
-          setFinishResult(reconciled)
-          setFinishNotice("The server did not answer in time — this result comes from the session record.")
-        } else {
-          setFinishError(
-            "The server did not answer in time — the operation may still be running. Check the branch before retrying.",
-          )
-        }
-        void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      } else {
-        setFinishError("Could not finish the session")
-      }
-    } finally {
-      setFinishing(false)
-    }
-  }
-
-  /**
-   * Walks the workspace session list for the isolated-session record after an
-   * ambiguous finish. Bounded: the server may still be committing/pushing.
-   */
-  async function findIsolation(): Promise<SessionIsolation | null> {
-    if (!workspaceID) return null
-    for (const delay of [0, 1500, 3000]) {
-      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
-      try {
-        const page = await client.api.sessions.list(workspaceID)
-        const isolation = page.sessions.find((session) => session.id === sessionID)?.isolation
-        if (finishResultFromIsolation(isolation)) return isolation ?? null
-      } catch {
-        // keep polling: a transient failure must not hide the confirmation
-      }
-    }
-    return null
-  }
-
   const header = (
     <SessionToolbar
       workspaces={workspaces}
@@ -259,55 +195,10 @@ export function ChatScreen({
         await onAddWorkspace?.(input)
       }}
       onRemoveWorkspace={(id, options) => onRemoveWorkspace?.(id, options)}
-      branch={
-        // The header chip is the only branch shown: read-only for isolated
-        // sessions (their branch cannot be switched), the picker for
-        // standard ones.
-        isolation ? (
-          <BranchChip branch={isolation.branch} />
-        ) : workspaceID ? (
-          <BranchPicker client={client} workspaceID={workspaceID} />
-        ) : undefined
-      }
+      branch={workspaceID ? <BranchViewer client={client} workspaceID={workspaceID} /> : undefined}
       trailing={<SessionStats usage={usage} />}
     />
   )
-
-  const isolationBar: ReactNode | undefined = isolation ? (
-    <View>
-      <View style={styles.isolationRow}>
-        <Text style={styles.isolationLabel}>Isolated</Text>
-        <View style={styles.isolationSpacer} />
-        {isolation.prUrl ? (
-          <Pressable onPress={() => void Linking.openURL(isolation.prUrl!)} hitSlop={4}>
-            <Text style={styles.link}>PR ↗</Text>
-          </Pressable>
-        ) : null}
-        <Pressable
-          style={[styles.finishButton, finishing && styles.disabled]}
-          onPress={() => void finish()}
-          disabled={finishing}
-        >
-          <Text style={styles.finishText}>{finishing ? "Finishing…" : "Finish & PR"}</Text>
-        </Pressable>
-      </View>
-      {finishResult || finishError || finishNotice ? (
-        <View style={styles.finishStatus}>
-          <Text style={styles.finishStatusText}>
-            {finishResult ? (finishResult.committed ? "Changes committed." : "No changes to commit.") : ""}
-            {finishResult?.pushed ? " Branch pushed." : ""}
-          </Text>
-          {finishResult?.prUrl ? (
-            <Pressable onPress={() => void Linking.openURL(finishResult.prUrl!)} hitSlop={4}>
-              <Text style={styles.link}>Open pull request ↗</Text>
-            </Pressable>
-          ) : null}
-          {finishError ? <Text style={styles.finishError}>{finishError}</Text> : null}
-          {finishNotice ? <Text style={styles.finishStatusText}>{finishNotice}</Text> : null}
-        </View>
-      ) : null}
-    </View>
-  ) : undefined
 
   return (
     <Screen>
@@ -438,12 +329,11 @@ export function ChatScreen({
         busy={busy}
         connected={connected}
         workspaceID={workspaceID}
-        directory={isolation?.worktreePath ?? workspacePath}
+        directory={workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
         pending={pendingSend}
         header={header}
-        isolationBar={isolationBar}
       />
 
       {parentSessionID && onOpenSession ? (
@@ -594,61 +484,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontWeight: "500",
       lineHeight: 31,
       textAlign: "center",
-    },
-    isolationRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: 8,
-    },
-    isolationSpacer: {
-      flex: 1,
-    },
-    isolationLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      letterSpacing: 0.8,
-      textTransform: "uppercase",
-      fontWeight: "600",
-    },
-    finishButton: {
-      backgroundColor: colors.accent,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    finishText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-      fontWeight: "500",
-    },
-    finishStatus: {
-      flexDirection: "row",
-      alignItems: "center",
-      flexWrap: "wrap",
-      gap: 8,
-      paddingTop: 6,
-    },
-    finishStatusText: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-    },
-    finishError: {
-      color: colors.danger,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-    },
-    link: {
-      color: colors.accent,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-      fontWeight: "600",
-    },
-    disabled: {
-      opacity: 0.5,
     },
     floatingWrap: {
       position: "absolute",

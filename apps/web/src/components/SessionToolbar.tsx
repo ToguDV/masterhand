@@ -21,7 +21,7 @@ export function SessionToolbar({
   onSelectWorkspace: (id: string | null) => void
   onAddWorkspace: () => void
   onRemoveWorkspace: (id: string) => void
-  /** Branch picker (standard sessions) or read-only chip (isolated sessions). */
+  /** Read-only branch viewer. */
   branch?: ReactNode
   trailing?: ReactNode
 }) {

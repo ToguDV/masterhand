@@ -1,4 +1,4 @@
-import type { FinishSessionResult, Session, SessionIsolation } from "./types"
+import type { Session } from "./types"
 
 /**
  * Session metadata key opencode persists on sessions MasterHand creates. The
@@ -19,8 +19,6 @@ export function sessionCreateMarker(session: Session): string | null {
   return typeof value === "string" && value.length > 0 ? value : null
 }
 
-export type SessionFilter = "all" | "isolated" | "standard"
-
 /** One page of a workspace's session list (#197). */
 export interface SessionPage {
   sessions: Session[]
@@ -34,14 +32,6 @@ export interface SessionPage {
 export interface SessionListOptions {
   limit?: number
   cursor?: string
-}
-
-/** Filters a workspace session list by isolation mode (shared by web/mobile). */
-export function filterSessions(sessions: Session[], filter: SessionFilter): Session[] {
-  if (filter === "all") return sessions
-  return sessions.filter((session) =>
-    filter === "isolated" ? Boolean(session.isolation) : !session.isolation,
-  )
 }
 
 /**
@@ -80,24 +70,4 @@ export function shouldAutoAccept(
     cursor = byID.get(cursor)?.parentID ?? null
   }
   return false
-}
-
-/**
- * Rebuilds a `finish` result from the isolated-session record when a lost
- * response is confirmed by it (`pushed`/`prUrl` set by the server). Returns
- * `null` when the record carries no evidence the operation completed, so the
- * UI reports the ambiguity instead of a false success.
- */
-export function finishResultFromIsolation(
-  isolation: SessionIsolation | null | undefined,
-): FinishSessionResult | null {
-  if (!isolation || (!isolation.pushed && !isolation.prUrl)) return null
-  return {
-    committed: true,
-    pushed: Boolean(isolation.pushed),
-    prUrl: isolation.prUrl ?? null,
-    branch: isolation.branch,
-    path: isolation.worktreePath,
-    error: null,
-  }
 }

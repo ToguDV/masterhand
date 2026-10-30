@@ -15,7 +15,7 @@ network and paths. In Docker both run the **same** image and topology:
 |---|---|---|
 | opencode image | `deploy/opencode.Dockerfile` (pinned, `agent-exec` sandbox, ADR-22) | same |
 | Network | `opencode:4096` on the internal network | same |
-| Paths | `/data`, `/workspace`, `/workspace/.worktrees` | same |
+| Paths | `/data`, `/workspace` | same |
 | Env contract | same variable names | same |
 | Previews | bundled `cloudflared`, `PREVIEW_ORIGIN=opencode` | same |
 | Managed runs | `agent-exec --exec` as `agent` (uid 1001), scrubbed env | same |
@@ -105,7 +105,8 @@ that file for the full list. The most relevant ones:
   one database between both environments would make each reject the other's
   records.
 - **Workspaces** → `./workspace` (bind mount; each workspace you add is a
-  subfolder, worktrees under `workspace/.worktrees/`).
+  subfolder). Legacy `.worktrees/` folders from the removed isolated-session
+  feature may still exist; they are not used and can be deleted manually.
 - **opencode config/data** → named volumes `masterhand_opencode_config` and
   `masterhand_opencode_data`, exactly like production, so `auth login` persists
   across restarts and `docker compose down` does not wipe it.

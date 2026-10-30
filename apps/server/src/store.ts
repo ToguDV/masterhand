@@ -202,21 +202,6 @@ export interface WorkspaceRecord {
   createdAt: number
 }
 
-/**
- * A session running in its own git worktree (isolated mode). `path` is the
- * worktree directory opencode works in; `branch` is the checked-out branch.
- */
-export interface IsolatedSessionRecord {
-  sessionID: string
-  workspaceID: string
-  path: string
-  branch: string
-  baseRef: string
-  pushed: boolean
-  prUrl: string | null
-  createdAt: number
-}
-
 /** Reserved preview port for a session (survives BFF restarts). */
 export interface PreviewPortRecord {
   sessionID: string
@@ -509,19 +494,6 @@ export interface Store {
   getWorkspaceByPath(path: string): WorkspaceRecord | null
   createWorkspace(record: WorkspaceRecord): void
   removeWorkspace(id: string): void
-  listIsolatedSessions(workspaceID?: string): IsolatedSessionRecord[]
-  getIsolatedSession(sessionID: string): IsolatedSessionRecord | null
-  createIsolatedSession(record: IsolatedSessionRecord): void
-  /**
-   * Monotonic: `pushed` is never downgraded and the first real `prUrl` wins.
-   * `replacePrUrl` is the one exception: it replaces a legacy, non-authoritative
-   * value (a compare URL persisted by older builds) with the real one.
-   */
-  updateIsolatedSession(
-    sessionID: string,
-    patch: { pushed?: boolean; prUrl?: string | null; replacePrUrl?: boolean },
-  ): void
-  removeIsolatedSession(sessionID: string): void
   listPreviewPorts(): PreviewPortRecord[]
   getPreviewPort(sessionID: string): number | null
   /**
@@ -700,28 +672,6 @@ export function createSqliteStore(file: string): Store {
     VALUES (@id, @name, @path, @createdAt)
   `)
   const removeWorkspaceStatement = db.prepare("DELETE FROM workspaces WHERE id = ?")
-
-  const isolatedSessionColumns = `
-    SELECT session_id AS sessionID, workspace_id AS workspaceID, path, branch,
-           base_ref AS baseRef, pushed, pr_url AS prUrl, created_at AS createdAt
-    FROM isolated_sessions
-  `
-  const listIsolatedSessionsStatement = db.prepare(`${isolatedSessionColumns} ORDER BY created_at ASC`)
-  const listIsolatedSessionsByWorkspaceStatement = db.prepare(
-    `${isolatedSessionColumns} WHERE workspace_id = ? ORDER BY created_at ASC`,
-  )
-  const getIsolatedSessionStatement = db.prepare(`${isolatedSessionColumns} WHERE session_id = ?`)
-  const createIsolatedSessionStatement = db.prepare(`
-    INSERT INTO isolated_sessions (session_id, workspace_id, path, branch, base_ref, pushed, pr_url, created_at)
-    VALUES (@sessionID, @workspaceID, @path, @branch, @baseRef, @pushed, @prUrl, @createdAt)
-  `)
-  const updateIsolatedSessionStatement = db.prepare(`
-    UPDATE isolated_sessions
-    SET pushed = CASE WHEN @pushed = 1 THEN 1 ELSE pushed END,
-        pr_url = CASE WHEN @replacePrUrl = 1 OR pr_url IS NULL THEN @prUrl ELSE pr_url END
-    WHERE session_id = @sessionID
-  `)
-  const removeIsolatedSessionStatement = db.prepare("DELETE FROM isolated_sessions WHERE session_id = ?")
 
   const previewPortColumns = `SELECT session_id AS sessionID, port, created_at AS createdAt FROM preview_ports`
   const listPreviewPortsStatement = db.prepare(`${previewPortColumns} ORDER BY created_at ASC`)
@@ -974,14 +924,6 @@ export function createSqliteStore(file: string): Store {
     return Math.min(value, size)
   }
 
-  /**
-   * SQLite has no boolean type; rows come back with `pushed` as 0/1. The
-   * queries above alias the columns, so normalize here.
-   */
-  function normalizeIsolatedSession(row: Record<string, unknown>): IsolatedSessionRecord {
-    return { ...(row as unknown as IsolatedSessionRecord), pushed: row.pushed === 1 }
-  }
-
   /** `workspace_runs.args` is stored as a JSON array; a corrupt row reads as []. */
   function parseArgs(value: string): string[] {
     try {
@@ -1118,30 +1060,6 @@ export function createSqliteStore(file: string): Store {
         removeWorkspaceStatement.run(id)
       })
       removeWorkspaceRows()
-    },
-    listIsolatedSessions(workspaceID) {
-      const rows = workspaceID
-        ? listIsolatedSessionsByWorkspaceStatement.all(workspaceID)
-        : listIsolatedSessionsStatement.all()
-      return (rows as Record<string, unknown>[]).map(normalizeIsolatedSession)
-    },
-    getIsolatedSession(sessionID) {
-      const row = getIsolatedSessionStatement.get(sessionID) as Record<string, unknown> | undefined
-      return row ? normalizeIsolatedSession(row) : null
-    },
-    createIsolatedSession(record) {
-      createIsolatedSessionStatement.run({ ...record, pushed: record.pushed ? 1 : 0 })
-    },
-    updateIsolatedSession(sessionID, patch) {
-      updateIsolatedSessionStatement.run({
-        sessionID,
-        pushed: patch.pushed === undefined ? null : patch.pushed ? 1 : 0,
-        prUrl: patch.prUrl === undefined ? null : patch.prUrl,
-        replacePrUrl: patch.replacePrUrl ? 1 : 0,
-      })
-    },
-    removeIsolatedSession(sessionID) {
-      removeIsolatedSessionStatement.run(sessionID)
     },
     listPreviewPorts() {
       return listPreviewPortsStatement.all() as PreviewPortRecord[]

@@ -209,6 +209,16 @@ export const MIGRATIONS: readonly Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_goal_runs_judge_session ON goal_runs (judge_session_id)",
     ],
   },
+  {
+    version: 4,
+    description: "drop isolated sessions",
+    statements: [
+      // Isolated sessions (per-session git worktrees, Finish & PR) were removed.
+      // The worktree folders themselves are left on disk for manual cleanup;
+      // only MasterHand's bookkeeping rows are dropped.
+      "DROP TABLE IF EXISTS isolated_sessions",
+    ],
+  },
 ]
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(

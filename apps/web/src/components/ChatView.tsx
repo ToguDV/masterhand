@@ -1,23 +1,18 @@
 import { useEffect, useRef, useState, type DragEvent } from "react"
-import { useQueryClient } from "@tanstack/react-query"
 import {
   conversationErrorMessage,
-  finishResultFromIsolation,
-  isAmbiguousError,
   sessionUsage,
   useGoalRun,
   useMessages,
   usePendingSend,
-  type FinishSessionResult,
   type FormAnswer,
   type FormInfo,
   type Permission,
-  type SessionIsolation,
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock, UserBubble } from "./MessageContent"
-import { BranchChip, BranchPicker } from "./BranchPicker"
+import { BranchViewer } from "./BranchViewer"
 import { Composer, type ComposerHandle } from "./Composer"
 import { GoalReview } from "./GoalCards"
 import { GoalStrip } from "./GoalStrip"
@@ -26,7 +21,7 @@ import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./P
 import { SessionStats } from "./SessionStats"
 import { SessionToolbar } from "./SessionToolbar"
 import { Deco } from "./Deco"
-import { ArrowDownIcon, ExternalLinkIcon, PaperclipIcon } from "./icons"
+import { ArrowDownIcon, PaperclipIcon } from "./icons"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -38,7 +33,6 @@ export function ChatView({
   workspaceID,
   workspacePath,
   workspaces,
-  isolation,
   autoAccept,
   onToggleAutoAccept,
   onOpenSession,
@@ -61,7 +55,6 @@ export function ChatView({
   workspaceID: string | null
   workspacePath: string | null
   workspaces: WorkspaceRecord[]
-  isolation?: SessionIsolation
   autoAccept: boolean
   onToggleAutoAccept: (on: boolean) => void
   onOpenSession?: (id: string) => void
@@ -78,17 +71,12 @@ export function ChatView({
   respondingPermissionID: string | null
   onRespondPermission: (permission: Permission, response: "once" | "always" | "reject") => void
 }) {
-  const queryClient = useQueryClient()
   const messagesQuery = useMessages(client, sessionID, { busy, connected })
   const pendingSend = usePendingSend(sessionID)
   // The review section below the transcript grows with every goal transition:
   // include it in the stick-to-bottom effect so new rounds scroll into view.
   const goalUpdatedAt = useGoalRun(client, sessionID).data?.updatedAt
   const composerRef = useRef<ComposerHandle>(null)
-  const [finishing, setFinishing] = useState(false)
-  const [finishResult, setFinishResult] = useState<FinishSessionResult | null>(null)
-  const [finishError, setFinishError] = useState<string | null>(null)
-  const [finishNotice, setFinishNotice] = useState<string | null>(null)
 
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
@@ -127,57 +115,6 @@ export function ChatView({
   const unmatchedAnswered = sessionAnswered.filter(
     (entry) => !(entry.permission.source?.id && callIDs.has(entry.permission.source.id)),
   )
-
-  /**
-   * Walks the workspace session list for the isolated-session record after an
-   * ambiguous finish. Bounded: the server may still be committing/pushing.
-   */
-  async function findIsolation(): Promise<SessionIsolation | null> {
-    if (!workspaceID) return null
-    for (const delay of [0, 1500, 3000]) {
-      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
-      try {
-        const page = await client.api.sessions.list(workspaceID)
-        const isolation = page.sessions.find((session) => session.id === sessionID)?.isolation
-        if (finishResultFromIsolation(isolation)) return isolation ?? null
-      } catch {
-        // keep polling: a transient failure must not hide the confirmation
-      }
-    }
-    return null
-  }
-
-  async function finish() {
-    setFinishing(true)
-    setFinishError(null)
-    setFinishNotice(null)
-    try {
-      const result = await client.api.sessions.finish(sessionID)
-      setFinishResult(result)
-      if (result.error) setFinishError(result.error)
-      void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-    } catch (error) {
-      if (isAmbiguousError(error)) {
-        // Commit + push + PR may still be running (or already done). Never a
-        // hard failure: reconcile against the isolated-session record.
-        const isolation = await findIsolation()
-        const reconciled = finishResultFromIsolation(isolation)
-        if (reconciled) {
-          setFinishResult(reconciled)
-          setFinishNotice("The server did not answer in time — this result comes from the session record.")
-        } else {
-          setFinishError(
-            "The server did not answer in time — the operation may still be running. Check the branch before retrying.",
-          )
-        }
-        void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      } else {
-        setFinishError("Could not finish the session")
-      }
-    } finally {
-      setFinishing(false)
-    }
-  }
 
   useEffect(() => {
     stickToBottom.current = true
@@ -338,7 +275,7 @@ export function ChatView({
         busy={busy}
         connected={connected}
         workspaceID={workspaceID}
-        directory={isolation?.worktreePath ?? workspacePath}
+        directory={workspacePath}
         autoAccept={autoAccept}
         onToggleAutoAccept={onToggleAutoAccept}
         pending={pendingSend}
@@ -349,69 +286,9 @@ export function ChatView({
             onSelectWorkspace={onSelectWorkspace}
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
-            branch={
-              // The header chip is the only branch shown: read-only for
-              // isolated sessions (their branch cannot be switched), the
-              // picker for standard ones.
-              isolation ? (
-                <BranchChip branch={isolation.branch} />
-              ) : workspaceID ? (
-                <BranchPicker workspaceID={workspaceID} />
-              ) : undefined
-            }
+            branch={workspaceID ? <BranchViewer workspaceID={workspaceID} /> : undefined}
             trailing={<SessionStats usage={usage} />}
           />
-        }
-        isolationBar={
-          isolation ? (
-            <div className="mh-composer-dock__strip">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="text-ink-muted">Isolated worktree</span>
-                {isolation.prUrl && (
-                  <a href={isolation.prUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                    Pull request
-                    <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
-                  </a>
-                )}
-                <span className="flex-1" />
-                <button
-                  type="button"
-                  onClick={() => void finish()}
-                  disabled={finishing}
-                  title="Commit the worktree and push the branch (PR when a provider CLI is available)"
-                  className="mh-btn mh-btn--secondary mh-btn--sm"
-                >
-                  {finishing ? "Finishing…" : "Finish & PR"}
-                </button>
-              </div>
-              {(finishResult || finishError || finishNotice) && (
-                <p className="mt-1 text-[11px] text-ink-muted">
-                  {finishResult
-                    ? finishResult.committed
-                      ? "Changes committed."
-                      : "No changes to commit."
-                    : null}
-                  {finishResult?.pushed ? " Branch pushed." : null}
-                  {finishResult?.prUrl && (
-                    <>
-                      {" "}
-                      <a
-                        href={finishResult.prUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-accent hover:underline"
-                      >
-                        Open pull request
-                        <ExternalLinkIcon size={12} className="ml-1 inline-block align-text-bottom" />
-                      </a>
-                    </>
-                  )}
-                  {finishError ? <span className="text-danger">{finishError}</span> : null}
-                  {finishNotice ? <span>{finishNotice}</span> : null}
-                </p>
-              )}
-            </div>
-          ) : undefined
         }
       />
     </div>

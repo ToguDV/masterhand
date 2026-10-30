@@ -43,8 +43,6 @@ export const queryKeys = {
   workspaces: ["workspaces"] as const,
   /** Session list scoped to a workspace; `queryKeys.sessions` stays the invalidation prefix. */
   sessionsFor: (workspaceID?: string | null) => ["sessions", workspaceID ?? null] as const,
-  /** Directories holding sessions for a workspace (base folder + worktrees). */
-  directories: (workspaceID?: string | null) => ["directories", workspaceID ?? null] as const,
   preview: (sessionID: string) => ["preview", sessionID] as const,
   /** Denied commands (audit log), newest first. */
   audit: ["audit"] as const,
@@ -52,7 +50,7 @@ export const queryKeys = {
   run: (workspaceID?: string | null) => ["run", workspaceID ?? null] as const,
   /** Managed dev-server state for a session. */
   sessionRun: (sessionID: string) => ["sessionRun", sessionID] as const,
-  /** Local git branches of a workspace folder (issue #94). */
+  /** Local git branches of a workspace folder. */
   branches: (workspaceID?: string | null) => ["branches", workspaceID ?? null] as const,
   /** Provider integrations and stored credentials (settings, issue #128). */
   integrations: ["integrations"] as const,
@@ -143,14 +141,6 @@ export function useSessions(
   })
 }
 
-export function useSessionDirectories(client: Client, enabled: boolean, workspaceID?: string | null) {
-  return useQuery({
-    queryKey: queryKeys.directories(workspaceID),
-    queryFn: () => client.api.sessions.directories(workspaceID!),
-    enabled: enabled && Boolean(workspaceID),
-  })
-}
-
 export function useWorkspaces(client: Client, enabled = true) {
   return useQuery({
     queryKey: queryKeys.workspaces,
@@ -160,14 +150,20 @@ export function useWorkspaces(client: Client, enabled = true) {
 }
 
 /**
- * Local branches of the workspace folder. Mutations are not auto-retried by
- * the UI; after a timeout the branch state is refetched to reconcile.
+ * Read-only local branches of the workspace folder. Polls so a branch the
+ * agent switches externally is reflected without user action.
  */
-export function useBranches(client: Client, enabled: boolean, workspaceID?: string | null) {
+export function useBranches(
+  client: Client,
+  enabled: boolean,
+  workspaceID?: string | null,
+  refetchInterval = 5_000,
+) {
   return useQuery({
     queryKey: queryKeys.branches(workspaceID),
     queryFn: () => client.api.branches.list(workspaceID!),
     enabled: enabled && Boolean(workspaceID),
+    refetchInterval,
   })
 }
 
@@ -980,7 +976,6 @@ export function invalidateOnReconnect(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
   void queryClient.invalidateQueries({ queryKey: ["messages"] })
   void queryClient.invalidateQueries({ queryKey: queryKeys.statuses })
-  void queryClient.invalidateQueries({ queryKey: ["directories"] })
   // Goal runs: `goal.updated` frames are never replayed, so a missed one is
   // reconciled by refetching the run state.
   void queryClient.invalidateQueries({ queryKey: ["goal"] })

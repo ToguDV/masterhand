@@ -44,7 +44,6 @@ jest.mock("@masterhand/client-core", () => {
     useWorkspaces: jest.fn(() => ({ data: [], isLoading: false })),
     useSessions: jest.fn(() => ({ data: [], isLoading: false })),
     useSessionStatuses: jest.fn(() => ({ data: {} })),
-    useSessionDirectories: jest.fn(() => ({ data: [] })),
     useBffStatus: jest.fn(() => ({ data: undefined })),
     useUpdate: jest.fn(() => ({ data: undefined })),
     useMessages: jest.fn(() => ({ data: [], isLoading: false })),

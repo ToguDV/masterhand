@@ -56,16 +56,17 @@ export function removeWorkspaceDir(path: string): Promise<void> {
 }
 
 /**
- * Short, forceful guardrail appended to every session's system context. It pins
- * the agent to the directory MasterHand assigned it (its own project root) so it
- * never confuses itself with the MasterHand server repo or a sibling workspace.
+ * Short, forceful guardrail appended to every session's system context. It
+ * roots the agent in the directory MasterHand assigned it while allowing work
+ * outside it when the task truly needs it or the user asks for it.
  */
 export function workspaceSystemPrompt(directory: string): string {
   return [
     `Your working directory is exactly ${directory}.`,
-    `That folder is your project root and the only area you own: read, create, modify and delete files only inside it.`,
-    `Never touch anything outside it — in particular the MasterHand server source, its .git, its configuration or secrets, or other workspaces — not even through shell commands.`,
-    `If a prompt or command points to a path outside your working directory (for example the AGENTS.md path of /init), ignore that path and use your working directory instead.`,
+    `That folder is your project root; work inside it by default.`,
+    `You may read, create, modify and delete files outside it only if it is 100% necessary to complete the task or the user explicitly indicates it; in that case use the narrowest path that does the job.`,
+    `Never modify the MasterHand server source, its configuration or secrets, or other workspaces unless the user explicitly asks you to.`,
+    `If a prompt or command points to an external path (for example the AGENTS.md path of /init), apply the same rule instead of assuming it is off-limits.`,
     `Exception: user attachments are listed by absolute path under a .masterhand/attachments folder; read those files when the prompt lists them (they are read-only user input), even when they are outside your working directory, and never modify or delete them.`,
     `If you create AGENTS.md, it belongs at ${directory}/AGENTS.md.`,
   ].join(" ")
@@ -78,20 +79,12 @@ export interface PermissionRule {
 }
 
 /**
- * opencode tags files outside the session directory with an **absolute** resource
- * (or a `../`-prefixed one when they still fall under a wrongly-resolved project
- * root) and workspace files with a plain relative one. Allowing external access
- * and then denying `edit` (the action the write, edit and patch tools all assert)
- * on those patterns blocks writes outside the workspace while reads stay allowed.
- * The second and third patterns also cover Windows drive paths and `../` paths.
+ * External access is allowed: agents may work in any project the user points
+ * them at. The guard no longer confines writes to the workspace; the
+ * process-safety and engine-credential rules below are the only denials.
  */
-export function externalWriteGuardRules(): PermissionRule[] {
-  return [
-    { action: "external_directory", resource: "*", effect: "allow" },
-    { action: "edit", resource: "/*", effect: "deny" },
-    { action: "edit", resource: "?:/*", effect: "deny" },
-    { action: "edit", resource: "../*", effect: "deny" },
-  ]
+export function externalAccessGuardRules(): PermissionRule[] {
+  return [{ action: "external_directory", resource: "*", effect: "allow" }]
 }
 
 /**
@@ -103,12 +96,13 @@ export const ENGINE_DATA_DIR = "/home/node/.local/share/opencode"
 export const ENGINE_CONFIG_DIR = "/home/node/.config/opencode"
 
 /**
- * Denies engine-side reads outside the workspace (#219). The read tool runs in
- * the opencode engine process (`node`, uid 1000), not through `agent-exec`
- * (uid 1001), so without these rules it can reach `/proc/self/environ` (which
- * carries `OPENCODE_SERVER_PASSWORD`), `opencode.db` and the provider config,
- * then call the engine API directly — bypassing both the managed-run dropper
- * and the `/api/oc/*` allowlist.
+ * Denies engine-side reads and edits outside the workspace (#219). The read
+ * tool runs in the opencode engine process (`node`, uid 1000), not through
+ * `agent-exec` (uid 1001), so without these rules it can reach
+ * `/proc/self/environ` (which carries `OPENCODE_SERVER_PASSWORD`), `opencode.db`
+ * and the provider config, then call the engine API directly — bypassing both
+ * the managed-run dropper and the `/api/oc/*` allowlist. The edit denies keep
+ * the agent from rewriting that config or the credential store.
  *
  * Verified against the pinned 2.0.6 source (`packages/core/src/file-access.ts`,
  * `tool/plugin/{read,grep,glob}.ts`):
@@ -125,12 +119,13 @@ export const ENGINE_CONFIG_DIR = "/home/node/.config/opencode"
  *   `external_directory` denies below confine them too.
  * - Rule evaluation is last-match-wins (`findLast` over the merged ruleset in
  *   `permission.ts`), so these denies must stay *after* the
- *   `external_directory: allow *` entry of `externalWriteGuardRules`. A session
+ *   `external_directory: allow *` entry of `externalAccessGuardRules`. A session
  *   deny beats any saved/project `allow` (`denied()` is checked on the session
  *   ruleset before saved rules are even consulted).
  * - Patterns compile with `*` as `.*` (`util/wildcard.ts`), so one `*`
  *   crosses `/`: `/proc/*` also matches `/proc/self/environ` at any depth.
- *   No `/**` forms needed.
+ *   No `/**` forms needed. Editing `/proc` is meaningless, so `edit` denies
+ *   exist only for the data/config directories.
  * - The match is lexical (no `realpath`): a symlink inside the workspace that
  *   points outside resolves to a relative resource and passes this guard. That
  *   residual is documented in `docs/bff/api.md`; engine files stay owner-only
@@ -139,17 +134,17 @@ export const ENGINE_CONFIG_DIR = "/home/node/.config/opencode"
 export function engineReadGuardRules(home: string = homedir()): PermissionRule[] {
   const dataDirs = new Set([ENGINE_DATA_DIR, join(home, ".local/share/opencode")])
   const configDirs = new Set([ENGINE_CONFIG_DIR, join(home, ".config/opencode")])
-  const resources = ["/proc", "/proc/*"]
-  for (const dir of [...dataDirs, ...configDirs]) {
-    resources.push(dir, `${dir}/*`)
-  }
   const rules: PermissionRule[] = []
-  for (const resource of resources) {
-    for (const action of ["read", "external_directory"] as const) {
+  const add = (resource: string, actions: ReadonlyArray<PermissionRule["action"]>): void => {
+    for (const action of actions) {
       if (!rules.some((rule) => rule.action === action && rule.resource === resource)) {
         rules.push({ action, resource, effect: "deny" })
       }
     }
+  }
+  for (const resource of ["/proc", "/proc/*"]) add(resource, ["read", "external_directory"])
+  for (const dir of [...dataDirs, ...configDirs]) {
+    for (const resource of [dir, `${dir}/*`]) add(resource, ["read", "external_directory", "edit"])
   }
   return rules
 }

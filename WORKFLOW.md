@@ -28,11 +28,11 @@ exceptions, no "small change" shortcut, and no improvising around a rule.
 ## Backward compatibility (before anything else)
 
 MasterHand is deployed self-hosted with real data: the SQLite store (`/data`),
-git worktrees plus isolated-session records, scheduled tasks and runs, device
-tokens, provider config (`masterhand-providers.json`), preview-port reservations,
-and workspace run configs and boards. Every change is therefore a change to a
-live instance: it must never silently lose data, strand a worktree, lock out a
-device, or force the deployer into an undocumented manual step.
+scheduled tasks and runs, device tokens, provider config
+(`masterhand-providers.json`), preview-port reservations, and workspace run
+configs and boards. Every change is therefore a change to a live instance: it
+must never silently lose data, lose a record, lock out a device, or force the
+deployer into an undocumented manual step.
 
 Before writing code, tests or configuration, classify the change and answer two
 questions in writing (to the user and in the PR):
@@ -153,7 +153,7 @@ For user-facing changes, confirm that parity is real and not nominal:
 The global rule stays selective (see `AGENTS.md`: use the `code-reviewer`
 subagent when it adds real value, not by default). A review is **mandatory**
 when the change touches architecture, persistence or migrations, concurrency
-or lifecycle (isolated sessions, Finish & PR, session/workspace deletion,
+or lifecycle (session/workspace deletion,
 scheduler, runs/preview), the security or trust boundary (proxy allowlist, git
 env/config sandbox, auth, provider targets), or deletion and cleanup paths.
 
@@ -252,7 +252,7 @@ npm run e2e:browsers     # downloads the Chromium used by Playwright
 - Two Playwright projects: **`smoke`** (`SMOKE_SPECS` in `e2e/playwright.config.ts` — the critical flows CI runs for client-only changes) and **`full`** (every other spec). Running without `--project` executes both, i.e. every spec exactly once; `npm run test:e2e -w @masterhand/e2e -- --project=smoke` runs only the critical flows.
 - Run: `npm run test:e2e` (`workers: 4`, capped by `E2E_MAX_WORKERS`). Debug interactively: `npm run test:e2e -w @masterhand/e2e -- --ui`.
 - A killed run is reclaimed by `e2e/cleanup-ports.mjs` before Playwright boots: it frees the whole reserved block (`4097..4104`, `8788..8795` — no conflict with a local `npm run dev`: opencode `4096`, BFF `8787`, Vite `5173`) and wipes the scratch root, and each worker wipes its own dir before spawning its servers. The historical pinned `workers: 1` (and its measured cross-worker-collision rationale) was removed by per-worker isolation ([#175](https://github.com/ToguDV/masterhand/issues/175)): verified 2026-10-17 with the full suite (103 tests) at `--workers=4` twice back-to-back — 103 passed / 0 flaky in 58s and 57s (179s at `workers: 1`) — plus a SIGKILL drill whose orphans the next run reclaimed. A spec that arms a process-global mock control still resets it in `afterEach` — the controls are global within a worker.
-- Coverage today: invalid login, the full flow login → new session → prompt → live stream → permission approval, workspaces, isolated sessions, branch picker/creator (search + switch + create, read-only chip for isolated), model/effort/session preferences, subagents, semantic tool cards (shell/read/write/edit diffs), agent questions answered from an inline form, composer `/` command and `@` subagent popovers, `/btw` side questions, stalled-send recovery (history-confirmed early release, request-deadline fallback, retained text, "Sending…" feedback), session previews, run/preview death notices, the unified Run & preview panel (tab switching, auto-landing on Preview, one trigger), a lost Finish & PR response (ambiguity + safe retry), a failed Stop, an ambiguous permission reply confirmed by reconciliation, upstream reconnection recovery, paged long conversations, markdown rendering, and the ink-on-paper design system (theme persistence, deep-emerald user bubble, inline permission cards, choice modal for other-session questions).
+- Coverage today: invalid login, the full flow login → new session → prompt → live stream → permission approval, workspaces, the read-only branch viewer (shows the current branch and refreshes when the agent switches), model/effort/session preferences, subagents, semantic tool cards (shell/read/write/edit diffs), agent questions answered from an inline form, composer `/` command and `@` subagent popovers, `/btw` side questions, stalled-send recovery (history-confirmed early release, request-deadline fallback, retained text, "Sending…" feedback), session previews, run/preview death notices, the unified Run & preview panel (tab switching, auto-landing on Preview, one trigger), a failed Stop, an ambiguous permission reply confirmed by reconciliation, upstream reconnection recovery, paged long conversations, markdown rendering, and the ink-on-paper design system (theme persistence, deep-emerald user bubble, inline permission cards, choice modal for other-session questions).
 - Add one spec under `e2e/tests/` per user-facing flow.
 
 ## Real-stack verification (mandatory for behavior changes)

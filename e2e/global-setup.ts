@@ -14,11 +14,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
  */
 export default async function globalSetup(): Promise<() => Promise<void>> {
   // `VITE_*` values are baked into the bundle at build time; the shortened
-  // deadlines keep the stalled-send and lost-finish specs fast.
+  // deadline keeps the stalled-send specs fast.
   execSync("npm run build -w @masterhand/web", {
     cwd: repoRoot,
     stdio: "inherit",
-    env: { ...process.env, VITE_REQUEST_TIMEOUT_MS: "5000", VITE_FINISH_TIMEOUT_MS: "5000" },
+    env: { ...process.env, VITE_REQUEST_TIMEOUT_MS: "5000" },
   })
   await rm(E2E_SCRATCH_ROOT, { recursive: true, force: true })
   return async () => {
