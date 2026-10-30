@@ -118,9 +118,9 @@ export interface ClientOptions {
   onUnauthorized?: () => void
   fetchImpl?: typeof fetch
   /**
-   * Native multipart uploader. React Native's `expo/fetch` does not understand
-   * the `{ uri, name, type }` file object that native `FormData` uses, so the
-   * mobile app injects React Native's global fetch for uploads.
+   * Native multipart uploader. `expo/fetch` (which replaces the global fetch)
+   * cannot serialize React Native's `{ uri, name, type }` file object, so the
+   * mobile app sends it through React Native's `XMLHttpRequest` instead.
    */
   nativeUpload?: NativeUploader
   /**
@@ -642,8 +642,9 @@ export function createClient(options: ClientOptions = {}): Client {
         upload: async (workspaceID, sessionID, input) => {
           const path = `/api/workspaces/${encodeURIComponent(workspaceID)}/attachments`
           if (input.uri && nativeUpload) {
-            // The native bridge sends the multipart body itself; `expo/fetch`
-            // cannot serialize React Native's `{ uri, name, type }` file object.
+            // The native bridge sends the multipart body itself via RN's
+            // `XMLHttpRequest`; `expo/fetch` cannot serialize React Native's
+            // `{ uri, name, type }` file object.
             const token = await options.getToken?.()
             const result = await withTimeout(
               nativeUpload({
