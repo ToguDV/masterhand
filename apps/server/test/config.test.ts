@@ -73,6 +73,19 @@ describe("loadConfig", () => {
     expect(loadConfig(env({ PROXY_BODY_LIMIT_MB: "nope" })).proxyBodyLimitMb).toBe(10)
   })
 
+  it("bounds attachment limits and retention", () => {
+    expect(loadConfig(env()).attachmentMaxMb).toBe(50)
+    expect(loadConfig(env()).attachmentMaxPerSessionMb).toBe(1000)
+    expect(loadConfig(env()).attachmentTtlDays).toBe(90)
+    expect(loadConfig(env({ ATTACHMENT_MAX_MB: "25" })).attachmentMaxMb).toBe(25)
+    expect(loadConfig(env({ ATTACHMENT_MAX_MB: "0" })).attachmentMaxMb).toBe(1)
+    expect(loadConfig(env({ ATTACHMENT_MAX_MB: "9999" })).attachmentMaxMb).toBe(200)
+    expect(loadConfig(env({ ATTACHMENT_MAX_MB: "nope" })).attachmentMaxMb).toBe(50)
+    expect(loadConfig(env({ ATTACHMENT_MAX_PER_SESSION_MB: "0" })).attachmentMaxPerSessionMb).toBe(1)
+    expect(loadConfig(env({ ATTACHMENT_TTL_DAYS: "0" })).attachmentTtlDays).toBe(0)
+    expect(loadConfig(env({ ATTACHMENT_TTL_DAYS: "-1" })).attachmentTtlDays).toBe(0)
+  })
+
   it("allows loopback provider discovery only when explicitly enabled", () => {
     expect(loadConfig(env()).providersAllowLoopback).toBe(false)
     expect(loadConfig(env({ PROVIDERS_ALLOW_LOOPBACK: "true" })).providersAllowLoopback).toBe(true)

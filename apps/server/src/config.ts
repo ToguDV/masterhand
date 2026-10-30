@@ -26,6 +26,12 @@ export interface Config {
   providersAllowLoopback: boolean
   /** Cap on proxied opencode request bodies (MB), so a chunked body cannot OOM the BFF. */
   proxyBodyLimitMb: number
+  /** Max size of one chat attachment (MB). Also bounds the upload route's body. */
+  attachmentMaxMb: number
+  /** Per-session storage cap for chat attachments (MB). */
+  attachmentMaxPerSessionMb: number
+  /** Retention window for orphaned attachment directories (days; 0 disables). */
+  attachmentTtlDays: number
   masterhandPassword: string
   sessionSecret: string
   sessionTtlHours: number
@@ -333,6 +339,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // Prompts can be large; the cap keeps a chunked body from being buffered
     // without bound (issue #180). 1 MB..1 GB.
     proxyBodyLimitMb: Math.min(1024, Math.max(1, intFromEnv(env.PROXY_BODY_LIMIT_MB, 10))),
+    // One attachment is bounded independently from the prompt proxy: the file
+    // travels as multipart to the BFF, never base64 through the opencode proxy.
+    attachmentMaxMb: Math.min(200, Math.max(1, intFromEnv(env.ATTACHMENT_MAX_MB, 50))),
+    attachmentMaxPerSessionMb: Math.min(10_240, Math.max(1, intFromEnv(env.ATTACHMENT_MAX_PER_SESSION_MB, 1000))),
+    attachmentTtlDays: Math.min(3650, Math.max(0, intFromEnv(env.ATTACHMENT_TTL_DAYS, 90))),
     providersAllowLoopback: boolFromEnv("PROVIDERS_ALLOW_LOOPBACK", env.PROVIDERS_ALLOW_LOOPBACK, false),
     masterhandPassword,
     sessionSecret,

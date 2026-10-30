@@ -17,6 +17,10 @@ export function PendingBubble({
   onDismiss: () => void
 }) {
   const failed = pending.status === "failed"
+  const attachments = pending.attachments ?? []
+  const body =
+    pending.text.trim() ||
+    (attachments.length === 1 ? attachments[0]?.name : `${attachments.length} attachments`)
 
   return (
     <div
@@ -24,7 +28,12 @@ export function PendingBubble({
       aria-label={failed ? "Message failed to send" : "Sending message"}
     >
       <div className={`mh-msg--user mh-msg--pending${failed ? " is-failed" : ""}`} aria-hidden="true">
-        {pending.text}
+        {body}
+        {attachments.length > 0 && pending.text.trim() ? (
+          <span className="mh-pending__files">
+            {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
+          </span>
+        ) : null}
       </div>
       <p className="mh-pending__caption" role="status" aria-live="polite">
         {failed ? (

@@ -19,6 +19,10 @@ export function PendingBubble({
 }) {
   const styles = useThemedStyles(createStyles)
   const failed = pending.status === "failed"
+  const attachments = pending.attachments ?? []
+  const body =
+    pending.text.trim() ||
+    (attachments.length === 1 ? attachments[0]?.name : `${attachments.length} attachments`)
 
   return (
     <View
@@ -27,7 +31,12 @@ export function PendingBubble({
       accessibilityLabel={failed ? "Message failed to send" : "Sending message"}
     >
       <View style={[styles.bubble, failed && styles.bubbleFailed]}>
-        <Text style={styles.bodyText}>{pending.text}</Text>
+        <Text style={styles.bodyText}>{body}</Text>
+        {attachments.length > 0 && pending.text.trim() ? (
+          <Text style={styles.files}>
+            {attachments.length} attachment{attachments.length === 1 ? "" : "s"}
+          </Text>
+        ) : null}
       </View>
       {failed ? (
         <View style={styles.actions}>
@@ -77,6 +86,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 15,
       lineHeight: 22,
+    },
+    files: {
+      marginTop: 4,
+      color: colors.bubbleUserText,
+      opacity: 0.8,
+      fontFamily: fonts.ui,
+      fontSize: 11,
     },
     actions: {
       flexDirection: "row",

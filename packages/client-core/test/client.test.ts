@@ -1318,3 +1318,80 @@ describe("goal mode", () => {
     expect(await client.api.goal.settings()).toEqual({ maxRounds: 5, criticModel: null, judgeModel: null })
   })
 })
+
+describe("attachments", () => {
+  it("uploads multipart without forcing a JSON content type and with the device token", async () => {
+    const attachment = {
+      id: "a1",
+      name: "notes.txt",
+      mime: "text/plain",
+      size: 4,
+      path: "/workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+      uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+      url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+    }
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ attachment }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl, getToken: () => "tok" })
+
+    const uploaded = await client.api.attachments.upload("ws_1", "ses_1", {
+      id: "a1",
+      name: "notes.txt",
+      mime: "text/plain",
+      size: 4,
+      body: new Blob(["hola"], { type: "text/plain" }),
+    })
+
+    expect(uploaded).toEqual(attachment)
+    expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/attachments")
+    expect(calls[0]?.init?.method).toBe("POST")
+    expect(calls[0]?.init?.body).toBeInstanceOf(FormData)
+    const headers = new Headers(calls[0]?.init?.headers)
+    expect(headers.get("authorization")).toBe("Bearer tok")
+    expect(headers.get("content-type")).toBeNull()
+  })
+
+  it("downloads a stored attachment with the same auth contract", async () => {
+    const { calls, fetchImpl } = recordingFetch(
+      () => new Response(new Blob(["bytes"]), { status: 200, headers: { "content-type": "image/png" } }),
+    )
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl, getToken: () => "tok" })
+
+    const blob = await client.api.attachments.download("/api/workspaces/ws_1/attachments/ses_1/a1")
+
+    expect(await blob.text()).toBe("bytes")
+    expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/attachments/ses_1/a1")
+    expect(new Headers(calls[0]?.init?.headers).get("authorization")).toBe("Bearer tok")
+  })
+
+  it("forwards prompt files to opencode", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ data: {} }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    await client.api.prompt("ses_1", {
+      text: "look",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      text: "look",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+  })
+
+  it("forwards files to slash commands too", async () => {
+    const { calls, fetchImpl } = recordingFetch(() => new Response(null, { status: 204 }))
+    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
+
+    await client.api.runCommand("ses_1", {
+      name: "review",
+      text: "this",
+      files: [{ uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt", name: "notes.txt" }],
+    })
+
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      name: "review",
+      text: "this",
+      files: [{ name: "notes.txt" }],
+    })
+  })
+})

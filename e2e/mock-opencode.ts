@@ -36,6 +36,7 @@ interface UserMessage {
   time: { created: number }
   text: string
   metadata?: Record<string, unknown>
+  files?: Array<{ uri?: string; name?: string }>
   type: "user"
 }
 
@@ -115,6 +116,8 @@ let echoDelayMs = 0
 let promptRequests = 0
 /** Session the last prompt request targeted, used by the message-injection control. */
 let lastPromptSessionID: string | null = null
+/** Files of the last prompt, exposed by `/e2e/state` for attachment specs. */
+let lastPromptFiles: Array<{ uri?: string; name?: string }> = []
 // E2E control: hold `/fork` responses, fail prompt requests, and count forks so
 // the /btw orphan tests can prove created forks are removed.
 let stallForks = false
@@ -305,13 +308,19 @@ function createSession(input: {
   return session
 }
 
-function appendUserMessage(sessionID: string, text: string, metadata?: Record<string, unknown>): UserMessage {
+function appendUserMessage(
+  sessionID: string,
+  text: string,
+  metadata?: Record<string, unknown>,
+  files?: Array<{ uri?: string; name?: string }>,
+): UserMessage {
   const message: UserMessage = {
     id: nextId("msg"),
     sessionID,
     time: { created: now() },
     text,
     ...(metadata ? { metadata } : {}),
+    ...(files && files.length > 0 ? { files } : {}),
     type: "user",
   }
   conversations.get(sessionID)?.push(message)
@@ -1179,6 +1188,7 @@ const server = createServer((req, res) => {
         offline,
         stalled: heldPrompts.length,
         prompts: promptRequests,
+        lastPromptFiles,
         failPrompts,
         permissionReplies: permissionReplyAttempts,
         stallPermissionReplies,
@@ -1457,6 +1467,19 @@ const server = createServer((req, res) => {
         // client's fetch stays pending exactly like a stalled network request.
         if (stallPrompts) await new Promise<void>((resolve) => heldPrompts.push(resolve))
         const text = typeof body.text === "string" ? body.text : ""
+        const files = Array.isArray(body.files)
+          ? body.files.flatMap((item) => {
+              if (!item || typeof item !== "object") return []
+              const record = item as Record<string, unknown>
+              return [
+                {
+                  ...(typeof record.uri === "string" ? { uri: record.uri } : {}),
+                  ...(typeof record.name === "string" ? { name: record.name } : {}),
+                },
+              ]
+            })
+          : []
+        lastPromptFiles = files
         const metadata =
           body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
             ? (body.metadata as Record<string, unknown>)
@@ -1468,7 +1491,7 @@ const server = createServer((req, res) => {
           goalPromptFailures -= 1
           return json(res, 429, { error: "rate_limited" })
         }
-        const message = appendUserMessage(sessionID, text, metadata)
+        const message = appendUserMessage(sessionID, text, metadata, files)
         // Scheduler fires (issue #147): an automated prompt carries the
         // scheduler marker in its metadata, so the turn runs headlessly.
         const schedulerFired = typeof metadata?.["masterhand.scheduler"] === "string"

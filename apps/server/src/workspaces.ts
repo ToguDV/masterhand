@@ -66,6 +66,7 @@ export function workspaceSystemPrompt(directory: string): string {
     `That folder is your project root and the only area you own: read, create, modify and delete files only inside it.`,
     `Never touch anything outside it — in particular the MasterHand server source, its .git, its configuration or secrets, or other workspaces — not even through shell commands.`,
     `If a prompt or command points to a path outside your working directory (for example the AGENTS.md path of /init), ignore that path and use your working directory instead.`,
+    `Exception: user attachments are listed by absolute path under a .masterhand/attachments folder; read those files when the prompt lists them (they are read-only user input), even when they are outside your working directory, and never modify or delete them.`,
     `If you create AGENTS.md, it belongs at ${directory}/AGENTS.md.`,
   ].join(" ")
 }

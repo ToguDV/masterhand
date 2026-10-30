@@ -27,6 +27,27 @@ export function composerErrorMessage(error: unknown, kind: "send" | "side questi
 }
 
 /**
+ * Maps a failed attachment upload to a user message. Uploads are idempotent
+ * per client id, so a timeout is a plain retry (the server returns the file it
+ * already stored instead of creating a duplicate).
+ */
+export function attachmentErrorMessage(error: unknown, name?: string): string {
+  const label = name ? `"${name}"` : "The file"
+  if (error instanceof RequestTimeoutError) {
+    return `Uploading ${label} timed out. Try again.`
+  }
+  if (error instanceof ApiError) {
+    if (error.status === 413) return `${label} is too large for this server.`
+    if (error.status === 409) return `${label} conflicts with an existing upload. Try again.`
+    if (error.status === 507 || error.status === 503) return "The server is out of storage space."
+    if (error.status === 401) return "Your session expired. Sign in again."
+    if (error.status === 404) return "The workspace or session no longer exists."
+    return `Could not upload ${label} (HTTP ${error.status}).`
+  }
+  return `Could not upload ${label}. Try again.`
+}
+
+/**
  * Maps a failed provider-key connect (settings, #128) to a user message.
  * The connect is non-idempotent: a timeout is reported as ambiguous and never
  * auto-retried — the UI refreshes the connection list instead.

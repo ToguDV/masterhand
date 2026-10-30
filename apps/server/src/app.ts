@@ -22,6 +22,16 @@ import {
   mergeCommandTemplates,
   type SlashCommand,
 } from "./commands.js"
+import {
+  AttachmentError,
+  attachmentStream,
+  getAttachment,
+  removeAttachment,
+  removeSessionAttachments,
+  removeWorkspaceAttachments,
+  uploadAttachment,
+  type AttachmentErrorCode,
+} from "./attachments.js"
 import type { Config } from "./config.js"
 import type { EventHub } from "./events.js"
 import {
@@ -626,6 +636,28 @@ export function createApp(deps: AppDeps): CreatedApp {
   const cachedDiskFreeBytes = createCachedDiskFree(() => defaultDiskFreeBytes(config.dataDir))
   const proxyBodyLimitBytes = Math.max(1, deps.proxyBodyLimitBytes ?? DEFAULT_PROXY_BODY_LIMIT_BYTES)
   const rejectOversizedBody = (c: Context): Response => c.json({ error: "payload_too_large" }, 413)
+
+  /** Maps an attachment failure to its contract; filesystem exhaustion is 503. */
+  function attachmentFailure(c: Context, error: unknown): Response {
+    if (error instanceof AttachmentError) {
+      const status: Record<AttachmentErrorCode, 400 | 404 | 409 | 413 | 503> = {
+        invalid_attachment: 400,
+        attachment_conflict: 409,
+        attachment_too_large: 413,
+        attachments_full: 413,
+        not_found: 404,
+        storage_unavailable: 503,
+      }
+      return c.json({ error: error.code }, status[error.code])
+    }
+    const code = (error as NodeJS.ErrnoException | null)?.code
+    if (code === "ENOSPC" || code === "EDQUOT" || code === "EROFS" || code === "EACCES") {
+      console.warn("[masterhand] attachment storage failure:", error)
+      return c.json({ error: "storage_unavailable" }, 503)
+    }
+    console.warn("[masterhand] attachment operation failed:", error)
+    return c.json({ error: "attachment_failed" }, 500)
+  }
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
 
   /**
@@ -1982,6 +2014,106 @@ export function createApp(deps: AppDeps): CreatedApp {
     return c.json({ workspace }, 201)
   })
 
+  /**
+   * Chat attachments live in the workspace (`<workspace>/.masterhand/...`), so
+   * the agent can read them with its own tools even when the session runs in a
+   * worktree. Bytes arrive as multipart (the browser/RN builds the boundary);
+   * `attachmentID` is client-generated so a retried upload is idempotent.
+   */
+  api.post(
+    "/workspaces/:id/attachments",
+    bodyLimit({
+      maxSize: config.attachmentMaxMb * 1024 * 1024 + 1024 * 1024,
+      onError: rejectOversizedBody,
+    }),
+    async (c) => {
+      const workspace = deps.store.getWorkspace(c.req.param("id"))
+      if (!workspace) return c.json({ error: "not_found" }, 404)
+
+      let body: Record<string, string | File | (string | File)[]>
+      try {
+        body = await c.req.parseBody()
+      } catch {
+        return c.json({ error: "invalid_attachment" }, 400)
+      }
+      const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
+      const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
+      const attachmentID = typeof body.attachmentID === "string" ? body.attachmentID : ""
+      if (!rawFile || typeof rawFile === "string" || !sessionID || !attachmentID) {
+        return c.json({ error: "invalid_attachment" }, 400)
+      }
+      if (rawFile.size > config.attachmentMaxMb * 1024 * 1024) {
+        return c.json({ error: "attachment_too_large" }, 413)
+      }
+
+      try {
+        const result = await uploadAttachment({
+          workspaceID: workspace.id,
+          workspacePath: workspace.path,
+          sessionID,
+          attachmentID,
+          name: rawFile.name || "file",
+          bytes: new Uint8Array(await rawFile.arrayBuffer()),
+          maxFileBytes: config.attachmentMaxMb * 1024 * 1024,
+          maxSessionBytes: config.attachmentMaxPerSessionMb * 1024 * 1024,
+        })
+        const { existed, ...attachment } = result
+        return c.json({ attachment }, existed ? 200 : 201)
+      } catch (error) {
+        return attachmentFailure(c, error)
+      }
+    },
+  )
+
+  api.get("/workspaces/:id/attachments/:sessionID/:attachmentID", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    try {
+      const { meta, filePath, size } = await getAttachment(
+        workspace.path,
+        c.req.param("sessionID"),
+        c.req.param("attachmentID"),
+      )
+      const image =
+        meta.mime === "image/png" ||
+        meta.mime === "image/jpeg" ||
+        meta.mime === "image/gif" ||
+        meta.mime === "image/webp"
+      const contentType = image
+        ? meta.mime
+        : meta.mime === "application/pdf"
+          ? "application/pdf"
+          : "application/octet-stream"
+      const asciiName = (meta.name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_").slice(0, 120) || "file")
+      const encodedName = encodeURIComponent(meta.name).replace(
+        /['()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+      )
+      const headers = new Headers({
+        "content-type": contentType,
+        "content-length": String(size),
+        "content-disposition": `${image ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+        "x-content-type-options": "nosniff",
+        "content-security-policy": "sandbox",
+        "cache-control": "private, max-age=300",
+      })
+      return new Response(attachmentStream(filePath), { status: 200, headers })
+    } catch (error) {
+      return attachmentFailure(c, error)
+    }
+  })
+
+  api.delete("/workspaces/:id/attachments/:sessionID/:attachmentID", async (c) => {
+    const workspace = deps.store.getWorkspace(c.req.param("id"))
+    if (!workspace) return c.json({ error: "not_found" }, 404)
+    try {
+      await removeAttachment(workspace.path, c.req.param("sessionID"), c.req.param("attachmentID"))
+      return c.body(null, 204)
+    } catch (error) {
+      return attachmentFailure(c, error)
+    }
+  })
+
   api.delete("/workspaces/:id", async (c) => {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
@@ -2160,6 +2292,14 @@ export function createApp(deps: AppDeps): CreatedApp {
       })()
 
       await Promise.all([isolatedWork, baseWork])
+
+      // Chat attachments are derived data tied to the workspace's sessions;
+      // drop them even when the user keeps the project folder (deleteFiles=0).
+      // Best effort: a cleanup failure must not fail a delete that already
+      // removed the row.
+      await removeWorkspaceAttachments(workspace.path).catch((error) => {
+        console.warn(`[masterhand] could not remove attachments of ${workspace.path}:`, error)
+      })
 
       // `rm` has no abort channel, so the budget race below bounds the wait:
       // on expiry the removal continues detached while the route answers.
@@ -2611,6 +2751,11 @@ export function createApp(deps: AppDeps): CreatedApp {
     await releaseSession(sessionID, {
       directory: deps.store.getIsolatedSession(sessionID)?.path ?? workspace.path,
       bestEffort: false,
+    })
+    // The session is gone, so its uploaded files have no message to serve.
+    // Best effort: the delete already succeeded upstream.
+    await removeSessionAttachments(workspace.path, sessionID).catch((error) => {
+      console.warn(`[masterhand] could not remove attachments of session ${sessionID}:`, error)
     })
     return c.json({ ok: true })
   })
