@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { memo, useMemo, useState } from "react"
 import { Image, Pressable, StyleSheet, Text, View } from "react-native"
 import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
 import {
@@ -237,6 +237,46 @@ export function MessageBubble({
   onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
   onCancelForm?: (form: FormInfo) => void
 }) {
+  return (
+    <MessageBubbleView
+      entry={entry}
+      onOpenSession={onOpenSession}
+      forms={forms}
+      answeredForms={answeredForms}
+      busyFormID={busyFormID}
+      onRespondForm={onRespondForm}
+      onCancelForm={onCancelForm}
+    />
+  )
+}
+
+/**
+ * Memoized row for the chat `FlatList`. A history refetch/SSE event rebuilds
+ * every `ChatMessage` object, so a default shallow `memo` would never bail
+ * out and each render would re-decode every inline image (`previewDataUrl`
+ * can be megabytes of base64). The custom comparator only re-renders when
+ * visible content actually changed.
+ */
+interface MessageBubbleProps {
+  entry: ChatMessage
+  onOpenSession?: (id: string) => void
+  forms?: FormInfo[]
+  answeredForms?: Array<{ form: FormInfo; answer: FormAnswer }>
+  busyFormID?: string | null
+  onRespondForm?: (form: FormInfo, answer: FormAnswer) => void
+  onCancelForm?: (form: FormInfo) => void
+}
+
+const MessageBubbleView = memo(
+  function MessageBubbleView({
+    entry,
+    onOpenSession,
+    forms = [],
+    answeredForms = [],
+    busyFormID = null,
+    onRespondForm,
+    onCancelForm,
+  }: MessageBubbleProps) {
   const styles = useThemedStyles(createStyles)
   const info = entry.info
 
@@ -280,10 +320,123 @@ export function MessageBubble({
       {info.time.completed !== undefined ? <MessageStats info={info} /> : null}
     </View>
   )
+  },
+  isSameMessageBubbleProps,
+)
+
+/**
+ * Row equality for the memoized chat row. Callback identities are
+ * deliberately ignored: every parent render recreates them, and a behavior
+ * change in any of them always coincides with a data change that IS compared
+ * (a new session brings new entries, answering a form replaces `forms` /
+ * `answeredForms` / `busyFormID`). Comparing them by identity would re-render
+ * every row on every SSE event and defeat the memo entirely.
+ */
+export function isSameMessageBubbleProps(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
+  return (
+    isSameChatEntry(prev.entry, next.entry) &&
+    prev.forms === next.forms &&
+    prev.answeredForms === next.answeredForms &&
+    prev.busyFormID === next.busyFormID
+  )
+}
+
+/**
+ * Structural equality for a chat row. New object identities from a refetch or
+ * SSE merge must not remount the row (each remount re-decodes every inline
+ * image). Returns false on any visible change — a stale false is a bug,
+ * while a stale true is only a wasted render.
+ */
+export function isSameChatEntry(a: ChatMessage, b: ChatMessage): boolean {
+  if (a === b) return true
+  const infoA = a.info
+  const infoB = b.info
+  if (infoA.id !== infoB.id) return false
+  if (infoA.role !== infoB.role) return false
+  if (infoA.time.created !== infoB.time.created) return false
+  if (infoA.time.completed !== infoB.time.completed) return false
+  if ((infoA.time.streamed ?? null) !== (infoB.time.streamed ?? null)) return false
+  if ((infoA.agent ?? null) !== (infoB.agent ?? null)) return false
+  if ((infoA.providerID ?? null) !== (infoB.providerID ?? null)) return false
+  if ((infoA.modelID ?? null) !== (infoB.modelID ?? null)) return false
+  if ((infoA.cost ?? null) !== (infoB.cost ?? null)) return false
+  if ((infoA.error?.message ?? null) !== (infoB.error?.message ?? null)) return false
+  if (!isSameTokens(infoA.tokens, infoB.tokens)) return false
+  if (!isSameAttachments(infoA.attachments, infoB.attachments)) return false
+  if (a.parts.length !== b.parts.length) return false
+  for (let index = 0; index < a.parts.length; index += 1) {
+    if (!isSameChatPart(a.parts[index]!, b.parts[index]!)) return false
+  }
+  return true
+}
+
+function isSameTokens(
+  a: ChatMessage["info"]["tokens"],
+  b: ChatMessage["info"]["tokens"],
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return a === b
+  if (a.input !== b.input || a.output !== b.output) return false
+  if ((a.cache?.read ?? null) !== (b.cache?.read ?? null)) return false
+  if ((a.cache?.write ?? null) !== (b.cache?.write ?? null)) return false
+  return true
+}
+
+function isSameAttachments(
+  a: readonly ChatAttachment[] | undefined,
+  b: readonly ChatAttachment[] | undefined,
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return a === b
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index]!
+    const right = b[index]!
+    if (left.id !== right.id) return false
+    if (left.name !== right.name) return false
+    if (left.mime !== right.mime) return false
+    if (left.size !== right.size) return false
+    if (left.url !== right.url) return false
+    if (left.inline !== right.inline) return false
+    // The preview bytes are immutable per attachment id; compare the length
+    // instead of the megabytes of base64 so the comparator itself stays cheap.
+    if ((left.previewDataUrl?.length ?? -1) !== (right.previewDataUrl?.length ?? -1)) return false
+  }
+  return true
+}
+
+function isSameChatPart(a: ChatPart, b: ChatPart): boolean {
+  if (a === b) return true
+  if (a.id !== b.id || a.type !== b.type) return false
+  if (a.type === "text" || a.type === "reasoning") {
+    return b.type === a.type && a.text === (b as { text: string }).text
+  }
+  if (a.type === "tool" && b.type === "tool") {
+    const stateA = (a as ChatToolPart).state
+    const stateB = (b as ChatToolPart).state
+    return (
+      (a as ChatToolPart).tool === (b as ChatToolPart).tool &&
+      (a as ChatToolPart).callID === (b as ChatToolPart).callID &&
+      stateA.status === stateB.status &&
+      (stateA.title ?? null) === (stateB.title ?? null) &&
+      (stateA.output ?? null) === (stateB.output ?? null) &&
+      (stateA.error ?? null) === (stateB.error ?? null) &&
+      (stateA.raw ?? null) === (stateB.raw ?? null) &&
+      JSON.stringify(stateA.input) === JSON.stringify(stateB.input) &&
+      JSON.stringify(stateA.metadata ?? null) === JSON.stringify(stateB.metadata ?? null) &&
+      (stateA.timing?.completed ?? null) === (stateB.timing?.completed ?? null)
+    )
+  }
+  // Unknown part kinds render nothing; same id + kind means same (empty) output.
+  return a.type === b.type
 }
 
 /** Attachment chips inside the user's bubble (images keep their inline preview). */
-function UserAttachments({ attachments }: { attachments: readonly ChatAttachment[] }) {
+const UserAttachments = memo(function UserAttachments({
+  attachments,
+}: {
+  attachments: readonly ChatAttachment[]
+}) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   return (
@@ -291,7 +444,13 @@ function UserAttachments({ attachments }: { attachments: readonly ChatAttachment
       {attachments.map((attachment) => (
         <View key={attachment.id} style={styles.userAttachment}>
           {attachment.previewDataUrl ? (
-            <Image source={{ uri: attachment.previewDataUrl }} style={styles.userAttachmentThumb} />
+            <Image
+              source={{ uri: attachment.previewDataUrl }}
+              style={styles.userAttachmentThumb}
+              resizeMode="cover"
+              resizeMethod="resize"
+              fadeDuration={0}
+            />
           ) : (
             <View style={styles.userAttachmentGlyph}>
               <FileIcon size={16} color={colors.bubbleUserText} />
@@ -309,7 +468,7 @@ function UserAttachments({ attachments }: { attachments: readonly ChatAttachment
       ))}
     </View>
   )
-}
+})
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({

@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  FlatList,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   finishResultFromIsolation,
   isAmbiguousError,
   sessionUsage,
   useBffStatus,
-  useGoalRun,
   useMessages,
   usePendingSend,
   usePreview,
@@ -108,15 +117,68 @@ export function ChatScreen({
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  // The review footer grows with every goal transition: include it in the
-  // follow-scroll. Expanding a round is local state and must NOT yank the
-  // user to the bottom, so this replaces the old onContentSizeChange hook.
-  const goalUpdatedAt = useGoalRun(client, sessionID).data?.updatedAt
+  // Follow-output scroll: only stay pinned when the user is already near the
+  // bottom AND not actively scrolling. The old effect called
+  // `scrollToEnd({ animated: true })` on every messages/goal update, so it
+  // fought the user's own fling while heavy rows (inline image previews) were
+  // still decoding — the list blanked for seconds and then snapped back, and
+  // repeated scrolls to the bottom jittered. `onContentSizeChange` covers both
+  // new messages and the growing goal-review footer; expanding a round is
+  // local state and must NOT yank the user when they scrolled up.
+  const followRef = useRef(true)
+  const userScrollingRef = useRef(false)
 
-  useEffect(() => {
-    if (messages.length === 0) return
-    listRef.current?.scrollToEnd({ animated: true })
-  }, [messages, goalUpdatedAt])
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+    const distance = contentSize.height - (contentOffset.y + layoutMeasurement.height)
+    followRef.current = distance < 120
+  }, [])
+
+  const handleScrollBegin = useCallback(() => {
+    userScrollingRef.current = true
+  }, [])
+
+  const handleScrollEnd = useCallback(() => {
+    userScrollingRef.current = false
+  }, [])
+
+  const handleContentSizeChange = useCallback(() => {
+    if (userScrollingRef.current || !followRef.current) return
+    listRef.current?.scrollToEnd({ animated: false })
+  }, [])
+
+  const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
+
+  const listFooter = useMemo(
+    () => (
+      <>
+        <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
+        {pendingSend.pending ? (
+          <PendingBubble
+            pending={pendingSend.pending}
+            onRetry={() => composerRef.current?.retry()}
+            onDismiss={pendingSend.dismiss}
+          />
+        ) : null}
+      </>
+    ),
+    [client, sessionID, onOpenSession, pendingSend.pending, pendingSend.dismiss],
+  )
+
+  const renderItem = useCallback(
+    ({ item }: { item: ChatMessage }) => (
+      <MessageBubble
+        entry={item}
+        onOpenSession={onOpenSession}
+        forms={forms}
+        answeredForms={answeredForms}
+        busyFormID={busyFormID}
+        onRespondForm={onRespondForm}
+        onCancelForm={onCancelForm}
+      />
+    ),
+    [onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm],
+  )
 
   async function finish() {
     setFinishing(true)
@@ -285,22 +347,31 @@ export function ChatScreen({
 
       <FlatList
         ref={listRef}
+        testID="chat-list"
         data={messages}
-        keyExtractor={(entry) => entry.info.id}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
         contentContainerStyle={styles.list}
         style={styles.listContainer}
-        ListFooterComponent={
-          <>
-            <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
-            {pendingSend.pending ? (
-              <PendingBubble
-                pending={pendingSend.pending}
-                onRetry={() => composerRef.current?.retry()}
-                onDismiss={pendingSend.dismiss}
-              />
-            ) : null}
-          </>
-        }
+        windowSize={5}
+        maxToRenderPerBatch={5}
+        initialNumToRender={10}
+        updateCellsBatchingPeriod={50}
+        // Rows are memoized by content: keep their native views mounted once
+        // rendered so revisiting them never re-decodes the inline images.
+        // Clipping (true) unmounted rows just outside the window and every
+        // return trip paid a full remount + base64 decode — the repeated
+        // scroll-to-bottom flicker.
+        removeClippedSubviews={false}
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        onScrollBeginDrag={handleScrollBegin}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollBegin={handleScrollBegin}
+        onMomentumScrollEnd={handleScrollEnd}
+        onContentSizeChange={handleContentSizeChange}
+        {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
+        ListFooterComponent={listFooter}
         ListEmptyComponent={
           messagesQuery.isLoading ? (
             <Text style={styles.empty}>Loading conversation…</Text>
@@ -311,17 +382,6 @@ export function ChatScreen({
             </View>
           )
         }
-        renderItem={({ item }) => (
-          <MessageBubble
-            entry={item}
-            onOpenSession={onOpenSession}
-            forms={forms}
-            answeredForms={answeredForms}
-            busyFormID={busyFormID}
-            onRespondForm={onRespondForm}
-            onCancelForm={onCancelForm}
-          />
-        )}
       />
 
       <GoalStrip client={client} sessionID={sessionID} />
