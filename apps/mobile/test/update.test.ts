@@ -83,6 +83,23 @@ describe("normalizeFdroidIndex", () => {  it("picks the highest versionCode of t
     ).toEqual({ version: "0.2.0", versionCode: 200 })
   })
 
+  it("accepts the real index-v2 shape (versions as an object keyed by hash)", () => {
+    expect(
+      normalizeFdroidIndex({
+        repo: { name: { "en-US": "MasterHand" } },
+        packages: {
+          "dev.togudv.masterhand": {
+            metadata: { name: { "en-US": "MasterHand" } },
+            versions: {
+              "hash-100": { versionName: "0.1.0", versionCode: 100, file: { name: "/a.apk" } },
+              "hash-200": { versionName: "0.2.0", versionCode: 200, file: { name: "/b.apk" } },
+            },
+          },
+        },
+      }),
+    ).toEqual({ version: "0.2.0", versionCode: 200 })
+  })
+
   it("returns null for anything without a usable MasterHand entry", () => {
     expect(normalizeFdroidIndex(null)).toBeNull()
     expect(normalizeFdroidIndex({})).toBeNull()
