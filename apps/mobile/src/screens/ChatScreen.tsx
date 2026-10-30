@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import { FlatList, Linking, Pressable, StyleSheet, Text, View } from "react-native"
+import { useCallback, useRef, useState, type ReactNode } from "react"
+import {
+  FlatList,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   finishResultFromIsolation,
   isAmbiguousError,
   sessionUsage,
   useBffStatus,
-  useGoalRun,
   useMessages,
   usePendingSend,
   usePreview,
@@ -108,15 +117,41 @@ export function ChatScreen({
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
-  // The review footer grows with every goal transition: include it in the
-  // follow-scroll. Expanding a round is local state and must NOT yank the
-  // user to the bottom, so this replaces the old onContentSizeChange hook.
-  const goalUpdatedAt = useGoalRun(client, sessionID).data?.updatedAt
+  // Follow-output scroll: only stay pinned when the user is already near the
+  // bottom. The old effect called `scrollToEnd({ animated: true })` on every
+  // messages/goal update, so it fought the user's own scroll while heavy rows
+  // (inline image previews) were still decoding — the list blanked for
+  // seconds and then snapped back. `onContentSizeChange` covers both new
+  // messages and the growing goal-review footer; expanding a round is local
+  // state and must NOT yank the user when they scrolled up.
+  const followRef = useRef(true)
 
-  useEffect(() => {
-    if (messages.length === 0) return
-    listRef.current?.scrollToEnd({ animated: true })
-  }, [messages, goalUpdatedAt])
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+    const distance = contentSize.height - (contentOffset.y + layoutMeasurement.height)
+    followRef.current = distance < 120
+  }, [])
+
+  const handleContentSizeChange = useCallback(() => {
+    if (followRef.current) listRef.current?.scrollToEnd({ animated: false })
+  }, [])
+
+  const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
+
+  const renderItem = useCallback(
+    ({ item }: { item: ChatMessage }) => (
+      <MessageBubble
+        entry={item}
+        onOpenSession={onOpenSession}
+        forms={forms}
+        answeredForms={answeredForms}
+        busyFormID={busyFormID}
+        onRespondForm={onRespondForm}
+        onCancelForm={onCancelForm}
+      />
+    ),
+    [onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm],
+  )
 
   async function finish() {
     setFinishing(true)
@@ -285,10 +320,21 @@ export function ChatScreen({
 
       <FlatList
         ref={listRef}
+        testID="chat-list"
         data={messages}
-        keyExtractor={(entry) => entry.info.id}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
         contentContainerStyle={styles.list}
         style={styles.listContainer}
+        windowSize={5}
+        maxToRenderPerBatch={5}
+        initialNumToRender={10}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        onContentSizeChange={handleContentSizeChange}
+        {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
         ListFooterComponent={
           <>
             <GoalReview client={client} sessionID={sessionID} onOpenSession={onOpenSession} />
@@ -311,17 +357,6 @@ export function ChatScreen({
             </View>
           )
         }
-        renderItem={({ item }) => (
-          <MessageBubble
-            entry={item}
-            onOpenSession={onOpenSession}
-            forms={forms}
-            answeredForms={answeredForms}
-            busyFormID={busyFormID}
-            onRespondForm={onRespondForm}
-            onCancelForm={onCancelForm}
-          />
-        )}
       />
 
       <GoalStrip client={client} sessionID={sessionID} />
