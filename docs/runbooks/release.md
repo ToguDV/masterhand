@@ -37,7 +37,10 @@ for every user.
 Without secrets the desktop installers are **unsigned**: Windows shows a
 SmartScreen warning, macOS needs the usual Gatekeeper bypass, and **macOS
 auto-update does not apply** (Squirrel.Mac requires a signed app). Linux
-AppImage auto-update works unsigned.
+AppImage auto-update works unsigned. The `.deb` is a manual install
+(`sudo apt install ./MasterHand-<version>-amd64.deb`); from the next release
+`latest-linux.yml` lists both Linux artifacts, while v0.1.0's channel file
+keeps the AppImage only.
 
 | Secret | Content |
 |---|---|
@@ -109,7 +112,7 @@ Rules enforced by the workflow:
 | `preflight` | Version/versionCode guard; nothing is built when it fails |
 | `image` | `ghcr.io/togudv/masterhand:<version>` + `:latest` (web UI bundled), `ghcr.io/togudv/masterhand-updater:<version>` + `:latest`, `version.json` |
 | `android` | Signed `app-release.apk`, verified against the release keystore |
-| `desktop` (Linux) | `MasterHand-<version>.AppImage`, `latest-linux.yml`, blockmap |
+| `desktop` (Linux) | `MasterHand-<version>.AppImage`, `MasterHand-<version>-amd64.deb`, `latest-linux.yml`, blockmap |
 | `desktop` (Windows) | `MasterHand Setup <version>.exe`, `latest.yml`, blockmap |
 | `desktop` (macOS) | `MasterHand-<version>-universal.dmg`, `-universal-mac.zip`, `latest-mac.yml`, blockmap |
 | `publish` | GitHub release with every asset above + the F-Droid branch update |
@@ -129,8 +132,9 @@ shell has its own stale-bundle notice after a server update.
    Settings → About shows the installed version and the update path.
 4. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
-5. **Desktop:** install the AppImage/EXE/DMG; the first run asks for the
-   server URL. `Settings` in the native menu has **Check for updates…**.
+5. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
+   the first run asks for the server URL. `Settings` in the native menu has
+   **Check for updates…**.
 6. **Auto-update:** after the *next* release, the desktop app should download
    and prompt; the web banner should offer **Update now** when the one-click
    updater is enabled.

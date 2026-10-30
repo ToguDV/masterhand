@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url"
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8")
+const builderConfig = readFileSync(join(repoRoot, "apps", "desktop", "electron-builder.yml"), "utf8")
 const fdroidWorkflow = readFileSync(join(repoRoot, ".github", "workflows", "fdroid.yml"), "utf8")
 const fdroidScript = readFileSync(join(repoRoot, "scripts", "fdroid-repo.sh"), "utf8")
 
@@ -87,6 +88,12 @@ test("the desktop job packages Linux, Windows and macOS with electron-builder", 
   assert.match(desktop, /latest\*\.yml/)
   assert.match(desktop, /if-no-files-found: error/)
   assert.match(release, /needs: \[image, android, desktop\]/)
+})
+
+test("the Linux desktop target ships both the AppImage and a .deb", () => {
+  assert.match(builderConfig, /- AppImage\s*\n\s*- deb/)
+  assert.match(builderConfig, /artifactName: "MasterHand-\$\{version\}-\$\{arch\}\.deb"/)
+  assert.match(release, /-name '\*\.deb'/)
 })
 
 test("the publish job attaches the desktop channel files", () => {

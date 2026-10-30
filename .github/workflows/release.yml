@@ -343,7 +343,7 @@ jobs:
         run: |
           mkdir -p release-assets
           find release -maxdepth 1 -type f \( \
-            -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \
             -o -name 'latest*.yml' -o -name '*.blockmap' \
           \) -exec cp {} release-assets/ \;
           ls -la release-assets
