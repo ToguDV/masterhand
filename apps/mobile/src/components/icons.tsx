@@ -168,6 +168,11 @@ export function EyeOffIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="eye-off-outline" size={size} color={color} />
 }
 
+/** Local agent-activity notifications (Settings > Notifications). */
+export function BellIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="notifications-outline" size={size} color={color} />
+}
+
 /** Attach a file from the composer. */
 export function PaperclipIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="attach-outline" size={size} color={color} />

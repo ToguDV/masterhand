@@ -29,6 +29,10 @@ jest.mock("../src/storage", () => ({
   saveSessionPreferences: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
+  loadNotificationsEnabled: jest.fn(async () => false),
+  saveNotificationsEnabled: jest.fn(async () => {}),
+  loadBusySnapshot: jest.fn(async () => ({})),
+  saveBusySnapshot: jest.fn(async () => {}),
 }))
 
 jest.mock("@masterhand/client-core", () => {

@@ -6,11 +6,13 @@ import type { StoredServerProfile } from "../storage"
 import { Screen } from "./Screen"
 import { AboutSection } from "./UpdateNotice"
 import { GoalReviewSection } from "./GoalReviewSection"
+import { NotificationsSection } from "./NotificationsSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
 import { ServersSection } from "./ServersSection"
 import {
   BackIcon,
+  BellIcon,
   ChevronRightIcon,
   CloseIcon,
   ExternalLinkIcon,
@@ -41,7 +43,7 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"
 const WAVE_TOP_D = "M-4 -4 H52 V31 C40 39 32 41 25 36 C18 31 12 29 -4 36 Z"
 
-type SectionID = "servers" | "appearance" | "goal" | "websearch" | "providers" | "about"
+type SectionID = "servers" | "appearance" | "goal" | "websearch" | "providers" | "notifications" | "about"
 
 const SECTIONS: Array<{ id: SectionID; label: string; desc: string; icon: ComponentType<IconProps> }> = [
   { id: "servers", label: "Servers", desc: "Connections and credentials", icon: ServerIcon },
@@ -49,6 +51,7 @@ const SECTIONS: Array<{ id: SectionID; label: string; desc: string; icon: Compon
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
   { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
+  { id: "notifications", label: "Notifications", desc: "Local agent alerts", icon: BellIcon },
   { id: "about", label: "About", desc: "Version and updates", icon: ExternalLinkIcon },
 ]
 
@@ -244,6 +247,7 @@ export function SettingsModal({
           {section === "goal" && <GoalReviewSection client={client} />}
           {section === "websearch" && <WebSearchSection client={client} />}
           {section === "providers" && <ProvidersSection client={client} />}
+          {section === "notifications" && <NotificationsSection />}
           {section === "about" && <AboutSection client={client} />}
           </ScrollView>
         )}

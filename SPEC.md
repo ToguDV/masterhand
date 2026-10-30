@@ -38,7 +38,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 | FR-3 | Chat | Send text prompts and attach files (clip, drag & drop and clipboard paste on web/desktop; the native document picker on mobile); choose agent and model; render history (text, tool calls, reasoning, attachments); live streaming of the response |
 | FR-4 | Approvals | Show permission requests (`permission.updated`) with title, type, pattern and metadata; answer "once" / "always" / "reject"; reflect `permission.replied` |
 | FR-5 | Clients | Web app, Electron desktop app and React Native mobile app sharing one `client-core` package |
-| FR-6 | Notifications | In-app notifications over SSE for `session.idle`, `permission.updated` and `session.error`; tapping opens the corresponding session (deep link) |
+| FR-6 | Notifications | In-app notifications over SSE for `session.idle`, `permission.updated` and `session.error`; tapping opens the corresponding session (deep link). Android additionally shows local system notifications for agent finishes, failures, permission requests and question forms when the app is backgrounded (opt-in, no Play Console/Firebase); a periodic background check covers the closed-app case best-effort |
 | FR-7 | Resilience | SSE reconnection with message refetch and deduplication by `part.id`; the UI never stays inconsistent after losing connection or returning from background |
 | FR-8 | Health | Status indicator for the BFF and the opencode connection |
 | FR-9 | Self-hosting | Generic configuration (no hardcoded domain); deployer provides the reverse proxy and TLS |
@@ -61,7 +61,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 
 ## 7. Out of scope (MVP)
 
-- Native push notifications (FCM/APNs) — in-app SSE notifications only for now.
+- Remote push notifications (FCM/APNs/Expo Push) — local Android notifications only, no push service or store account.
 - PWA / service worker / installable web app.
 - Terminal in the browser.
 - Advanced visual diffs.
