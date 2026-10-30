@@ -1,0 +1,5 @@
+repo_url: "https://togudv.github.io/masterhand/fdroid/repo"
+repo_name: "MasterHand"
+repo_icon: "icon.png"
+repo_keyalias: "masterhand"
+keystore: "repo.keystore"

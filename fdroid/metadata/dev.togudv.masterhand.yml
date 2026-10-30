@@ -1,0 +1,9 @@
+Categories:
+  - Development
+License: MIT
+AuthorName: ToguDV
+WebSite: https://github.com/ToguDV/masterhand
+SourceCode: https://github.com/ToguDV/masterhand
+IssueTracker: https://github.com/ToguDV/masterhand/issues
+Summary: Self-hosted UI for your opencode agents
+Description: Use your opencode agents from web, desktop and Android through your own MasterHand server.
