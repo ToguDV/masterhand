@@ -26,7 +26,7 @@ import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./P
 import { SessionStats } from "./SessionStats"
 import { SessionToolbar } from "./SessionToolbar"
 import { Deco } from "./Deco"
-import { ExternalLinkIcon, PaperclipIcon } from "./icons"
+import { ArrowDownIcon, ExternalLinkIcon, PaperclipIcon } from "./icons"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -93,6 +93,7 @@ export function ChatView({
   const messages = messagesQuery.data ?? []
   const usage = sessionUsage(messages)
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
+  const [showJump, setShowJump] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   /** Nested dragenter/dragleave counter (children fire both on every move). */
@@ -179,6 +180,11 @@ export function ChatView({
   }
 
   useEffect(() => {
+    stickToBottom.current = true
+    setShowJump(false)
+  }, [sessionID])
+
+  useEffect(() => {
     const element = scrollRef.current
     if (element && stickToBottom.current) {
       element.scrollTop = element.scrollHeight
@@ -188,7 +194,18 @@ export function ChatView({
   function handleScroll() {
     const element = scrollRef.current
     if (!element) return
-    stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120
+    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 120
+    stickToBottom.current = nearBottom
+    setShowJump(!nearBottom)
+  }
+
+  function scrollToBottom() {
+    const element = scrollRef.current
+    if (!element) return
+    stickToBottom.current = true
+    setShowJump(false)
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    element.scrollTo({ top: element.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" })
   }
 
   return (
@@ -229,7 +246,12 @@ export function ChatView({
           Drop files to attach
         </div>
       )}
-      <div ref={scrollRef} onScroll={handleScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        data-testid="chat-scroll"
+        className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6"
+      >
         <div className="mh-chat-col mh-thread">
           <p className="sr-only" role="status">
             {sessionPermissions.length > 0
@@ -298,6 +320,17 @@ export function ChatView({
           )}
         </div>
       </div>
+      {showJump && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
+          title="Scroll to bottom"
+          className="mh-btn mh-btn--secondary mh-btn--icon absolute bottom-40 left-1/2 z-20 -translate-x-1/2 rounded-full bg-surface shadow-elev1"
+        >
+          <ArrowDownIcon size={18} />
+        </button>
+      )}
       <GoalStrip sessionID={sessionID} />
       <Composer
         ref={composerRef}
