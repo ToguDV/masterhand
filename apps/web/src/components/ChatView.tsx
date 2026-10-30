@@ -326,7 +326,7 @@ export function ChatView({
           onClick={scrollToBottom}
           aria-label="Scroll to bottom"
           title="Scroll to bottom"
-          className="mh-btn mh-btn--secondary mh-btn--icon absolute bottom-28 left-1/2 z-20 -translate-x-1/2 rounded-full bg-surface shadow-elev1"
+          className="mh-btn mh-btn--secondary mh-btn--icon absolute bottom-40 left-1/2 z-20 -translate-x-1/2 rounded-full bg-surface shadow-elev1"
         >
           <ArrowDownIcon size={18} />
         </button>
