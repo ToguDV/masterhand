@@ -8,7 +8,11 @@ import type { NativeUploadInput, NativeUploadResult } from "@masterhand/client-c
  * the native networking stack.
  */
 export async function nativeUpload(input: NativeUploadInput): Promise<NativeUploadResult> {
-  const result = await FileSystem.uploadAsync(input.url, input.fileUri, {
+  // Android's picker can hand back `file:////data/...` (an extra leading
+  // slash); expo-file-system then resolves the path as `//data/...` and the
+  // permission service rejects it as unreadable. Normalize to one `file:///`.
+  const fileUri = input.fileUri.replace(/^file:\/\/*/, "file:///")
+  const result = await FileSystem.uploadAsync(input.url, fileUri, {
     httpMethod: "POST",
     uploadType: FileSystem.FileSystemUploadType.MULTIPART,
     fieldName: input.fieldName,

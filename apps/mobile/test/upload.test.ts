@@ -19,7 +19,7 @@ it("sends the picked file through the native multipart uploader", async () => {
   const result = await nativeUpload({
     url: "https://mh.example/api/workspaces/ws_1/attachments",
     headers: { authorization: "Bearer tok" },
-    fileUri: "file:///tmp/photo.jpg",
+    fileUri: "file:////data/user/0/host.exp.exponent/cache/DocumentPicker/photo.jpg",
     fieldName: "file",
     mimeType: "image/jpeg",
     parameters: { sessionID: "ses_1", attachmentID: "a1" },
@@ -28,7 +28,7 @@ it("sends the picked file through the native multipart uploader", async () => {
   expect(result).toEqual({ status: 201, body: '{"attachment":{"id":"a1"}}' })
   expect(uploadAsync).toHaveBeenCalledWith(
     "https://mh.example/api/workspaces/ws_1/attachments",
-    "file:///tmp/photo.jpg",
+    "file:///data/user/0/host.exp.exponent/cache/DocumentPicker/photo.jpg",
     expect.objectContaining({
       httpMethod: "POST",
       uploadType: 1,
