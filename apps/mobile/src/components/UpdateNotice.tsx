@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { queryKeys, type Client } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 import {
-  FDROID_REPO_URL,
+  FDROID_WEBSITE_URL,
   checkMobileUpdate,
   installedVersion,
   openFdroidListing,
@@ -116,7 +116,7 @@ export function AboutSection({ client }: { client: Client }) {
           <Text style={styles.buttonText}>Open F-Droid</Text>
         </Pressable>
         <Pressable
-          onPress={() => void Linking.openURL(FDROID_REPO_URL)}
+          onPress={() => void Linking.openURL(FDROID_WEBSITE_URL)}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel="Open F-Droid repository website"

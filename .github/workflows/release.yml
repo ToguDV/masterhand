@@ -8,7 +8,7 @@
 #   keystore comes from Actions secrets and is never committed).
 # - `publish`: creates the GitHub release with `version.json` + the APK
 #   attached, then refreshes the self-hosted F-Droid repo on the `fdroid`
-#   branch (stable URL `https://togudv.github.io/masterhand/fdroid/`).
+#   branch (stable repo URL `https://togudv.github.io/masterhand/fdroid/repo/`).
 #
 # Deliberately separate from `ci.yml` (untouched): releases run on tags, CI
 # on PRs and `main`. The Android/F-Droid path is release-only: day-to-day
@@ -423,63 +423,19 @@ jobs:
 
       - uses: android-actions/setup-android@v4
 
-      # Self-hosted F-Droid repo (#133): the `fdroid` branch carries the repo
-      # under `fdroid/` (config + `repo/*.apk` + generated index), served by
-      # GitHub Pages at https://togudv.github.io/masterhand/fdroid/ (see
-      # docs/runbooks/fdroid.md for setup and key custody).
+      - name: Install fdroidserver
+        run: pip install --quiet fdroidserver
+
+      # Self-hosted F-Droid repo (#133): the shared script rebuilds the
+      # `fdroid` branch (config.yml + metadata + repo/index-v2.json + APKs),
+      # served by GitHub Pages at https://togudv.github.io/masterhand/fdroid/
+      # (repo URL .../fdroid/repo/). See docs/runbooks/fdroid.md.
       - name: Refresh the F-Droid repo
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APK_SOURCE: assets/android-apk/app-release.apk
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          set -e
-          git fetch origin fdroid || true
-          if git rev-parse --verify origin/fdroid >/dev/null 2>&1; then
-            git checkout fdroid
-          else
-            git checkout --orphan fdroid
-            git rm -rf . || true
-          fi
-          mkdir -p fdroid/repo
-          APK="fdroid/repo/dev.togudv.masterhand_${VERSION_CODE}.apk"
-          cp "assets/android-apk/app-release.apk" "$APK"
-          # Repo icon + no Jekyll: the branch root is served by Pages, the repo
-          # lives under fdroid/. The icon is the same desktop brand mark.
-          git show "$TAG:apps/desktop/assets/icon.png" > fdroid/icon.png
-          touch .nojekyll
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > fdroid/repo.keystore
-          if [ ! -f fdroid/config.py ]; then
-            cat > fdroid/config.py <<'EOF'
-          repo_url = "https://togudv.github.io/masterhand/fdroid/"
-          repo_name = "MasterHand"
-          repo_icon = "icon.png"
-          keystore = "repo.keystore"
-          EOF
-          fi
-          # The repo keystore is the Android signing keystore (same file the
-          # APK job used): one stable key signs APKs and the index forever.
-          # Passwords live only in a throwaway copy of the config: fdroidserver
-          # reads them from `config.py`, and the committed file must never
-          # carry secrets (it is pushed to the public `fdroid` branch).
-          sed -i 's|^keystore *=.*|keystore = "repo.keystore"|' fdroid/config.py
-          grep -q '^keyalias' fdroid/config.py || echo "keyalias = \"$ANDROID_KEY_ALIAS\"" >> fdroid/config.py
-          cp fdroid/config.py fdroid/config.py.keep
-          cat >> fdroid/config.py <<EOF
-          keystorepass = "$ANDROID_KEYSTORE_PASSWORD"
-          keypass = "$ANDROID_KEY_PASSWORD"
-          EOF
-          pip install --quiet fdroidserver
-          (cd fdroid && fdroid update)
-          mv fdroid/config.py.keep fdroid/config.py
-          rm -f fdroid/repo.keystore
-          git add fdroid .nojekyll
-          if git diff --cached --quiet; then
-            echo "F-Droid repo unchanged"
-          else
-            git -c user.name="MasterHand release" -c user.email="masterhand@localhost" \
-              commit -m "F-Droid repo for $TAG (versionCode $VERSION_CODE)"
-            git push origin fdroid
-          fi
+        run: bash scripts/fdroid-repo.sh

@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url"
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8")
+const fdroidWorkflow = readFileSync(join(repoRoot, ".github", "workflows", "fdroid.yml"), "utf8")
+const fdroidScript = readFileSync(join(repoRoot, "scripts", "fdroid-repo.sh"), "utf8")
 
 test("releases trigger on tags only, never on branches", () => {
   assert.match(release, /push:\s*\n\s*tags:\s*\n\s*- "v\*"/)
@@ -117,5 +119,18 @@ test("desktop signing is opt-in and never exports an empty CSC_LINK", () => {
   assert.match(desktop, /WINDOWS_CSC_LINK/)
   assert.match(desktop, /MACOS_CSC_LINK/)
   assert.match(desktop, /export CSC_LINK=/)
+})
+
+test("the F-Droid repo is rebuilt by the shared script (release + manual repair)", () => {
+  assert.match(release, /scripts\/fdroid-repo\.sh/)
+  assert.match(fdroidWorkflow, /workflow_dispatch:/)
+  assert.match(fdroidWorkflow, /contents: write/)
+  assert.match(fdroidWorkflow, /scripts\/fdroid-repo\.sh/)
+  // Current fdroidserver uses config.yml/repo_keyalias and creates metadata
+  // with -c; the old config.py format fails with "repo_keyalias not found".
+  assert.match(fdroidScript, /config\.yml/)
+  assert.match(fdroidScript, /repo_keyalias/)
+  assert.match(fdroidScript, /fdroid update -c/)
+  assert.doesNotMatch(fdroidScript, /config\.py/)
 })
 
