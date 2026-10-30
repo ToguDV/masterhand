@@ -52,6 +52,15 @@ import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
 import { ThemedSystemBars } from "./src/components/SystemBars"
 import { ActivityIndicator, Text } from "react-native"
+import * as SystemNotifications from "expo-notifications"
+import { decideAgentActivity } from "./src/agent-activity"
+import {
+  dismissSessionNotifications,
+  ensureAgentChannel,
+  getNotificationPermission,
+  notifyAgentActivity,
+  setupNotificationHandler,
+} from "./src/notifications"
 import {
   fonts as appFonts,
   systemFonts,
@@ -65,10 +74,13 @@ import {
   clearServerToken,
   getOrCreateInstallID,
   loadAutoAcceptSessionsFor,
+  loadBusySnapshot,
+  loadNotificationsEnabled,
   loadServerRegistry,
   loadServerToken,
   newServerID,
   saveAutoAcceptSessionsFor,
+  saveBusySnapshot,
   saveServerRegistry,
   saveServerToken,
   type ServerRegistry,
@@ -169,6 +181,12 @@ function Root() {
   const expireRef = useRef<(profileID: string, client?: Client) => void>(() => {})
   // Drop the previous server's cache (and its gc timers) on switch/unmount.
   useEffect(() => () => queryClient.clear(), [queryClient])
+  // Local notifications work without Play Console/Firebase: the handler shows
+  // the banner/list while the channel carries the Android importance/sound.
+  useEffect(() => {
+    setupNotificationHandler()
+    void ensureAgentChannel()
+  }, [])
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
 
@@ -789,6 +807,18 @@ function AuthenticatedApp({
   // Session graph mirror for the event handler (subagent inheritance and the
   // forced Goal Mode critic/judge auto-accept), kept fresh without resubscribing.
   const sessionsRef = useRef<Session[]>([])
+  // Local agent notifications (no Play Console/Firebase): in-memory busy set
+  // plus already-notified permission/form ids. The persisted busy baseline for
+  // the background task lives in SecureStore (see the snapshot effect below).
+  const busySessionsRef = useRef(new Set<string>())
+  const notifiedPermissionRef = useRef(new Set<string>())
+  const notifiedFormRef = useRef(new Set<string>())
+  const notificationsEnabledRef = useRef(false)
+  const notificationGrantedRef = useRef(false)
+  const profileRef = useRef(profile)
+  profileRef.current = profile
+  const workspaceIDRef = useRef(workspaceID)
+  workspaceIDRef.current = workspaceID
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(
@@ -897,6 +927,7 @@ function AuthenticatedApp({
         onPermissionReplied: (permissionID) => {
           autoPendingRef.current.delete(permissionID)
           autoGivenUpRef.current.delete(permissionID)
+          notifiedPermissionRef.current.delete(permissionID)
           const timer = autoAcceptTimersRef.current.get(permissionID)
           if (timer) {
             clearTimeout(timer)
@@ -905,12 +936,150 @@ function AuthenticatedApp({
           setPermissions((prev) => prev.filter((item) => item.id !== permissionID))
         },
         onForm: (form) => setForms((prev) => (prev.some((item) => item.id === form.id) ? prev : [...prev, form])),
-        onFormSettled: (formID) => setForms((prev) => prev.filter((item) => item.id !== formID)),
+        onFormSettled: (formID) => {
+          notifiedFormRef.current.delete(formID)
+          setForms((prev) => prev.filter((item) => item.id !== formID))
+        },
         onSessionError: (message) => setBanner(message),
         onServerConnected: () => void syncPendingRef.current(),
       }),
     [],
   )
+
+  // Local agent notifications: tracks busy sessions and buzzes only when the
+  // app is backgrounded, notifications are enabled and allowed. In-app banners
+  // and modals already cover the foreground, so foreground events stay silent.
+  const observeAgentEvent = useCallback((raw: unknown) => {
+    const event = raw as { type?: string; data?: Record<string, unknown> }
+    const type = typeof event?.type === "string" ? event.type : ""
+    if (!type) return
+    const data = (event.data ?? {}) as Record<string, unknown>
+    const sessionID =
+      (typeof data.sessionID === "string" && data.sessionID) ||
+      (typeof (data.form as { sessionID?: unknown } | undefined)?.sessionID === "string"
+        ? ((data.form as { sessionID: string }).sessionID)
+        : "")
+    if (type === "session.execution.started") {
+      if (sessionID) {
+        busySessionsRef.current.add(sessionID)
+        // A new turn supersedes its stale finished banner.
+        void dismissSessionNotifications(sessionID)
+      }
+      return
+    }
+    if (type === "session.status") {
+      const status = data.status as { type?: string } | string | undefined
+      const kind = typeof status === "string" ? status : status?.type
+      if (sessionID && kind === "busy") busySessionsRef.current.add(sessionID)
+      return
+    }
+    if (type === "session.execution.interrupted") {
+      if (sessionID) busySessionsRef.current.delete(sessionID)
+      return
+    }
+    if (
+      type === "session.idle" ||
+      type === "session.execution.succeeded" ||
+      type === "session.execution.failed" ||
+      type === "permission.asked" ||
+      type === "form.created" ||
+      type === "permission.replied" ||
+      type === "form.replied" ||
+      type === "form.cancelled"
+    ) {
+      if (type === "permission.replied") {
+        const requestID = typeof data.requestID === "string" ? data.requestID : ""
+        if (requestID) notifiedPermissionRef.current.delete(requestID)
+        return
+      }
+      const session = sessionID
+        ? (sessionsRef.current.find((item) => item.id === sessionID) ?? null)
+        : null
+      const wasBusy = sessionID ? busySessionsRef.current.has(sessionID) : false
+      if (type === "session.idle" || type === "session.execution.succeeded" || type === "session.execution.failed") {
+        if (sessionID) busySessionsRef.current.delete(sessionID)
+      }
+      if (!notificationsEnabledRef.current || !notificationGrantedRef.current) return
+      if (AppState.currentState === "active") return
+      const permissionID =
+        type === "permission.asked"
+          ? (typeof data.id === "string" && data.id) ||
+            (typeof data.requestID === "string" && data.requestID) ||
+            ""
+          : ""
+      if (permissionID && notifiedPermissionRef.current.has(permissionID)) return
+      const formID =
+        type === "form.created"
+          ? (typeof (data.form as { id?: unknown } | undefined)?.id === "string"
+              ? ((data.form as { id: string }).id)
+              : "")
+          : ""
+      if (formID && notifiedFormRef.current.has(formID)) return
+      const decision = decideAgentActivity(
+        {
+          type,
+          data: {
+            ...(sessionID ? { sessionID } : {}),
+            ...(permissionID ? { id: permissionID } : {}),
+            ...(formID || type === "form.created"
+              ? {
+                  form: {
+                    ...(formID ? { id: formID } : {}),
+                    ...(sessionID ? { sessionID } : {}),
+                    metadata: (data.form as { metadata?: unknown } | undefined)?.metadata as
+                      | { kind?: string }
+                      | undefined,
+                  },
+                }
+              : {}),
+          },
+        },
+        {
+          isAppActive: false,
+          wasBusy,
+          session: session
+            ? {
+                id: session.id,
+                title: (session as { title?: string }).title ?? null,
+                parentID: (session as { parentID?: string | null }).parentID ?? null,
+                goalRole: (session as { goalRole?: string | null }).goalRole ?? null,
+              }
+            : sessionID
+              ? { id: sessionID }
+              : null,
+          alreadyNotified: Boolean(
+            (permissionID && notifiedPermissionRef.current.has(permissionID)) ||
+              (formID && notifiedFormRef.current.has(formID)),
+          ),
+        },
+      )
+      if (!decision) return
+      if (decision.kind === "permission" && decision.permissionID) {
+        notifiedPermissionRef.current.add(decision.permissionID)
+      }
+      if (decision.kind === "question" && decision.formID) {
+        notifiedFormRef.current.add(decision.formID)
+      }
+      const titles: Record<string, string> = {
+        finished: "Agent finished",
+        failed: "Agent failed",
+        permission: "Permission needed",
+        question: "Question waiting",
+      }
+      const profileID = profileRef.current.id
+      const workspaceID = workspaceIDRef.current ?? undefined
+      void notifyAgentActivity({
+        title: titles[decision.kind] ?? "Agent update",
+        body: decision.title,
+        data: {
+          profileID,
+          sessionID: decision.sessionID,
+          kind: decision.kind,
+          ...(workspaceID ? { workspaceID } : {}),
+        },
+      })
+    }
+  }, [])
 
   // `permission.asked` and `form.created` events are lost while the app is
   // backgrounded and never replayed. Reconcile against opencode on connect and
@@ -960,7 +1129,10 @@ function AuthenticatedApp({
 
   const forceReconnect = useEventStream(client, {
     enabled: true,
-    onEvent: handleEvent,
+    onEvent: (event) => {
+      observeAgentEvent(event)
+      handleEvent(event)
+    },
     onConnectionChange: setConnected,
     onConnect: handleConnect,
   })
@@ -970,16 +1142,134 @@ function AuthenticatedApp({
     void syncPending()
   }, [workspacesQuery.data, syncPending])
 
+  // Notification opt-in and OS permission stay fresh without reopening
+  // Settings: refresh them every time the app comes back to the foreground.
   useEffect(() => {
+    let cancelled = false
+    const refresh = async () => {
+      const [stored, granted] = await Promise.all([
+        loadNotificationsEnabled().catch(() => false),
+        getNotificationPermission().catch(() => false),
+      ])
+      if (cancelled) return
+      notificationsEnabledRef.current = stored
+      notificationGrantedRef.current = granted
+    }
+    void refresh()
     const subscription = AppState.addEventListener("change", (state) => {
       if (state !== "active") return
       // The socket usually dies while the app is suspended (and the reconnect
       // ladder may have grown meanwhile): reconnect now instead of waiting.
       forceReconnect()
       syncPending()
+      void refresh()
     })
-    return () => subscription.remove()
+    return () => {
+      cancelled = true
+      subscription.remove()
+    }
   }, [forceReconnect, syncPending])
+
+  // Persisted busy baseline for the background task: merge this workspace's
+  // busy sessions into the stored map, keeping other workspaces untouched.
+  // Best-effort; a failure only means the next background run starts stale.
+  useEffect(() => {
+    if (!profile.id || !workspaceID) return
+    const busyHere = new Map<string, string>()
+    for (const session of sessions) {
+      if (statuses[session.id]?.type === "busy") {
+        const title =
+          typeof (session as { title?: unknown }).title === "string" &&
+          ((session as { title: string }).title.trim() !== "")
+            ? (session as { title: string }).title
+            : session.id
+        busyHere.set(session.id, title)
+        busySessionsRef.current.add(session.id)
+      }
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const previous = await loadBusySnapshot(profile.id).catch(() => ({}))
+        if (cancelled) return
+        const next: Record<string, { title: string; workspaceID?: string }> = { ...previous }
+        for (const [id, entry] of Object.entries(previous)) {
+          const meta = entry as { workspaceID?: string }
+          if (meta.workspaceID === workspaceID && !busyHere.has(id)) delete next[id]
+        }
+        for (const [id, title] of busyHere) next[id] = { title, workspaceID }
+        if (JSON.stringify(next) !== JSON.stringify(previous)) {
+          await saveBusySnapshot(profile.id, next).catch(() => {})
+        }
+      } catch {
+        // Best-effort.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [profile.id, workspaceID, sessions, statuses])
+
+  // Opening a session clears its tray banners (tap or manual open).
+  useEffect(() => {
+    if (!sessionID) return
+    void dismissSessionNotifications(sessionID)
+  }, [sessionID])
+
+  // Tapping a local notification opens its session. Same profile: switch the
+  // workspace when needed and open the session. Another saved profile: switch
+  // to that server and let the user pick the session from its list.
+  useEffect(() => {
+    const openFromData = (data: unknown) => {
+      const record = (data ?? {}) as {
+        profileID?: unknown
+        sessionID?: unknown
+        workspaceID?: unknown
+      }
+      if (typeof record.sessionID !== "string" || !record.sessionID) return
+      const targetSessionID = record.sessionID
+      const targetProfileID = typeof record.profileID === "string" ? record.profileID : null
+      const targetWorkspaceID = typeof record.workspaceID === "string" ? record.workspaceID : null
+      if (targetProfileID && targetProfileID !== profileRef.current.id) {
+        const target = profiles.find((item) => item.id === targetProfileID) ?? null
+        if (target) onSwitch(target)
+        return
+      }
+      if (targetWorkspaceID && targetWorkspaceID !== workspaceIDRef.current) {
+        setWorkspaceID(targetWorkspaceID)
+      }
+      setSessionID(targetSessionID)
+    }
+    let subscription: { remove: () => void } | null = null
+    try {
+      subscription = SystemNotifications.addNotificationResponseReceivedListener((response) => {
+        openFromData(response.notification.request.content.data)
+      })
+    } catch {
+      subscription = null
+    }
+    try {
+      void SystemNotifications.getLastNotificationResponseAsync().then((response) => {
+        if (response?.notification) {
+          openFromData(response.notification.request.content.data)
+          try {
+            void SystemNotifications.clearLastNotificationResponseAsync?.()
+          } catch {
+            // Best-effort.
+          }
+        }
+      })
+    } catch {
+      // Cold-start tap is best-effort (no native host under Jest).
+    }
+    return () => {
+      try {
+        subscription?.remove()
+      } catch {
+        // Best-effort.
+      }
+    }
+  }, [profiles, onSwitch])
 
   // Drain the queue for sessions whose permissions we auto-answer. This also
   // covers pending requests recovered on reconnect/reload (they never arrive as

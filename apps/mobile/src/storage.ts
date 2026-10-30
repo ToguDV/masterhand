@@ -46,6 +46,8 @@ const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const PREFERENCES_KEY = "masterhand.sessionPreferences"
 const THEME_KEY = "masterhand.theme"
 const PALETTE_KEY = "masterhand.palette"
+const NOTIFICATIONS_ENABLED_KEY = "masterhand.notifications.enabled"
+const NOTIFY_BUSY_PREFIX = "masterhand.notifyBusy."
 
 /** Named differently from the legacy single-server keys so migration is unambiguous. */
 const SERVERS_KEY = "masterhand.servers.v2"
@@ -387,4 +389,52 @@ export function saveSessionPreferences(sessionID: string, preferences: SessionPr
   })
   preferencesWrite = write.catch(() => {})
   return write
+}
+
+/** Local agent notifications: device-wide opt-in, off by default. */
+export async function loadNotificationsEnabled(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(NOTIFICATIONS_ENABLED_KEY)) === "1"
+  } catch {
+    return false
+  }
+}
+
+export function saveNotificationsEnabled(enabled: boolean): Promise<void> {
+  return SecureStore.setItemAsync(NOTIFICATIONS_ENABLED_KEY, enabled ? "1" : "0")
+}
+
+export interface BusySnapshotEntry {
+  title: string
+  workspaceID?: string
+}
+
+export type BusySnapshot = Record<string, BusySnapshotEntry>
+
+/** Sessions last seen busy per server profile (background-task baseline). */
+export async function loadBusySnapshot(profileID: string): Promise<BusySnapshot> {
+  try {
+    const raw = await SecureStore.getItemAsync(`${NOTIFY_BUSY_PREFIX}${profileID}`)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
+    const snapshot: BusySnapshot = {}
+    for (const [sessionID, entry] of Object.entries(parsed)) {
+      if (!entry || typeof entry !== "object") continue
+      const title = (entry as { title?: unknown }).title
+      const workspaceID = (entry as { workspaceID?: unknown }).workspaceID
+      snapshot[sessionID] = {
+        title: typeof title === "string" && title ? title.slice(0, 120) : sessionID,
+        ...(typeof workspaceID === "string" && workspaceID ? { workspaceID } : {}),
+      }
+    }
+    return snapshot
+  } catch {
+    return {}
+  }
+}
+
+export function saveBusySnapshot(profileID: string, snapshot: BusySnapshot): Promise<void> {
+  const bounded = Object.fromEntries(Object.entries(snapshot).slice(0, 200))
+  return SecureStore.setItemAsync(`${NOTIFY_BUSY_PREFIX}${profileID}`, JSON.stringify(bounded))
 }

@@ -13,6 +13,10 @@ jest.mock("../src/storage", () => ({
   clearPalette: jest.fn(async () => {}),
   saveTheme: jest.fn(async () => {}),
   clearTheme: jest.fn(async () => {}),
+  loadNotificationsEnabled: jest.fn(async () => false),
+  saveNotificationsEnabled: jest.fn(async () => {}),
+  loadBusySnapshot: jest.fn(async () => ({})),
+  saveBusySnapshot: jest.fn(async () => {}),
 }))
 
 const mockedSave = saveTheme as jest.Mock
@@ -85,6 +89,7 @@ describe("SettingsModal section navigation", () => {
     expect(screen.getByLabelText("Open Goal review")).toBeOnTheScreen()
     expect(screen.getByLabelText("Open Web search")).toBeOnTheScreen()
     expect(screen.getByLabelText("Open Providers")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Open Notifications")).toBeOnTheScreen()
     // No section content is mounted until one is opened.
     expect(screen.queryByLabelText("Critic model")).toBeNull()
     expect(screen.queryByLabelText("Search providers")).toBeNull()
@@ -110,6 +115,13 @@ describe("SettingsModal section navigation", () => {
     await fireEvent.press(screen.getByLabelText("Disconnect from the active server"))
 
     expect(onSignOut).toHaveBeenCalledTimes(1)
+  })
+
+  it("opens the notifications section", async () => {
+    await setup()
+
+    await openSection("Notifications")
+    expect(await screen.findByLabelText("Agent activity notifications")).toBeOnTheScreen()
   })
 })
 

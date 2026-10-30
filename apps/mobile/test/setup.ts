@@ -120,3 +120,41 @@ jest.mock("react-native-reanimated", () => {
     runOnJS: <T extends (...args: Array<never>) => unknown>(fn: T): T => fn,
   }
 })
+
+/**
+ * Local notifications are device-only (channels, tray, WorkManager). Under
+ * Jest there is no native host and the real `expo-notifications` emitter
+ * crashes on `getLastNotificationResponseAsync` (reads `request` of an empty
+ * response). Stand in module mocks so render tests exercise structure and the
+ * pure helpers in `notifications.test.ts` / `agent-activity.test.ts` own the
+ * behavior. Per-test files may override with their own `jest.mock`.
+ */
+jest.mock("expo-notifications", () => ({
+  AndroidImportance: { HIGH: 4, DEFAULT: 3, MAX: 5 },
+  setNotificationHandler: jest.fn(),
+  setNotificationChannelAsync: jest.fn(async () => null),
+  getPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: "granted", granted: true })),
+  scheduleNotificationAsync: jest.fn(async () => "notif-id"),
+  getPresentedNotificationsAsync: jest.fn(async () => []),
+  dismissNotificationAsync: jest.fn(async () => {}),
+  dismissAllNotificationsAsync: jest.fn(async () => {}),
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+  clearLastNotificationResponseAsync: jest.fn(async () => {}),
+  getLastNotificationResponse: jest.fn(() => null),
+}))
+
+jest.mock("expo-background-task", () => ({
+  BackgroundTaskResult: { Success: 1, Failed: 2 },
+  BackgroundTaskStatus: { Restricted: 1, Available: 2 },
+  registerTaskAsync: jest.fn(async () => {}),
+  unregisterTaskAsync: jest.fn(async () => {}),
+  getStatusAsync: jest.fn(async () => 2),
+}))
+
+jest.mock("expo-task-manager", () => ({
+  defineTask: jest.fn(),
+  isTaskRegisteredAsync: jest.fn(async () => false),
+}))

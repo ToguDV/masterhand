@@ -184,7 +184,7 @@ None blocking. Resolved: **npm workspaces**, session/device token TTL configurab
 
 ## Post-MVP backlog
 
-- Native push notifications (FCM/APNs)
+- Remote push notifications (FCM/APNs/Expo Push) — local Android notifications shipped; remote stays out unless instant closed-app delivery is required
 - TOTP / two-factor authentication
 - Automated E2E suite (Playwright) against a mocked opencode in the repo
 - Terminal in the browser (`pty.*` events already exist in the API)
@@ -207,6 +207,8 @@ Code review of PR #24 (opencode v2 migration) and PR #25 (catalog recovery) on
 - [x] All findings closed: every high/medium/low is fixed; F24-13, F25-2 and F25-6 are intentionally left open (reasoning recorded in the review document).
 
 ## Changelog
+
+- **2026-10-30** — **Android local agent notifications, no Play Console/Firebase (branch `feat/android-local-notifications`).** Mobile shows system notifications for agent finishes, failures, permission requests and question forms: an SSE observer buzzes only when the app is backgrounded, enabled (Settings > Notifications, off by default) and OS-allowed (foreground stays silent, dedup by busy→idle + permission/form ids, critic/judge/forks ignored, tap opens the session); a 15-minute WorkManager task (`expo-background-task`) diffs `client.api.statuses()` against the persisted busy baseline for the closed-app case (best-effort, max 5/run). `expo-notifications` runs local-only (`enableRemoteNotifications: false`), no FCM/APNs tokens, no server change, no migration. Backward compat: NOT breaking — additive mobile-only, F-Droid/APK distribution unchanged. Red → green: `agent-activity` (11), `notifications` (9), `background-notifications` (10), `notification-storage` (2), `notifications-section` (6), `app-notifications` (10) plus updated App/Settings mocks; mobile suite 469/469 with coverage thresholds green. Docs: `SPEC.md` FR-6, `ARCHITECTURE.md` §4.4 + ADR-42, Risks row. Manual device check still required (see `docs/runbooks/mobile-e2e.md` §notifications).
 
 - **2026-10-29** — **Linux `.deb` package added to the desktop release.** `apps/desktop/electron-builder.yml` now targets **AppImage + deb** on Linux: `MasterHand-<version>-amd64.deb` (package `masterhand`, Electron runtime dependencies, `app-update.yml` included) is built next to the AppImage, and the release workflow collects `*.deb` for the GitHub release. The already-published `v0.1.0` got the `.deb` attached retroactively (the desktop code is identical to the tag; the release AppImage/`latest-linux.yml` were deliberately left untouched so the auto-update checksum still matches). The AppImage stays the `electron-updater` channel; from the next release `latest-linux.yml` lists both artifacts. No server/BFF change.
 

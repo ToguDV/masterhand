@@ -113,3 +113,19 @@ the Expo Go APK) so it becomes part of the normal gate.
 | Stuck on the login screen | Wrong `MASTERHAND_URL`/`MASTERHAND_PASSWORD`, or the BFF is not healthy (`curl http://127.0.0.1:8788/api/health`) |
 | `Add a workspace` not found | The `DATA_DIR` already has a workspace selected; use a clean `DATA_DIR` |
 | Element not found | A selector drifted — reopen with `maestro studio` and update the flow |
+
+## 6. Local notifications (manual device check)
+
+Maestro/Expo Go cannot assert the system tray, so verify on a physical device
+with a dev build (`npx expo run:android`):
+
+1. Open Settings > Notifications, enable **Agent activity**, allow the OS
+   prompt, then press **Send test** — a tray banner must appear.
+2. Start a turn, background the app (do not kill it), wait for the agent to
+   finish — an **Agent finished** banner must appear; tapping it must open the
+   session.
+3. Kill the app, run a short turn from another client, wait ~15 minutes (or
+   force the worker in a dev build with `BackgroundTask.triggerTaskWorkerForTestingAsync()`)
+   — the finished banner must appear on the next WorkManager run.
+4. Deny the OS permission — enabling must show the blocked notice and schedule
+   nothing; re-allow from the system settings.
