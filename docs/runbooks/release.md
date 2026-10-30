@@ -57,8 +57,9 @@ The first release creates the `fdroid` orphan branch. Then enable Pages once:
 1. Repository **Settings → Pages → Build and deployment → Deploy from a branch**.
 2. Branch **`fdroid`**, folder **`/ (root)`**.
 
-The repo is served at `https://togudv.github.io/masterhand/fdroid/`. This can
-also be done with the API once the branch exists:
+The repo is served at `https://togudv.github.io/masterhand/fdroid/repo/` (the
+human landing page is `.../fdroid/`). This can also be done with the API once
+the branch exists:
 
 ```bash
 gh api -X POST repos/ToguDV/masterhand/pages \
@@ -126,7 +127,7 @@ shell has its own stale-bundle notice after a server update.
    `GET /api/status` reports `{ version, build }` on a test host.
 3. **Android:** install the APK from the release (or F-Droid once Pages is on);
    Settings → About shows the installed version and the update path.
-4. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/index-v2.json`
+4. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
 5. **Desktop:** install the AppImage/EXE/DMG; the first run asks for the
    server URL. `Settings` in the native menu has **Check for updates…**.

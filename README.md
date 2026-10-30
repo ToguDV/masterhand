@@ -14,7 +14,7 @@ Self-hosted server to use your [opencode](https://opencode.ai) agents from any d
   first launch asks for your server URL; the app updates itself from GitHub
   releases.
 - **Android:** signed APK from the same release, or add the self-hosted F-Droid
-  repo `https://togudv.github.io/masterhand/fdroid/`.
+  repo `https://togudv.github.io/masterhand/fdroid/repo/`.
 
 Updating: the desktop app checks every 6 hours and prompts to restart; Android
 notifies through F-Droid; the server shows an update banner and, when the

@@ -1,0 +1,53 @@
+name: F-Droid repo
+
+# Manual repair/re-publish path: rebuilds the `fdroid` branch from a published
+# GitHub release. The release workflow runs the same script automatically after
+# `publish`; this workflow exists so a failed/partial F-Droid run can be fixed
+# without moving the release tag. See docs/runbooks/fdroid.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag (for example v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fdroid:
+    name: Rebuild the F-Droid repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install fdroidserver
+        run: pip install --quiet fdroidserver
+
+      - name: Refresh the F-Droid repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag must be a final vX.Y.Z release, got '$TAG'"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          VERSION_CODE="$(node -e 'const v = process.argv[1].split(".").map(Number); console.log(v[0] * 10000 + v[1] * 100 + v[2])' "$VERSION")"
+          export VERSION_CODE
+          bash scripts/fdroid-repo.sh

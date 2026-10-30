@@ -18,8 +18,10 @@ import {
  */
 
 export const FDROID_PACKAGE = "dev.togudv.masterhand"
-/** Stable F-Droid repo URL, served from the `fdroid` branch (see `docs/runbooks/fdroid.md`). */
-export const FDROID_REPO_URL = "https://togudv.github.io/masterhand/fdroid/"
+/** Stable F-Droid repo URL (repo index + APKs), served from the `fdroid` branch. */
+export const FDROID_REPO_URL = "https://togudv.github.io/masterhand/fdroid/repo/"
+/** Human landing page for the repo (the branch root). */
+export const FDROID_WEBSITE_URL = "https://togudv.github.io/masterhand/fdroid/"
 export const FDROID_INDEX_URL = `${FDROID_REPO_URL}index-v2.json`
 /** Deep link into the F-Droid client (`org.fdroid.fdroid` handles `market://`). */
 export const FDROID_MARKET_URL = `market://details?id=${FDROID_PACKAGE}`
@@ -158,5 +160,5 @@ export async function openFdroidListing(): Promise<void> {
   } catch {
     // Fall through to the website.
   }
-  await Linking.openURL(FDROID_REPO_URL)
+  await Linking.openURL(FDROID_WEBSITE_URL)
 }

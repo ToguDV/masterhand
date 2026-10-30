@@ -1,7 +1,7 @@
 import { Linking } from "react-native"
 import {
   FDROID_MARKET_URL,
-  FDROID_REPO_URL,
+  FDROID_WEBSITE_URL,
   checkMobileUpdate,
   installedVersion,
   normalizeFdroidIndex,
@@ -114,7 +114,7 @@ describe("openFdroidListing", () => {
       expect(open).toHaveBeenCalledWith(FDROID_MARKET_URL)
       canOpen.mockResolvedValue(false)
       await openFdroidListing()
-      expect(open).toHaveBeenCalledWith(FDROID_REPO_URL)
+      expect(open).toHaveBeenCalledWith(FDROID_WEBSITE_URL)
     } finally {
       canOpen.mockRestore()
       open.mockRestore()
