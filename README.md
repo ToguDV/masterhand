@@ -9,10 +9,11 @@ Self-hosted server to use your [opencode](https://opencode.ai) agents from any d
 - **Web / self-hosted server:** pull `ghcr.io/togudv/masterhand:<version>` and
   run the Compose stack ([deployment runbook](docs/runbooks/deployment.md)).
   The web UI is served by the BFF; there is no separate static site.
-- **Desktop:** Linux AppImage, Windows installer and macOS DMG/ZIP from the
-  [latest release](https://github.com/ToguDV/masterhand/releases/latest). The
-  first launch asks for your server URL; the app updates itself from GitHub
-  releases.
+- **Desktop:** Linux AppImage or `.deb`, Windows installer and macOS DMG/ZIP
+  from the [latest release](https://github.com/ToguDV/masterhand/releases/latest).
+  The first launch asks for your server URL; the app updates itself from GitHub
+  releases (the `.deb` is a manual install; the AppImage is the auto-update
+  channel).
 - **Android:** signed APK from the same release, or add the self-hosted F-Droid
   repo `https://togudv.github.io/masterhand/fdroid/repo/`.
 
