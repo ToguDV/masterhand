@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react"
-import { Pressable, StyleSheet, Text, View } from "react-native"
+import { Image, Pressable, StyleSheet, Text, View } from "react-native"
 import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
 import {
+  formatFileSize,
   isQuestionTool,
   isTaskTool,
   splitGoalMarkers,
   subagentInfo,
   subagentOutput,
   toolTitle,
+  type ChatAttachment,
   type ChatMessage,
   type ChatPart,
   type ChatReasoningPart,
@@ -22,6 +24,7 @@ import { ToolCard } from "./tools/ToolCard"
 import { QuestionCard } from "./QuestionCard"
 import { MessageStats } from "./MessageStats"
 import { CritiqueCard, GoalReportCard, VerdictCard } from "./GoalReview"
+import { FileIcon } from "./icons"
 
 // The renderer merges these overrides over its own light/dark base (selected
 // by `markdownColorScheme`), so every themed run carries the app ink: nothing
@@ -242,11 +245,13 @@ export function MessageBubble({
       .filter((part): part is ChatTextPart => part.type === "text")
       .map((part) => part.text)
       .join("\n")
-    if (!text.trim()) return null
+    const attachments = info.attachments ?? []
+    if (!text.trim() && attachments.length === 0) return null
     return (
       <View style={styles.userRow}>
         <View style={styles.userBubble} testID="user-bubble">
-          <Text style={styles.bodyText}>{text}</Text>
+          {text.trim() ? <Text style={styles.bodyText}>{text}</Text> : null}
+          {attachments.length > 0 ? <UserAttachments attachments={attachments} /> : null}
         </View>
       </View>
     )
@@ -277,6 +282,35 @@ export function MessageBubble({
   )
 }
 
+/** Attachment chips inside the user's bubble (images keep their inline preview). */
+function UserAttachments({ attachments }: { attachments: readonly ChatAttachment[] }) {
+  const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
+  return (
+    <View style={styles.userAttachments} testID="user-attachments">
+      {attachments.map((attachment) => (
+        <View key={attachment.id} style={styles.userAttachment}>
+          {attachment.previewDataUrl ? (
+            <Image source={{ uri: attachment.previewDataUrl }} style={styles.userAttachmentThumb} />
+          ) : (
+            <View style={styles.userAttachmentGlyph}>
+              <FileIcon size={16} color={colors.bubbleUserText} />
+            </View>
+          )}
+          <View style={styles.userAttachmentText}>
+            <Text style={styles.userAttachmentName} numberOfLines={1}>
+              {attachment.name}
+            </Text>
+            <Text style={styles.userAttachmentMeta} numberOfLines={1}>
+              {attachment.size > 0 ? formatFileSize(attachment.size) : attachment.mime}
+            </Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
     bodyText: {
@@ -295,6 +329,48 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderBottomRightRadius: 4,
       paddingHorizontal: 12,
       paddingVertical: 8,
+    },
+    userAttachments: {
+      gap: 6,
+      marginTop: 6,
+    },
+    userAttachment: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      borderRadius: 8,
+      padding: 4,
+      backgroundColor: "rgba(255, 255, 255, 0.12)",
+    },
+    userAttachmentThumb: {
+      width: 48,
+      height: 48,
+      borderRadius: 6,
+    },
+    userAttachmentGlyph: {
+      width: 36,
+      height: 36,
+      borderRadius: 6,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255, 255, 255, 0.12)",
+    },
+    userAttachmentText: {
+      flexShrink: 1,
+      minWidth: 0,
+      maxWidth: 200,
+    },
+    userAttachmentName: {
+      color: colors.bubbleUserText,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    userAttachmentMeta: {
+      color: colors.bubbleUserText,
+      opacity: 0.75,
+      fontFamily: fonts.ui,
+      fontSize: 11,
     },
     assistantBlock: {
       gap: 8,

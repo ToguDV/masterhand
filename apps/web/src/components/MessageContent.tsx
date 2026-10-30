@@ -23,6 +23,7 @@ import {
 import { ToolCard } from "./tools/ToolCard"
 import { StatusDot } from "./tools/StatusDot"
 import { BulbIcon } from "./icons"
+import { AttachmentList } from "./Attachments"
 import { QuestionCard } from "./QuestionCard"
 import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./PermissionCard"
 import { MessageStats } from "./MessageStats"
@@ -320,8 +321,14 @@ export function UserBubble({ entry }: { entry: ChatMessage }) {
     .filter((part): part is ChatTextPart => part.type === "text")
     .map((part) => part.text)
     .join("\n")
-  if (!text.trim()) return null
-  return <div className="mh-msg--user">{text}</div>
+  const attachments = entry.info.attachments ?? []
+  if (!text.trim() && attachments.length === 0) return null
+  return (
+    <div className="mh-msg--user">
+      {text.trim() ? <div className="mh-msg__text">{text}</div> : null}
+      {attachments.length > 0 ? <AttachmentList attachments={attachments} /> : null}
+    </div>
+  )
 }
 
 export function AssistantBlock({

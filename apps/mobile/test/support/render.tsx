@@ -83,6 +83,7 @@ export interface FakeClient {
     messages: jest.Mock
     prompt: jest.Mock
     runCommand: jest.Mock
+    attachments: { upload: jest.Mock; remove: jest.Mock; download: jest.Mock }
     forkSession: jest.Mock
     removeSession: jest.Mock
     abortSession: jest.Mock
@@ -165,6 +166,19 @@ export function fakeClient(): FakeClient & Client {
       messages: jest.fn(async () => []),
       prompt: jest.fn(async () => {}),
       runCommand: jest.fn(async () => {}),
+      attachments: {
+        upload: jest.fn(async () => ({
+          id: "a1",
+          name: "notes.txt",
+          mime: "text/plain",
+          size: 5,
+          path: "/workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+          uri: "file:///workspace/app/.masterhand/attachments/ses_1/a1-notes.txt",
+          url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+        })),
+        remove: jest.fn(async () => {}),
+        download: jest.fn(async () => new Blob([])),
+      },
       forkSession: jest.fn(async () => ({ id: "fork_1" })),
       removeSession: jest.fn(async () => {}),
       abortSession: jest.fn(async () => {}),

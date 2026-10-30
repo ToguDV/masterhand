@@ -130,6 +130,16 @@ opencode v2 resolves a **location** instead of the old `directory` header:
 - **The prompt body has no `model`, `agent`, `variant` or `system`**: model/agent changes go through their own endpoints (MasterHand only switches when the value actually changed, because every switch records a `*-switched` message), and `variant` travels inside `model: { id, providerID, variant? }`.
 - `SessionStatus` is `{ type: "idle" } | { type: "busy" } | { type: "retry", attempt, message, next, action? }`.
 
+### Prompt file attachments (verified against the pinned v2.0.6 source)
+
+`POST /api/session/:id/prompt` and `/command` accept `files: Array<{ uri, name?, description?, mention? }>`. MasterHand uses this for chat attachments and relies on these behaviors (`packages/core/src/session/prompt.ts` + `runner/to-llm-message.ts`):
+
+- `uri` is either a `data:` URL or a `file:` URL. `file:` is read **on the opencode server**, so it only works when opencode and the BFF share the workspace mount (MasterHand always deploys them together). `?start=`/`?end=` slice a text file; a directory URI lists its entries.
+- Every attachment is capped at **20 MB**; images are normalized (max 2000×2000, 5 MB base64) before storage.
+- The MIME is **sniffed from the bytes**, not taken from the client. Only `text/plain`, PNG/JPEG/GIF/WebP, PDF and directories are turned into model content; any other MIME is stored on the message but **silently omitted** from the model context. MasterHand therefore sends a `<masterhand-attachments>` path list for every attachment so the agent can read unsupported types with its tools.
+- User messages persist the materialized files as `files: [{ data (base64), mime, source: { type: "inline" | "uri", uri? }, name?, description? }]`; history fetches include that base64. MasterHand renders from the compact `masterhand.attachments` metadata instead.
+- A `file:` URI bypasses the tool permission rules (it is read by `SessionPrompt.prepare`), which is why the BFF proxy confines it to `.masterhand/attachments` before forwarding.
+
 ## JavaScript client
 
 - Package: **`@opencode/client@2.0.21`** (generated Promise client; browser-compatible). The v1 `@opencode-ai/sdk` is not used.

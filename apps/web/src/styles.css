@@ -2524,6 +2524,196 @@ body {
   padding: 0 12px 10px;
 }
 
+/* Attachments: staged chips above the message field and the same chip rhythm
+   in the user bubble. Thumbnails are square so a mixed selection stays even. */
+.mh-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--mh-text-muted);
+  cursor: pointer;
+}
+
+.mh-icon-btn:hover {
+  color: var(--mh-text);
+  background: var(--mh-surface-muted);
+}
+
+.mh-icon-btn:focus-visible {
+  outline: 2px solid var(--mh-accent);
+  outline-offset: 1px;
+}
+
+.mh-attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 2px;
+}
+
+.mh-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mh-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--mh-hairline);
+  border-radius: var(--r-md);
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-attachment.is-error {
+  border-color: var(--mh-danger-line);
+  background: var(--mh-danger-soft);
+}
+
+.mh-attachment__thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--mh-surface);
+}
+
+.mh-attachments .mh-attachment__thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.mh-attachment__glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--mh-surface);
+  color: var(--mh-text-muted);
+}
+
+.mh-attachments .mh-attachment__glyph {
+  width: 64px;
+  height: 64px;
+}
+
+.mh-attachment__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.mh-attachment__name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mh-attachment__meta {
+  overflow: hidden;
+  color: var(--mh-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mh-attachment__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--mh-text-muted);
+  cursor: pointer;
+}
+
+.mh-attachment__remove:hover {
+  background: var(--mh-surface);
+  color: var(--mh-text);
+}
+
+.mh-attachment__spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 5px;
+  border: 2px solid var(--mh-hairline-strong);
+  border-top-color: var(--mh-accent);
+  border-radius: 50%;
+  animation: mh-rotate 700ms linear infinite;
+}
+
+.mh-attachment__error {
+  color: var(--mh-danger);
+  font-size: 11px;
+}
+
+/* In the dark user bubble the neutral chip would glare: inherit the bubble
+   palette with a translucent surface instead. */
+.mh-msg--user .mh-attachment {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--mh-bubble-user-text);
+}
+
+.mh-msg--user .mh-attachment__meta,
+.mh-msg--user .mh-attachment__remove {
+  color: var(--mh-bubble-user-text);
+  opacity: 0.78;
+}
+
+.mh-msg--user .mh-attachment__glyph {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--mh-bubble-user-text);
+}
+
+.mh-pending__files {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.mh-dropzone {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--mh-accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--mh-canvas) 82%, transparent);
+  color: var(--mh-accent);
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
 /* The brand mark scales with the wordmark it sits next to. */
 .mh-brand {
   display: flex;

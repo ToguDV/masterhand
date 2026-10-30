@@ -6,6 +6,7 @@ import { defineConfig, devices } from "@playwright/test"
 // (no duplicated or dropped file). Guarded by scripts/ci-workflow.test.mjs.
 const SMOKE_SPECS = [
   "**/chat.spec.ts",
+  "**/attachments.spec.ts",
   "**/permissions.spec.ts",
   "**/permission-ambiguity.spec.ts",
   "**/reconnect.spec.ts",

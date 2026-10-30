@@ -1,20 +1,32 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from "react"
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import * as DocumentPicker from "expo-document-picker"
 import { useQueryClient } from "@tanstack/react-query"
 import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_COUNT,
+  ATTACHMENT_MAX_TOTAL_BYTES,
+  ATTACHMENT_METADATA_KEY,
+  attachmentErrorMessage,
+  attachmentMetadata,
+  buildAttachmentContext,
   buildComposerPopover,
   collectAgentMentions,
   composerErrorMessage,
   composerTrigger,
+  createAttachmentID,
   createDeliveryMarker,
   defaultModelValue,
   deliveryMetadata,
   flattenModels,
+  formatFileSize,
   goalErrorMessage,
+  inlineAttachmentFiles,
   isAmbiguousError,
   isEffortVariant,
   mentionableAgents,
   mergeCommands,
+  mimeFromName,
   parseModel,
   queryKeys,
   recentModelValue,
@@ -29,16 +41,30 @@ import {
   type Client,
   type ComposerPopover,
   type PendingSendController,
+  type UploadedAttachment,
 } from "@masterhand/client-core"
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { BrainIcon, ChevronDownIcon, SlidersIcon } from "./icons"
+import { BrainIcon, ChevronDownIcon, CloseIcon, FileIcon, PaperclipIcon, SlidersIcon } from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 type OpenPicker = "agent" | "model" | "effort" | null
+
+/** A file picked on the device, before/while it is uploaded on Send. */
+interface ComposerAttachment {
+  id: string
+  /** Local file URI from the document picker. */
+  uri: string
+  name: string
+  mime: string
+  size: number
+  status: "ready" | "uploading" | "error"
+  error?: string
+  uploaded?: UploadedAttachment
+}
 
 /** Imperative surface for the chat screen's ghost-bubble retry (#125). */
 export interface ComposerHandle {
@@ -101,7 +127,17 @@ export function Composer({
   const textRef = useRef(text)
   textRef.current = text
   /** Synchronous in-flight guard; the visible pending state lives in `pending`. */
-  const inFlight = useRef<{ text: string; marker: string } | null>(null)
+  const inFlight = useRef<{ text: string; marker: string; attachmentIDs: string[] } | null>(null)
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
+  /** A session switch must never reuse files uploaded for the previous one. */
+  const sessionRef = useRef(sessionID)
+  useEffect(() => {
+    if (sessionRef.current === sessionID) return
+    sessionRef.current = sessionID
+    setAttachments([])
+  }, [sessionID])
   const [agent, setAgent] = useState("")
   const [model, setModel] = useState("")
   const [variant, setVariant] = useState("")
@@ -218,8 +254,125 @@ export function Composer({
     setDismissed(false)
   }
 
-  /** Releases the composer and clears the text that was actually sent. */
-  function completeSend(pending: { text: string; marker: string }): void {
+  /** Adds picked files, enforcing the same limits as the web composer. */
+  function addAssets(assets: ReadonlyArray<{ uri: string; name: string; mimeType?: string | null; size?: number }>): void {
+    const next = [...attachmentsRef.current]
+    let total = next.reduce((sum, item) => sum + item.size, 0)
+    let message: string | null = null
+    for (const asset of assets) {
+      if (next.length >= ATTACHMENT_MAX_COUNT) {
+        message = `You can attach up to ${ATTACHMENT_MAX_COUNT} files per message.`
+        break
+      }
+      const size = typeof asset.size === "number" && Number.isFinite(asset.size) ? Math.max(0, asset.size) : 0
+      if (size > ATTACHMENT_MAX_BYTES) {
+        message = `${asset.name || "This file"} is larger than ${formatFileSize(ATTACHMENT_MAX_BYTES)}.`
+        continue
+      }
+      if (total + size > ATTACHMENT_MAX_TOTAL_BYTES) {
+        message = `Attachments are limited to ${formatFileSize(ATTACHMENT_MAX_TOTAL_BYTES)} per message.`
+        continue
+      }
+      const name = asset.name || "file"
+      if (next.some((item) => item.uri === asset.uri && item.name === name)) continue
+      next.push({
+        id: createAttachmentID(),
+        uri: asset.uri,
+        name,
+        mime: asset.mimeType || mimeFromName(name),
+        size,
+        status: "ready",
+      })
+      total += size
+    }
+    setAttachments(next)
+    setError(message)
+  }
+
+  async function pickFiles(): Promise<void> {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        multiple: true,
+        copyToCacheDirectory: true,
+      })
+      if (result.canceled) return
+      addAssets(result.assets)
+    } catch {
+      setError("Could not open the file picker.")
+    }
+  }
+
+  function removeAttachment(id: string): void {
+    setAttachments((current) => current.filter((entry) => entry.id !== id))
+  }
+
+  function removeAttachmentsByID(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    const sent = new Set(ids)
+    setAttachments((current) => current.filter((entry) => !sent.has(entry.id)))
+  }
+
+  /** Uploads staged files two at a time (same contract as the web composer). */
+  async function uploadAttachments(
+    list: ReadonlyArray<ComposerAttachment>,
+  ): Promise<{ uploaded: UploadedAttachment[]; failed: { name: string; message: string } | null }> {
+    if (!workspaceID) {
+      return { uploaded: [], failed: { name: "the file", message: "Select a workspace before attaching files." } }
+    }
+    const queue = list.filter((item) => !item.uploaded)
+    const results = new Map<string, UploadedAttachment>()
+    let failed: { name: string; message: string } | null = null
+    let cursor = 0
+
+    const worker = async (): Promise<void> => {
+      while (cursor < queue.length) {
+        const item = queue[cursor]
+        cursor += 1
+        if (!item) return
+        setAttachments((current) =>
+          current.map((entry) =>
+            entry.id === item.id ? { ...entry, status: "uploading", error: undefined } : entry,
+          ),
+        )
+        try {
+          const uploaded = await client.api.attachments.upload(workspaceID, sessionID, {
+            id: item.id,
+            name: item.name,
+            mime: item.mime,
+            size: item.size,
+            uri: item.uri,
+          })
+          results.set(item.id, uploaded)
+          setAttachments((current) =>
+            current.map((entry) =>
+              entry.id === item.id ? { ...entry, status: "ready", uploaded, error: undefined } : entry,
+            ),
+          )
+        } catch (uploadError) {
+          const message = attachmentErrorMessage(uploadError, item.name)
+          if (!failed) failed = { name: item.name, message }
+          setAttachments((current) =>
+            current.map((entry) =>
+              entry.id === item.id ? { ...entry, status: "error", error: message } : entry,
+            ),
+          )
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(2, queue.length) }, worker))
+    const stillStaged = new Set(attachmentsRef.current.map((entry) => entry.id))
+    const uploaded = list.flatMap((item) => {
+      if (!stillStaged.has(item.id)) return []
+      const found = results.get(item.id) ?? item.uploaded
+      return found ? [found] : []
+    })
+    return { uploaded, failed }
+  }
+
+  /** Releases the composer and clears the text/attachments that were sent. */
+  function completeSend(pending: { text: string; marker: string; attachmentIDs: string[] }): void {
     inFlight.current = null
     setSending(false)
     // Only clear what was actually sent: text typed while the request was in
@@ -229,6 +382,7 @@ export function Composer({
       setCaret(0)
       setForcedSelection(undefined)
     }
+    removeAttachmentsByID(pending.attachmentIDs)
     setDismissed(false)
   }
 
@@ -244,12 +398,32 @@ export function Composer({
    * Runs one prompt request. Plain prompts are tracked by the shared pending
    * controller (ghost bubble); slash commands keep the button-only feedback.
    */
-  async function deliver(text: string, marker: string, command: ReturnType<typeof splitCommand>) {
+  async function deliver(
+    text: string,
+    marker: string,
+    command: ReturnType<typeof splitCommand>,
+    prepared?: ReadonlyArray<UploadedAttachment>,
+  ) {
+    const staged = attachmentsRef.current
+    const current = { text, marker, attachmentIDs: staged.map((item) => item.id) }
+    inFlight.current = current
     setSending(true)
     setError(null)
-    const current = { text, marker }
-    inFlight.current = current
     try {
+      let uploaded: ReadonlyArray<UploadedAttachment> = prepared ?? []
+      if (!prepared && staged.length > 0) {
+        const result = await uploadAttachments(staged)
+        if (result.failed) {
+          if (inFlight.current === current) setError(result.failed.message)
+          return
+        }
+        uploaded = result.uploaded
+      }
+
+      // Begin the ghost only once a prompt is actually being sent: an upload
+      // failure must never look like a lost prompt.
+      if (!command) pending.begin(text, marker, uploaded)
+
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
       const mentionText = command ? command.text : text
       const mentions = collectAgentMentions(mentionText, subagents)
@@ -258,16 +432,27 @@ export function Composer({
         ...(modelValue ? { model: modelValue } : {}),
         ...(mentions.length > 0 ? { agents: mentions } : {}),
       }
+      const files = inlineAttachmentFiles(uploaded)
+      const promptText = `${text}${buildAttachmentContext(uploaded)}`
+      const metadata = {
+        ...(command ? {} : deliveryMetadata(marker)),
+        ...(uploaded.length > 0 ? { [ATTACHMENT_METADATA_KEY]: attachmentMetadata(uploaded) } : {}),
+      }
       if (command) {
         await client.api.runCommand(
           sessionID,
-          { name: command.command.name, text: command.text, ...context },
+          {
+            name: command.command.name,
+            text: `${command.text}${buildAttachmentContext(uploaded)}`,
+            ...(files.length > 0 ? { files } : {}),
+            ...context,
+          },
           { agent: session?.agent, model: session?.model },
         )
       } else {
         await client.api.prompt(
           sessionID,
-          { text, metadata: deliveryMetadata(marker), ...context },
+          { text: promptText, ...(files.length > 0 ? { files } : {}), metadata, ...context },
           { agent: session?.agent, model: session?.model },
         )
       }
@@ -291,21 +476,29 @@ export function Composer({
 
   async function send() {
     const trimmed = text.trim()
+    const staged = attachmentsRef.current
     // Refs, not the `sending` state: two events in the same tick must not both
     // pass this check and fire two prompts (#72).
-    if (!trimmed || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
-    const command = splitCommand(trimmed, commands)
+    if ((!trimmed && staged.length === 0) || inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) {
+      return
+    }
+    const command = trimmed ? splitCommand(trimmed, commands) : null
     if (command?.command.name === "btw") {
       await askSideQuestion(command.text)
       return
     }
     if (command?.command.name === "goal") {
+      if (staged.length > 0) {
+        setError(
+          "Attachments are not supported with /goal. Send the file in a normal message first, then start the goal.",
+        )
+        return
+      }
       await startGoal(command.text)
       return
     }
     const marker = createDeliveryMarker()
-    // v1: only plain prompts get the ghost; commands keep the button feedback.
-    if (!command) pending.begin(trimmed, marker)
+    // v1: only plain prompts get the ghost; `deliver` begins it after uploads.
     await deliver(trimmed, marker, command)
   }
 
@@ -313,6 +506,12 @@ export function Composer({
   async function startGoal(goal: string) {
     if (!goal) {
       setError("Describe the goal after /goal")
+      return
+    }
+    if (attachmentsRef.current.length > 0) {
+      setError(
+        "Attachments are not supported with /goal. Send the file in a normal message first, then start the goal.",
+      )
       return
     }
     if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
@@ -355,8 +554,7 @@ export function Composer({
     if (!current || current.status !== "failed") return
     if (inFlight.current || startingSideQuestionRef.current || startingGoalRef.current) return
     const marker = createDeliveryMarker()
-    pending.begin(current.text, marker)
-    void deliver(current.text, marker, null)
+    void deliver(current.text, marker, null, current.attachments)
   }
 
   useImperativeHandle(ref, () => ({ retry }))
@@ -370,8 +568,20 @@ export function Composer({
     setStartingSideQuestion(true)
     startingSideQuestionRef.current = true
     setError(null)
+    const staged = attachmentsRef.current
     let created: string | null = null
     try {
+      let uploaded: ReadonlyArray<UploadedAttachment> = staged
+        .map((item) => item.uploaded)
+        .filter(Boolean) as UploadedAttachment[]
+      if (staged.some((item) => !item.uploaded)) {
+        const result = await uploadAttachments(staged)
+        if (result.failed) {
+          setError(result.failed.message)
+          return
+        }
+        uploaded = result.uploaded
+      }
       const fork = await client.api.forkSession(sessionID)
       created = fork.id
       // The composer unmounted while the fork was in flight: its cleanup
@@ -389,8 +599,11 @@ export function Composer({
         void client.api.removeSession(previous).catch(() => {})
       }
       const modelValue = model ? parseModel(model, variant || undefined) : undefined
+      const files = inlineAttachmentFiles(uploaded)
       await client.api.prompt(fork.id, {
-        text: question,
+        text: `${question}${buildAttachmentContext(uploaded)}`,
+        ...(files.length > 0 ? { files } : {}),
+        ...(uploaded.length > 0 ? { metadata: { [ATTACHMENT_METADATA_KEY]: attachmentMetadata(uploaded) } } : {}),
         ...(agent ? { agent } : {}),
         ...(modelValue ? { model: modelValue } : {}),
       })
@@ -400,6 +613,7 @@ export function Composer({
         setCaret(0)
         setForcedSelection(undefined)
       }
+      removeAttachmentsByID(staged.map((item) => item.id))
       setDismissed(false)
     } catch (err) {
       // A fork created in this attempt must not leak when the prompt fails.
@@ -469,6 +683,42 @@ export function Composer({
             />
           )}
 
+          {attachments.length > 0 && (
+            <View style={styles.attachmentStrip} testID="composer-attachments">
+              {attachments.map((item) => (
+                <View
+                  key={item.id}
+                  style={[styles.attachment, item.status === "error" && styles.attachmentError]}
+                >
+                  {item.mime.startsWith("image/") ? (
+                    <Image source={{ uri: item.uri }} style={styles.attachmentThumb} />
+                  ) : (
+                    <View style={styles.attachmentGlyph}>
+                      <FileIcon size={16} color={colors.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.attachmentText}>
+                    <Text style={styles.attachmentName} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.attachmentMeta} numberOfLines={1}>
+                      {item.status === "uploading" ? "Uploading…" : item.error ?? formatFileSize(item.size)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.attachmentRemove}
+                    onPress={() => removeAttachment(item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.name}`}
+                    hitSlop={6}
+                  >
+                    <CloseIcon size={13} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
           <TextInput
             style={styles.field}
             value={text}
@@ -491,6 +741,15 @@ export function Composer({
         </View>
 
         <View style={styles.dockToolbar}>
+          <Pressable
+            style={styles.attach}
+            onPress={() => void pickFiles()}
+            accessibilityRole="button"
+            accessibilityLabel="Attach files"
+            testID="composer-attach"
+          >
+            <PaperclipIcon size={18} color={colors.textMuted} />
+          </Pressable>
           <Selector
             label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
             onPress={() => setPicker("agent")}
@@ -541,9 +800,10 @@ export function Composer({
             <Pressable
               style={[
                 styles.send,
-                (!text.trim() || sending || startingSideQuestion || startingGoal) && styles.actionDisabled,
+                ((!text.trim() && attachments.length === 0) || sending || startingSideQuestion || startingGoal) &&
+                  styles.actionDisabled,
               ]}
-              disabled={!text.trim() || sending || startingSideQuestion || startingGoal}
+              disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion || startingGoal}
               onPress={() => void send()}
             >
               <Text style={styles.sendText}>{startingSideQuestion || startingGoal ? "Starting…" : "Send"}</Text>
@@ -646,6 +906,71 @@ function createStyles(colors: Palette, fonts: Fonts) {
       gap: 8,
       paddingHorizontal: 12,
       paddingTop: 8,
+    },
+    attach: {
+      width: 30,
+      height: 30,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 8,
+    },
+    attachmentStrip: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      paddingBottom: 4,
+    },
+    attachment: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      maxWidth: "100%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 10,
+      padding: 4,
+      backgroundColor: colors.surfaceMuted,
+    },
+    attachmentError: {
+      borderColor: colors.dangerLine,
+      backgroundColor: colors.dangerSoft,
+    },
+    attachmentThumb: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+    },
+    attachmentGlyph: {
+      width: 36,
+      height: 36,
+      borderRadius: 8,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+    },
+    attachmentText: {
+      flexShrink: 1,
+      minWidth: 0,
+      maxWidth: 220,
+    },
+    attachmentName: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    attachmentMeta: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 11,
+    },
+    attachmentRemove: {
+      width: 26,
+      height: 26,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 13,
     },
     field: {
       minHeight: 44,

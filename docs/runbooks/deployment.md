@@ -129,9 +129,12 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;          # required for SSE
         proxy_read_timeout 3600s;
+        client_max_body_size 60m;     # chat attachments (ATTACHMENT_MAX_MB + headroom)
     }
 }
 ```
+
+> **Chat attachments are multipart uploads.** The reverse proxy must allow at least `ATTACHMENT_MAX_MB` (50 MB) per request plus multipart headroom; Nginx defaults to 1 MB, so set `client_max_body_size` (Caddy has no default limit). The BFF answers `413 payload_too_large` when its own cap is exceeded.
 
 ### Other options
 

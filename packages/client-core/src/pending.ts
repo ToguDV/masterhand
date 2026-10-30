@@ -2,23 +2,25 @@ import { useCallback, useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { deliveryMarkerOf } from "./delivery"
 import { queryKeys } from "./hooks"
-import type { ChatMessage } from "./types"
+import type { ChatMessage, UploadedAttachment } from "./types"
 
 /**
  * One plain-prompt send awaiting confirmation (#125). `text` is kept so a retry
  * never loses it; `marker` is the per-send delivery marker (#71) and the only
- * thing that can confirm the send.
+ * thing that can confirm the send. `attachments` are the files already uploaded
+ * for this send, reused verbatim by a retry.
  */
 export interface PendingSend {
   text: string
   marker: string
   status: "sending" | "failed"
+  attachments?: ReadonlyArray<UploadedAttachment>
 }
 
 export interface PendingSendController {
   pending: PendingSend | null
   /** Starts tracking a plain prompt (slash commands keep their button feedback). */
-  begin: (text: string, marker: string) => void
+  begin: (text: string, marker: string, attachments?: ReadonlyArray<UploadedAttachment>) => void
   /** Marks the send as failed (the ghost becomes retryable). */
   fail: (marker: string) => void
   /** Drops the ghost without resending. */
@@ -36,9 +38,12 @@ export function usePendingSend(sessionID: string): PendingSendController {
   const queryClient = useQueryClient()
   const [pending, setPending] = useState<PendingSend | null>(null)
 
-  const begin = useCallback((text: string, marker: string) => {
-    setPending({ text, marker, status: "sending" })
-  }, [])
+  const begin = useCallback(
+    (text: string, marker: string, attachments?: ReadonlyArray<UploadedAttachment>) => {
+      setPending({ text, marker, status: "sending", ...(attachments?.length ? { attachments } : {}) })
+    },
+    [],
+  )
 
   const fail = useCallback((marker: string) => {
     setPending((current) =>

@@ -9,6 +9,7 @@ import type {
   SessionMessageInfo,
   TokenUsageInfo,
 } from "./types"
+import { parseChatAttachments, stripAttachmentContext } from "./attachments"
 
 function readString(source: unknown, key: string): string | null {
   if (!source || typeof source !== "object") return null
@@ -129,6 +130,7 @@ function projectContent(
  */
 export function toChatMessage(message: SessionMessageInfo, sessionID: string): ChatMessage | null {
   if (message.type === "user") {
+    const attachments = parseChatAttachments(message.metadata, message.files)
     return {
       info: {
         id: message.id,
@@ -136,8 +138,17 @@ export function toChatMessage(message: SessionMessageInfo, sessionID: string): C
         role: "user",
         time: { created: message.time.created },
         ...(message.metadata ? { metadata: message.metadata as Record<string, unknown> } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
-      parts: [{ id: `${message.id}:text`, sessionID, messageID: message.id, type: "text", text: message.text }],
+      parts: [
+        {
+          id: `${message.id}:text`,
+          sessionID,
+          messageID: message.id,
+          type: "text",
+          text: stripAttachmentContext(message.text),
+        },
+      ],
     }
   }
   if (message.type !== "assistant") return null

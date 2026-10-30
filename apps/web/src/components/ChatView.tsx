@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type DragEvent } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   conversationErrorMessage,
@@ -26,7 +26,7 @@ import { PermissionCard, PermissionResolved, type AnsweredPermission } from "./P
 import { SessionStats } from "./SessionStats"
 import { SessionToolbar } from "./SessionToolbar"
 import { Deco } from "./Deco"
-import { ExternalLinkIcon } from "./icons"
+import { ExternalLinkIcon, PaperclipIcon } from "./icons"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -95,6 +95,14 @@ export function ChatView({
   const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  /** Nested dragenter/dragleave counter (children fire both on every move). */
+  const dragDepth = useRef(0)
+  const [dragging, setDragging] = useState(false)
+
+  function hasFiles(event: DragEvent<HTMLElement>): boolean {
+    if (Array.from(event.dataTransfer?.types ?? []).includes("Files")) return true
+    return (event.dataTransfer?.files?.length ?? 0) > 0
+  }
 
   // A very long session (the client loads up to 10 000 messages) would mount a
   // bubble per message; render the newest page and let the user expand it.
@@ -184,7 +192,43 @@ export function ChatView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col"
+      onDragEnter={(event) => {
+        if (!hasFiles(event)) return
+        event.preventDefault()
+        dragDepth.current += 1
+        setDragging(true)
+      }}
+      onDragOver={(event) => {
+        if (!hasFiles(event)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = "copy"
+      }}
+      onDragLeave={() => {
+        if (dragDepth.current === 0) return
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) setDragging(false)
+      }}
+      onDragEnd={() => {
+        dragDepth.current = 0
+        setDragging(false)
+      }}
+      onDrop={(event) => {
+        if (!hasFiles(event)) return
+        event.preventDefault()
+        dragDepth.current = 0
+        setDragging(false)
+        const files = Array.from(event.dataTransfer?.files ?? [])
+        if (files.length > 0) composerRef.current?.attach(files)
+      }}
+    >
+      {dragging && (
+        <div className="mh-dropzone" role="status" aria-live="polite">
+          <PaperclipIcon size={20} />
+          Drop files to attach
+        </div>
+      )}
       <div ref={scrollRef} onScroll={handleScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
         <div className="mh-chat-col mh-thread">
           <p className="sr-only" role="status">

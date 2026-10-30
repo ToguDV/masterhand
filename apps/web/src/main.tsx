@@ -10,6 +10,16 @@ import "./styles.css"
 const container = document.getElementById("root")
 if (!container) throw new Error("Missing #root in index.html")
 
+// A file dropped outside the chat must never navigate the window to it (the
+// desktop shell would replace the app). The chat column handles its own drops.
+const hasFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes("Files")
+window.addEventListener("dragover", (event) => {
+  if (hasFiles(event)) event.preventDefault()
+})
+window.addEventListener("drop", (event) => {
+  if (hasFiles(event)) event.preventDefault()
+})
+
 createRoot(container).render(
   <StrictMode>
     <ToastProvider>
