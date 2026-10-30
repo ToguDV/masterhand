@@ -119,6 +119,8 @@ echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > fdroid/repo.keystore
 
 mv fdroid/config.yml.keep fdroid/config.yml
 rm -f fdroid/repo.keystore
+# fdroidserver writes per-run caches/status files; never commit them.
+rm -rf fdroid/tmp fdroid/repo/status
 git add index.html .nojekyll fdroid
 if git diff --cached --quiet; then
   echo "F-Droid repo unchanged"

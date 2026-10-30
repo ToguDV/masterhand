@@ -58,7 +58,7 @@ The first release creates the `fdroid` orphan branch. Then enable Pages once:
 2. Branch **`fdroid`**, folder **`/ (root)`**.
 
 The repo is served at `https://togudv.github.io/masterhand/fdroid/repo/` (the
-human landing page is `.../fdroid/`). This can also be done with the API once
+human landing page is `https://togudv.github.io/masterhand/`). This can also be done with the API once
 the branch exists:
 
 ```bash

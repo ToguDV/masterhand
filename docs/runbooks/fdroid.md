@@ -6,7 +6,7 @@ The stable repo URL (added in F-Droid → Settings → Repositories) is:
 
 **`https://togudv.github.io/masterhand/fdroid/repo/`**
 
-The human landing page is `https://togudv.github.io/masterhand/fdroid/`.
+The human landing page is `https://togudv.github.io/masterhand/` (the Pages root, where `index.html` lives).
 
 ## 1. One-time setup (maintainer)
 
@@ -106,7 +106,7 @@ gh run watch -R ToguDV/masterhand
 ## 4. Client behavior
 
 - The banner compares the **installed** build (`expo-application`: `nativeApplicationVersion`/`nativeBuildVersion`) against the BFF's `GET /api/update` first; when the BFF is unreachable or predates the route it fetches `index-v2.json` from `.../fdroid/repo/` and compares `versionCode` (then semver on ties). Every failure is "no notice", never an error.
-- The only action is **Open F-Droid**: a `market://details?id=dev.togudv.masterhand` intent (handled by `org.fdroid.fdroid`), falling back to the landing page `.../fdroid/`. Explicit non-goals: no `REQUEST_INSTALL_PACKAGES`, no APK-installer intent, no `expo-updates` — the user installs through F-Droid, where signatures are verified.
+- The only action is **Open F-Droid**: a `market://details?id=dev.togudv.masterhand` intent (handled by `org.fdroid.fdroid`), falling back to the landing page `.../masterhand/`. Explicit non-goals: no `REQUEST_INSTALL_PACKAGES`, no APK-installer intent, no `expo-updates` — the user installs through F-Droid, where signatures are verified.
 - Settings > About shows the installed version/build, the latest known release, the last check, and the same F-Droid entry points.
 
 ## 5. Privacy
