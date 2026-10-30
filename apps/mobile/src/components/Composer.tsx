@@ -131,6 +131,13 @@ export function Composer({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
+  /** A session switch must never reuse files uploaded for the previous one. */
+  const sessionRef = useRef(sessionID)
+  useEffect(() => {
+    if (sessionRef.current === sessionID) return
+    sessionRef.current = sessionID
+    setAttachments([])
+  }, [sessionID])
   const [agent, setAgent] = useState("")
   const [model, setModel] = useState("")
   const [variant, setVariant] = useState("")

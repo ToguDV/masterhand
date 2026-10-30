@@ -1,6 +1,7 @@
-import { randomBytes } from "node:crypto"
-import { createReadStream } from "node:fs"
-import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises"
+import { createHash, randomBytes } from "node:crypto"
+import { constants } from "node:fs"
+import type { FileHandle } from "node:fs/promises"
+import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink } from "node:fs/promises"
 import { basename, extname, join, resolve, sep } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -14,7 +15,6 @@ export type AttachmentErrorCode =
   | "attachment_too_large"
   | "attachments_full"
   | "not_found"
-  | "storage_unavailable"
 
 export class AttachmentError extends Error {
   constructor(
@@ -46,6 +46,7 @@ interface Sidecar {
   mime: string
   size: number
   file: string
+  sha256: string
   createdAt: number
 }
 
@@ -81,7 +82,11 @@ export function attachmentDir(workspacePath: string, sessionID: string): string 
 /**
  * Writes one attachment under `<workspace>/.masterhand/attachments/<session>/`.
  * The client id makes retries idempotent; the write is atomic (`.part` →
- * rename) so a crash can never expose a half-written file.
+ * hard-link/rename) so a crash can never expose a half-written file.
+ *
+ * The workspace is agent-writable and therefore untrusted: every directory in
+ * the store is checked with `lstat` so a symlink planted by the agent cannot
+ * redirect the BFF's write outside the workspace.
  */
 export async function uploadAttachment(input: UploadAttachmentInput): Promise<UploadAttachmentResult> {
   assertSegment(input.sessionID)
@@ -90,17 +95,31 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Up
     throw new AttachmentError("attachment_too_large")
   }
 
-  const dir = attachmentDir(input.workspacePath, input.sessionID)
-  await mkdir(dir, { recursive: true, mode: 0o775 })
-  await ensureGitignore(attachmentsRoot(input.workspacePath))
+  const root = await ensureStore(input.workspacePath)
+  const dir = await ensureSessionDir(root, input.sessionID)
+  await ensureGitignore(root)
 
+  const digest = createHash("sha256").update(input.bytes).digest("hex")
   const existing = await readSidecar(dir, input.attachmentID)
   if (existing) {
     try {
-      const info = await stat(join(dir, existing.file))
-      if (info.isFile() && info.size === input.bytes.byteLength) {
-        return toResult(input, existing, true)
+      if (!existing.file || basename(existing.file) !== existing.file) {
+        throw new AttachmentError("attachment_conflict")
       }
+      const existingPath = resolve(dir, existing.file)
+      if (!existingPath.startsWith(resolve(dir) + sep)) {
+        throw new AttachmentError("attachment_conflict")
+      }
+      const info = await lstat(existingPath)
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new AttachmentError("attachment_conflict")
+      }
+      const matches =
+        info.size === input.bytes.byteLength &&
+        (existing.sha256
+          ? existing.sha256 === digest
+          : (await readFile(existingPath)).equals(Buffer.from(input.bytes)))
+      if (matches) return toResult(input, existing, true)
       throw new AttachmentError("attachment_conflict")
     } catch (error) {
       if (error instanceof AttachmentError) throw error
@@ -117,22 +136,74 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Up
   const safeName = sanitizeFileName(input.name || "file")
   const file = `${input.attachmentID}-${safeName}`
   const target = join(dir, file)
-  const temp = join(dir, `.${input.attachmentID}.${randomBytes(6).toString("hex")}.part`)
+  const nonce = randomBytes(6).toString("hex")
+  const temp = join(dir, `.${input.attachmentID}.${nonce}.part`)
   const sidecar: Sidecar = {
     id: input.attachmentID,
     name: input.name || safeName,
     mime: sniffMime(input.bytes),
     size: input.bytes.byteLength,
     file,
+    sha256: digest,
     createdAt: Date.now(),
   }
 
+  let createdTarget = false
   try {
-    await writeFile(temp, input.bytes, { mode: 0o644 })
-    await rename(temp, target)
-    await writeFile(join(dir, `${input.attachmentID}.json`), JSON.stringify(sidecar), { mode: 0o644 })
+    await writeNewFile(temp, input.bytes)
+    try {
+      // `link` is a no-clobber atomic create: a concurrent upload with the same
+      // id either wins or sees EEXIST and reconciles against the winner.
+      await link(temp, target)
+      createdTarget = true
+      await unlink(temp)
+    } catch (error) {
+      await unlink(temp).catch(() => {})
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      if (code === "EEXIST") {
+        const winner = await readSidecar(dir, input.attachmentID)
+        if (winner?.size === input.bytes.byteLength && winner.sha256 === digest) {
+          return toResult(input, winner, true)
+        }
+        // The winner may still be writing its sidecar: compare the bytes.
+        const current = await lstat(target).catch(() => null)
+        if (current?.isFile() && !current.isSymbolicLink() && current.size === input.bytes.byteLength) {
+          const bytes = await readFile(target)
+          if (bytes.equals(Buffer.from(input.bytes))) {
+            await writeNewFile(join(dir, `${input.attachmentID}.json`), JSON.stringify(sidecar)).catch(() => {})
+            return toResult(input, sidecar, true)
+          }
+        }
+        throw new AttachmentError("attachment_conflict")
+      }
+      // Hard links are unavailable on a few filesystems; same-directory
+      // rename is still atomic, just not no-clobber.
+      if (code === "EPERM" || code === "EXDEV" || code === "ENOSYS" || code === "EOPNOTSUPP") {
+        await rename(temp, target)
+        createdTarget = true
+      } else {
+        throw error
+      }
+    }
+    const sidecarPath = join(dir, `${input.attachmentID}.json`)
+    try {
+      await writeNewFile(sidecarPath, JSON.stringify(sidecar))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code !== "EEXIST") throw error
+      // The target is ours (link/rename succeeded). A stale sidecar must not
+      // describe different bytes, so replace it when the digest differs.
+      const current = await readSidecar(dir, input.attachmentID)
+      if (!current || current.sha256 !== digest) {
+        await unlink(sidecarPath).catch(() => {})
+        await writeNewFile(sidecarPath, JSON.stringify(sidecar))
+      }
+    }
   } catch (error) {
     await unlink(temp).catch(() => {})
+    if (createdTarget) {
+      await unlink(target).catch(() => {})
+      await unlink(join(dir, `${input.attachmentID}.json`)).catch(() => {})
+    }
     throw error
   }
 
@@ -141,7 +212,8 @@ export async function uploadAttachment(input: UploadAttachmentInput): Promise<Up
 
 export interface LoadedAttachment {
   meta: Sidecar
-  filePath: string
+  /** Open file handle; the caller streams and closes it. */
+  handle: FileHandle
   /** Current on-disk size (the agent may have edited the file since upload). */
   size: number
 }
@@ -153,23 +225,42 @@ export async function getAttachment(
 ): Promise<LoadedAttachment> {
   assertSegment(sessionID)
   assertSegment(attachmentID)
+  if (!(await lstat(attachmentsRoot(workspacePath)).catch(() => null))) {
+    throw new AttachmentError("not_found")
+  }
+  const root = await assertStoreUnderWorkspace(workspacePath)
   const dir = attachmentDir(workspacePath, sessionID)
-  const sidecar = await readSidecar(dir, attachmentID)
-  if (!sidecar || sidecar.id !== attachmentID) throw new AttachmentError("not_found")
+  await assertRealDirectory(dir)
+  const [realRoot, realDir] = await Promise.all([realpath(root), realpath(dir)])
+  if (!realDir.startsWith(realRoot + sep)) throw new AttachmentError("not_found")
+
+  const sidecar = await readSidecar(realDir, attachmentID)
+  if (!sidecar) throw new AttachmentError("not_found")
   // The sidecar is server-written, but never let it point outside the session
   // directory (a corrupted file must not turn into a path traversal).
   if (!sidecar.file || basename(sidecar.file) !== sidecar.file) throw new AttachmentError("not_found")
-  const filePath = resolve(dir, sidecar.file)
-  if (!filePath.startsWith(resolve(dir) + sep)) throw new AttachmentError("not_found")
-  const info = await stat(filePath).catch(() => null)
-  if (!info || !info.isFile()) throw new AttachmentError("not_found")
-  return { meta: sidecar, filePath, size: info.size }
-}
+  const filePath = resolve(realDir, sidecar.file)
+  if (!filePath.startsWith(realDir + sep)) throw new AttachmentError("not_found")
 
-export function attachmentStream(filePath: string): ReadableStream {
-  // Node's Readable is accepted by Hono's Response; the cast keeps this module
-  // free of Hono types.
-  return createReadStream(filePath) as unknown as ReadableStream
+  const info = await lstat(filePath).catch(() => null)
+  if (!info || !info.isFile() || info.isSymbolicLink()) throw new AttachmentError("not_found")
+  const realFile = await realpath(filePath).catch(() => null)
+  if (!realFile || !realFile.startsWith(realDir + sep)) throw new AttachmentError("not_found")
+
+  // `O_NOFOLLOW` closes the lstat → open race for the final component; the
+  // resolved-directory checks above cover a symlinked parent.
+  let handle: FileHandle
+  try {
+    handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW)
+  } catch {
+    throw new AttachmentError("not_found")
+  }
+  const fileInfo = await handle.stat().catch(() => null)
+  if (!fileInfo || !fileInfo.isFile()) {
+    await handle.close().catch(() => {})
+    throw new AttachmentError("not_found")
+  }
+  return { meta: sidecar, handle, size: fileInfo.size }
 }
 
 export async function removeAttachment(
@@ -179,30 +270,69 @@ export async function removeAttachment(
 ): Promise<void> {
   assertSegment(sessionID)
   assertSegment(attachmentID)
+  let root: string
+  try {
+    root = await assertStoreUnderWorkspace(workspacePath)
+  } catch {
+    return
+  }
   const dir = attachmentDir(workspacePath, sessionID)
-  const sidecar = await readSidecar(dir, attachmentID)
+  try {
+    await assertRealDirectory(dir)
+  } catch {
+    return
+  }
+  const [realRoot, realDir] = await Promise.all([realpath(root), realpath(dir)])
+  if (!realDir.startsWith(realRoot + sep)) return
+
+  const sidecar = await readSidecar(realDir, attachmentID)
   if (sidecar?.file && basename(sidecar.file) === sidecar.file) {
-    await unlink(join(dir, sidecar.file)).catch(() => {})
+    await unlink(join(realDir, sidecar.file)).catch(() => {})
   }
   // Also sweep a file left behind by a sidecar that never landed.
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  const entries = await readdir(realDir, { withFileTypes: true }).catch(() => [])
   await Promise.all(
     entries
       .filter((entry) => entry.isFile() && entry.name.startsWith(`${attachmentID}-`))
-      .map((entry) => unlink(join(dir, entry.name)).catch(() => {})),
+      .map((entry) => unlink(join(realDir, entry.name)).catch(() => {})),
   )
-  await unlink(join(dir, `${attachmentID}.json`)).catch(() => {})
+  await unlink(join(realDir, `${attachmentID}.json`)).catch(() => {})
 }
 
 /** Drops one session's attachments (best effort at the call site). */
 export async function removeSessionAttachments(workspacePath: string, sessionID: string): Promise<void> {
   assertSegment(sessionID)
-  await rm(attachmentDir(workspacePath, sessionID), { recursive: true, force: true })
+  let root: string
+  try {
+    root = await assertStoreUnderWorkspace(workspacePath)
+  } catch {
+    return
+  }
+  const dir = attachmentDir(workspacePath, sessionID)
+  try {
+    await assertRealDirectory(dir)
+  } catch {
+    return
+  }
+  const [realRoot, realDir] = await Promise.all([realpath(root), realpath(dir)])
+  if (!realDir.startsWith(realRoot + sep)) return
+  await rm(realDir, { recursive: true, force: true })
 }
 
 /** Drops every attachment of a workspace without touching `.masterhand/run.json`. */
 export async function removeWorkspaceAttachments(workspacePath: string): Promise<void> {
-  await rm(attachmentsRoot(workspacePath), { recursive: true, force: true })
+  const master = join(workspacePath, ".masterhand")
+  try {
+    await assertRealDirectory(master)
+  } catch {
+    return
+  }
+  const root = attachmentsRoot(workspacePath)
+  const info = await lstat(root).catch(() => null)
+  if (!info || !info.isDirectory() || info.isSymbolicLink()) return
+  const [realWorkspace, realRoot] = await Promise.all([realpath(workspacePath), realpath(root)])
+  if (!realRoot.startsWith(realWorkspace + sep)) return
+  await rm(realRoot, { recursive: true, force: true })
 }
 
 export interface PruneAttachmentsOptions {
@@ -224,6 +354,8 @@ export interface PruneResult {
 /**
  * Removes stale upload debris: `.part` files older than an hour and session
  * directories older than the retention window whose session no longer exists.
+ * A symlinked store or session directory is skipped: the workspace is
+ * agent-writable, so `rm -rf` must never follow a link outside it.
  */
 export async function pruneAttachments(
   workspacesRoot: string,
@@ -238,28 +370,43 @@ export async function pruneAttachments(
   for (const workspace of workspaces) {
     if (!workspace.isDirectory() || workspace.name.startsWith(".")) continue
     const workspacePath = join(workspacesRoot, workspace.name)
+    const master = join(workspacePath, ".masterhand")
+    const masterInfo = await lstat(master).catch(() => null)
+    if (!masterInfo || !masterInfo.isDirectory() || masterInfo.isSymbolicLink()) continue
     const root = attachmentsRoot(workspacePath)
+    const rootInfo = await lstat(root).catch(() => null)
+    if (!rootInfo || !rootInfo.isDirectory() || rootInfo.isSymbolicLink()) continue
+    const [realWorkspace, realRoot] = await Promise.all([
+      realpath(workspacePath).catch(() => null),
+      realpath(root).catch(() => null),
+    ])
+    if (!realRoot || !realWorkspace || !realRoot.startsWith(realWorkspace + sep)) continue
+
     const sessions = await readdir(root, { withFileTypes: true }).catch(() => [])
     for (const session of sessions) {
       if (!session.isDirectory() || !SEGMENT.test(session.name)) continue
       const dir = join(root, session.name)
       // Capture the directory mtime before touching its contents: unlinking a
       // stale .part updates the parent directory and would reset the TTL.
-      const info = await stat(dir).catch(() => null)
-      const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+      const info = await lstat(dir).catch(() => null)
+      if (!info || !info.isDirectory() || info.isSymbolicLink()) continue
+      const realDir = await realpath(dir).catch(() => null)
+      if (!realDir || !realDir.startsWith(realRoot + sep)) continue
+
+      const entries = await readdir(realDir, { withFileTypes: true }).catch(() => [])
       for (const entry of entries) {
         if (!entry.isFile() || !entry.name.endsWith(".part")) continue
-        const partInfo = await stat(join(dir, entry.name)).catch(() => null)
+        const partInfo = await lstat(join(realDir, entry.name)).catch(() => null)
         if (partInfo && now - partInfo.mtimeMs > partTtl) {
           try {
-            await unlink(join(dir, entry.name))
+            await unlink(join(realDir, entry.name))
             result.removedParts += 1
           } catch {
             // A concurrent download/cleanup: leave it for the next pass.
           }
         }
       }
-      if (!info || now - info.mtimeMs < options.ttlMs) continue
+      if (now - info.mtimeMs < options.ttlMs) continue
       if (options.isSessionActive) {
         let active = true
         try {
@@ -270,11 +417,12 @@ export async function pruneAttachments(
         if (active) continue
       }
       try {
-        await rm(dir, { recursive: true, force: true })
+        await rm(realDir, { recursive: true, force: true })
         result.removedSessions += 1
       } catch {
         // Leave it for the next pass; the session may be writing again.
-      }    }
+      }
+    }
   }
   return result
 }
@@ -335,9 +483,80 @@ function assertSegment(value: string): void {
   if (!SEGMENT.test(value)) throw new AttachmentError("invalid_attachment")
 }
 
+/** The store and the session directory must be real directories, never links. */
+async function assertRealDirectory(path: string): Promise<void> {
+  const info = await lstat(path).catch(() => null)
+  if (!info || !info.isDirectory() || info.isSymbolicLink()) {
+    throw new AttachmentError("invalid_attachment")
+  }
+}
+
+/**
+ * A `.masterhand` (or `attachments`) symlink would let the BFF read, write or
+ * delete outside the workspace. The workspace itself may be reached through a
+ * symlinked prefix (native /tmp), so the real store must still be below the
+ * real workspace path.
+ */
+async function assertStoreUnderWorkspace(workspacePath: string): Promise<string> {
+  const master = join(workspacePath, ".masterhand")
+  await assertRealDirectory(master)
+  const root = attachmentsRoot(workspacePath)
+  await assertRealDirectory(root)
+  const [realWorkspace, realRoot] = await Promise.all([realpath(workspacePath), realpath(root)])
+  if (!realRoot.startsWith(realWorkspace + sep)) throw new AttachmentError("invalid_attachment")
+  return root
+}
+
+async function ensureStore(workspacePath: string): Promise<string> {
+  const master = join(workspacePath, ".masterhand")
+  const root = join(master, "attachments")
+  try {
+    await mkdir(master, { recursive: true, mode: 0o775 })
+    await assertRealDirectory(master)
+    await mkdir(root, { recursive: true, mode: 0o775 })
+    await assertRealDirectory(root)
+  } catch (error) {
+    if (error instanceof AttachmentError) throw error
+    throw new AttachmentError("invalid_attachment")
+  }
+  return root
+}
+
+async function ensureSessionDir(root: string, sessionID: string): Promise<string> {
+  const dir = join(root, sessionID)
+  try {
+    await mkdir(dir, { recursive: true, mode: 0o775 })
+    await assertRealDirectory(dir)
+  } catch (error) {
+    if (error instanceof AttachmentError) throw error
+    throw new AttachmentError("invalid_attachment")
+  }
+  const [realRoot, realDir] = await Promise.all([realpath(root), realpath(dir)])
+  if (!realDir.startsWith(realRoot + sep)) throw new AttachmentError("invalid_attachment")
+  return dir
+}
+
+async function writeNewFile(path: string, body: string | Uint8Array): Promise<void> {
+  const handle = await open(
+    path,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o644,
+  )
+  try {
+    await handle.writeFile(body)
+  } finally {
+    await handle.close().catch(() => {})
+  }
+}
+
 async function ensureGitignore(root: string): Promise<void> {
   // A self-ignoring directory: the user's git status never shows attachments.
-  await writeFile(join(root, ".gitignore"), "*\n", { flag: "wx", mode: 0o644 }).catch(() => {})
+  // O_EXCL/O_NOFOLLOW means a symlink planted at this path is never followed.
+  try {
+    await writeNewFile(join(root, ".gitignore"), "*\n")
+  } catch {
+    // Already present (or a hostile symlink): never follow it.
+  }
 }
 
 async function readSidecar(dir: string, attachmentID: string): Promise<Sidecar | null> {
@@ -353,6 +572,7 @@ async function readSidecar(dir: string, attachmentID: string): Promise<Sidecar |
       typeof record.mime !== "string" ||
       typeof record.file !== "string" ||
       typeof record.size !== "number" ||
+      typeof record.sha256 !== "string" ||
       typeof record.createdAt !== "number"
     ) {
       return null
@@ -363,6 +583,7 @@ async function readSidecar(dir: string, attachmentID: string): Promise<Sidecar |
       mime: record.mime,
       size: record.size,
       file: record.file,
+      sha256: record.sha256,
       createdAt: record.createdAt,
     }
   } catch {
@@ -375,7 +596,7 @@ async function directoryBytes(dir: string): Promise<number> {
   let total = 0
   for (const entry of entries) {
     if (!entry.isFile()) continue
-    const info = await stat(join(dir, entry.name)).catch(() => null)
+    const info = await lstat(join(dir, entry.name)).catch(() => null)
     if (info) total += info.size
   }
   return total

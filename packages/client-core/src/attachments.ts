@@ -183,20 +183,30 @@ export function stripAttachmentContext(text: string): string {
 /** Normalizes a message's metadata + `files` into the view model. */
 export function parseChatAttachments(
   metadata: unknown,
-  files?: ReadonlyArray<{ data?: string; mime?: string; name?: string }>,
+  files?: ReadonlyArray<{
+    data?: string
+    mime?: string
+    name?: string
+    source?: { type?: string; uri?: string }
+  }>,
 ): ChatAttachment[] {
   const entries = readMetadataEntries(metadata)
   if (entries.length > 0) {
-    let fileIndex = 0
+    const remaining = [...(files ?? [])]
     const result: ChatAttachment[] = []
     for (const entry of entries.slice(0, ATTACHMENT_MAX_COUNT)) {
       const attachment = normalizeMetadataEntry(entry)
       if (!attachment) continue
       if (attachment.inline) {
-        const file = files?.[fileIndex]
-        fileIndex += 1
-        const preview = previewFromFile(attachment.mime, file)
-        if (preview) attachment.previewDataUrl = preview
+        // Correlate by the attachment id embedded in opencode's source URI, not
+        // by position: a dropped/normalized entry must never shift previews.
+        let index = remaining.findIndex((file) => fileAttachmentID(file) === attachment.id)
+        if (index < 0) index = remaining.findIndex((file) => file.name === attachment.name)
+        if (index >= 0) {
+          const [file] = remaining.splice(index, 1)
+          const preview = previewFromFile(attachment.mime, file)
+          if (preview) attachment.previewDataUrl = preview
+        }
       }
       result.push(attachment)
     }
@@ -218,6 +228,15 @@ export function parseChatAttachments(
     if (preview) attachment.previewDataUrl = preview
     return [attachment]
   })
+}
+
+/** Extracts the client-generated id from `<id>-<safeName>` in a source URI. */
+function fileAttachmentID(file: { source?: { uri?: string } }): string | null {
+  const uri = file.source?.uri
+  if (!uri) return null
+  const base = uri.split("/").pop()?.split("?")[0] ?? ""
+  const id = base.split("-")[0] ?? ""
+  return /^[a-z0-9]{8,64}$/.test(id) ? id : null
 }
 
 function previewFromFile(

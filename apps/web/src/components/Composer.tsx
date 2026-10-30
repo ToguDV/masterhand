@@ -325,6 +325,18 @@ export function Composer({
     }
   }, [])
 
+  // A session switch must never reuse a file uploaded for the previous
+  // session (its `uri` points at the old session directory).
+  const sessionRef = useRef(sessionID)
+  useEffect(() => {
+    if (sessionRef.current === sessionID) return
+    sessionRef.current = sessionID
+    for (const item of attachmentsRef.current) {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    }
+    setAttachments([])
+  }, [sessionID])
+
   /**
    * Uploads every staged file (two at a time, so two 50 MB multiparts never
    * overlap). Already-uploaded files from a failed attempt are reused.

@@ -206,9 +206,13 @@ export function ChatView({
         event.dataTransfer.dropEffect = "copy"
       }}
       onDragLeave={() => {
-        if (!dragging) return
+        if (dragDepth.current === 0) return
         dragDepth.current = Math.max(0, dragDepth.current - 1)
         if (dragDepth.current === 0) setDragging(false)
+      }}
+      onDragEnd={() => {
+        dragDepth.current = 0
+        setDragging(false)
       }}
       onDrop={(event) => {
         if (!hasFiles(event)) return

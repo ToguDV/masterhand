@@ -160,6 +160,73 @@ describe("attachment helpers", () => {
     expect(attachments[1]).toMatchObject({ id: "a2", inline: false })
   })
 
+  it("correlates previews by the source URI, not by position", () => {
+    const metadata = {
+      [ATTACHMENT_METADATA_KEY]: [
+        {
+          id: "a1",
+          name: "first.png",
+          mime: "image/png",
+          size: 20,
+          url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+          inline: true,
+        },
+        {
+          id: "a2",
+          name: "second.png",
+          mime: "image/png",
+          size: 20,
+          url: "/api/workspaces/ws_1/attachments/ses_1/a2",
+          inline: true,
+        },
+      ],
+    }
+    const uri = (id: string): string =>
+      `file:///workspace/app/.masterhand/attachments/ses_1/${id}-photo.png`
+    const attachments = parseChatAttachments(metadata, [
+      { name: "second.png", mime: "image/png", data: "c2Vjb25k", source: { type: "uri", uri: uri("a2") } },
+      { name: "first.png", mime: "image/png", data: "Zmlyc3Q=", source: { type: "uri", uri: uri("a1") } },
+    ])
+    expect(attachments[0]?.previewDataUrl).toBe("data:image/png;base64,Zmlyc3Q=")
+    expect(attachments[1]?.previewDataUrl).toBe("data:image/png;base64,c2Vjb25k")
+  })
+
+  it("does not shift a preview when one inline file is missing", () => {
+    const metadata = {
+      [ATTACHMENT_METADATA_KEY]: [
+        {
+          id: "a1",
+          name: "first.png",
+          mime: "image/png",
+          size: 20,
+          url: "/api/workspaces/ws_1/attachments/ses_1/a1",
+          inline: true,
+        },
+        {
+          id: "a2",
+          name: "second.png",
+          mime: "image/png",
+          size: 20,
+          url: "/api/workspaces/ws_1/attachments/ses_1/a2",
+          inline: true,
+        },
+      ],
+    }
+    const attachments = parseChatAttachments(metadata, [
+      {
+        name: "second.png",
+        mime: "image/png",
+        data: "c2Vjb25k",
+        source: {
+          type: "uri",
+          uri: "file:///workspace/app/.masterhand/attachments/ses_1/a2-photo.png",
+        },
+      },
+    ])
+    expect(attachments[0]?.previewDataUrl).toBeUndefined()
+    expect(attachments[1]?.previewDataUrl).toBe("data:image/png;base64,c2Vjb25k")
+  })
+
   it("adds an image preview from the message files", () => {
     const attachments = parseChatAttachments(
       {

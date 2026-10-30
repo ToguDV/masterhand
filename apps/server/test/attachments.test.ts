@@ -4,7 +4,10 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   attachmentDir,
+  getAttachment,
   pruneAttachments,
+  removeSessionAttachments,
+  removeWorkspaceAttachments,
   sanitizeFileName,
   sniffMime,
   uploadAttachment,
@@ -93,6 +96,86 @@ describe("attachment content helpers", () => {
     await expect(
       uploadAttachment({ ...input, bytes: new TextEncoder().encode("different") }),
     ).rejects.toMatchObject({ code: "attachment_conflict" })
+  })
+
+  it("rejects same-size different bytes as a conflict", async () => {
+    const { workspacePath } = setupWorkspace()
+    const base = {
+      workspaceID: "ws_1",
+      workspacePath,
+      sessionID: "ses_1",
+      attachmentID: "a1",
+      name: "notes.txt",
+      maxFileBytes: 1024,
+      maxSessionBytes: 4096,
+    }
+    await uploadAttachment({ ...base, bytes: new TextEncoder().encode("hello") })
+    await expect(
+      uploadAttachment({ ...base, bytes: new TextEncoder().encode("world") }),
+    ).rejects.toMatchObject({ code: "attachment_conflict" })
+  })
+
+  it("never writes or reads through a symlinked store", async () => {
+    const { workspacePath } = setupWorkspace()
+    mkdirSync(join(workspacePath, ".masterhand"), { recursive: true })
+    const outside = join(root, "outside")
+    mkdirSync(outside, { recursive: true })
+    const store = join(workspacePath, ".masterhand", "attachments")
+    symlinkSync(outside, store, "dir")
+
+    const input = {
+      workspaceID: "ws_1",
+      workspacePath,
+      sessionID: "ses_1",
+      attachmentID: "a1",
+      name: "notes.txt",
+      bytes: new TextEncoder().encode("hello"),
+      maxFileBytes: 1024,
+      maxSessionBytes: 4096,
+    }
+    await expect(uploadAttachment(input)).rejects.toMatchObject({ code: "invalid_attachment" })
+    expect(existsSync(join(outside, "ses_1"))).toBe(false)
+
+    rmSync(store)
+    const uploaded = await uploadAttachment(input)
+    rmSync(uploaded.path)
+    const secret = join(root, "outside.txt")
+    writeFileSync(secret, "secret")
+    symlinkSync(secret, uploaded.path)
+    await expect(getAttachment(workspacePath, "ses_1", "a1")).rejects.toMatchObject({
+      code: "not_found",
+    })
+  })
+
+  it("never prunes through a symlinked store", async () => {
+    const { workspacePath } = setupWorkspace()
+    mkdirSync(join(workspacePath, ".masterhand"), { recursive: true })
+    const outside = join(root, "outside")
+    const victim = join(outside, "ses_old")
+    mkdirSync(victim, { recursive: true })
+    writeFileSync(join(victim, "keep.txt"), "keep")
+    const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000)
+    utimesSync(victim, old, old)
+    symlinkSync(outside, join(workspacePath, ".masterhand", "attachments"), "dir")
+
+    const result = await pruneAttachments(root, {
+      ttlMs: 90 * 24 * 60 * 60 * 1000,
+    })
+    expect(result.removedSessions).toBe(0)
+    expect(existsSync(join(victim, "keep.txt"))).toBe(true)
+  })
+
+  it("never deletes through a symlinked .masterhand", async () => {
+    const { workspacePath } = setupWorkspace()
+    const outside = join(root, "outside")
+    const victim = join(outside, "attachments", "ses_1")
+    mkdirSync(victim, { recursive: true })
+    writeFileSync(join(victim, "keep.txt"), "keep")
+    symlinkSync(outside, join(workspacePath, ".masterhand"), "dir")
+
+    await removeSessionAttachments(workspacePath, "ses_1")
+    await removeWorkspaceAttachments(workspacePath)
+    expect(existsSync(join(victim, "keep.txt"))).toBe(true)
   })
 
   it("rejects oversized files and full sessions", async () => {

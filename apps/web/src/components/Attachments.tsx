@@ -42,19 +42,16 @@ export function AttachmentChip({
           {status}
         </span>
       </span>
-      {attachment.status === "uploading" ? (
-        <span className="mh-attachment__spinner" aria-hidden="true" />
-      ) : (
-        <button
-          type="button"
-          className="mh-attachment__remove"
-          onClick={() => onRemove(attachment.id)}
-          aria-label={`Remove ${attachment.name}`}
-          title="Remove attachment"
-        >
-          <XIcon size={13} />
-        </button>
-      )}
+      {attachment.status === "uploading" ? <span className="mh-attachment__spinner" aria-hidden="true" /> : null}
+      <button
+        type="button"
+        className="mh-attachment__remove"
+        onClick={() => onRemove(attachment.id)}
+        aria-label={`Remove ${attachment.name}`}
+        title="Remove attachment"
+      >
+        <XIcon size={13} />
+      </button>
     </div>
   )
 }

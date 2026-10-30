@@ -24,7 +24,6 @@ import {
 } from "./commands.js"
 import {
   AttachmentError,
-  attachmentStream,
   getAttachment,
   removeAttachment,
   removeSessionAttachments,
@@ -640,18 +639,17 @@ export function createApp(deps: AppDeps): CreatedApp {
   /** Maps an attachment failure to its contract; filesystem exhaustion is 503. */
   function attachmentFailure(c: Context, error: unknown): Response {
     if (error instanceof AttachmentError) {
-      const status: Record<AttachmentErrorCode, 400 | 404 | 409 | 413 | 503> = {
+      const status: Record<AttachmentErrorCode, 400 | 404 | 409 | 413> = {
         invalid_attachment: 400,
         attachment_conflict: 409,
         attachment_too_large: 413,
         attachments_full: 413,
         not_found: 404,
-        storage_unavailable: 503,
       }
       return c.json({ error: error.code }, status[error.code])
     }
     const code = (error as NodeJS.ErrnoException | null)?.code
-    if (code === "ENOSPC" || code === "EDQUOT" || code === "EROFS" || code === "EACCES") {
+    if (code === "ENOSPC" || code === "EDQUOT" || code === "EROFS") {
       console.warn("[masterhand] attachment storage failure:", error)
       return c.json({ error: "storage_unavailable" }, 503)
     }
@@ -2069,35 +2067,40 @@ export function createApp(deps: AppDeps): CreatedApp {
     const workspace = deps.store.getWorkspace(c.req.param("id"))
     if (!workspace) return c.json({ error: "not_found" }, 404)
     try {
-      const { meta, filePath, size } = await getAttachment(
+      const { meta, handle, size } = await getAttachment(
         workspace.path,
         c.req.param("sessionID"),
         c.req.param("attachmentID"),
       )
-      const image =
-        meta.mime === "image/png" ||
-        meta.mime === "image/jpeg" ||
-        meta.mime === "image/gif" ||
-        meta.mime === "image/webp"
-      const contentType = image
-        ? meta.mime
-        : meta.mime === "application/pdf"
-          ? "application/pdf"
-          : "application/octet-stream"
-      const asciiName = (meta.name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_").slice(0, 120) || "file")
-      const encodedName = encodeURIComponent(meta.name).replace(
-        /['()*]/g,
-        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-      )
-      const headers = new Headers({
-        "content-type": contentType,
-        "content-length": String(size),
-        "content-disposition": `${image ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
-        "x-content-type-options": "nosniff",
-        "content-security-policy": "sandbox",
-        "cache-control": "private, max-age=300",
-      })
-      return new Response(attachmentStream(filePath), { status: 200, headers })
+      try {
+        const image =
+          meta.mime === "image/png" ||
+          meta.mime === "image/jpeg" ||
+          meta.mime === "image/gif" ||
+          meta.mime === "image/webp"
+        const contentType = image
+          ? meta.mime
+          : meta.mime === "application/pdf"
+            ? "application/pdf"
+            : "application/octet-stream"
+        const asciiName = (meta.name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_").slice(0, 120) || "file")
+        const encodedName = encodeURIComponent(meta.name).replace(
+          /['()*]/g,
+          (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+        )
+        const headers = new Headers({
+          "content-type": contentType,
+          "content-length": String(size),
+          "content-disposition": `${image ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "sandbox",
+          "cache-control": "private, max-age=300",
+        })
+        return new Response(handle.createReadStream() as unknown as ReadableStream, { status: 200, headers })
+      } catch (error) {
+        await handle.close().catch(() => {})
+        throw error
+      }
     } catch (error) {
       return attachmentFailure(c, error)
     }
