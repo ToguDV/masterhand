@@ -148,8 +148,16 @@ the installer's job.
    build can pass the signature check and still crash before `MainActivity`
    (v0.2.0 stripped `WorkDatabase_Impl.<init>` with R8); the `android` job's
    `scripts/check-android-dex.mjs` step is the automated gate, and a manual
-   launch catches anything else. Settings → About shows the installed version
-   and the update path.
+   launch catches anything else. The job must also pass the manifest gate
+   (`scripts/check-android-manifest.mjs`, right after the dex gate), so a
+   release build keeps LAN plain-http working; confirm it by hand with:
+
+   ```bash
+   aapt2 dump xmltree --file AndroidManifest.xml MasterHand-<version>.apk | grep -i usesCleartextTraffic
+   ```
+
+   Expect `usesCleartextTraffic=true`. Settings → About shows the installed
+   version and the update path.
 5. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
 6. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
@@ -227,6 +235,11 @@ locally and is **not** updated by this flow.
   The three class names are WorkManager internals: when an upgrade legitimately
   renames one, update `REQUIRED_NO_ARG_CONSTRUCTORS` and the keep rule — never
   delete the step or bypass it.
+- **Android job fails in “Verify the APK manifest allows LAN cleartext
+  traffic”:** the merged manifest lost `usesCleartextTraffic`, so release builds
+  would block every plain-http LAN server. Restore
+  `android.usesCleartextTraffic: true` under `expo-build-properties` in
+  `apps/mobile/app.json`; never publish that build.
 - **Old releases use the Gradle APK name:** v0.1.0 and v0.2.0 attached
   `app-release.apk`; from v0.2.1 the asset is `MasterHand-<version>.apk`. The
   manual F-Droid workflow accepts both (the script falls back to the old name).

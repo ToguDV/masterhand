@@ -293,6 +293,90 @@ describe("ServersScreen (native)", () => {
     expect(screen.getByText("This server is already saved.")).toBeOnTheScreen()
     expect(onSubmit).not.toHaveBeenCalled()
   })
+
+  it("accepts plain http on a private LAN address", async () => {
+    const onSubmit = jest.fn()
+    await renderScreen(
+      <ServersScreen
+        profiles={[profile()]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error={null}
+        notice={null}
+        reauthProfile={null}
+        startAdding
+        onSubmit={onSubmit}
+        onSelect={jest.fn()}
+        onCancel={jest.fn()}
+        onCancelAdd={jest.fn()}
+      />,
+    )
+
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "http://192.168.1.50:8787")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+    expect(onSubmit).toHaveBeenCalledWith(
+      "add",
+      { url: "http://192.168.1.50:8787", label: "", password: "pw" },
+      undefined,
+    )
+  })
+
+  it("guesses http for a scheme-less private LAN address", async () => {
+    const onSubmit = jest.fn()
+    await renderScreen(
+      <ServersScreen
+        profiles={[profile()]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error={null}
+        notice={null}
+        reauthProfile={null}
+        startAdding
+        onSubmit={onSubmit}
+        onSelect={jest.fn()}
+        onCancel={jest.fn()}
+        onCancelAdd={jest.fn()}
+      />,
+    )
+
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "192.168.1.50:8787")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+    expect(onSubmit).toHaveBeenCalledWith(
+      "add",
+      { url: "http://192.168.1.50:8787", label: "", password: "pw" },
+      undefined,
+    )
+  })
+
+  it("still rejects plain http on a public host", async () => {
+    const onSubmit = jest.fn()
+    await renderScreen(
+      <ServersScreen
+        profiles={[profile()]}
+        activeID={null}
+        initialUrl=""
+        busy={false}
+        error={null}
+        notice={null}
+        reauthProfile={null}
+        startAdding
+        onSubmit={onSubmit}
+        onSelect={jest.fn()}
+        onCancel={jest.fn()}
+        onCancelAdd={jest.fn()}
+      />,
+    )
+
+    await fireEvent.changeText(screen.getByTestId("server-url-input"), "http://evil.com")
+    await fireEvent.changeText(screen.getByTestId("password-input"), "pw")
+    await fireEvent.press(screen.getByTestId("connect-button"))
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(screen.getByText(/Use https:\/\//)).toBeOnTheScreen()
+  })
 })
 
 describe("ServerSwitcher (native)", () => {

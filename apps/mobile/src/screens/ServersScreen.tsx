@@ -254,9 +254,9 @@ function ServerForm({
     setLocalError(null)
     let normalizedUrl = profile?.url ?? ""
     if (showUrl) {
-      const normalized = normalizeServerUrl(url)
+      const normalized = normalizeServerUrl(url, { allowPrivateNetwork: true })
       if (!normalized.ok) {
-        setLocalError(serverUrlErrorMessage(normalized.error))
+        setLocalError(serverUrlErrorMessage(normalized.error, { allowPrivateNetwork: true }))
         return
       }
       normalizedUrl = normalized.server.url
