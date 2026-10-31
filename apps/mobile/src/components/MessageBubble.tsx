@@ -1,6 +1,9 @@
 import { memo, useMemo, useState } from "react"
 import { Image, Pressable, StyleSheet, Text, View } from "react-native"
-import Markdown, { type MarkdownStyleMap } from "@ronradtke/react-native-markdown-display"
+import Markdown, {
+  createMarkdownIt,
+  type MarkdownStyleMap,
+} from "@ronradtke/react-native-markdown-display"
 import {
   formatFileSize,
   isQuestionTool,
@@ -32,6 +35,20 @@ import { FileIcon } from "./icons"
 export function markdownColorScheme(theme: ThemeName): "light" | "dark" {
   return theme === "dark" ? "dark" : "light"
 }
+
+// Module-level identities for the markdown renderer props. The library treats
+// any new object as "configuration changed": inlining these recreated the
+// MarkdownIt parser and the whole AstRenderer (≈90 styles) on every streaming
+// delta, which also defeated the memoization of every fenced code block.
+const MARKDOWN_PARSER = createMarkdownIt()
+const ALLOWED_IMAGE_HANDLERS = [
+  "data:image/png;base64",
+  "data:image/gif;base64",
+  "data:image/jpeg;base64",
+  "https://",
+  "http://",
+]
+const TOP_LEVEL_MAX_EXCEEDED = <Text>...</Text>
 
 export function createMarkdownStyles(colors: Palette, fonts: Fonts): MarkdownStyleMap {
   const text = { color: colors.text, fontFamily: fonts.ui, fontSize: 15, lineHeight: 22 }
@@ -101,16 +118,22 @@ export function createMarkdownStyles(colors: Palette, fonts: Fonts): MarkdownSty
   }
 }
 
-function MarkdownText({ text }: { text: string }) {
+const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
   const { colors, fonts, theme } = useTheme()
   const markdownStyles = useMemo(() => createMarkdownStyles(colors, fonts), [colors, fonts])
   if (!text.trim()) return null
   return (
-    <Markdown colorScheme={markdownColorScheme(theme)} style={markdownStyles}>
+    <Markdown
+      colorScheme={markdownColorScheme(theme)}
+      style={markdownStyles}
+      markdownit={MARKDOWN_PARSER}
+      allowedImageHandlers={ALLOWED_IMAGE_HANDLERS}
+      topLevelMaxExceededItem={TOP_LEVEL_MAX_EXCEEDED}
+    >
       {text}
     </Markdown>
   )
-}
+})
 
 /**
  * Assistant text carrying the agents' custom marker protocol: prose renders as
@@ -148,8 +171,9 @@ function Subagent({ part, onOpenSession }: { part: ChatToolPart; onOpenSession?:
   const [open, setOpen] = useState(false)
   const styles = useThemedStyles(createStyles)
   const state = part.state
-  const info = subagentInfo(part)
-  const output = subagentOutput(part)
+  const info = useMemo(() => subagentInfo(part), [part])
+  // The regex scrub over the whole subagent output only matters when expanded.
+  const output = useMemo(() => (open ? subagentOutput(part) : null), [open, part])
 
   return (
     <View style={styles.subagentCard}>
@@ -194,7 +218,15 @@ interface PartViewProps {
   onCancelForm?: (form: FormInfo) => void
 }
 
-function PartView({ part, onOpenSession, forms, answeredForms, busyFormID, onRespondForm, onCancelForm }: PartViewProps) {
+const PartView = memo(function PartView({
+  part,
+  onOpenSession,
+  forms,
+  answeredForms,
+  busyFormID,
+  onRespondForm,
+  onCancelForm,
+}: PartViewProps) {
   switch (part.type) {
     case "text":
       return <TextWithMarkers text={part.text} />
@@ -218,6 +250,27 @@ function PartView({ part, onOpenSession, forms, answeredForms, busyFormID, onRes
     default:
       return null
   }
+}, isSamePartViewProps)
+
+/**
+ * Part-level equality: the streaming reducers keep the identity of every part
+ * they did not touch, so a delta only re-renders the part that grew instead of
+ * re-running markdown/tool summaries for the whole message. Callback identities
+ * are ignored for the same reason as the row comparator.
+ */
+function isSamePartViewProps(prev: PartViewProps, next: PartViewProps): boolean {
+  return (
+    prev.part === next.part &&
+    prev.forms === next.forms &&
+    prev.answeredForms === next.answeredForms &&
+    prev.busyFormID === next.busyFormID &&
+    // Presence (not identity) changes the rendered branch: the question card
+    // only renders with both form callbacks, and the subagent link only with
+    // an `onOpenSession`.
+    Boolean(prev.onOpenSession) === Boolean(next.onOpenSession) &&
+    Boolean(prev.onRespondForm) === Boolean(next.onRespondForm) &&
+    Boolean(prev.onCancelForm) === Boolean(next.onCancelForm)
+  )
 }
 
 export function MessageBubble({

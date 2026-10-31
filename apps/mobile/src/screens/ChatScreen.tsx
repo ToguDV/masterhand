@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native"
@@ -35,8 +36,15 @@ import { AuditModal } from "../components/AuditModal"
 import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { Deco } from "../components/Deco"
-import { ArrowDownIcon, PlayIcon } from "../components/icons"
+import { ArrowDownIcon, ArrowUpIcon, PlayIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+
+/** Newest messages rendered when a session opens. */
+const INITIAL_VISIBLE = 10
+/** How many older messages each tap of the history pill reveals. */
+const OLDER_PAGE = 20
+/** Inverted list: distance from the newest message that still counts as "at the bottom". */
+const BOTTOM_THRESHOLD = 120
 
 export function ChatScreen({
   client,
@@ -103,7 +111,7 @@ export function ChatScreen({
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const messages = messagesQuery.data ?? []
-  const usage = sessionUsage(messages)
+  const usage = useMemo(() => sessionUsage(messages), [messages])
   // Follow-output scroll: only stay pinned when the user is already near the
   // bottom AND not actively scrolling. `onContentSizeChange` covers both new
   // messages and the growing goal-review footer; expanding a round is local
@@ -114,44 +122,166 @@ export function ChatScreen({
   // scroll of any kind — no mount-at-top flash, no entry pin, no animation.
   const followRef = useRef(true)
   const userScrollingRef = useRef(false)
-  const [showJump, setShowJump] = useState(false)
+  // Viewport/content heights, used only to decide whether hidden history is
+  // reachable when the visible rows do not fill the screen.
+  const viewportHeightRef = useRef(0)
+  const contentHeightRef = useRef(0)
+  // A reveal grows the content below the (inverted) viewport: the matching
+  // size-change event must not trigger the follow-output snap.
+  const pendingRevealsRef = useRef(0)
 
   // Reversed so the newest message is index 0, which the inverted list anchors
   // at the visual bottom.
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages])
 
+  // Reader state for the visible window. It is keyed by session so switching
+  // sessions (Back to main agent, subagent links) never paints the previous
+  // session's frozen window or jump button on the first frame.
+  //
+  // `hidden` is how many of the oldest (chronological) messages are hidden.
+  // `null` means "pinned to the bottom": the window follows the newest 10.
+  // Once the reader scrolls up we freeze the count so new messages never
+  // unload the row they are reading; revealing history decrements it. The
+  // full cache is never touched — only the list data is sliced.
+  const [view, setView] = useState<{
+    sessionID: string
+    hidden: number | null
+    showJump: boolean
+    overflows: boolean | null
+  }>(() => ({ sessionID, hidden: null, showJump: false, overflows: null }))
+  if (view.sessionID !== sessionID) {
+    // Render-phase reset (documented "adjust state on prop change" pattern):
+    // the derived values below already fall back to the new session's defaults,
+    // and React re-renders before committing children.
+    setView({ sessionID, hidden: null, showJump: false, overflows: null })
+  }
+  const hidden = view.sessionID === sessionID ? view.hidden : null
+  const showJump = view.sessionID === sessionID ? view.showJump : false
+  const contentOverflows = view.sessionID === sessionID ? view.overflows : null
+
+  const totalRef = useRef(0)
+  useEffect(() => {
+    totalRef.current = orderedMessages.length
+  }, [orderedMessages.length])
+
+  const pinnedHidden = Math.max(0, orderedMessages.length - INITIAL_VISIBLE)
+  // Never hide every row, even if the cached projection shrinks under us.
+  const olderCount = Math.min(
+    hidden ?? pinnedHidden,
+    Math.max(0, orderedMessages.length - 1),
+  )
+  const visibleMessages = useMemo(
+    () => orderedMessages.slice(0, Math.max(0, orderedMessages.length - olderCount)),
+    [orderedMessages, olderCount],
+  )
+  const nextBatch = Math.min(OLDER_PAGE, olderCount)
+  const hasOlder = nextBatch > 0
+  // Only while the reader is scrolled up — plus the case where the visible
+  // rows do not fill the viewport (nothing to scroll, so history would
+  // otherwise be unreachable).
+  const showOlder = hasOlder && (showJump || contentOverflows === false)
+
   useEffect(() => {
     followRef.current = true
     userScrollingRef.current = false
-    setShowJump(false)
+    pendingRevealsRef.current = 0
+    viewportHeightRef.current = 0
+    contentHeightRef.current = 0
   }, [sessionID])
 
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    // Inverted list: distance from the newest message is the offset itself.
-    const nearBottom = event.nativeEvent.contentOffset.y < 120
-    followRef.current = nearBottom
-    setShowJump(!nearBottom)
-  }, [])
+  /** Recompute whether the content exceeds the viewport (both layout events). */
+  const applyOverflow = useCallback(
+    (height: number) => {
+      const viewport = viewportHeightRef.current
+      if (viewport <= 0 || height <= 0) return
+      const overflows = height > viewport + 1
+      setView((prev) =>
+        prev.sessionID === sessionID && prev.overflows !== overflows
+          ? { ...prev, overflows }
+          : prev,
+      )
+    },
+    [sessionID],
+  )
+
+  const handleScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      // Inverted list: distance from the newest message is the offset itself.
+      const nearBottom = event.nativeEvent.contentOffset.y < BOTTOM_THRESHOLD
+      followRef.current = nearBottom
+      setView((prev) => {
+        if (prev.sessionID !== sessionID) return prev
+        const nextShowJump = !nearBottom
+        // Freeze the window the first time the reader leaves the bottom;
+        // compact back as soon as they return (the dropped rows are above the
+        // viewport).
+        const nextHidden = nearBottom
+          ? null
+          : (prev.hidden ?? Math.max(0, totalRef.current - INITIAL_VISIBLE))
+        if (prev.showJump === nextShowJump && prev.hidden === nextHidden) return prev
+        return { ...prev, showJump: nextShowJump, hidden: nextHidden }
+      })
+    },
+    [sessionID],
+  )
 
   const handleScrollBegin = useCallback(() => {
     userScrollingRef.current = true
+    // A reveal queued before the gesture is stale now; do not swallow the
+    // next real content-size event (e.g. the streaming re-anchor).
+    pendingRevealsRef.current = 0
   }, [])
 
   const handleScrollEnd = useCallback(() => {
     userScrollingRef.current = false
   }, [])
 
-  const handleContentSizeChange = useCallback(() => {
-    if (userScrollingRef.current || !followRef.current) return
-    listRef.current?.scrollToOffset({ offset: 0, animated: false })
-  }, [])
+  const handleListLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      viewportHeightRef.current = event.nativeEvent.layout.height
+      applyOverflow(contentHeightRef.current)
+    },
+    [applyOverflow],
+  )
+
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      if (typeof height === "number" && height > 0) {
+        contentHeightRef.current = height
+        applyOverflow(height)
+      }
+      if (pendingRevealsRef.current > 0) {
+        pendingRevealsRef.current -= 1
+        return
+      }
+      if (userScrollingRef.current || !followRef.current) return
+      listRef.current?.scrollToOffset({ offset: 0, animated: false })
+    },
+    [applyOverflow],
+  )
 
   const scrollToBottom = useCallback(() => {
     followRef.current = true
-    setShowJump(false)
+    setView((prev) =>
+      prev.sessionID === sessionID ? { ...prev, hidden: null, showJump: false } : prev,
+    )
     // Instant by design: the shortcut is "get me there now", not a ride.
     listRef.current?.scrollToOffset({ offset: 0, animated: false })
-  }, [])
+  }, [sessionID])
+
+  /**
+   * Reveal the next page of older messages. On an inverted list this only
+   * appends rows after the existing data, so every visible row keeps its key,
+   * index and position: the viewport must not move (no scroll call here).
+   */
+  const revealOlder = useCallback(() => {
+    pendingRevealsRef.current += 1
+    setView((prev) => {
+      if (prev.sessionID !== sessionID) return prev
+      const base = prev.hidden ?? Math.max(0, totalRef.current - INITIAL_VISIBLE)
+      return { ...prev, hidden: Math.max(0, base - OLDER_PAGE) }
+    })
+  }, [sessionID])
 
   const keyExtractor = useCallback((entry: ChatMessage) => entry.info.id, [])
 
@@ -274,14 +404,14 @@ export function ChatScreen({
             ref={listRef}
             testID="chat-list"
             inverted
-            data={orderedMessages}
+            data={visibleMessages}
             keyExtractor={keyExtractor}
             renderItem={renderItem}
             contentContainerStyle={styles.list}
             style={styles.listContainer}
-            windowSize={5}
-            maxToRenderPerBatch={5}
-            initialNumToRender={10}
+            windowSize={7}
+            maxToRenderPerBatch={10}
+            initialNumToRender={INITIAL_VISIBLE}
             updateCellsBatchingPeriod={50}
             // Rows are memoized by content: keep their native views mounted once
             // rendered so revisiting them never re-decodes the inline images.
@@ -296,12 +426,29 @@ export function ChatScreen({
             onMomentumScrollBegin={handleScrollBegin}
             onMomentumScrollEnd={handleScrollEnd}
             onContentSizeChange={handleContentSizeChange}
+            onLayout={handleListLayout}
             {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
             // Inverted: the header renders at the visual bottom, under the
             // newest message, so the goal review and pending ghost stay there.
             ListHeaderComponent={listFooter}
           />
         )}
+        {messages.length > 0 && showOlder ? (
+          <View style={styles.olderWrap} pointerEvents="box-none">
+            <Pressable
+              style={styles.olderButton}
+              onPress={revealOlder}
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${nextBatch} older ${nextBatch === 1 ? "message" : "messages"}`}
+              accessibilityHint="Loads older messages without moving the current view"
+              testID="load-older-messages"
+              hitSlop={8}
+            >
+              <ArrowUpIcon size={14} color={colors.textMuted} />
+              <Text style={styles.olderText}>{`+${nextBatch} ${nextBatch === 1 ? "message" : "messages"}`}</Text>
+            </Pressable>
+          </View>
+        ) : null}
         {showJump ? (
           <View style={styles.jumpWrap} pointerEvents="box-none">
             <Pressable
@@ -439,6 +586,32 @@ function createStyles(colors: Palette, fonts: Fonts) {
       right: 16,
       bottom: 16,
       zIndex: 10,
+    },
+    olderWrap: {
+      position: "absolute",
+      top: 8,
+      left: 0,
+      right: 0,
+      alignItems: "center",
+      zIndex: 10,
+    },
+    olderButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairlineStrong,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      elevation: 4,
+    },
+    olderText: {
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      fontWeight: "600",
     },
     jumpButton: {
       width: 44,

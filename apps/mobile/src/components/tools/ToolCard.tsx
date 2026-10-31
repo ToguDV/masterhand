@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
 import {
   describeTool,
@@ -152,7 +152,9 @@ export function ToolCard({ part }: { part: ChatToolPart }) {
   const [open, setOpen] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
-  const summary = describeTool(part)
+  // Pure function of `part`: the diff LCS and output parsing must not rerun on
+  // unrelated renders (parent updates, duration ticks, expand/collapse).
+  const summary = useMemo(() => describeTool(part), [part])
   const accent = toolAccent(summary.accent, colors)
   const duration = useLiveDuration(summary.status, summary.timing)
   const pending = summary.status === "pending"
