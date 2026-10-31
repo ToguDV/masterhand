@@ -1,8 +1,11 @@
-// CommonJS on purpose: a sandboxed preload cannot be an ESM module. This
-// bridge exists only for the local connect page; the main window (the remote
-// web app) is created without a preload.
-const { contextBridge, ipcRenderer } = require("electron")
+// CommonJS on purpose: a sandboxed preload cannot be an ESM module.
+//
+// The window only ever loads our own bundled web build (or the Vite dev
+// server), so this bridge carries a single platform flag and exposes no IPC.
+// The web app uses it to skip the same-origin probe on first run, keep plain
+// http LAN servers available, suppress the stale-bundle notice (the shell
+// updates the UI through electron-updater) and label its device registration
+// "Desktop app".
+const { contextBridge } = require("electron")
 
-contextBridge.exposeInMainWorld("masterhand", {
-  connect: (url) => ipcRenderer.invoke("masterhand:connect", url),
-})
+contextBridge.exposeInMainWorld("masterhandDesktop", true)

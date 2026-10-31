@@ -6,6 +6,7 @@ import {
   serverAuthMode,
   type ServerAuthMode,
 } from "@masterhand/client-core"
+import { isBundledDesktop } from "./platform"
 
 /**
  * Web/desktop multi-server registry.
@@ -60,8 +61,13 @@ function normalizeProfile(value: unknown): ServerProfile | null {
   if (typeof input.id !== "string" || !input.id) return null
   if (typeof input.url !== "string") return null
   // The serving origin may be plain http (LAN deployment, COOKIE_SECURE=false):
-  // its cookie never leaves that origin. Remote profiles stay https-only.
-  const normalized = normalizeServerUrl(input.url, { allowInsecureOrigin: browserOrigin() })
+  // its cookie never leaves that origin. Remote profiles stay https-only,
+  // except in the bundled desktop app, which has no cookie origin and keeps
+  // the plain-http LAN servers the old shell accepted.
+  const normalized = normalizeServerUrl(input.url, {
+    allowInsecureOrigin: browserOrigin(),
+    allowInsecure: isBundledDesktop(),
+  })
   if (!normalized.ok) return null
   const url = normalized.server.url
   const label =
@@ -216,8 +222,7 @@ export function getOrCreateInstallID(): string {
 
 /** Device label shown in the server's device list; never used for identity. */
 export function webDeviceName(): string {
-  const desktop = (globalThis as { masterhandDesktop?: unknown }).masterhandDesktop
-  return desktop ? "Desktop app" : "Web browser"
+  return isBundledDesktop() ? "Desktop app" : "Web browser"
 }
 
 /** Copies the pre-multi-server global preferences to the first profile once. */

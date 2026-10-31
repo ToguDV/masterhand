@@ -1,77 +1,84 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from "electron"
+import { app, BrowserWindow, dialog, Menu, protocol, shell, type MenuItemConstructorOptions } from "electron"
 import electronUpdater from "electron-updater"
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { access, readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { DEV_WEB_URL, normalizeDesktopServerUrl } from "./server-url.js"
+import { APP_SCHEME, APP_URL, isAppUrl, resolveAppAsset } from "./protocol.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const CONFIG_FILE = "config.json"
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const FIRST_UPDATE_CHECK_DELAY_MS = 10_000
+
+/**
+ * Vite dev server used by `npm run dev:desktop`. Development keeps the
+ * hot-reloading UI; packaged builds serve the web build bundled by
+ * `build:renderer` through the `masterhand://app` protocol.
+ */
+const DEV_WEB_URL = "http://localhost:5173"
 
 // electron-updater is CommonJS; Node's ESM named-export detection does not
 // see `autoUpdater` through its re-export chain.
 const { autoUpdater } = electronUpdater
 
+// Must run before `app.ready`. A standard + secure scheme gets an origin
+// (`masterhand://app`), so localStorage, the Clipboard API and notifications
+// behave like a normal page without trusting any remote origin.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
+])
+
 app.setName("MasterHand")
 
 let mainWindow: BrowserWindow | null = null
-let connectWindow: BrowserWindow | null = null
-let quitting = false
-/** True while `connectToServer` swaps the connect window for a main window. */
-let switchingServer = false
 
-interface StoredConfig {
-  serverUrl?: unknown
+function appUrl(): string {
+  return app.isPackaged ? APP_URL : DEV_WEB_URL
 }
 
-function configPath(): string {
-  return join(app.getPath("userData"), CONFIG_FILE)
+function notFound(): Response {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  })
 }
 
-async function readStoredServerUrl(): Promise<string | null> {
+/** Serves the bundled web build from the privileged local origin. */
+function serveBundledApp(): void {
+  const root = join(__dirname, "renderer")
+  protocol.handle(APP_SCHEME, async (request) => {
+    const asset = resolveAppAsset(root, request.url)
+    if (!asset) return notFound()
+    try {
+      const body = await readFile(asset.file)
+      return new Response(body, { headers: { "content-type": asset.mime } })
+    } catch (error) {
+      console.error(`[masterhand] could not read the bundled asset ${asset.file}:`, error)
+      return notFound()
+    }
+  })
+}
+
+/** A missing renderer would load a bare "Not found" page with no way back. */
+async function bundledAppIsComplete(): Promise<boolean> {
   try {
-    const raw = await readFile(configPath(), "utf8")
-    const parsed = JSON.parse(raw) as StoredConfig
-    const normalized = normalizeDesktopServerUrl(parsed.serverUrl)
-    return normalized.ok ? normalized.url : null
-  } catch {
-    return null
+    await access(join(__dirname, "renderer", "index.html"))
+    return true
+  } catch (error) {
+    console.error("[masterhand] the bundled web build is missing:", error)
+    return false
   }
-}
-
-async function writeStoredServerUrl(url: string): Promise<void> {
-  const target = configPath()
-  await mkdir(dirname(target), { recursive: true })
-  const temporary = `${target}.tmp`
-  await writeFile(temporary, `${JSON.stringify({ serverUrl: url }, null, 2)}\n`, { mode: 0o600 })
-  await rename(temporary, target)
-}
-
-/** Explicit env override for development; the persisted choice wins otherwise. */
-function envServerUrl(): string | null {
-  const raw = process.env.MASTERHAND_URL
-  if (!raw) return null
-  const normalized = normalizeDesktopServerUrl(raw)
-  if (!normalized.ok) {
-    console.warn(`[masterhand] ignoring MASTERHAND_URL: ${normalized.error}`)
-    return null
-  }
-  return normalized.url
 }
 
 function openExternal(url: string): void {
   if (/^https?:/i.test(url)) void shell.openExternal(url)
 }
 
-function installNavigationGuards(window: BrowserWindow, origin: string): void {
+function installNavigationGuards(window: BrowserWindow, isAllowed: (url: string) => boolean): void {
   window.webContents.on("will-navigate", (event, url) => {
-    try {
-      if (new URL(url).origin === origin) return
-    } catch {
-      // Malformed URLs are denied below.
-    }
+    if (isAllowed(url)) return
     event.preventDefault()
     openExternal(url)
   })
@@ -82,8 +89,17 @@ function installNavigationGuards(window: BrowserWindow, origin: string): void {
   })
 }
 
-function createMainWindow(serverUrl: string): BrowserWindow {
-  const origin = new URL(serverUrl).origin
+function isAllowedNavigation(url: string): boolean {
+  if (app.isPackaged) return isAppUrl(url)
+  try {
+    return new URL(url).origin === new URL(DEV_WEB_URL).origin
+  } catch {
+    return false
+  }
+}
+
+function createMainWindow(): BrowserWindow {
+  const url = appUrl()
   const window = new BrowserWindow({
     width: 1100,
     height: 800,
@@ -92,68 +108,8 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     backgroundColor: "#09090b",
     show: false,
     webPreferences: {
-      // No preload here: the remote web app must never get an IPC surface.
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: false,
-    },
-  })
-
-  mainWindow = window
-  installNavigationGuards(window, origin)
-
-  window.once("ready-to-show", () => window.show())
-  window.on("closed", () => {
-    if (mainWindow === window) mainWindow = null
-  })
-
-  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    // -3 is ERR_ABORTED (a superseded navigation), not a connectivity error.
-    if (!isMainFrame || errorCode === -3) return
-    void dialog
-      .showMessageBox(window, {
-        type: "error",
-        title: "MasterHand",
-        message: "Could not reach the MasterHand server.",
-        detail: `${validatedURL || serverUrl}\n${errorDescription} (${errorCode})`,
-        buttons: ["Change server…", "Retry", "Quit"],
-        defaultId: 1,
-        cancelId: 2,
-      })
-      .then(({ response }) => {
-        if (response === 0) {
-          window.close()
-          void showConnectWindow(serverUrl)
-        } else if (response === 1) {
-          void window.loadURL(serverUrl)
-        } else {
-          app.quit()
-        }
-      })
-  })
-
-  void window.loadURL(serverUrl)
-  return window
-}
-
-async function showConnectWindow(prefill?: string): Promise<void> {
-  if (connectWindow) {
-    connectWindow.focus()
-    return
-  }
-
-  const window = new BrowserWindow({
-    width: 520,
-    height: 560,
-    minWidth: 420,
-    minHeight: 480,
-    title: "Connect to MasterHand",
-    backgroundColor: "#fafaf7",
-    show: false,
-    parent: mainWindow ?? undefined,
-    modal: mainWindow !== null,
-    webPreferences: {
+      // The window only ever loads our own bundle (or the Vite dev server),
+      // so the preload carries a single platform flag and no IPC surface.
       preload: join(__dirname, "..", "static", "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -162,46 +118,38 @@ async function showConnectWindow(prefill?: string): Promise<void> {
     },
   })
 
-  connectWindow = window
+  mainWindow = window
+  installNavigationGuards(window, isAllowedNavigation)
+
   window.once("ready-to-show", () => window.show())
   window.on("closed", () => {
-    if (connectWindow === window) connectWindow = null
-    if (!mainWindow && !switchingServer && !quitting && process.platform !== "darwin") app.quit()
+    if (mainWindow === window) mainWindow = null
   })
 
-  const initial =
-    prefill ??
-    (await readStoredServerUrl()) ??
-    envServerUrl() ??
-    (app.isPackaged ? "" : DEV_WEB_URL)
-  await window.loadFile(join(__dirname, "..", "static", "connect.html"), {
-    query: initial ? { url: initial } : {},
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    // -3 is ERR_ABORTED (a superseded navigation), not a load failure.
+    if (!isMainFrame || errorCode === -3) return
+    void dialog
+      .showMessageBox(window, {
+        type: "error",
+        title: "MasterHand",
+        message: "Could not start the MasterHand interface.",
+        detail: `${validatedURL || url}\n${errorDescription} (${errorCode})`,
+        buttons: ["Retry", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          void window.loadURL(url)
+        } else {
+          app.quit()
+        }
+      })
   })
-}
 
-async function connectToServer(rawUrl: string): Promise<{ ok: boolean; error?: string }> {
-  const normalized = normalizeDesktopServerUrl(rawUrl)
-  if (!normalized.ok) return { ok: false, error: normalized.error }
-
-  try {
-    await writeStoredServerUrl(normalized.url)
-  } catch (error) {
-    console.error("[masterhand] could not persist the server URL:", error)
-    return { ok: false, error: "Could not save the server URL. Check the app data directory." }
-  }
-
-  switchingServer = true
-  try {
-    const previousMain = mainWindow
-    mainWindow = null
-    previousMain?.close()
-    connectWindow?.close()
-    connectWindow = null
-    createMainWindow(normalized.url)
-  } finally {
-    switchingServer = false
-  }
-  return { ok: true }
+  void window.loadURL(url)
+  return window
 }
 
 function showAbout(): void {
@@ -279,7 +227,6 @@ function setupAutoUpdate(): void {
       })
       .then(({ response }) => {
         if (response === 0) {
-          quitting = true
           autoUpdater.quitAndInstall()
         }
       })
@@ -302,7 +249,6 @@ function buildMenu(): void {
             submenu: [
               { label: "About MasterHand", click: showAbout },
               { label: "Check for updates…", click: () => void checkForUpdatesInteractive() },
-              { label: "Change server…", click: () => void showConnectWindow() },
               { type: "separator" as const },
               { role: "services" as const },
               { type: "separator" as const },
@@ -321,7 +267,6 @@ function buildMenu(): void {
         ...(isMac
           ? []
           : [
-              { label: "Change server…", click: () => void showConnectWindow() },
               { label: "Check for updates…", click: () => void checkForUpdatesInteractive() },
               { type: "separator" as const },
             ]),
@@ -344,17 +289,23 @@ function buildMenu(): void {
 }
 
 async function boot(): Promise<void> {
-  ipcMain.handle("masterhand:connect", (_event, url: unknown) => connectToServer(String(url ?? "")))
-
   buildMenu()
   setupAutoUpdate()
-
-  const serverUrl = envServerUrl() ?? (await readStoredServerUrl())
-  if (serverUrl) {
-    createMainWindow(serverUrl)
-  } else {
-    await showConnectWindow()
+  if (app.isPackaged) {
+    if (!(await bundledAppIsComplete())) {
+      await dialog.showMessageBox({
+        type: "error",
+        title: "MasterHand",
+        message: "The MasterHand interface is missing from this installation.",
+        detail: "Reinstall the desktop app.",
+        buttons: ["Quit"],
+      })
+      app.quit()
+      return
+    }
+    serveBundledApp()
   }
+  createMainWindow()
 }
 
 const smokeTest = process.argv.includes("--smoke-test")
@@ -367,7 +318,7 @@ if (smokeTest) {
   app.quit()
 } else {
   app.on("second-instance", () => {
-    const window = mainWindow ?? connectWindow
+    const window = mainWindow
     if (!window) return
     if (window.isMinimized()) window.restore()
     window.focus()
@@ -377,15 +328,7 @@ if (smokeTest) {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length > 0) return
-    void (async () => {
-      const serverUrl = envServerUrl() ?? (await readStoredServerUrl())
-      if (serverUrl) createMainWindow(serverUrl)
-      else await showConnectWindow()
-    })()
-  })
-
-  app.on("before-quit", () => {
-    quitting = true
+    createMainWindow()
   })
 
   app.on("window-all-closed", () => {

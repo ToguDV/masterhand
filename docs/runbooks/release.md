@@ -117,10 +117,14 @@ Rules enforced by the workflow:
 | `desktop` (macOS) | `MasterHand-<version>-universal.dmg`, `-universal-mac.zip`, `latest-mac.yml`, blockmap |
 | `publish` | GitHub release with every asset above + the F-Droid branch update |
 
-The desktop app is a thin Electron shell around the BFF-served web app. Its
-`electron-updater` reads `latest*.yml` from the **latest** GitHub release,
-downloads in the background and prompts to restart; the web app inside the
-shell has its own stale-bundle notice after a server update.
+The desktop app bundles the same web build and serves it from a privileged
+`masterhand://app` origin, so the first run opens the app's **Servers** screen
+instead of a shell prompt. The `desktop` job builds the web bundle with the
+tag's `MASTERHAND_VERSION`/`MASTERHAND_BUILD`, so its build id matches the
+server image. Its `electron-updater` reads `latest*.yml` from the **latest**
+GitHub release, downloads in the background and prompts to restart; the
+stale-bundle notice is suppressed inside the shell because updating the UI is
+the installer's job.
 
 ## 4. Verify the release
 
@@ -133,8 +137,9 @@ shell has its own stale-bundle notice after a server update.
 4. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
 5. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
-   the first run asks for the server URL. `Settings` in the native menu has
-   **Check for updates…**.
+   the first run opens the app's **Servers** screen — add the server URL and
+   password there. The native menu only has **Check for updates…** and
+   **About**.
 6. **Auto-update:** after the *next* release, the desktop app should download
    and prompt; the web banner should offer **Update now** when the one-click
    updater is enabled.

@@ -10,6 +10,7 @@ import {
   serverUrlErrorMessage,
 } from "@masterhand/client-core"
 import type { ServerProfile } from "../servers"
+import { isBundledDesktop } from "../platform"
 import { EyeIcon, EyeOffIcon, GlobeIcon, KeyIcon, PlusIcon, XIcon } from "./icons"
 
 export type ServerConnectionStatus = "connected" | "saved" | "expired" | "connecting"
@@ -193,7 +194,10 @@ export function ServerForm({
 
     let normalizedUrl = profile?.url ?? ""
     if (showUrl) {
-      const normalized = normalizeServerUrl(url, { allowInsecureOrigin: browserOrigin() })
+      const normalized = normalizeServerUrl(url, {
+        allowInsecureOrigin: browserOrigin(),
+        allowInsecure: isBundledDesktop(),
+      })
       if (!normalized.ok) {
         setLocalError(serverUrlErrorMessage(normalized.error))
         return

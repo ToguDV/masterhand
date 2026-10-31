@@ -55,10 +55,13 @@ run is slow) and starts the stack in the foreground; `Ctrl+C` stops it.
 
 Desktop and mobile cannot run inside a container (they need a GUI/device), so
 they run on the host. Electron loads the Vite dev server on `http://localhost:5173`
-(the default the connect screen prefills) and Vite proxies `/api` to the
-containerized BFF on `:8787`; loading the BFF root directly returns 404 because
-the dev image has no web build. `dev:desktop` and `dev:mobile` leave the Docker
-stack running; stop it with `npm run dev:stop`.
+and Vite proxies `/api` to the containerized BFF on `:8787`; loading the BFF
+root directly returns 404 because the dev image has no web build. On first run
+the app's **Servers** screen asks for a server: add `http://localhost:5173`
+(same-origin cookie login through the Vite proxy) and the password from
+`deploy/.env.dev`. Packaged builds serve the bundled web build from
+`masterhand://app` instead of Vite. `dev:desktop` and `dev:mobile` leave the
+Docker stack running; stop it with `npm run dev:stop`.
 
 ### Native fallback
 
