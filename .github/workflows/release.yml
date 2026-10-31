@@ -115,7 +115,13 @@ jobs:
       - name: Generate version.json
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          NOTES="$(git tag -l --format='%(contents:subject)' "$TAG" | head -c 500)"
+          # actions/checkout resolves a tag push to its commit and leaves a
+          # lightweight tag behind, so `%(contents:subject)` would return the
+          # commit subject instead of the annotated tag message. Fetch the tag
+          # object explicitly before reading it (v0.2.0 shipped the commit
+          # subject as its release notes).
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          NOTES="$(git for-each-ref "refs/tags/$TAG" --format='%(contents:subject)' | head -c 500)"
           VERSION="${{ steps.meta.outputs.version }}" DATE="${{ steps.meta.outputs.date }}" NOTES="$NOTES" node -e '
             const fs = require("node:fs");
             const notes = (process.env.NOTES ?? "").trim();

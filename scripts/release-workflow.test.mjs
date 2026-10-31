@@ -118,6 +118,15 @@ test("publish downloads only release artifacts, never buildx cache artifacts", (
   assert.doesNotMatch(release, /Download the release assets/)
 })
 
+test("version.json reads the annotated tag, not the checked-out commit", () => {
+  // v0.2.0's manifest shipped "chore(release): 0.2.0 (#256)" because
+  // actions/checkout turns the tag ref into a lightweight tag (GITHUB_SHA is
+  // the commit). The step must fetch the tag object before reading its message.
+  const image = release.slice(release.indexOf("\n  image:"), release.indexOf("\n  android:"))
+  assert.match(image, /git fetch --force origin "refs\/tags\/\$TAG:refs\/tags\/\$TAG"/)
+  assert.match(image, /git for-each-ref "refs\/tags\/\$TAG" --format='%\(contents:subject\)'/)
+})
+
 test("the updater sidecar image is published next to the server image", () => {
   assert.match(release, /context: deploy\s*\n\s*file: deploy\/updater\.Dockerfile/s)
   assert.match(release, /\$\{\{ env\.IMAGE \}\}-updater:\$\{\{ steps\.meta\.outputs\.version \}\}/)
