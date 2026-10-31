@@ -80,7 +80,10 @@ The workflow (`release`, jobs `preflight` → `image` / `android` / `desktop` �
    `ghcr.io/togudv/masterhand:0.2.0` + `:latest`, the opt-in updater image
    (`masterhand-updater`), and generates `version.json`.
 3. `android` `expo prebuild` + `./gradlew assembleRelease`, signed with the
-   secrets keystore, and verifies the APK certificate against the keystore.
+   **secrets keystore**; verifies the APK certificate against the keystore and
+   runs `scripts/check-android-dex.mjs` on the built dex (reflective
+   constructors kept). The GitHub asset is `MasterHand-<version>.apk`; the script
+   copies it into the repo as `dev.togudv.masterhand_<versionCode>.apk`.
 4. `desktop` builds the Linux AppImage, the Windows NSIS installer and the
    macOS universal DMG/ZIP, with the `latest*.yml` auto-update channel files.
 5. `publish` creates `v0.2.0` with `version.json`, the APK and the desktop
@@ -119,5 +122,6 @@ Like the server update check, no device contacts GitHub for the happy path: the 
 - **`fdroid update` says `repo_url needs to end with /repo`:** the repo layout is the standard one; `config.yml` must use `https://togudv.github.io/masterhand/fdroid/repo` (no trailing slash). The client adds the same URL with a trailing slash.
 - **`fdroid update` says `repo_keyalias`/`keystorepass` not found:** the current `fdroidserver` reads `config.yml`, not the old `config.py`. The script writes `repo_keyalias`, `keystore`, `keystorepass` and `keypass`; the committed file only keeps the non-secret keys.
 - **`apksigner not found`:** the `publish` and `fdroid.yml` jobs install the Android build-tools with `android-actions/setup-android@v4`; a local run needs the SDK build-tools on `PATH`/`ANDROID_HOME`.
+- **The manual workflow cannot find the APK:** from v0.2.1 the GitHub asset is `MasterHand-<version>.apk`; `scripts/fdroid-repo.sh` falls back to `app-release.apk` for v0.1.0/v0.2.0. A missing asset is a published-release problem, not a reason to move the tag.
 - **`fdroid update` signs with the wrong key:** the branch's `config.yml` must keep `keystore = "repo.keystore"` and the release alias; the script overwrites both every run. If a foreign index was ever pushed, clients pin the first key they saw — re-adding the repo may be required.
 - **Banner never appears:** check `GET /api/update` on the BFF (server log + `UPDATE_MANIFEST_URL`), then the index (`curl …/fdroid/repo/index-v2.json`). The banner needs a strictly newer `versionCode`/version than the installed build.

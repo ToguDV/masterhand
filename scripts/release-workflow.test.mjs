@@ -20,6 +20,8 @@ const release = readFileSync(join(repoRoot, ".github", "workflows", "release.yml
 const builderConfig = readFileSync(join(repoRoot, "apps", "desktop", "electron-builder.yml"), "utf8")
 const fdroidWorkflow = readFileSync(join(repoRoot, ".github", "workflows", "fdroid.yml"), "utf8")
 const fdroidScript = readFileSync(join(repoRoot, "scripts", "fdroid-repo.sh"), "utf8")
+const mobileApp = JSON.parse(readFileSync(join(repoRoot, "apps", "mobile", "app.json"), "utf8"))
+const mobilePackage = JSON.parse(readFileSync(join(repoRoot, "apps", "mobile", "package.json"), "utf8"))
 
 test("releases trigger on tags only, never on branches", () => {
   assert.match(release, /push:\s*\n\s*tags:\s*\n\s*- "v\*"/)
@@ -158,5 +160,43 @@ test("the F-Droid repo is rebuilt by the shared script (release + manual repair)
   assert.match(fdroidScript, /repo_keyalias/)
   assert.match(fdroidScript, /fdroid update -c/)
   assert.doesNotMatch(fdroidScript, /config\.py/)
+})
+
+test("the Android release keeps the constructors R8 strips from reflective classes", () => {
+  // v0.2.0 crash: expo-background-task 58.0.11 → WorkManager 2.9.1 → Room
+  // 2.5.0; R8 full mode removed WorkDatabase_Impl.<init> and the app died in
+  // androidx.startup.InitializationProvider before React Native started.
+  const plugin = mobileApp.expo.plugins.find(
+    (entry) => Array.isArray(entry) && entry[0] === "expo-build-properties",
+  )
+  assert.ok(plugin, "expo-build-properties must be configured")
+  const rules = plugin[1]?.android?.extraProguardRules ?? ""
+  assert.match(rules, /-keep class \* extends androidx\.room\.RoomDatabase \{ <init>\(\); \}/)
+  assert.match(rules, /-keep class \* extends androidx\.work\.InputMerger \{ <init>\(\); \}/)
+  // Keep the upstream fix that stops relying on package-local InputMerger rules.
+  assert.match(mobilePackage.dependencies["expo-background-task"], /58\.0\.12/)
+  assert.match(mobilePackage.dependencies["expo-task-manager"], /58\.0\.13/)
+})
+
+test("the release APK is named after the app and version, and its dex is gated", () => {
+  const android = release.slice(release.indexOf("\n  android:"), release.indexOf("\n  desktop:"))
+  const build = android.indexOf("assembleRelease")
+  const guard = android.indexOf("scripts/check-android-dex.mjs")
+  const upload = android.indexOf("actions/upload-artifact")
+  assert.ok(build >= 0 && guard > build && upload > guard, "the dex guard must run between build and upload")
+  assert.match(android, /MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/)
+  assert.match(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/)
+  assert.doesNotMatch(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/app-release\.apk/)
+})
+
+test("the published APK asset includes the version and old tags remain repairable", () => {
+  assert.match(release, /"assets\/android-apk\/MasterHand-\$\{VERSION\}\.apk"/)
+  assert.doesNotMatch(release, /app-release\.apk#app-release\.apk/)
+  assert.match(
+    release,
+    /APK_SOURCE: assets\/android-apk\/MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/,
+  )
+  assert.match(fdroidScript, /MasterHand-\$\{VERSION\}\.apk/)
+  assert.match(fdroidScript, /--pattern app-release\.apk/)
 })
 

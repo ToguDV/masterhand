@@ -19,6 +19,7 @@
 set -euo pipefail
 
 TAG="${TAG:?TAG is required}"
+VERSION="${TAG#v}"
 VERSION_CODE="${VERSION_CODE:?VERSION_CODE is required}"
 APK_SOURCE="${APK_SOURCE:-}"
 FDROID_REPO_URL="${FDROID_REPO_URL:-https://togudv.github.io/masterhand/fdroid/repo}"
@@ -44,7 +45,9 @@ mkdir -p fdroid/repo fdroid/metadata
 APK="fdroid/repo/dev.togudv.masterhand_${VERSION_CODE}.apk"
 if [ -n "$APK_SOURCE" ]; then
   cp "$APK_SOURCE" "$APK"
-else
+elif ! gh release download "$TAG" --pattern "MasterHand-${VERSION}.apk" --output "$APK"; then
+  # v0.1.0 and v0.2.0 attached the Gradle default name; keep the manual repair
+  # workflow able to rebuild the repo for those published tags.
   gh release download "$TAG" --pattern app-release.apk --output "$APK"
 fi
 git show "$TAG:apps/desktop/assets/icon.png" > fdroid/icon.png
