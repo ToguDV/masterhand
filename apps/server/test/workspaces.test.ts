@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   createWorkspaceDir,
   engineReadGuardRules,
-  externalWriteGuardRules,
+  externalAccessGuardRules,
   isInsideRoot,
   normalizeWorkspaceSlug,
   processGuardRules,
@@ -13,6 +13,7 @@ import {
   removeWorkspaceDir,
   workspaceName,
   workspacePath,
+  workspaceSystemPrompt,
 } from "../src/workspaces.js"
 
 describe("normalizeWorkspaceSlug", () => {
@@ -82,18 +83,15 @@ describe("processGuardRules", () => {
     expect(resources).not.toContain("kill")
   })
 
-  it("keeps the write guard independent from the process guard", () => {
-    expect(externalWriteGuardRules().map((rule) => rule.action)).toEqual([
-      "external_directory",
-      "edit",
-      "edit",
-      "edit",
+  it("allows external access without confining writes to the workspace", () => {
+    expect(externalAccessGuardRules()).toEqual([
+      { action: "external_directory", resource: "*", effect: "allow" },
     ])
   })
 })
 
 describe("engineReadGuardRules (#219)", () => {
-  it("denies read and external_directory on /proc and the engine credential store", () => {
+  it("denies read and external_directory on /proc and reads/edits of the engine store", () => {
     const rules = engineReadGuardRules("/home/tester")
     expect(rules.length).toBeGreaterThan(0)
     expect(rules.every((rule) => rule.effect === "deny")).toBe(true)
@@ -114,6 +112,11 @@ describe("engineReadGuardRules (#219)", () => {
     expect(rules).toContainEqual({
       action: "external_directory",
       resource: "/home/tester/.local/share/opencode/*",
+      effect: "deny",
+    })
+    expect(rules).toContainEqual({
+      action: "edit",
+      resource: "/home/tester/.config/opencode/*",
       effect: "deny",
     })
     // The Docker engine paths are covered even when the BFF resolves a
@@ -139,7 +142,7 @@ describe("engineReadGuardRules (#219)", () => {
     const actions = engineReadGuardRules("/home/tester").map((rule) => rule.action)
     expect(actions).not.toContain("grep")
     expect(actions).not.toContain("glob")
-    expect(new Set(actions)).toEqual(new Set(["read", "external_directory"]))
+    expect(new Set(actions)).toEqual(new Set(["read", "external_directory", "edit"]))
   })
 
   it("only matches absolute resources, so workspace-relative reads stay allowed", () => {
@@ -171,6 +174,16 @@ describe("processSystemPrompt", () => {
     expect(prompt).toContain("never stop processes by name, pattern or port")
     expect(prompt).toContain("kill <that pid>")
     expect(prompt).toContain("Run and Preview controls")
+  })
+})
+
+describe("workspaceSystemPrompt", () => {
+  it("roots the agent in its workspace while allowing justified external work", () => {
+    const prompt = workspaceSystemPrompt("/workspace/app")
+    expect(prompt).toContain("Your working directory is exactly /workspace/app")
+    expect(prompt).toContain("100% necessary")
+    expect(prompt).toContain("user explicitly indicates")
+    expect(prompt).not.toContain("only area you own")
   })
 })
 

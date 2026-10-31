@@ -6,7 +6,7 @@ import { ChevronDownIcon, FolderIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
- * The composer's top bar: the workspace menu, an optional branch control and
+ * The composer's top bar: the workspace menu, an optional branch viewer and
  * an optional trailing slot (the session stats), mirroring the web
  * `SessionToolbar`. Rendered as the head of the composer dock card.
  */
@@ -24,7 +24,7 @@ export function SessionToolbar({
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
-  /** Branch picker (standard sessions) or read-only chip (isolated sessions). */
+  /** Read-only branch viewer. */
   branch?: ReactNode
   trailing?: ReactNode
 }) {

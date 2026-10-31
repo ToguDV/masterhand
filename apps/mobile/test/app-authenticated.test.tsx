@@ -3,7 +3,7 @@
  *
  * `App` is driven through the real component tree: the data hooks from
  * `@masterhand/client-core` are stubbed so a test can hand it workspaces,
- * sessions and directories, and knows exactly which client methods the screens
+ * sessions and workspaces, and knows exactly which client methods the screens
  * call. The event-stream hook is stubbed too, which lets a test replay opencode
  * events against the real `createEventHandler`.
  */
@@ -14,7 +14,6 @@ import {
   createClient,
   useEventStream,
   useMessages,
-  useSessionDirectories,
   useSessions,
   useSessionStatuses,
   useWorkspaces,
@@ -60,7 +59,6 @@ jest.mock("@masterhand/client-core", () => {
     useWorkspaces: jest.fn(() => ({ data: [], isLoading: false })),
     useSessions: jest.fn(() => ({ data: [], isLoading: false })),
     useSessionStatuses: jest.fn(() => ({ data: {} })),
-    useSessionDirectories: jest.fn(() => ({ data: [] })),
     // The chat/composer hooks are stubbed too: this suite only exercises App,
     // and leaving real `useQuery`s alive would keep gc/intervals open.
     useBffStatus: jest.fn(() => ({ data: undefined })),
@@ -74,7 +72,6 @@ const createClientMock = createClient as unknown as jest.Mock
 const eventStreamMock = useEventStream as unknown as jest.Mock
 const workspacesMock = useWorkspaces as unknown as jest.Mock
 const sessionsMock = useSessions as unknown as jest.Mock
-const directoriesMock = useSessionDirectories as unknown as jest.Mock
 const statusesMock = useSessionStatuses as unknown as jest.Mock
 const messagesMock = useMessages as unknown as jest.Mock
 
@@ -164,14 +161,6 @@ function makeClient() {
       sessions: {
         create: jest.fn(async () => makeSession({ id: "ses_new", title: "New" })),
         remove: jest.fn(async () => {}),
-        finish: jest.fn(async () => ({
-          committed: true,
-          pushed: false,
-          prUrl: null,
-          branch: "b",
-          path: "/worktree",
-          error: null,
-        })),
       },
     },
     workspaces: {
@@ -205,7 +194,6 @@ beforeEach(() => {
   storage.loadSessionPreferences.mockResolvedValue({})
   workspacesMock.mockReturnValue({ data: [], isLoading: false })
   sessionsMock.mockReturnValue({ data: [], isLoading: false })
-  directoriesMock.mockReturnValue({ data: [], isLoading: false })
   statusesMock.mockReturnValue({ data: {} })
   messagesMock.mockReturnValue({ data: [], isLoading: false })
   eventStreamMock.mockImplementation(() => jest.fn())
@@ -224,7 +212,6 @@ afterEach(() => {
 async function renderAuthenticated(options: {
   workspaces?: WorkspaceRecord[]
   sessions?: Session[]
-  directories?: string[]
   autoAccept?: string[]
   workspaceID?: string | null
   messages?: ChatMessage[]
@@ -244,7 +231,6 @@ async function renderAuthenticated(options: {
   storage.loadAutoAcceptSessionsFor.mockResolvedValue(options.autoAccept ?? [])
   workspacesMock.mockReturnValue({ data: options.workspaces ?? [workspace], isLoading: false })
   sessionsMock.mockReturnValue({ data: options.sessions ?? [], isLoading: false })
-  directoriesMock.mockReturnValue({ data: options.directories ?? [], isLoading: false })
   messagesMock.mockReturnValue({ data: options.messages ?? [], isLoading: false })
 
   await render(<App />)
@@ -323,23 +309,12 @@ describe("App — login errors", () => {
 })
 
 describe("App — sessions", () => {
-  it("creates a standard session from the header", async () => {
+  it("creates a session from the header", async () => {
     await renderAuthenticated()
 
     await fireEvent.press(await screen.findByLabelText("New session"))
-    await fireEvent.press(screen.getByText("Create session"))
 
-    expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: false })
-  })
-
-  it("creates an isolated session when the toggle is on", async () => {
-    await renderAuthenticated()
-
-    await fireEvent.press(await screen.findByLabelText("New session"))
-    await fireEvent.press(screen.getByLabelText("Isolated session"))
-    await fireEvent.press(screen.getByText("Create session"))
-
-    expect(client.api.sessions.create).toHaveBeenCalledWith("ws1", { isolated: true })
+    expect(client.api.sessions.create).toHaveBeenCalledWith("ws1")
   })
 
   it("banners a failed session creation", async () => {
@@ -349,7 +324,6 @@ describe("App — sessions", () => {
     await renderAuthenticated()
 
     await fireEvent.press(await screen.findByLabelText("New session"))
-    await fireEvent.press(screen.getByText("Create session"))
 
     expect(await screen.findByText("Could not create the session")).toBeOnTheScreen()
   })
@@ -522,7 +496,7 @@ describe("App — permissions and events", () => {
     client = makeClient()
     client.api.permissions.mockResolvedValue([permission])
     createClientMock.mockReturnValue(client)
-    await renderAuthenticated({ directories: ["/workspaces/demo"], sessions: [makeSession()] })
+    await renderAuthenticated({ sessions: [makeSession()] })
 
     await act(async () => {
       streamOptions().onEvent({ type: "server.connected" })
@@ -538,7 +512,6 @@ describe("App — permissions and events", () => {
     createClientMock.mockReturnValue(client)
     await renderAuthenticated({
       autoAccept: ["ses_1"],
-      directories: ["/workspaces/demo"],
       sessions: [makeSession()],
     })
 
@@ -556,7 +529,6 @@ describe("App — permissions and events", () => {
     createClientMock.mockReturnValue(client)
     await renderAuthenticated({
       autoAccept: ["ses_1"],
-      directories: ["/workspaces/demo"],
       sessions: [makeSession()],
     })
 
@@ -574,7 +546,6 @@ describe("App — permissions and events", () => {
     createClientMock.mockReturnValue(client)
     await renderAuthenticated({
       autoAccept: ["ses_1"],
-      directories: ["/workspaces/demo"],
       sessions: [makeSession()],
     })
 
@@ -676,7 +647,7 @@ describe("App — foreground recovery", () => {
     client = makeClient()
     client.api.permissions.mockResolvedValue([permission])
     createClientMock.mockReturnValue(client)
-    await renderAuthenticated({ directories: ["/workspaces/demo"], sessions: [makeSession()] })
+    await renderAuthenticated({ sessions: [makeSession()] })
 
     act(() => {
       streamOptions().onConnect?.()

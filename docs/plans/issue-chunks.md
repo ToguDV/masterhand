@@ -1,5 +1,7 @@
 # Issue chunks — batched follow-up plan
 
+> **2026-10-30 — isolated sessions removed.** References below to worktrees, Finish & PR, branch picker/creator or `worktrees.ts` are historical planning context. The feature and its endpoints/UI were deleted; `worktrees.ts` became `git.ts` (root/init/branch reads only). Do not reopen those chunks.
+
 **Snapshot:** 2026-10-29. **#134 (one-click BFF updater) landed** in the first-release session as a first-party opt-in sidecar (no Watchtower, no Docker socket in the BFF); the desktop installers + auto-update and the release pipeline also shipped. Remaining: #211-step-2 (per-card board frames). #225 (delete-path abort channels, follow-up of the C20 review) is fixed in
 [#237](https://github.com/ToguDV/masterhand/pull/237). Everything else from the 2026-10-21 snapshot
 (27 issues) is merged: C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client

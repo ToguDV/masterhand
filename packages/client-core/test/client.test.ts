@@ -102,24 +102,6 @@ describe("createClient", () => {
     await expect(client.auth.status()).rejects.toBeInstanceOf(RequestTimeoutError)
   })
 
-  it("gives finish a longer deadline than interactive requests", async () => {
-    const stall: typeof fetch = (_input, init) =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
-      })
-    const client = createClient({ baseUrl: "", fetchImpl: stall, timeoutMs: 20, finishTimeoutMs: 80 })
-
-    const pending = client.api.sessions.finish("ses_1")
-    const outcome = pending.then(
-      () => "resolved",
-      () => "rejected",
-    )
-    await new Promise((resolve) => setTimeout(resolve, 40))
-    // Still in flight past the interactive deadline: the long budget applies.
-    expect(await Promise.race([outcome, Promise.resolve("pending")])).toBe("pending")
-    await expect(pending).rejects.toBeInstanceOf(RequestTimeoutError)
-  })
-
   it("unwraps the timeout through the generated opencode client", async () => {
     const stall: typeof fetch = (_input, init) =>
       new Promise((_resolve, reject) => {
@@ -197,7 +179,7 @@ describe("createClient", () => {
   it("targets the expected BFF and opencode endpoints", async () => {
     // Every call but the permission reply (a 204 mutation) answers with the universal JSON body.
     const { calls, fetchImpl } = recordingFetch(
-      ...Array.from({ length: 16 }, () => universalBody),
+      ...Array.from({ length: 14 }, () => universalBody),
       () => new Response(null, { status: 204 }),
       universalBody,
     )
@@ -210,10 +192,8 @@ describe("createClient", () => {
     await client.auth.devices()
     await client.auth.revokeDevice("dev/1")
     await client.api.sessions.list("ws_1")
-    await client.api.sessions.create("ws_1", { isolated: true })
+    await client.api.sessions.create("ws_1", { marker: "m1" })
     await client.api.sessions.remove("ws_1", "ses_1")
-    await client.api.sessions.finish("ses_1")
-    await client.api.sessions.directories("ws_1")
     await client.api.messages("ses_1")
     await client.api.prompt("ses_1", { text: "hi" })
     await client.api.abortSession("ses_1")
@@ -241,8 +221,6 @@ describe("createClient", () => {
       "GET https://mh.example/api/workspaces/ws_1/sessions",
       "POST https://mh.example/api/workspaces/ws_1/sessions",
       "DELETE https://mh.example/api/workspaces/ws_1/sessions/ses_1",
-      "POST https://mh.example/api/isolated-sessions/ses_1/finish",
-      "GET https://mh.example/api/workspaces/ws_1/directories",
       "GET https://mh.example/api/oc/api/session/ses_1/message?limit=200&order=desc",
       "POST https://mh.example/api/oc/api/session/ses_1/prompt",
       "POST https://mh.example/api/oc/api/session/ses_1/interrupt",
@@ -677,31 +655,14 @@ describe("opencode session operations", () => {
 })
 
 describe("workspace routing", () => {
-  it("creates an isolated session with the flag in the body", async () => {
+  it("creates a session with the reconciliation marker in the body", async () => {
     const { calls, fetchImpl } = recordingFetch(() => jsonResponse({ session: { id: "ses_1" } }, 201))
     const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
 
-    const session = await client.api.sessions.create("ws_1", { isolated: true })
+    const session = await client.api.sessions.create("ws_1", { marker: "m1" })
     expect(session).toEqual({ id: "ses_1" })
     expect(calls[0]?.url).toBe("https://mh.example/api/workspaces/ws_1/sessions")
-    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ isolated: true })
-  })
-
-  it("finishes an isolated session and unwraps directories", async () => {
-    const { calls, fetchImpl } = recordingFetch(
-      () =>
-        jsonResponse({ committed: true, pushed: false, prUrl: null, branch: "b", path: "/p", error: null }),
-      () => jsonResponse({ directories: ["/workspace/app", "/workspace/.worktrees/app/abc"] }),
-    )
-    const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
-
-    const result = await client.api.sessions.finish("ses_1")
-    expect(result).toMatchObject({ committed: true, prUrl: null })
-    expect(calls[0]?.url).toBe("https://mh.example/api/isolated-sessions/ses_1/finish")
-
-    const directories = await client.api.sessions.directories("ws_1")
-    expect(directories).toHaveLength(2)
-    expect(calls[1]?.url).toBe("https://mh.example/api/workspaces/ws_1/directories")
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ marker: "m1" })
   })
 })
 
@@ -747,43 +708,15 @@ describe("previews", () => {
 })
 
 describe("branches", () => {
-  it("lists, creates and checks out workspace branches", async () => {
+  it("lists the workspace branches", async () => {
     const branches = { current: "main", branches: ["main", "dev"] }
     const { calls, fetchImpl } = recordingFetch(() => jsonResponse(branches))
     const client = createClient({ baseUrl: "https://mh.example", fetchImpl })
 
     expect(await client.api.branches.list("ws/1")).toEqual(branches)
-    expect(await client.api.branches.create("ws/1", "feature/x", "dev")).toEqual(branches)
-    expect(await client.api.branches.create("ws/1", "feature/y")).toEqual(branches)
-    expect(await client.api.branches.checkout("ws/1", "dev")).toEqual(branches)
-
-    const routes = calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)
-    expect(routes).toEqual([
+    expect(calls.map((call) => `${call.init?.method ?? "GET"} ${call.url}`)).toEqual([
       "GET https://mh.example/api/workspaces/ws%2F1/branches",
-      "POST https://mh.example/api/workspaces/ws%2F1/branches",
-      "POST https://mh.example/api/workspaces/ws%2F1/branches",
-      "POST https://mh.example/api/workspaces/ws%2F1/checkout",
     ])
-    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: "feature/x", base: "dev" })
-    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ name: "feature/y" })
-    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({ name: "dev" })
-  })
-
-  it("gives branch mutations their own budget (server git deadline + headroom)", async () => {
-    const stall: typeof fetch = (_input, init) =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
-      })
-    const client = createClient({ baseUrl: "", fetchImpl: stall, timeoutMs: 20, branchTimeoutMs: 80 })
-
-    const pending = client.api.branches.checkout("ws_1", "dev")
-    const outcome = pending.then(
-      () => "resolved",
-      () => "rejected",
-    )
-    await new Promise((resolve) => setTimeout(resolve, 40))
-    expect(await Promise.race([outcome, Promise.resolve("pending")])).toBe("pending")
-    await expect(pending).rejects.toBeInstanceOf(RequestTimeoutError)
   })
 })
 

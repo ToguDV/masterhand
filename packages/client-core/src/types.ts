@@ -47,24 +47,7 @@ export type PermissionResponse = "once" | "always" | "reject"
 /** The model a session last ran with (opencode persists it per session). */
 export type SessionModel = ModelRef
 
-/**
- * MasterHand metadata for a session running in its own git worktree
- * (isolated mode). Added by the BFF; opencode itself knows nothing about it.
- */
-export interface SessionIsolation {
-  isolated: true
-  /** Worktree directory the session runs in (its opencode location). */
-  worktreePath: string
-  /** Branch checked out in the worktree (unique per worktree). */
-  branch: string
-  /** Branch/commit the worktree was created from. */
-  baseRef: string
-  pushed?: boolean
-  prUrl?: string | null
-}
-
 export interface Session extends SessionInfo {
-  isolation?: SessionIsolation
   /**
    * Internal Goal Mode role (added by the BFF). Critic/judge sessions are
    * reachable from the main session's review cards, never from the sidebar:
@@ -75,8 +58,6 @@ export interface Session extends SessionInfo {
 }
 
 export interface CreateSessionInput {
-  /** Run the session in its own git worktree instead of the workspace folder. */
-  isolated?: boolean
   /**
    * Per-request marker persisted as session metadata
    * (`masterhand.create`), so a lost create response can be reconciled.
@@ -84,20 +65,10 @@ export interface CreateSessionInput {
   marker?: string
 }
 
-/** Local git branches of a workspace folder (issue #94). */
+/** Local git branches of a workspace folder. */
 export interface GitBranches {
   current: string
   branches: string[]
-}
-
-export interface FinishSessionResult {
-  committed: boolean
-  pushed: boolean
-  prUrl: string | null
-  branch: string
-  path: string
-  /** Push failure detail, when the branch could not be pushed. */
-  error: string | null
 }
 
 export interface DeviceRecord {

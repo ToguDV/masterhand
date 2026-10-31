@@ -1,6 +1,6 @@
 # Runbook — Backups and restore
 
-What to back up, how to take a consistent copy of the SQLite database while the BFF is running, and how to restore it. The database (`masterhand_data`) holds devices, workspaces, isolated-session records, preview ports, the audit log and run configs; opencode keeps its own data in `opencode_data`/`opencode_config`, and the actual project files live in `WORKSPACES_DIR`.
+What to back up, how to take a consistent copy of the SQLite database while the BFF is running, and how to restore it. The database (`masterhand_data`) holds devices, workspaces, preview ports, the audit log and run configs; opencode keeps its own data in `opencode_data`/`opencode_config`, and the actual project files live in `WORKSPACES_DIR`.
 
 ## 1. What to back up
 
@@ -8,7 +8,7 @@ What to back up, how to take a consistent copy of the SQLite database while the 
 |---|---|---|
 | `masterhand_data` (`/data`) | `masterhand.sqlite` — all MasterHand state | Online backup (below) |
 | `opencode_data`, `opencode_config` | opencode sessions, auth and settings | Volume snapshot/tar (see deployment runbook §7) |
-| `WORKSPACES_DIR` (`/workspace`) | The projects themselves, including per-session worktrees under `.worktrees/` | Your normal file backup |
+| `WORKSPACES_DIR` (`/workspace`) | The projects themselves | Your normal file backup |
 
 ## 2. Online database backup (no downtime)
 
@@ -56,7 +56,7 @@ docker compose -f deploy/docker-compose.yml start
 3. Keep the restored file owner-only (`chmod 600`, owner `1000:1000` in the container); the BFF tightens the data directory and database on the next boot.
 4. Start the stack again. The BFF runs a `quick_check` at boot and refuses to start with a clear message when the file is corrupt (restore from a newer backup).
 
-After restoring an older database, isolated-session records may point at worktrees that no longer exist; startup reconciliation skips unconfirmed volumes and quarantines rather than deleting uncommitted work (see `docs/past-mistakes.md` rule 11).
+After restoring an older database, nothing points at worktree folders anymore: the `isolated_sessions` table was dropped by migration v4 and legacy `.worktrees/` folders are left untouched on disk for manual cleanup (`git worktree list`, `git worktree remove`). See `docs/past-mistakes.md` rule 11.
 
 ## 4. Corruption behavior
 

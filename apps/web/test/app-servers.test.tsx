@@ -29,7 +29,6 @@ vi.mock("@masterhand/client-core", async (importOriginal) => {
     useWorkspaces: vi.fn(() => ({ data: [] })),
     useSessions: vi.fn(() => ({ data: [] })),
     useSessionStatuses: vi.fn(() => ({ data: {} })),
-    useSessionDirectories: vi.fn(() => ({ data: [] })),
   }
 })
 

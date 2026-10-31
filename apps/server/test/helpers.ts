@@ -11,7 +11,7 @@ import { createPreviewManager, type PreviewManager } from "../src/preview.js"
 import { type SchedulerManager } from "../src/scheduler.js"
 import { createSqliteStore, type DeviceRecord, type Store } from "../src/store.js"
 import type { CustomProviderStore } from "../src/providers.js"
-import type { WorktreeManager } from "../src/worktrees.js"
+import type { GitManager } from "../src/git.js"
 
 export async function waitFor(predicate: () => boolean, timeoutMs = 8000, intervalMs = 25): Promise<void> {
   const started = Date.now()
@@ -432,7 +432,6 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     webDist: null,
     allowedOrigins: [],
     workspacesRoot: "/tmp/masterhand-workspaces",
-    worktreesRoot: "/tmp/masterhand-worktrees",
     gitUserName: "MasterHand Tests",
     gitUserEmail: "tests@masterhand.local",
     previewEnabled: true,
@@ -460,54 +459,20 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 }
 
 /** In-memory `git` stand-in: records calls and answers like a clean repo. */
-export interface FakeWorktrees extends WorktreeManager {
+export interface FakeGit extends GitManager {
   calls: string[]
-  /** Branch names currently "created" by the fake. */
-  knownBranches: Set<string>
 }
 
-export function createFakeWorktreeManager(overrides: Partial<WorktreeManager> = {}): FakeWorktrees {
+export function createFakeGitManager(overrides: Partial<GitManager> = {}): FakeGit {
   const calls: string[] = []
-  const branches = new Set<string>()
-  const manager: FakeWorktrees = {
+  const manager: FakeGit = {
     calls,
-    knownBranches: branches,
     isRepoRoot: async () => true,
     ensureRepo: async (path) => {
       calls.push(`ensure:${path}`)
     },
     headBranch: async () => "main",
-    create: async (repo, path, branch) => {
-      calls.push(`create:${repo}:${path}:${branch}`)
-      branches.add(branch)
-    },
-    remove: async (repo, path, branch) => {
-      calls.push(`remove:${repo}:${path}:${branch}`)
-      branches.delete(branch)
-    },
-    quarantine: async (repo, path) => {
-      calls.push(`quarantine:${repo}:${path}`)
-      return `${path}.orphaned-test`
-    },
-    list: async () => [],
-    commitAll: async (path) => {
-      calls.push(`commit:${path}`)
-      return true
-    },
-    remoteUrl: async () => null,
-    push: async (path, branch) => {
-      calls.push(`push:${path}:${branch}`)
-    },
-    pullRequest: async () => null,
     branches: async () => ({ current: "main", branches: ["main"] }),
-    isDirty: async () => false,
-    createBranch: async (repo, name) => {
-      calls.push(`create-branch:${repo}:${name}`)
-      branches.add(name)
-    },
-    checkout: async (repo, name) => {
-      calls.push(`checkout:${repo}:${name}`)
-    },
     ...overrides,
   }
   return manager
@@ -589,13 +554,12 @@ export async function startTestApp(
     store?: Store
     createDir?: (path: string) => Promise<void>
     removeDir?: (path: string) => Promise<void>
-    worktrees?: WorktreeManager
+    git?: GitManager
     runs?: import("../src/runs.js").RunManager
     providers?: CustomProviderStore
     goals?: import("../src/goal.js").GoalManager
     proxyRetry?: import("../src/proxy.js").ProxyRetryOptions
     connectKeyBudgetMs?: number
-    finishBudgetMs?: number
     workspaceDeleteBudgetMs?: number
     workspaceDeleteBackgroundMs?: number
     fetchImpl?: typeof fetch
@@ -603,8 +567,6 @@ export async function startTestApp(
     sessionsCacheMs?: number
     sseQueueMax?: number
     sseBytesMax?: number
-    /** Overridable for tests: boot readiness reported by `/api/health`. */
-    isReady?: () => boolean
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
     updateApplier?: import("../src/updater.js").UpdateApplier
@@ -652,13 +614,12 @@ export async function startTestApp(
     hub,
     createDir: options.createDir ?? (async () => {}),
     removeDir: options.removeDir ?? (async () => {}),
-    worktrees: options.worktrees ?? createFakeWorktreeManager(),
+    git: options.git ?? createFakeGitManager(),
     runs: options.runs,
     providers: options.providers,
     goals: options.goals,
     proxyRetry: options.proxyRetry ?? { baseDelayMs: 1, jitter: false },
     connectKeyBudgetMs: options.connectKeyBudgetMs,
-    finishBudgetMs: options.finishBudgetMs,
     workspaceDeleteBudgetMs: options.workspaceDeleteBudgetMs,
     workspaceDeleteBackgroundMs: options.workspaceDeleteBackgroundMs,
     fetchImpl: options.fetchImpl,
@@ -666,7 +627,6 @@ export async function startTestApp(
     sessionsCacheMs: options.sessionsCacheMs,
     sseQueueMax: options.sseQueueMax,
     sseBytesMax: options.sseBytesMax,
-    isReady: options.isReady,
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
     updateApplier: options.updateApplier,

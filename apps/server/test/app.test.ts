@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createDevice,
   createFakeTunnel,
-  createFakeWorktreeManager,
+  createFakeGitManager,
   login,
   startMockOpencode,
   startTestApp,
@@ -229,21 +229,12 @@ describe("storage resilience", () => {
     expect(await response.json()).toEqual({ ok: false, error: "storage_unavailable" })
   })
 
-  it("answers liveness immediately while readiness follows the boot pass", async () => {
-    // The server listens before worktree reconciliation settles (issue #199):
-    // liveness is always 200 while the store answers, and `ready` flips only
-    // when the background pass is done.
-    let ready = false
-    app = await startTestApp({ isReady: () => ready })
+  it("reports readiness as soon as the store answers", async () => {
+    app = await startTestApp()
 
-    const waiting = await fetch(`${app.url}/api/health`)
-    expect(waiting.status).toBe(200)
-    expect(await waiting.json()).toEqual({ ok: true, ready: false })
-
-    ready = true
-    const settled = await fetch(`${app.url}/api/health`)
-    expect(settled.status).toBe(200)
-    expect(await settled.json()).toEqual({ ok: true, ready: true })
+    const response = await fetch(`${app.url}/api/health`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, ready: true })
   })
 
   it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {
@@ -564,7 +555,7 @@ describe("preview routes", () => {
     expect(app.store.getPreviewPort(session.id)).toBeNull()
   })
 
-  it("applies the write and process guards plus the process instruction on session creation", async () => {
+  it("allows external work and applies the process and engine guards on session creation", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url } })
     const cookie = await login(app.url)
@@ -582,7 +573,10 @@ describe("preview routes", () => {
       (request) => request.method === "PATCH" && request.path === `/api/session/${session.id}`,
     )
     const permissions = (JSON.parse(patch?.body ?? "{}") as { permissions?: unknown[] }).permissions ?? []
-    expect(permissions).toContainEqual({ action: "edit", resource: "/*", effect: "deny" })
+    // Agents may work in any project: external access is allowed, with no
+    // workspace-write confinement.
+    expect(permissions).toContainEqual({ action: "external_directory", resource: "*", effect: "allow" })
+    expect(permissions).not.toContainEqual({ action: "edit", resource: "/*", effect: "deny" })
     expect(permissions).toContainEqual({ action: "shell", resource: "pkill*", effect: "deny" })
     expect(permissions).toContainEqual({ action: "shell", resource: "kill $*", effect: "deny" })
     // #219: engine read tools run as the engine uid, so absolute reads of
@@ -596,6 +590,11 @@ describe("preview routes", () => {
     })
     expect(permissions).toContainEqual({
       action: "external_directory",
+      resource: "/home/node/.config/opencode/*",
+      effect: "deny",
+    })
+    expect(permissions).toContainEqual({
+      action: "edit",
       resource: "/home/node/.config/opencode/*",
       effect: "deny",
     })
@@ -967,7 +966,7 @@ describe("managed run errors", () => {
     }
   })
 
-  it("runs an isolated session in its worktree directory", async () => {
+  it("runs a session in the workspace directory", async () => {
     upstream = await startMockOpencode()
     app = await startTestApp({ config: { opencodeUrl: upstream.url } })
     const cookie = await login(app.url)
@@ -980,25 +979,15 @@ describe("managed run errors", () => {
       source: "user",
       updatedAt: 1,
     })
-    app.store.createIsolatedSession({
-      sessionID: "ses_iso",
-      workspaceID: "ws",
-      path: "/tmp/masterhand-worktrees/ws/abc",
-      branch: "b",
-      baseRef: "main",
-      pushed: false,
-      prUrl: null,
-      createdAt: 1,
-    })
 
-    const started = await fetch(`${app.url}/api/sessions/ses_iso/run?workspace=ws`, {
+    const started = await fetch(`${app.url}/api/sessions/ses_1/run?workspace=ws`, {
       method: "POST",
       headers: { cookie },
     })
     expect(started.status).toBe(200)
     const ptyCall = upstream.requests.find((request) => request.method === "POST" && request.path === "/api/pty")
-    expect(decodeURIComponent(ptyCall?.query ?? "")).toContain("location[directory]=/tmp/masterhand-worktrees/ws/abc")
-    expect(JSON.parse(ptyCall?.body ?? "{}")).toMatchObject({ cwd: "/tmp/masterhand-worktrees/ws/abc" })
+    expect(decodeURIComponent(ptyCall?.query ?? "")).toContain("location[directory]=/tmp/masterhand-workspaces/ws")
+    expect(JSON.parse(ptyCall?.body ?? "{}")).toMatchObject({ cwd: "/tmp/masterhand-workspaces/ws" })
   })
 })
 
@@ -1037,8 +1026,8 @@ describe("/api/workspaces", () => {
   })
 
   it("initializes the workspace as its own git root", async () => {
-    const worktrees = createFakeWorktreeManager()
-    app = await startTestApp({ worktrees })
+    const git = createFakeGitManager()
+    app = await startTestApp({ git })
     const cookie = await login(app.url)
 
     const created = await fetch(`${app.url}/api/workspaces`, {
@@ -1049,7 +1038,7 @@ describe("/api/workspaces", () => {
     expect(created.status).toBe(201)
     const { workspace } = (await created.json()) as { workspace: { path: string } }
     // A nested workspace must not resolve opencode's project root to MasterHand.
-    expect(worktrees.calls).toEqual([`ensure:${workspace.path}`])
+    expect(git.calls).toEqual([`ensure:${workspace.path}`])
   })
 
   it("trims the given name", async () => {
@@ -1147,23 +1136,11 @@ describe("/api/workspaces", () => {
 
   it("refuses to delete files outside the root before touching any child resource", async () => {
     const removedPaths: string[] = []
-    const worktrees = createFakeWorktreeManager()
     app = await startTestApp({
-      worktrees,
       removeDir: async (path) => { removedPaths.push(path) },
     })
     const cookie = await login(app.url)
     app.store.createWorkspace({ id: "legacy", name: "legacy", path: "/etc", createdAt: Date.now() })
-    app.store.createIsolatedSession({
-      sessionID: "ses_legacy",
-      workspaceID: "legacy",
-      path: "/tmp/masterhand-worktrees/legacy/abc",
-      branch: "masterhand/legacy-abc",
-      baseRef: "main",
-      pushed: false,
-      prUrl: null,
-      createdAt: 1,
-    })
 
     const refused = await fetch(`${app.url}/api/workspaces/legacy?deleteFiles=1`, {
       method: "DELETE",
@@ -1171,9 +1148,6 @@ describe("/api/workspaces", () => {
     })
     expect(refused.status).toBe(403)
     expect(removedPaths).toEqual([])
-    // The 403 must win before the worktree/record cleanup.
-    expect(worktrees.calls).toEqual([])
-    expect(app.store.getIsolatedSession("ses_legacy")).not.toBeNull()
 
     const forgotten = await fetch(`${app.url}/api/workspaces/legacy`, {
       method: "DELETE",
@@ -1323,13 +1297,11 @@ describe("login rate limiting", () => {
 })
 
 describe("out-of-band session deletion", () => {
-  it("cleans up the preview, the run PTY, the reserved port and the worktree record", async () => {
+  it("cleans up the preview, the run PTY and the reserved port", async () => {
     upstream = await startMockOpencode()
-    const worktrees = createFakeWorktreeManager()
     const tunnel = createFakeTunnel()
     app = await startTestApp({
       config: { opencodeUrl: upstream.url },
-      worktrees,
       previewOptions: { spawnImpl: tunnel.spawnImpl },
     })
     const cookie = await login(app.url)
@@ -1341,16 +1313,6 @@ describe("out-of-band session deletion", () => {
       cwd: null,
       source: "user",
       updatedAt: 1,
-    })
-    app.store.createIsolatedSession({
-      sessionID: "ses_out",
-      workspaceID: "ws",
-      path: "/tmp/masterhand-worktrees/ws/abc",
-      branch: "masterhand/ws-abc",
-      baseRef: "main",
-      pushed: false,
-      prUrl: null,
-      createdAt: 1,
     })
 
     // Start both managed resources, then let opencode report the session gone
@@ -1366,13 +1328,92 @@ describe("out-of-band session deletion", () => {
 
     upstream.emit({ id: "evt_out", type: "session.deleted", data: { sessionID: "ses_out" } })
 
-    await waitFor(() => app!.store.getIsolatedSession("ses_out") === null)
     await waitFor(() =>
       upstream!.requests.some((request) => request.method === "DELETE" && request.path.startsWith("/api/pty/")),
     )
-    expect(worktrees.calls).toContain("remove:/tmp/masterhand-workspaces/ws:/tmp/masterhand-worktrees/ws/abc:masterhand/ws-abc")
-    expect(app.store.getPreviewPort("ses_out")).toBeNull()
+    await waitFor(() => app!.store.getPreviewPort("ses_out") === null)
     expect(app.preview.status("ses_out")).toMatchObject({ status: "stopped" })
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+  })
+})
+
+describe("route guards", () => {
+  it("requires a workspace for run routes", async () => {
+    app = await startTestApp()
+    const cookie = await login(app.url)
+
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const response = await fetch(`${app.url}/api/sessions/ses_x/run`, { method, headers: { cookie } })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error: "workspace_required" })
+    }
+  })
+
+  it("answers preview_disabled on every preview route when previews are off", async () => {
+    app = await startTestApp({ config: { previewEnabled: false } })
+    const cookie = await login(app.url)
+
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const response = await fetch(`${app.url}/api/sessions/ses_x/preview`, { method, headers: { cookie } })
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: "preview_disabled" })
+    }
+  })
+
+  it("ignores a malformed create body and still creates the session", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+
+    const response = await fetch(`${app.url}/api/workspaces/ws/sessions`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: "{not json",
+    })
+    expect(response.status).toBe(201)
+    const create = upstream.requests.find((request) => request.method === "POST" && request.path === "/api/session")
+    expect(JSON.parse(create?.body ?? "{}")).not.toHaveProperty("metadata")
+  })
+
+  it("pages the session list and falls back on garbage paging params", async () => {
+    upstream = await startMockOpencode()
+    app = await startTestApp({ config: { opencodeUrl: upstream.url } })
+    const cookie = await login(app.url)
+    app.store.createWorkspace({ id: "ws", name: "ws", path: "/tmp/masterhand-workspaces/ws", createdAt: Date.now() })
+    const headers = { cookie, "content-type": "application/json" }
+    for (let index = 0; index < 3; index += 1) {
+      const created = await fetch(`${app.url}/api/workspaces/ws/sessions`, {
+        method: "POST",
+        headers,
+        body: "{}",
+      })
+      expect(created.status).toBe(201)
+    }
+
+    const full = (await (await fetch(`${app.url}/api/workspaces/ws/sessions`, { headers })).json()) as {
+      sessions: unknown[]
+    }
+    expect(full.sessions).toHaveLength(3)
+
+    const first = (await (await fetch(`${app.url}/api/workspaces/ws/sessions?limit=2`, { headers })).json()) as {
+      sessions: unknown[]
+      truncated?: boolean
+      nextCursor?: string
+    }
+    expect(first.sessions).toHaveLength(2)
+    expect(first.truncated).toBe(true)
+    expect(first.nextCursor).toBe("2")
+
+    const second = (await (
+      await fetch(`${app.url}/api/workspaces/ws/sessions?limit=2&cursor=2`, { headers })
+    ).json()) as { sessions: unknown[]; truncated?: boolean }
+    expect(second.sessions).toHaveLength(1)
+    expect(second.truncated).toBeUndefined()
+
+    const garbage = (await (
+      await fetch(`${app.url}/api/workspaces/ws/sessions?limit=abc&cursor=abc`, { headers })
+    ).json()) as { sessions: unknown[] }
+    expect(garbage.sessions).toHaveLength(3)
   })
 })

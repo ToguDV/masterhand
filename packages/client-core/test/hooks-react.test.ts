@@ -21,7 +21,6 @@ import {
   useMessages,
   useModels,
   usePreview,
-  useSessionDirectories,
   useSessionRun,
   useSessions,
   useSessionStatuses,
@@ -41,8 +40,6 @@ function makeClient(stream = makeEventStream()) {
     list: vi.fn(async (): Promise<SessionPage> => ({ sessions: [] })),
     create: vi.fn(async () => ({ id: "ses_new" })),
     remove: vi.fn(async () => {}),
-    finish: vi.fn(async () => ({ committed: true })),
-    directories: vi.fn(async () => []),
   }
   const api = {
     sessions,
@@ -261,16 +258,6 @@ describe("query hooks", () => {
     expect(refetched.data?.[0]?.parts).toEqual([
       { id: "msg_1:text:0", sessionID: "ses_1", messageID: "msg_1", type: "text", text: "Working…" },
     ])
-  })
-
-  it("useSessionDirectories loads the directory list for a workspace", async () => {
-    const qc = newQueryClient()
-    const { client, sessions } = makeClient()
-    const { result } = renderHook(() => useSessionDirectories(client, true, "ws_1"), {
-      wrapper: wrapper(qc),
-    })
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(sessions.directories).toHaveBeenCalledWith("ws_1")
   })
 
   it("useWorkspaces loads the registered workspaces", async () => {

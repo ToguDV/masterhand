@@ -41,12 +41,7 @@ export async function addWorkspace(page: Page, name?: string): Promise<string> {
   return workspaceName
 }
 
-/**
- * Creates a session through the Sessions header's `+` menu, whose popover
- * hosts the isolated-worktree option.
- */
-export async function newSession(page: Page, options: { isolated?: boolean } = {}): Promise<void> {
+/** Creates a session from the Sessions header's `+` action. */
+export async function newSession(page: Page): Promise<void> {
   await page.getByRole("button", { name: "New session" }).click()
-  if (options.isolated) await page.getByRole("checkbox", { name: /Isolated session/ }).check()
-  await page.getByRole("button", { name: "Create session" }).click()
 }

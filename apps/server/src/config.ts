@@ -45,9 +45,7 @@ export interface Config {
   allowedOrigins: string[]
   /** Base directory under which every workspace subfolder is created. */
   workspacesRoot: string
-  /** Base directory for per-session git worktrees (inside the shared mount). */
-  worktreesRoot: string
-  /** Author used for commits MasterHand creates in isolated worktrees. */
+  /** Author used for the initial commit when a workspace is not a git repo yet. */
   gitUserName: string
   gitUserEmail: string
   /**
@@ -353,10 +351,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDist: env.WEB_DIST === "" ? null : (env.WEB_DIST ?? "apps/web/dist"),
     allowedOrigins: [...allowedOrigins],
     workspacesRoot,
-    // Worktrees must live inside the shared mount so opencode sees them.
-    worktreesRoot: env.WORKTREES_ROOT?.trim()
-      ? fromRepoRoot(env.WORKTREES_ROOT, ".worktrees")
-      : resolve(workspacesRoot, ".worktrees"),
     gitUserName: env.GIT_COMMIT_NAME?.trim() || "MasterHand",
     gitUserEmail: env.GIT_COMMIT_EMAIL?.trim() || "masterhand@localhost",
     version: env.MASTERHAND_VERSION?.trim() || "0.1.0",

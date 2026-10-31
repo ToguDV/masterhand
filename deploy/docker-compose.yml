@@ -39,8 +39,6 @@ services:
       WEB_DIST: apps/web/dist
       # Every workspace is a subfolder created here (same path opencode sees).
       WORKSPACES_ROOT: /workspace
-      # Per-session git worktrees; inside the shared mount so opencode sees them.
-      WORKTREES_ROOT: /workspace/.worktrees
       # Live previews: the tunnel targets the dev server inside the opencode
       # container. Quick tunnels need outbound Internet access.
       PREVIEW_ENABLED: ${PREVIEW_ENABLED:-true}

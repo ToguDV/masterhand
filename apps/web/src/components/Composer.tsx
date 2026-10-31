@@ -102,7 +102,6 @@ export function Composer({
   onToggleAutoAccept,
   pending,
   header,
-  isolationBar,
 }: {
   /** Retry handle used by the chat container's ghost bubble. */
   ref?: Ref<ComposerHandle>
@@ -117,8 +116,6 @@ export function Composer({
   pending: PendingSendController
   /** Composer context bar (workspace menu, branch, stats). Rendered as the dock head. */
   header?: ReactNode
-  /** Isolated-worktree strip. Rendered inside the dock for isolated sessions. */
-  isolationBar?: ReactNode
 }) {
   const agentsQuery = useAgents(client)
   const modelsQuery = useModels(client)
@@ -717,7 +714,6 @@ export function Composer({
 
         <div className="mh-composer-dock">
           {header && <div className="mh-composer-dock__head">{header}</div>}
-          {isolationBar}
 
           <div className="mh-composer-dock__body relative">
             {popover && (

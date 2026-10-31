@@ -1,23 +1,15 @@
 import { useEffect, useState } from "react"
 import {
   directoryName,
-  filterSessions,
   formatRelative,
   rootSessions,
   type Session,
-  type SessionFilter,
   type SessionStatus,
 } from "@masterhand/client-core"
 import { Deco } from "./Deco"
 import { XIcon } from "./icons"
 import { NewSessionMenu } from "./NewSessionMenu"
 import { loadLastSeen } from "../sessionSeen"
-
-const FILTERS: Array<{ value: SessionFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "isolated", label: "Isolated" },
-  { value: "standard", label: "Standard" },
-]
 
 /** Sessions rendered at once; more load on demand (no virtualization). */
 const SESSION_PAGE_SIZE = 100
@@ -40,12 +32,11 @@ export function SessionList({
   onDelete: (id: string) => void
   /** False before any workspace exists; disables creation and changes the copy. */
   hasWorkspace: boolean
-  onCreateSession: (isolated: boolean) => void
+  onCreateSession: () => void
   creating: boolean
   /** Active server profile id: scopes the seen/unseen markers. */
   serverID: string
 }) {
-  const [filter, setFilter] = useState<SessionFilter>("all")
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE)
   const [lastSeen, setLastSeen] = useState<Record<string, number>>(() => loadLastSeen(serverID))
   // App owns persistence (the mobile list unmounts while a chat is open);
@@ -55,32 +46,18 @@ export function SessionList({
     setLastSeen((previous) => ({ ...previous, [selectedID]: Date.now() }))
   }, [selectedID])
   // Subagent children are reachable from their parent's card, not the list.
-  const visible = filterSessions(rootSessions(sessions), filter)
+  const visible = rootSessions(sessions)
   const shown = visible.slice(0, visibleCount)
   const remaining = visible.length - shown.length
 
   const emptyText = hasWorkspace
-    ? filter === "all"
-      ? "No sessions yet."
-      : "No sessions match this filter."
+    ? "No sessions yet."
     : "Add a workspace to start working on a project."
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-1.5 border-b border-hairline px-3 py-3">
-        {FILTERS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => setFilter(option.value)}
-            className={`mh-pill ${filter === option.value ? "is-active" : ""}`}
-          >
-            {option.label}
-          </button>
-        ))}
-        <div className="ml-auto">
-          <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
-        </div>
+      <div className="flex items-center justify-end gap-1.5 border-b border-hairline px-3 py-3">
+        <NewSessionMenu onCreate={onCreateSession} creating={creating} disabled={!hasWorkspace} />
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">
@@ -89,7 +66,7 @@ export function SessionList({
             <Deco variant="blob" style={{ top: -60, right: -70, width: 240, height: 220 }} />
             <Deco variant="dots" style={{ bottom: -14, left: -18 }} />
             <h3 className="mh-heading-2">{emptyText}</h3>
-            {hasWorkspace && filter === "all" && (
+            {hasWorkspace && (
               <p className="mh-empty__body mh-body-sm">Create a session to start working on a project.</p>
             )}
           </div>
@@ -124,14 +101,6 @@ export function SessionList({
                       />
                     ) : null}
                     <span className="mh-session-item__title">{session.title || "Untitled"}</span>
-                    {session.isolation && (
-                      <span
-                        className="mh-chip mh-chip--accent mh-chip--mono max-w-[9rem] truncate"
-                        title={session.isolation.branch}
-                      >
-                        {session.isolation.branch}
-                      </span>
-                    )}
                   </span>
                   <span className="mh-session-item__meta">
                     {directoryName(session.location.directory)} · {formatRelative(session.time.updated)}

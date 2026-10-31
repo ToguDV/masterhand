@@ -21,7 +21,6 @@ import {
   shouldAutoAccept,
   useBffStatus,
   useEventStream,
-  useSessionDirectories,
   useSessions,
   useSessionStatuses,
   useWorkspaces,
@@ -43,7 +42,7 @@ import { BrandMark } from "./components/BrandMark"
 import { ChatView } from "./components/ChatView"
 import { ChoiceModal } from "./components/ChoiceModal"
 import { Deco } from "./components/Deco"
-import { BranchPicker } from "./components/BranchPicker"
+import { BranchViewer } from "./components/BranchViewer"
 import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel"
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
@@ -1145,48 +1144,36 @@ function AuthenticatedApp({
 
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   const workspacePath = workspace?.path ?? null
-  const directoriesQuery = useSessionDirectories(client, true, workspaceID)
   const sessionsQuery = useSessions(client, true, 10_000, workspaceID)
 
   // `permission.asked` and `form.created` events are lost while disconnected
   // and never replayed. On connect (and once workspaces load) reconcile against
-  // opencode, which exposes pending permissions and forms per directory
-  // (workspace folder + worktrees).
+  // opencode, which exposes pending permissions and forms per directory.
   const syncPending = useCallback(async () => {
-    const directories = directoriesQuery.data ?? (workspacePath ? [workspacePath] : [])
-    if (directories.length === 0) return
+    if (!workspacePath) return
 
-    // A directory that fails to answer must not look like "nothing pending":
-    // it stays out of the covered set, so its live state is kept instead of
-    // pruned. Permissions and forms are fetched together so one slow endpoint
-    // cannot make the other look abandoned.
-    type DirectorySnapshot = { directory: string; permissions: Permission[]; forms: FormInfo[] }
-    const results = await Promise.all(
-      directories.map(async (directory): Promise<DirectorySnapshot | null> => {
-        try {
-          const [permissions, forms] = await Promise.all([
-            client.api.permissions(directory),
-            client.api.pendingForms(directory),
-          ])
-          return { directory, permissions, forms }
-        } catch {
-          return null
-        }
-      }),
-    )
-    const answered = results.filter((result): result is DirectorySnapshot => result !== null)
-    if (answered.length === 0) return
+    // A failed listing must not look like "nothing pending": it keeps the live
+    // state instead of pruning it. Permissions and forms are fetched together so
+    // one slow endpoint cannot make the other look abandoned.
+    let permissions: Permission[]
+    let forms: FormInfo[]
+    try {
+      ;[permissions, forms] = await Promise.all([
+        client.api.permissions(workspacePath),
+        client.api.pendingForms(workspacePath),
+      ])
+    } catch {
+      return
+    }
 
     const covered = new Set(
       (sessionsQuery.data ?? [])
-        .filter((session) => answered.some((result) => result.directory === session.location.directory))
+        .filter((session) => session.location.directory === workspacePath)
         .map((session) => session.id),
     )
-    setPermissions((prev) =>
-      reconcilePermissions(prev, answered.flatMap((result) => result.permissions), covered),
-    )
-    setForms((prev) => reconcileForms(prev, answered.flatMap((result) => result.forms), covered))
-  }, [client, directoriesQuery.data, workspacePath, sessionsQuery.data])
+    setPermissions((prev) => reconcilePermissions(prev, permissions, covered))
+    setForms((prev) => reconcileForms(prev, forms, covered))
+  }, [client, workspacePath, sessionsQuery.data])
   const syncPendingRef = useRef(syncPending)
   syncPendingRef.current = syncPending
 
@@ -1390,7 +1377,7 @@ function AuthenticatedApp({
     return null
   }
 
-  async function createSession(isolated: boolean) {
+  async function createSession() {
     if (!workspaceID) {
       setBanner("Add a workspace first")
       return
@@ -1399,9 +1386,8 @@ function AuthenticatedApp({
     setBanner(null)
     const marker = createSessionMarker()
     try {
-      const session = await client.api.sessions.create(workspaceID, { isolated, marker })
+      const session = await client.api.sessions.create(workspaceID, { marker })
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      void queryClient.invalidateQueries({ queryKey: ["directories"] })
       openSession(session.id)
     } catch (error) {
       if (isAmbiguousError(error)) {
@@ -1410,7 +1396,6 @@ function AuthenticatedApp({
         const created = await findCreatedSession(marker)
         if (created) {
           void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-          void queryClient.invalidateQueries({ queryKey: ["directories"] })
           openSession(created)
           return
         }
@@ -1432,7 +1417,6 @@ function AuthenticatedApp({
       await client.api.sessions.remove(workspaceID, id)
       if (sessionID === id) openSession(null)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      void queryClient.invalidateQueries({ queryKey: ["directories"] })
       toast("✓ Session deleted")
       setRemoveSessionID(null)
     } catch {
@@ -1913,7 +1897,7 @@ function AuthenticatedApp({
                     onSelect={openSession}
                     onDelete={setRemoveSessionID}
                     hasWorkspace={Boolean(workspaceID)}
-                    onCreateSession={(isolated) => void createSession(isolated)}
+                    onCreateSession={() => void createSession()}
                     creating={creating}
                     serverID={profile.id}
                   />
@@ -2047,7 +2031,6 @@ function AuthenticatedApp({
               workspaceID={workspaceID}
               workspacePath={workspacePath}
               workspaces={workspaces}
-              isolation={selected?.isolation}
               autoAccept={autoAcceptSessions.includes(sessionID)}
               onToggleAutoAccept={(on) => toggleAutoAccept(sessionID, on)}
               onOpenSession={openSession}
@@ -2086,7 +2069,7 @@ function AuthenticatedApp({
                     onSelect={openSession}
                     onDelete={setRemoveSessionID}
                     hasWorkspace={Boolean(workspaceID)}
-                    onCreateSession={(isolated) => void createSession(isolated)}
+                    onCreateSession={() => void createSession()}
                     creating={creating}
                     serverID={profile.id}
                   />
@@ -2102,7 +2085,7 @@ function AuthenticatedApp({
                     onSelectWorkspace={switchWorkspace}
                     onAddWorkspace={() => setAddingWorkspace(true)}
                     onRemoveWorkspace={setRemoveWorkspaceID}
-                    branch={workspaceID ? <BranchPicker workspaceID={workspaceID} /> : undefined}
+                    branch={workspaceID ? <BranchViewer workspaceID={workspaceID} /> : undefined}
                   />
                   <div className="mh-empty w-full max-w-lg border-0 bg-transparent">
                     <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />

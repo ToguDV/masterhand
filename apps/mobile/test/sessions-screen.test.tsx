@@ -23,16 +23,6 @@ function makeSession(overrides: Partial<Session> & { id: string; title: string }
 }
 
 const standard = makeSession({ id: "ses_1", title: "Standard session" })
-const isolated = makeSession({
-  id: "ses_2",
-  title: "Isolated session",
-  isolation: {
-    isolated: true,
-    worktreePath: "/workspaces/.worktrees/demo/abc",
-    branch: "masterhand/abc",
-    baseRef: "HEAD",
-  },
-})
 const child = makeSession({ id: "ses_child", title: "Subagent child", parentID: "ses_1" })
 
 async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>> = {}) {
@@ -49,7 +39,7 @@ async function setup(props: Partial<React.ComponentProps<typeof SessionsScreen>>
   await render(
     <GestureWrapper>
     <SessionsScreen
-      sessions={[standard, isolated, child]}
+      sessions={[standard, child]}
       loading={false}
       statuses={{} as SessionStatuses}
       connected
@@ -70,26 +60,7 @@ describe("SessionsScreen", () => {
     await setup()
 
     expect(screen.getByText("Standard session")).toBeOnTheScreen()
-    expect(screen.getByText("Isolated session")).toBeOnTheScreen()
     expect(screen.queryByText("Subagent child")).toBeNull()
-  })
-
-  it("shows the isolation branch badge", async () => {
-    await setup()
-
-    expect(screen.getByText("masterhand/abc")).toBeOnTheScreen()
-  })
-
-  it("filters by isolation mode", async () => {
-    await setup()
-
-    await fireEvent.press(screen.getByText("Isolated"))
-    expect(screen.queryByText("Standard session")).toBeNull()
-    expect(screen.getByText("Isolated session")).toBeOnTheScreen()
-
-    await fireEvent.press(screen.getByText("Standard"))
-    expect(screen.queryByText("Isolated session")).toBeNull()
-    expect(screen.getByText("Standard session")).toBeOnTheScreen()
   })
 
   it("opens a session when its row is pressed", async () => {
@@ -100,16 +71,12 @@ describe("SessionsScreen", () => {
     expect(handlers.onOpen).toHaveBeenCalledWith("ses_1")
   })
 
-  it("creates a new session from the header popover with the isolated flag", async () => {
+  it("creates a new session directly from the header action", async () => {
     const handlers = await setup()
 
-    // The new-session action is a header icon whose popover hosts the toggle.
     await fireEvent.press(screen.getByLabelText("New session"))
-    expect(screen.getByText("Runs in its own git worktree and branch")).toBeOnTheScreen()
-    await fireEvent.press(screen.getByLabelText("Isolated session"))
-    await fireEvent.press(screen.getByText("Create session"))
 
-    expect(handlers.onNew).toHaveBeenCalledWith(true)
+    expect(handlers.onNew).toHaveBeenCalledTimes(1)
   })
 
   it("blocks creating and explains why when there is no workspace", async () => {
@@ -118,7 +85,6 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("Add a workspace to start working on a project.")).toBeOnTheScreen()
 
     await fireEvent.press(screen.getByLabelText("New session"))
-    expect(screen.queryByText("Create session")).toBeNull()
     expect(handlers.onNew).not.toHaveBeenCalled()
   })
 
@@ -148,12 +114,10 @@ describe("SessionsScreen", () => {
     expect(screen.getByText("Loading…")).toBeOnTheScreen()
   })
 
-  it("explains an empty filter result", async () => {
-    await setup({ sessions: [standard] })
+  it("explains an empty session list", async () => {
+    await setup({ sessions: [] })
 
-    await fireEvent.press(screen.getByText("Isolated"))
-
-    expect(screen.getByText("No sessions match this filter.")).toBeOnTheScreen()
+    expect(screen.getByText("No sessions yet.")).toBeOnTheScreen()
   })
 
   it("opens the settings modal from the bottom nav", async () => {
@@ -177,11 +141,8 @@ describe("SessionsScreen", () => {
   it("disables the new-session action while creating", async () => {
     await setup({ creating: true })
 
-    // No text label anymore: the trigger is disabled and shows a spinner.
     const trigger = screen.getByLabelText("New session")
     expect(trigger.props.accessibilityState?.disabled).toBe(true)
-    await fireEvent.press(trigger)
-    expect(screen.queryByText("Create session")).toBeNull()
   })
 
   it("opens the workspace sheet and confirms removal", async () => {

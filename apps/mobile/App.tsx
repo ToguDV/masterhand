@@ -27,7 +27,6 @@ import {
   serverUrlErrorMessage,
   shouldAutoAccept,
   useEventStream,
-  useSessionDirectories,
   useSessions,
   useSessionStatuses,
   useWorkspaces,
@@ -885,7 +884,6 @@ function AuthenticatedApp({
   const workspaces = workspacesQuery.data ?? []
   const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   const workspacePath = workspace?.path ?? null
-  const directoriesQuery = useSessionDirectories(client, true, workspaceID)
 
   useEffect(() => {
     if (!workspacesQuery.data) return
@@ -1087,40 +1085,30 @@ function AuthenticatedApp({
   // backgrounded and never replayed. Reconcile against opencode on connect and
   // when workspaces load.
   const syncPending = useCallback(async () => {
-    const directories = directoriesQuery.data ?? (workspacePath ? [workspacePath] : [])
-    if (directories.length === 0) return
+    if (!workspacePath) return
 
-    // A directory that fails to answer must not look like "nothing pending":
-    // it stays out of the covered set, so its live state is kept instead of
-    // pruned. Permissions and forms are fetched together so one slow endpoint
-    // cannot make the other look abandoned.
-    type DirectorySnapshot = { directory: string; permissions: Permission[]; forms: FormInfo[] }
-    const results = await Promise.all(
-      directories.map(async (directory): Promise<DirectorySnapshot | null> => {
-        try {
-          const [permissions, forms] = await Promise.all([
-            client.api.permissions(directory),
-            client.api.pendingForms(directory),
-          ])
-          return { directory, permissions, forms }
-        } catch {
-          return null
-        }
-      }),
-    )
-    const answered = results.filter((result): result is DirectorySnapshot => result !== null)
-    if (answered.length === 0) return
+    // A failed listing must not look like "nothing pending": it keeps the live
+    // state instead of pruning it. Permissions and forms are fetched together so
+    // one slow endpoint cannot make the other look abandoned.
+    let permissions: Permission[]
+    let forms: FormInfo[]
+    try {
+      ;[permissions, forms] = await Promise.all([
+        client.api.permissions(workspacePath),
+        client.api.pendingForms(workspacePath),
+      ])
+    } catch {
+      return
+    }
 
     const covered = new Set(
       (sessionsQuery.data ?? [])
-        .filter((session) => answered.some((result) => result.directory === session.location.directory))
+        .filter((session) => session.location.directory === workspacePath)
         .map((session) => session.id),
     )
-    setPermissions((prev) =>
-      reconcilePermissions(prev, answered.flatMap((result) => result.permissions), covered),
-    )
-    setForms((prev) => reconcileForms(prev, answered.flatMap((result) => result.forms), covered))
-  }, [client, directoriesQuery.data, workspacePath, sessionsQuery.data])
+    setPermissions((prev) => reconcilePermissions(prev, permissions, covered))
+    setForms((prev) => reconcileForms(prev, forms, covered))
+  }, [client, workspacePath, sessionsQuery.data])
   const syncPendingRef = useRef(syncPending)
   syncPendingRef.current = syncPending
 
@@ -1296,7 +1284,7 @@ function AuthenticatedApp({
     setSettingsOpen(true)
   }
 
-  async function createSession(isolated: boolean) {
+  async function createSession() {
     if (!workspaceID) {
       setBanner("Add a workspace first")
       return
@@ -1304,9 +1292,8 @@ function AuthenticatedApp({
     setCreating(true)
     setBanner(null)
     try {
-      const session = await client.api.sessions.create(workspaceID, { isolated })
+      const session = await client.api.sessions.create(workspaceID)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      void queryClient.invalidateQueries({ queryKey: ["directories"] })
       setSessionID(session.id)
     } catch {
       setBanner("Could not create the session")
@@ -1321,7 +1308,6 @@ function AuthenticatedApp({
       await client.api.sessions.remove(workspaceID, id)
       if (sessionID === id) setSessionID(null)
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      void queryClient.invalidateQueries({ queryKey: ["directories"] })
     } catch {
       setBanner("Could not delete the session")
     }
@@ -1446,7 +1432,6 @@ function AuthenticatedApp({
             connected={connected}
             workspaceID={workspaceID}
             workspacePath={workspacePath}
-            isolation={selected?.isolation}
             autoAccept={autoAcceptSessions.includes(sessionID)}
             onToggleAutoAccept={(on) => toggleAutoAccept(sessionID, on)}
             onOpenSession={setSessionID}
@@ -1480,7 +1465,7 @@ function AuthenticatedApp({
           canCreate={Boolean(workspaceID)}
           activeSessionID={sessionID}
           onOpen={setSessionID}
-          onNew={(isolated) => void createSession(isolated)}
+          onNew={() => void createSession()}
           onOpenSettings={() => openSettings()}
           serverSwitcher={
             <ServerSwitcher

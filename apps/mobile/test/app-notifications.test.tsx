@@ -4,7 +4,6 @@ import {
   createClient,
   useEventStream,
   useMessages,
-  useSessionDirectories,
   useSessions,
   useSessionStatuses,
   useWorkspaces,
@@ -48,7 +47,6 @@ jest.mock("@masterhand/client-core", () => {
     useWorkspaces: jest.fn(() => ({ data: [], isLoading: false })),
     useSessions: jest.fn(() => ({ data: [], isLoading: false })),
     useSessionStatuses: jest.fn(() => ({ data: {} })),
-    useSessionDirectories: jest.fn(() => ({ data: [] })),
     useBffStatus: jest.fn(() => ({ data: undefined })),
     useMessages: jest.fn(() => ({ data: [], isLoading: false })),
     useAgents: jest.fn(() => ({ data: [] })),
@@ -108,7 +106,6 @@ function makeClient() {
       sessions: {
         create: jest.fn(async () => makeSession()),
         remove: jest.fn(async () => {}),
-        finish: jest.fn(async () => ({})),
       },
     },
     workspaces: {
@@ -132,7 +129,6 @@ beforeEach(() => {
   workspacesMock.mockReturnValue({ data: [workspace], isLoading: false })
   sessionsMock.mockReturnValue({ data: [makeSession()], isLoading: false })
   ;(useSessionStatuses as unknown as jest.Mock).mockReturnValue({ data: {} })
-  ;(useSessionDirectories as unknown as jest.Mock).mockReturnValue({ data: [], isLoading: false })
   ;(useMessages as unknown as jest.Mock).mockReturnValue({ data: [], isLoading: false })
   eventStreamMock.mockImplementation(() => jest.fn())
   createClientMock.mockReturnValue(makeClient())

@@ -10,7 +10,6 @@ import type {
   CreateWorkspaceInput,
   DeviceLoginResponse,
   DeviceRecord,
-  FinishSessionResult,
   FormAnswer,
   FormDetail,
   FormInfo,
@@ -129,24 +128,7 @@ export interface ClientOptions {
    * the UI forever. `0` disables the deadline.
    */
   timeoutMs?: number
-  /**
-   * Deadline for `finish` (commit + push + PR): a legitimate run exceeds the
-   * interactive deadline, so it gets its own budget (rule 2 in
-   * `docs/past-mistakes.md`). Defaults to `FINISH_TIMEOUT_MS`.
-   */
-  finishTimeoutMs?: number
-  /**
-   * Deadline for branch create/checkout (busy check + git status + git
-   * mutation server-side). Defaults to `BRANCH_TIMEOUT_MS`.
-   */
-  branchTimeoutMs?: number
 }
-
-/** Commit (60 s) + push (60 s) + PR (60 s) server-side, plus headroom. */
-export const FINISH_TIMEOUT_MS = 240_000
-
-/** Busy check (10 s) + git status + create/checkout (60 s each) server-side. */
-export const BRANCH_TIMEOUT_MS = 150_000
 
 export interface Client {
   readonly baseUrl: string
@@ -160,9 +142,8 @@ export interface Client {
   }
   api: {
     /**
-     * Workspace-scoped session operations. The BFF aggregates the workspace
-     * folder and every isolated worktree, annotating each session with its
-     * `isolation` (branch/worktree path) when it runs isolated.
+     * Workspace-scoped session operations. All sessions run in the workspace
+     * folder.
      */
     sessions: {
       /**
@@ -173,9 +154,6 @@ export interface Client {
       list(workspaceID: string, options?: SessionListOptions): Promise<SessionPage>
       create(workspaceID: string, input?: CreateSessionInput): Promise<Session>
       remove(workspaceID: string, sessionID: string): Promise<void>
-      finish(sessionID: string): Promise<FinishSessionResult>
-      /** Directories that may hold sessions for the workspace (base + worktrees). */
-      directories(workspaceID: string): Promise<string[]>
     }
     /** Full message history of a session, oldest first (v2 cursor API paginated). */
     messages(sessionID: string): Promise<ChatMessage[]>
@@ -203,14 +181,11 @@ export interface Client {
     /** Interrupts the running turn; returns whether anything was interrupted. */
     abortSession(sessionID: string): Promise<boolean>
     /**
-     * Local-branch access of a workspace folder. `create`/`checkout` are
-     * non-idempotent mutations: on `RequestTimeoutError` the branch operation
-     * may have applied — reconcile, never auto-retry (rule 4).
+     * Read-only local-branch access of a workspace folder. The agent may switch
+     * branches; clients poll `list` and never mutate through this API.
      */
     branches: {
       list(workspaceID: string): Promise<GitBranches>
-      create(workspaceID: string, name: string, base?: string): Promise<GitBranches>
-      checkout(workspaceID: string, name: string): Promise<GitBranches>
     }
     /** Blocked actions (denied commands) kept for diagnosis, newest first. */
     audit(limit?: number): Promise<AuditEvent[]>
@@ -234,7 +209,7 @@ export interface Client {
     respondForm(sessionID: string, formID: string, answer: FormAnswer): Promise<void>
     /** Cancels a form; opencode reports it back to the agent. */
     cancelForm(sessionID: string, formID: string): Promise<void>
-    /** Every pending form of a location (workspace folder or worktree). */
+    /** Every pending form of a location (workspace folder). */
     pendingForms(directory?: string | null): Promise<FormInfo[]>
     agents(): Promise<AgentInfo[]>
     /** Slash commands for a location, with deterministic argument hints. */
@@ -402,8 +377,6 @@ export function createClient(options: ClientOptions = {}): Client {
   const fetchImpl = options.fetchImpl ?? fetch
   const nativeUpload = options.nativeUpload
   const timeoutMs = options.timeoutMs ?? 30_000
-  const finishTimeoutMs = options.finishTimeoutMs ?? FINISH_TIMEOUT_MS
-  const branchTimeoutMs = options.branchTimeoutMs ?? BRANCH_TIMEOUT_MS
 
   /**
    * Every request is bounded: a stalled socket (paused container, lost
@@ -626,16 +599,6 @@ export function createClient(options: ClientOptions = {}): Client {
             `/api/workspaces/${encodeURIComponent(workspaceID)}/sessions/${encodeURIComponent(sessionID)}`,
             { method: "DELETE" },
           ),
-        finish: (sessionID) =>
-          request<FinishSessionResult>(
-            `/api/isolated-sessions/${encodeURIComponent(sessionID)}/finish`,
-            { method: "POST" },
-            finishTimeoutMs,
-          ),
-        directories: (workspaceID) =>
-          request<{ directories: string[] }>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/directories`,
-          ).then((response) => response.directories),
       },
       messages: (sessionID) => listAllMessages(sessionID),
       attachments: {
@@ -724,18 +687,6 @@ export function createClient(options: ClientOptions = {}): Client {
       branches: {
         list: (workspaceID) =>
           request<GitBranches>(`/api/workspaces/${encodeURIComponent(workspaceID)}/branches`),
-        create: (workspaceID, name, base) =>
-          request<GitBranches>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/branches`,
-            { method: "POST", body: JSON.stringify({ name, ...(base ? { base } : {}) }) },
-            branchTimeoutMs,
-          ),
-        checkout: (workspaceID, name) =>
-          request<GitBranches>(
-            `/api/workspaces/${encodeURIComponent(workspaceID)}/checkout`,
-            { method: "POST", body: JSON.stringify({ name }) },
-            branchTimeoutMs,
-          ),
       },
       audit: (limit) =>
         request<{ events: AuditEvent[] }>(`/api/audit${limit ? `?limit=${limit}` : ""}`).then(

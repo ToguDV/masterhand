@@ -2,24 +2,15 @@ import { describe, expect, it } from "vitest"
 import {
   CREATE_MARKER_KEY,
   createSessionMarker,
-  filterSessions,
-  finishResultFromIsolation,
   rootSessions,
   sessionCreateMarker,
   shouldAutoAccept,
 } from "../src/sessions"
 import type { Session } from "../src/types"
 
-function session(id: string, isolation?: Session["isolation"]): Session {
-  return { id, isolation } as Session
+function session(id: string): Session {
+  return { id } as Session
 }
-
-const isolated = session("ses_iso", {
-  isolated: true,
-  worktreePath: "/workspace/.worktrees/app/abc",
-  branch: "masterhand/app-abc",
-  baseRef: "main",
-})
 
 describe("session create markers", () => {
   it("pins the wire literal shared with the BFF", () => {
@@ -42,19 +33,6 @@ describe("session create markers", () => {
     expect(sessionCreateMarker(withMarker({ other: "x" }))).toBeNull()
     expect(sessionCreateMarker(withMarker({ [CREATE_MARKER_KEY]: 42 }))).toBeNull()
     expect(sessionCreateMarker({ id: "ses_4" } as unknown as Session)).toBeNull()
-  })
-})
-
-describe("filterSessions", () => {
-  const sessions = [session("ses_plain"), isolated]
-
-  it("returns every session for the all filter", () => {
-    expect(filterSessions(sessions, "all")).toHaveLength(2)
-  })
-
-  it("keeps only isolated or only standard sessions", () => {
-    expect(filterSessions(sessions, "isolated").map((item) => item.id)).toEqual(["ses_iso"])
-    expect(filterSessions(sessions, "standard").map((item) => item.id)).toEqual(["ses_plain"])
   })
 })
 
@@ -118,34 +96,5 @@ describe("shouldAutoAccept", () => {
     const a = { id: "ses_a", parentID: "ses_b" } as Session
     const b = { id: "ses_b", parentID: "ses_a" } as Session
     expect(shouldAutoAccept("ses_a", [a, b], ["ses_missing"])).toBe(false)
-  })
-})
-
-describe("finishResultFromIsolation", () => {
-  it("rebuilds the result once the record shows the push happened", () => {
-    expect(
-      finishResultFromIsolation({
-        ...isolated.isolation!,
-        pushed: true,
-        prUrl: "https://github.com/acme/app/pull/1",
-      }),
-    ).toEqual({
-      committed: true,
-      pushed: true,
-      prUrl: "https://github.com/acme/app/pull/1",
-      branch: "masterhand/app-abc",
-      path: "/workspace/.worktrees/app/abc",
-      error: null,
-    })
-  })
-
-  it("accepts a PR URL without a push flag and rejects records without evidence", () => {
-    expect(finishResultFromIsolation({ ...isolated.isolation!, prUrl: "https://example.com/pr/1" })).toMatchObject({
-      pushed: false,
-      prUrl: "https://example.com/pr/1",
-    })
-    expect(finishResultFromIsolation(isolated.isolation)).toBeNull()
-    expect(finishResultFromIsolation(undefined)).toBeNull()
-    expect(finishResultFromIsolation(null)).toBeNull()
   })
 })
