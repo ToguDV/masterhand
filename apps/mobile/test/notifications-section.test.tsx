@@ -14,6 +14,13 @@ jest.mock("../src/storage", () => ({
   clearPalette: jest.fn(async () => {}),
   loadNotificationsEnabled: jest.fn(async () => false),
   saveNotificationsEnabled: jest.fn(async () => {}),
+  loadAgentActivityPreferences: jest.fn(async () => ({
+    finished: true,
+    failed: true,
+    permission: true,
+    question: true,
+  })),
+  saveAgentActivityPreferences: jest.fn(async () => {}),
   loadBusySnapshot: jest.fn(async () => ({})),
   saveBusySnapshot: jest.fn(async () => {}),
 }))
@@ -32,6 +39,8 @@ jest.mock("../src/background-notifications", () => ({
 const storage = storageModule as unknown as {
   loadNotificationsEnabled: jest.Mock
   saveNotificationsEnabled: jest.Mock
+  loadAgentActivityPreferences: jest.Mock
+  saveAgentActivityPreferences: jest.Mock
 }
 const notifications = notificationsModule as unknown as {
   requestNotificationPermission: jest.Mock
@@ -55,6 +64,12 @@ describe("NotificationsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     storage.loadNotificationsEnabled.mockResolvedValue(false)
+    storage.loadAgentActivityPreferences.mockResolvedValue({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: true,
+    })
     notifications.getNotificationPermission.mockResolvedValue(false)
     notifications.requestNotificationPermission.mockResolvedValue(true)
   })
@@ -118,5 +133,57 @@ describe("NotificationsSection", () => {
     notifications.getNotificationPermission.mockResolvedValue(true)
     await setup()
     expect(await screen.findByText("System permission granted")).toBeOnTheScreen()
+  })
+
+  it("renders the per-event switches disabled while the master is off", async () => {
+    await setup()
+    for (const label of [
+      "Notify when an agent finishes",
+      "Notify when an agent fails",
+      "Notify for permission requests",
+      "Notify for questions",
+    ]) {
+      // RNTL's toBeDisabled does not understand React Native's Switch props.
+      const control = await screen.findByLabelText(label)
+      expect(control.props.disabled).toBe(true)
+    }
+  })
+
+  it("persists a per-event switch and reports it to the app", async () => {
+    storage.loadNotificationsEnabled.mockResolvedValue(true)
+    notifications.getNotificationPermission.mockResolvedValue(true)
+    const onPreferencesChange = jest.fn()
+    await render(
+      <ThemeProvider>
+        <NotificationsSection onPreferencesChange={onPreferencesChange} />
+      </ThemeProvider>,
+    )
+    fireEvent(
+      await screen.findByLabelText("Notify for questions"),
+      "onValueChange",
+      false,
+    )
+    await waitFor(() =>
+      expect(storage.saveAgentActivityPreferences).toHaveBeenCalledWith({
+        finished: true,
+        failed: true,
+        permission: true,
+        question: false,
+      }),
+    )
+    expect(onPreferencesChange).toHaveBeenCalledWith({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: false,
+    })
+  })
+
+  it("unregisters the background task when finishes are turned off", async () => {
+    storage.loadNotificationsEnabled.mockResolvedValue(true)
+    notifications.getNotificationPermission.mockResolvedValue(true)
+    await setup()
+    fireEvent(await screen.findByLabelText("Notify when an agent finishes"), "onValueChange", false)
+    await waitFor(() => expect(background.unregisterAgentActivityTask).toHaveBeenCalled())
   })
 })

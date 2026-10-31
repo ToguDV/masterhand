@@ -1,5 +1,11 @@
 jest.mock("../src/storage", () => ({
   loadNotificationsEnabled: jest.fn(async () => true),
+  loadAgentActivityPreferences: jest.fn(async () => ({
+    finished: true,
+    failed: true,
+    permission: true,
+    question: true,
+  })),
   loadServerRegistry: jest.fn(async () => ({ profiles: [], activeID: null })),
   loadServerToken: jest.fn(async () => null),
   loadBusySnapshot: jest.fn(async () => ({})),
@@ -137,6 +143,7 @@ describe("background task registration", () => {
 describe("checkAgentActivityInBackground", () => {
   const storage = storageModule as unknown as {
     loadNotificationsEnabled: jest.Mock
+    loadAgentActivityPreferences: jest.Mock
     loadServerRegistry: jest.Mock
     loadServerToken: jest.Mock
     loadBusySnapshot: jest.Mock
@@ -147,6 +154,12 @@ describe("checkAgentActivityInBackground", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     storage.loadNotificationsEnabled.mockResolvedValue(true)
+    storage.loadAgentActivityPreferences.mockResolvedValue({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: true,
+    })
     storage.loadServerRegistry.mockResolvedValue({ profiles: [], activeID: null })
     storage.loadServerToken.mockResolvedValue(null)
     storage.loadBusySnapshot.mockResolvedValue({})
@@ -154,6 +167,17 @@ describe("checkAgentActivityInBackground", () => {
 
   it("does nothing when disabled", async () => {
     storage.loadNotificationsEnabled.mockResolvedValue(false)
+    await expect(checkAgentActivityInBackground()).resolves.toEqual({ notified: [] })
+    expect(createClientMock).not.toHaveBeenCalled()
+  })
+
+  it("does nothing when finishes are turned off", async () => {
+    storage.loadAgentActivityPreferences.mockResolvedValue({
+      finished: false,
+      failed: true,
+      permission: true,
+      question: true,
+    })
     await expect(checkAgentActivityInBackground()).resolves.toEqual({ notified: [] })
     expect(createClientMock).not.toHaveBeenCalled()
   })

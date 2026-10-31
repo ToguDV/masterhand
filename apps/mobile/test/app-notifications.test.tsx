@@ -34,6 +34,13 @@ jest.mock("../src/storage", () => ({
   clearTheme: jest.fn(async () => {}),
   loadNotificationsEnabled: jest.fn(async () => true),
   saveNotificationsEnabled: jest.fn(async () => {}),
+  loadAgentActivityPreferences: jest.fn(async () => ({
+    finished: true,
+    failed: true,
+    permission: true,
+    question: true,
+  })),
+  saveAgentActivityPreferences: jest.fn(async () => {}),
   loadBusySnapshot: jest.fn(async () => ({})),
   saveBusySnapshot: jest.fn(async () => {}),
 }))
@@ -64,6 +71,7 @@ const storage = storageModule as unknown as {
   loadServerRegistry: jest.Mock
   loadServerToken: jest.Mock
   loadNotificationsEnabled: jest.Mock
+  loadAgentActivityPreferences: jest.Mock
 }
 
 const workspace: WorkspaceRecord = { id: "ws1", name: "demo", path: "/workspaces/demo", createdAt: 0 }
@@ -126,6 +134,12 @@ beforeEach(() => {
   storage.loadServerRegistry.mockResolvedValue({ profiles: [], activeID: null })
   storage.loadServerToken.mockResolvedValue(null)
   storage.loadNotificationsEnabled.mockResolvedValue(true)
+  storage.loadAgentActivityPreferences.mockResolvedValue({
+    finished: true,
+    failed: true,
+    permission: true,
+    question: true,
+  })
   workspacesMock.mockReturnValue({ data: [workspace], isLoading: false })
   sessionsMock.mockReturnValue({ data: [makeSession()], isLoading: false })
   ;(useSessionStatuses as unknown as jest.Mock).mockReturnValue({ data: {} })
@@ -263,6 +277,26 @@ describe("App — local agent notifications", () => {
         }),
       }),
     )
+  })
+
+  it("stays silent for a kind that is turned off", async () => {
+    storage.loadAgentActivityPreferences.mockResolvedValue({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: false,
+    })
+    await renderAuthenticated()
+    ;(AppState as { currentState?: string }).currentState = "background"
+    await act(async () => {
+      streamOptions().onEvent({
+        type: "form.created",
+        data: {
+          form: { id: "frm_1", sessionID: "ses_1", metadata: { kind: "question" } },
+        },
+      })
+    })
+    expect(scheduleMock).not.toHaveBeenCalled()
   })
 
   it("tracks status events as busy for the later idle", async () => {

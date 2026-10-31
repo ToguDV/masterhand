@@ -25,6 +25,7 @@ import {
   useSessionStatuses,
   useWorkspaces,
   useUpdate,
+  type AgentActivityDecision,
   type CreateWorkspaceInput,
   type DeviceLoginResponse,
   type FormAnswer,
@@ -34,6 +35,19 @@ import {
   type Session,
 } from "@masterhand/client-core"
 import { client, createServerClient, setActiveClient } from "./client"
+import {
+  AGENT_NOTIFICATION_TITLES,
+  createAgentActivityObserver,
+  isWindowActive,
+} from "./agent-notifications"
+import {
+  closeAllNotifications,
+  dismissSessionNotifications,
+  loadNotificationPreferences,
+  saveNotificationPreferences,
+  showAgentNotification,
+  type NotificationPreferences,
+} from "./notifications"
 import { AddWorkspaceDialog } from "./components/AddWorkspaceDialog"
 import { AuditSheet, AuditTrigger } from "./components/AuditPanel"
 import { BoardPanel, BoardView } from "./components/BoardView"
@@ -898,6 +912,9 @@ function AuthenticatedApp({
   )
   const [panel, setPanel] = useState<"audit" | "run" | "settings" | null>(null)
   const [settingsModule, setSettingsModule] = useState<SettingsModule | undefined>(undefined)
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
+    () => loadNotificationPreferences(),
+  )
   const [menuOpen, setMenuOpen] = useState(false)
   // Mobile shell (<768px): bottom nav instead of the sidebar drawer. The two
   // shells mount different panels, so the split is JS-driven; mounting both
@@ -981,6 +998,14 @@ function AuthenticatedApp({
   // subagent (or a Goal Mode critic/judge) resolves its auto-accept inheritance
   // against the latest list without resubscribing the stream.
   const sessionsRef = useRef<Session[]>([])
+  // Notification observer mirrors: it reads live values without resubscribing
+  // the stream, and a click can still open the workspace the alert came from.
+  const profileRef = useRef(profile)
+  profileRef.current = profile
+  const workspaceIDRef = useRef(workspaceID)
+  workspaceIDRef.current = workspaceID
+  const notificationPreferencesRef = useRef(notificationPreferences)
+  notificationPreferencesRef.current = notificationPreferences
 
   /** Answers a permission request automatically ("once", reversible). */
   const answerAuto = useCallback(async (permission: Permission, retry = false) => {
@@ -1117,6 +1142,55 @@ function AuthenticatedApp({
     window.history.replaceState(null, "", url)
   }, [])
 
+  const updateNotificationPreferences = useCallback((preferences: NotificationPreferences) => {
+    setNotificationPreferences(preferences)
+    saveNotificationPreferences(preferences)
+  }, [])
+
+  const notifyAgent = useCallback(
+    (decision: AgentActivityDecision) => {
+      const targetWorkspaceID = workspaceIDRef.current ?? undefined
+      showAgentNotification({
+        title: AGENT_NOTIFICATION_TITLES[decision.kind],
+        body: decision.title,
+        data: {
+          profileID: profileRef.current.id,
+          sessionID: decision.sessionID,
+          kind: decision.kind,
+          ...(targetWorkspaceID ? { workspaceID: targetWorkspaceID } : {}),
+        },
+        onClick: () => {
+          // The alert can outlive a workspace switch: return to the one it
+          // belongs to before opening the session.
+          if (targetWorkspaceID && targetWorkspaceID !== workspaceIDRef.current) {
+            selectWorkspace(targetWorkspaceID)
+          }
+          openSession(decision.sessionID)
+        },
+      })
+    },
+    [openSession, selectWorkspace],
+  )
+
+  const notificationObserver = useMemo(
+    () =>
+      createAgentActivityObserver({
+        isActive: isWindowActive,
+        preferences: () => notificationPreferencesRef.current,
+        sessions: () =>
+          sessionsRef.current.map((session) => ({
+            id: session.id,
+            title: (session as { title?: string | null }).title ?? null,
+            parentID: (session as { parentID?: string | null }).parentID ?? null,
+            fork: (session as { fork?: unknown }).fork,
+            goalRole: (session as { goalRole?: string | null }).goalRole ?? null,
+          })),
+        notify: notifyAgent,
+        dismissSession: dismissSessionNotifications,
+      }),
+    [notifyAgent],
+  )
+
   /**
    * Switching workspace must not keep showing a session from the previous one
    * (its chat, run and preview). Drop the open session immediately and let the
@@ -1184,7 +1258,10 @@ function AuthenticatedApp({
 
   useEventStream(client, {
     enabled: true,
-    onEvent: handleEvent,
+    onEvent: (event) => {
+      notificationObserver.observe(event)
+      handleEvent(event)
+    },
     onConnectionChange: setConnected,
     onConnect: handleConnect,
   })
@@ -1220,6 +1297,25 @@ function AuthenticatedApp({
   }, [queryClient])
 
   const statusesQuery = useSessionStatuses(client, true, connected)
+
+  // Seed the notification observer's busy set: a page opened while a run was
+  // already in flight must still notify on the later idle event. Only adds;
+  // the terminal event owns the transition.
+  useEffect(() => {
+    if (!statusesQuery.data) return
+    for (const [sessionID, status] of Object.entries(statusesQuery.data)) {
+      if ((status as { type?: string }).type === "busy") notificationObserver.markBusy(sessionID)
+    }
+  }, [statusesQuery.data, notificationObserver])
+
+  // Opening a session (list, banner or notification tap) clears its tray.
+  useEffect(() => {
+    if (sessionID) dismissSessionNotifications(sessionID)
+  }, [sessionID])
+
+  // Profile switch / logout remounts this tree: nothing from the old server
+  // may stay visible in the notification tray.
+  useEffect(() => () => closeAllNotifications(), [])
 
   useEffect(() => {
     if (sessionsQuery.error instanceof ApiError && sessionsQuery.error.status === 401) onSessionExpired()
@@ -2164,6 +2260,8 @@ function AuthenticatedApp({
           onSelectMode={themeMode.setMode}
           palette={themeMode.palette}
           onSelectPalette={themeMode.setPalette}
+          notifications={notificationPreferences}
+          onNotificationsChange={updateNotificationPreferences}
           onSignOut={() => void handleLogout()}
           onClose={() => setPanel(null)}
           initialModule={settingsModule}

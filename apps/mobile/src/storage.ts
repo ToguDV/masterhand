@@ -2,8 +2,10 @@ import * as SecureStore from "expo-secure-store"
 import {
   MAX_SERVER_PROFILES,
   defaultServerLabel,
+  normalizeAgentActivityPreferences,
   normalizeServerLabel,
   normalizeServerUrl,
+  type AgentActivityPreferences,
 } from "@masterhand/client-core"
 
 export interface StoredDevice {
@@ -47,6 +49,7 @@ const PREFERENCES_KEY = "masterhand.sessionPreferences"
 const THEME_KEY = "masterhand.theme"
 const PALETTE_KEY = "masterhand.palette"
 const NOTIFICATIONS_ENABLED_KEY = "masterhand.notifications.enabled"
+const NOTIFICATION_KINDS_KEY = "masterhand.notifications.kinds"
 const NOTIFY_BUSY_PREFIX = "masterhand.notifyBusy."
 
 /** Named differently from the legacy single-server keys so migration is unambiguous. */
@@ -402,6 +405,20 @@ export async function loadNotificationsEnabled(): Promise<boolean> {
 
 export function saveNotificationsEnabled(enabled: boolean): Promise<void> {
   return SecureStore.setItemAsync(NOTIFICATIONS_ENABLED_KEY, enabled ? "1" : "0")
+}
+
+/** Per-event switches; missing or malformed storage means everything on. */
+export async function loadAgentActivityPreferences(): Promise<AgentActivityPreferences> {
+  try {
+    const raw = await SecureStore.getItemAsync(NOTIFICATION_KINDS_KEY)
+    return normalizeAgentActivityPreferences(raw ? (JSON.parse(raw) as unknown) : null)
+  } catch {
+    return normalizeAgentActivityPreferences(null)
+  }
+}
+
+export function saveAgentActivityPreferences(preferences: AgentActivityPreferences): Promise<void> {
+  return SecureStore.setItemAsync(NOTIFICATION_KINDS_KEY, JSON.stringify(preferences))
 }
 
 export interface BusySnapshotEntry {

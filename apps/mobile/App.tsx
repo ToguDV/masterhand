@@ -12,8 +12,11 @@ import {
 import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono"
 import {
   ApiError,
+  agentActivityKindEnabled,
   createClient,
   createEventHandler,
+  decideAgentActivity,
+  DEFAULT_AGENT_ACTIVITY_PREFERENCES,
   defaultServerLabel,
   formIsQuestion,
   invalidateOnReconnect,
@@ -30,6 +33,7 @@ import {
   useSessions,
   useSessionStatuses,
   useWorkspaces,
+  type AgentActivityPreferences,
   type Client,
   type CreateWorkspaceInput,
   type FormAnswer,
@@ -53,7 +57,6 @@ import { ThemedSystemBars } from "./src/components/SystemBars"
 import { nativeUpload } from "./src/upload"
 import { ActivityIndicator, Text } from "react-native"
 import * as SystemNotifications from "expo-notifications"
-import { decideAgentActivity } from "./src/agent-activity"
 import {
   dismissSessionNotifications,
   ensureAgentChannel,
@@ -73,6 +76,7 @@ import {
 import {
   clearServerToken,
   getOrCreateInstallID,
+  loadAgentActivityPreferences,
   loadAutoAcceptSessionsFor,
   loadBusySnapshot,
   loadNotificationsEnabled,
@@ -816,6 +820,9 @@ function AuthenticatedApp({
   const notifiedFormRef = useRef(new Set<string>())
   const notificationsEnabledRef = useRef(false)
   const notificationGrantedRef = useRef(false)
+  const notificationPreferencesRef = useRef<AgentActivityPreferences>(
+    DEFAULT_AGENT_ACTIVITY_PREFERENCES,
+  )
   const profileRef = useRef(profile)
   profileRef.current = profile
   const workspaceIDRef = useRef(workspaceID)
@@ -1054,6 +1061,7 @@ function AuthenticatedApp({
         },
       )
       if (!decision) return
+      if (!agentActivityKindEnabled(notificationPreferencesRef.current, decision.kind)) return
       if (decision.kind === "permission" && decision.permissionID) {
         notifiedPermissionRef.current.add(decision.permissionID)
       }
@@ -1137,13 +1145,15 @@ function AuthenticatedApp({
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
-      const [stored, granted] = await Promise.all([
+      const [stored, granted, preferences] = await Promise.all([
         loadNotificationsEnabled().catch(() => false),
         getNotificationPermission().catch(() => false),
+        loadAgentActivityPreferences().catch(() => DEFAULT_AGENT_ACTIVITY_PREFERENCES),
       ])
       if (cancelled) return
       notificationsEnabledRef.current = stored
       notificationGrantedRef.current = granted
+      notificationPreferencesRef.current = preferences
     }
     void refresh()
     const subscription = AppState.addEventListener("change", (state) => {
@@ -1504,6 +1514,12 @@ function AuthenticatedApp({
         palette={palette}
         onSelectPalette={setPalette}
         initialSection={settingsSection}
+        onNotificationsEnabledChange={(value) => {
+          notificationsEnabledRef.current = value
+        }}
+        onNotificationPreferencesChange={(value) => {
+          notificationPreferencesRef.current = value
+        }}
         servers={{
           profiles,
           activeID: profile.id,

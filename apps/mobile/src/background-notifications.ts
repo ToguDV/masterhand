@@ -2,6 +2,7 @@ import * as BackgroundTask from "expo-background-task"
 import * as TaskManager from "expo-task-manager"
 import { createClient } from "@masterhand/client-core"
 import {
+  loadAgentActivityPreferences,
   loadBusySnapshot,
   loadNotificationsEnabled,
   loadServerRegistry,
@@ -82,6 +83,10 @@ export async function reconcileBusySnapshots(input: ReconcileInput): Promise<{ n
 export async function checkAgentActivityInBackground(): Promise<{ notified: string[] }> {
   try {
     if (!(await loadNotificationsEnabled())) return { notified: [] }
+    const preferences = await loadAgentActivityPreferences().catch(() => null)
+    // The background check only reports finishes: skip the whole network round
+    // when that category is off.
+    if (preferences && !preferences.finished) return { notified: [] }
     const registry = await loadServerRegistry().catch(() => null)
     const activeID = registry?.activeID ?? null
     const profile = registry?.profiles.find((item) => item.id === activeID) ?? null

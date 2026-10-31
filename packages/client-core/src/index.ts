@@ -1,5 +1,15 @@
 export * from "./types"
 export {
+  DEFAULT_AGENT_ACTIVITY_PREFERENCES,
+  agentActivityKindEnabled,
+  decideAgentActivity,
+  normalizeAgentActivityPreferences,
+  type AgentActivityDecision,
+  type AgentActivityKind,
+  type AgentActivityPreferences,
+  type AgentActivitySession,
+} from "./agent-activity"
+export {
   ATTACHMENT_INLINE_IMAGE_BYTES,
   ATTACHMENT_INLINE_PDF_BYTES,
   ATTACHMENT_INLINE_TEXT_BYTES,

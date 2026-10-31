@@ -1,5 +1,49 @@
 export type AgentActivityKind = "finished" | "failed" | "permission" | "question"
 
+/** Device-wide switches for the local agent-activity alerts. */
+export interface AgentActivityPreferences {
+  finished: boolean
+  failed: boolean
+  permission: boolean
+  question: boolean
+}
+
+/** Everything on: enabling notifications is the master switch. */
+export const DEFAULT_AGENT_ACTIVITY_PREFERENCES: AgentActivityPreferences = {
+  finished: true,
+  failed: true,
+  permission: true,
+  question: true,
+}
+
+/**
+ * Tolerant decoder for stored preferences: unknown or malformed fields fall
+ * back to the default (on) so a missing key never silences an alert.
+ */
+export function normalizeAgentActivityPreferences(value: unknown): AgentActivityPreferences {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  const pick = (kind: AgentActivityKind): boolean =>
+    typeof record[kind] === "boolean"
+      ? (record[kind] as boolean)
+      : DEFAULT_AGENT_ACTIVITY_PREFERENCES[kind]
+  return {
+    finished: pick("finished"),
+    failed: pick("failed"),
+    permission: pick("permission"),
+    question: pick("question"),
+  }
+}
+
+export function agentActivityKindEnabled(
+  preferences: AgentActivityPreferences,
+  kind: AgentActivityKind,
+): boolean {
+  return preferences[kind] !== false
+}
+
 export interface AgentActivitySession {
   id: string
   title?: string | null
@@ -45,7 +89,7 @@ function displayTitle(session?: AgentActivitySession | null, fallbackID?: string
 }
 
 /**
- * Pure decision for local agent notifications (no native imports, Jest-safe).
+ * Pure decision for local agent notifications (no native imports, test-safe).
  * Returns null when nothing should buzz: app in foreground, already-idle
  * session, internal critic/judge/fork, user-interrupted turn or duplicate.
  */
