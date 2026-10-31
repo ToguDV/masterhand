@@ -258,4 +258,206 @@ describe("ChatScreen", () => {
     expect(screen.queryByLabelText("Scroll to bottom")).toBeNull()
     scrollToOffset.mockRestore()
   })
+
+  describe("message window", () => {
+    function history(count: number, sessionID = "s1", prefix = "h"): ChatMessage[] {
+      return Array.from({ length: count }, (_, index) => ({
+        info: {
+          id: `${prefix}${index}`,
+          sessionID,
+          role: "assistant",
+          time: { created: 1000 + index, completed: 1000 + index },
+        },
+        parts: [
+          {
+            id: `${prefix}${index}:text`,
+            sessionID,
+            messageID: `${prefix}${index}`,
+            type: "text",
+            text: `message ${index}`,
+          },
+        ],
+      }))
+    }
+
+    function scrollUp(list: ReturnType<typeof screen.getByTestId>) {
+      fireEvent.scroll(list, {
+        nativeEvent: {
+          contentOffset: { y: 3000, x: 0 },
+          contentSize: { height: 9000, width: 300 },
+          layoutMeasurement: { height: 800, width: 300 },
+        },
+      })
+    }
+
+    it("renders only the newest messages on entry", async () => {
+      await setup({}, (client) => {
+        client.api.messages.mockResolvedValue(history(45))
+      })
+      expect(await screen.findByText("message 44")).toBeOnTheScreen()
+      const list = screen.getByTestId("chat-list")
+      expect(list.props.data).toHaveLength(10)
+      // Inverted: index 0 is the newest, index 9 the oldest visible.
+      expect(list.props.data[0].info.id).toBe("h44")
+      expect(list.props.data[9].info.id).toBe("h35")
+      expect(screen.queryByText("message 34")).toBeNull()
+    })
+
+    it("offers older messages only after scrolling up, and reveals them in pages", async () => {
+      await setup({}, (client) => {
+        client.api.messages.mockResolvedValue(history(45))
+      })
+      expect(await screen.findByText("message 44")).toBeOnTheScreen()
+      const list = screen.getByTestId("chat-list")
+      expect(screen.queryByTestId("load-older-messages")).toBeNull()
+
+      scrollUp(list)
+
+      const pill = await screen.findByLabelText("Show 20 older messages")
+      expect(within(pill).getByText("+20 messages")).toBeOnTheScreen()
+      const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset")
+
+      await fireEvent.press(pill)
+
+      // The reveal only appends older rows: nothing scrolls, nothing shifts.
+      expect(scrollToOffset).not.toHaveBeenCalled()
+      const revealed = screen.getByTestId("chat-list").props.data
+      expect(revealed).toHaveLength(30)
+      // Oldest visible row is now the 30th newest (h15); h14 stays hidden.
+      expect(revealed[29].info.id).toBe("h15")
+      await screen.findByLabelText("Show 15 older messages")
+
+      await fireEvent.press(await screen.findByLabelText("Show 15 older messages"))
+
+      expect(screen.getByTestId("chat-list").props.data).toHaveLength(45)
+      expect(screen.queryByTestId("load-older-messages")).toBeNull()
+      scrollToOffset.mockRestore()
+    })
+
+    it("keeps the oldest visible message mounted when new ones arrive while scrolled up", async () => {
+      const messages = history(45)
+      const { queryClient } = await setup({}, (client) => {
+        client.api.messages.mockResolvedValue(messages)
+      })
+      expect(await screen.findByText("message 44")).toBeOnTheScreen()
+      scrollUp(screen.getByTestId("chat-list"))
+      await fireEvent.press(await screen.findByLabelText("Show 20 older messages"))
+
+      await act(async () => {
+        queryClient.setQueryData<ChatMessage[]>(queryKeys.messages("s1"), [
+          ...messages,
+          {
+            info: { id: "h45", sessionID: "s1", role: "assistant", time: { created: 2000 } },
+            parts: [
+              {
+                id: "h45:text",
+                sessionID: "s1",
+                messageID: "h45",
+                type: "text",
+                text: "message 45",
+              },
+            ],
+          },
+        ])
+      })
+
+      await waitFor(() => expect(screen.getByTestId("chat-list").props.data).toHaveLength(31))
+      const data = screen.getByTestId("chat-list").props.data
+      expect(data[0].info.id).toBe("h45")
+      expect(data[30].info.id).toBe("h15")
+      expect(await screen.findByLabelText("Show 15 older messages")).toBeOnTheScreen()
+    })
+
+    it("compacts back to the newest page when returning to the bottom", async () => {
+      await setup({}, (client) => {
+        client.api.messages.mockResolvedValue(history(45))
+      })
+      const list = await screen.findByTestId("chat-list")
+      await waitFor(() => expect(list.props.data).toHaveLength(10), { timeout: 5000 })
+      scrollUp(list)
+      await fireEvent.press(await screen.findByLabelText("Show 20 older messages", {}, { timeout: 5000 }))
+      expect(screen.getByTestId("chat-list").props.data).toHaveLength(30)
+
+      fireEvent.scroll(list, {
+        nativeEvent: {
+          contentOffset: { y: 0, x: 0 },
+          contentSize: { height: 9000, width: 300 },
+          layoutMeasurement: { height: 800, width: 300 },
+        },
+      })
+
+      await waitFor(() => expect(screen.getByTestId("chat-list").props.data).toHaveLength(10))
+    })
+
+    it("starts a session change on its newest page, never the previous window", async () => {
+      const client = fakeClient()
+      client.api.messages.mockImplementation(async (id: string) =>
+        id === "s1" ? history(45) : history(20, "s2", "b"),
+      )
+      const queryClient = makeQueryClient()
+      const element = (sessionID: string) => (
+        <ChatScreen
+          client={client}
+          sessionID={sessionID}
+          title="s"
+          busy={false}
+          connected
+          workspaceID={null}
+          autoAccept={false}
+          onToggleAutoAccept={() => {}}
+          onBack={() => {}}
+        />
+      )
+      const rendered = await render(element("s1"), {
+        wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper>,
+      })
+      const list = await screen.findByTestId("chat-list")
+      await waitFor(() => expect(list.props.data).toHaveLength(10), { timeout: 5000 })
+      scrollUp(list)
+      await fireEvent.press(await screen.findByLabelText("Show 20 older messages"))
+      expect(screen.getByTestId("chat-list").props.data).toHaveLength(30)
+
+      await rendered.rerender(element("s2"))
+
+      // The frozen window belongs to s1: s2 must open on its newest 10 rows,
+      // not on an empty or oversized slice for one frame.
+      await waitFor(() => {
+        const data = screen.getByTestId("chat-list").props.data
+        expect(data).toHaveLength(10)
+        expect(data[0].info.id).toBe("b19")
+        expect(data[9].info.id).toBe("b10")
+      })
+    })
+
+    // NOTE: this test stays last in the file. Firing VirtualizedList's own
+    // layout/content-size handlers schedules internal timers that break the
+    // next mount in the same file (a test-env-only artifact, like the drag
+    // note in chat-list-perf). Nothing may mount after it.
+    it("keeps short content reachable and does not swallow the follow re-anchor", async () => {
+      await setup({}, (client) => {
+        client.api.messages.mockResolvedValue(history(25))
+      })
+      const list = await screen.findByTestId("chat-list")
+      await waitFor(() => expect(list.props.data).toHaveLength(10), { timeout: 5000 })
+
+      // No scroll is possible: the 10 newest rows fit in the viewport. The
+      // size event may arrive before layout; the pill must still appear once
+      // both are known.
+      fireEvent(list, "contentSizeChange", 300, 400)
+      fireEvent(list, "layout", { nativeEvent: { layout: { height: 800, width: 300 } } })
+      const pill = await screen.findByLabelText("Show 15 older messages")
+
+      await fireEvent.press(pill)
+
+      const scrollToOffset = jest.spyOn(FlatList.prototype, "scrollToOffset")
+      // The size change caused by the reveal is ignored...
+      fireEvent(list, "contentSizeChange", 300, 900)
+      expect(scrollToOffset).not.toHaveBeenCalled()
+      // ...but the next one (streaming growth, still pinned at the bottom) must
+      // re-anchor as before.
+      fireEvent(list, "contentSizeChange", 300, 1000)
+      expect(scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: false })
+      scrollToOffset.mockRestore()
+    })
+  })
 })

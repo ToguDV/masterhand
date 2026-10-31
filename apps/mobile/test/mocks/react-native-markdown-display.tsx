@@ -12,6 +12,11 @@ import { Text } from "react-native"
 export const darkStyles: Record<string, unknown> = {}
 export type MarkdownStyleMap = Record<string, unknown>
 
+/** The real helper builds a markdown-it instance; tests never parse. */
+export function createMarkdownIt(): Record<string, unknown> {
+  return {}
+}
+
 export default function Markdown({ children }: { children?: ReactNode }) {
   return <Text>{children}</Text>
 }

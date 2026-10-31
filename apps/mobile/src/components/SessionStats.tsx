@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { StyleSheet, Text, View } from "react-native"
 import { formatCount, formatSpeed, tokenSpeed, type SessionUsage } from "@masterhand/client-core"
 import { ArrowDownIcon, ArrowUpIcon, BoltIcon, SparkleIcon } from "./icons"
@@ -8,7 +9,8 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
  * names), mirroring the web `SessionStats`. Cache read/write are deliberately
  * not shown. Rendered as the trailing slot of the composer dock header.
  */
-export function SessionStats({ usage }: { usage: SessionUsage }) {
+export const SessionStats = memo(
+  function SessionStats({ usage }: { usage: SessionUsage }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const speed = tokenSpeed(usage, usage.durationMs)
@@ -48,7 +50,18 @@ export function SessionStats({ usage }: { usage: SessionUsage }) {
       ) : null}
     </View>
   )
-}
+  },
+  // `sessionUsage` returns a fresh object per messages update; compare the
+  // totals so token deltas do not re-render the toolbar stats.
+  (prev, next) =>
+    prev.usage.cost === next.usage.cost &&
+    prev.usage.durationMs === next.usage.durationMs &&
+    prev.usage.input === next.usage.input &&
+    prev.usage.output === next.usage.output &&
+    prev.usage.reasoning === next.usage.reasoning &&
+    prev.usage.cacheRead === next.usage.cacheRead &&
+    prev.usage.cacheWrite === next.usage.cacheWrite,
+)
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({

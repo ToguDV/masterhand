@@ -70,8 +70,11 @@ export function CodeBlock({
   const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
   const showNumbers = numbered && !looksLineNumbered(text)
-  const truncated = truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines)
-  const lines = truncated.text.split("\n")
+  const truncated = useMemo(
+    () => truncateLines(text, expanded ? Number.POSITIVE_INFINITY : maxLines),
+    [text, expanded, maxLines],
+  )
+  const lines = useMemo(() => truncated.text.split("\n"), [truncated.text])
   // Streaming-safe: tokenize once per content + language, not per delta.
   const highlighted = useMemo(() => {
     const resolved: HighlightLanguage | null = language ? detectLanguage(language) : null
@@ -128,7 +131,10 @@ export function TerminalBody({
 }) {
   const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
-  const truncated = truncateLines(output ?? "", expanded ? Number.POSITIVE_INFINITY : 30)
+  const truncated = useMemo(
+    () => truncateLines(output ?? "", expanded ? Number.POSITIVE_INFINITY : 30),
+    [output, expanded],
+  )
 
   return (
     <View style={styles.terminal}>
@@ -176,7 +182,7 @@ export function DiffView({ diff, language }: { diff: DiffLine[]; language?: stri
   const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
-  const rows = expanded ? diff : diff.slice(0, 160)
+  const rows = useMemo(() => (expanded ? diff : diff.slice(0, 160)), [diff, expanded])
   const hidden = diff.length - rows.length
   const resolved: HighlightLanguage | null = useMemo(
     () => (language ? detectLanguage(language) : null),
