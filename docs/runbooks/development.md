@@ -198,6 +198,24 @@ container and will not pick them up. After pulling, rebuild once with
 - **opencode unreachable / 401:** the BFF and the container must share
   `OPENCODE_SERVER_PASSWORD`. It comes from `deploy/.env.dev`; restart the stack
   after changing it.
+- **`MESA-LOADER: failed to open dri: ... Permission denied` on Linux
+  (Electron):** benign upstream noise, not a missing file and not a permission
+  problem in this repo. Mesa 25.x ships its GBM backend as
+  `/usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so`, which `libgbm` loads lazily inside
+  Chromium's GPU process **after** Chromium's sandbox starts; the sandbox denies
+  that open, Mesa logs the warning and Chromium falls back to another renderer.
+  The file is world-readable and hardware acceleration still works (check with
+  `glxinfo -B`: it should report the GPU and `direct rendering: Yes`). The same
+  line appears in other Electron/Chromium apps on Mesa 25+ (Ubuntu 24.04, Mint
+  22, …). Do not "fix" it with `--no-sandbox` (weakens the renderer sandbox) or
+  `--disable-gpu` (drops acceleration); there is nothing to fix on our side.
+- **`GLib-GObject: ... gsignal.c: ... instance ... has no handler with id ...`
+  when a native dialog opens (Electron):** GTK noise from opening or closing an
+  Electron `dialog` (for example **Check for updates…** or **About** under
+  `npm run dev:desktop`). It is not an update failure: development builds never
+  run `electron-updater` (`setupAutoUpdate` returns when the app is not
+  packaged), and the dialog only reports that updates require a packaged build.
+  Harmless; packaged builds do not print stderr to a terminal.
 - **Logs:** `npm run dev:logs` (or `docker compose ... logs -f opencode`).
 - **Start over** (deletes the dev database at `data/dev` and the opencode data; workspaces under `workspace/` stay):
   `npm run dev:stop && rm -rf data/dev && docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml --env-file deploy/.env.dev down -v`
