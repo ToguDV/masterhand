@@ -55,7 +55,7 @@ npm test              # tests (vitest: BFF + client-core)
 npm run test:e2e      # E2E (Playwright + mocked opencode); run `npm run e2e:browsers` once
 ```
 
-The first `npm run dev` builds the images. `deploy/.env.dev` uses the **same variable names** as the production `deploy/.env.example` (see that file). Desktop and mobile cannot run in a container, so they run on the host against the containerized BFF (`http://localhost:8787`); they leave the stack running until `npm run dev:stop`.
+The first `npm run dev` builds the images. `deploy/.env.dev` uses the **same variable names** as the production `deploy/.env.example` (see that file). Desktop and mobile cannot run in a container, so they run on the host. In development the desktop connects to the Vite dev server (`http://localhost:5173`), which proxies `/api` to the containerized BFF on `:8787`; the BFF root alone serves no web build and answers 404. They leave the stack running until `npm run dev:stop`.
 
 To open the web app from a phone on the same network, publish Vite on all interfaces (`MASTERHAND_DEV_WEB_BIND=0.0.0.0` is the default) and browse to `http://<your-PC-IP>:5173`.
 

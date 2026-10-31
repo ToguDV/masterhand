@@ -3,7 +3,7 @@ import electronUpdater from "electron-updater"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { normalizeDesktopServerUrl } from "./server-url.js"
+import { DEV_WEB_URL, normalizeDesktopServerUrl } from "./server-url.js"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CONFIG_FILE = "config.json"
@@ -173,7 +173,7 @@ async function showConnectWindow(prefill?: string): Promise<void> {
     prefill ??
     (await readStoredServerUrl()) ??
     envServerUrl() ??
-    (app.isPackaged ? "" : "http://localhost:8787")
+    (app.isPackaged ? "" : DEV_WEB_URL)
   await window.loadFile(join(__dirname, "..", "static", "connect.html"), {
     query: initial ? { url: initial } : {},
   })
