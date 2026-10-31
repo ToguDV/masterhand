@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
 import {
   REQUIRED_NO_ARG_CONSTRUCTORS,
+  checkApk,
   dexEntries,
   noArgConstructorStatus,
 } from "./check-android-dex.mjs"
@@ -74,4 +78,67 @@ test("guards the Room database and both WorkManager input mergers", () => {
     "Landroidx/work/ArrayCreatingInputMerger;",
     "Landroidx/work/OverwritingInputMerger;",
   ])
+})
+
+function classDump(descriptor, ctor) {
+  return [
+    `  Class descriptor  : '${descriptor}'`,
+    "  Access flags      : 0x0011 (PUBLIC FINAL)",
+    "  Instance fields   -",
+    "  Direct methods    -",
+    ...(ctor
+      ? [
+          `    #0              : (in ${descriptor})`,
+          "      name          : '<init>'",
+          "      type          : '()V'",
+          "      access        : 0x10001 (PUBLIC CONSTRUCTOR)",
+        ]
+      : []),
+    "  Virtual methods   -",
+  ].join("\n")
+}
+
+function apkFixture({ first, second }) {
+  const dir = mkdtempSync(join(tmpdir(), "masterhand-dex-test-"))
+  const apk = join(dir, "MasterHand-0.2.1.apk")
+  writeFileSync(apk, "fake apk")
+  const run = (command, args) => {
+    if (command === "unzip" && args[0] === "-Z1") return "classes.dex\nclasses2.dex\n"
+    if (command === "unzip" && args[0] === "-p") return Buffer.from("fake dex")
+    if (command === "dexdump") {
+      return String(args[0]).endsWith("classes2.dex") ? second : first
+    }
+    throw new Error(`unexpected command: ${command} ${args.join(" ")}`)
+  }
+  return { apk, dir, run }
+}
+
+test("resolves a constructor found in a later multidex entry", () => {
+  const first = [
+    classDump(WORK_DATABASE, false),
+    classDump("Landroidx/work/ArrayCreatingInputMerger;", true),
+    classDump("Landroidx/work/OverwritingInputMerger;", true),
+  ].join("\n")
+  const second = classDump(WORK_DATABASE, true)
+  const { apk, dir, run } = apkFixture({ first, second })
+  try {
+    const result = checkApk({ apk, dexdump: "dexdump", run })
+    assert.equal(result.ok, true)
+    assert.equal(result.checked.length, 3)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("fails when every multidex entry lost the constructors", () => {
+  const first = REQUIRED_NO_ARG_CONSTRUCTORS.map((descriptor) => classDump(descriptor, false)).join("\n")
+  const { apk, dir, run } = apkFixture({ first, second: first })
+  try {
+    const result = checkApk({ apk, dexdump: "dexdump", run })
+    assert.equal(result.ok, false)
+    assert.equal(result.errors.length, 3)
+    assert.match(result.errors[0], /R8 stripped it/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

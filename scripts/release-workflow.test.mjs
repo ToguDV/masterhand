@@ -186,6 +186,7 @@ test("the release APK is named after the app and version, and its dex is gated",
   assert.ok(build >= 0 && guard > build && upload > guard, "the dex guard must run between build and upload")
   assert.match(android, /MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/)
   assert.match(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/)
+  assert.match(android, /path: .*MasterHand-[\s\S]*?if-no-files-found: error/)
   assert.doesNotMatch(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/app-release\.apk/)
 })
 

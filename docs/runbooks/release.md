@@ -86,12 +86,19 @@ git switch main
 git pull
 
 # Bumps every package.json + apps/mobile/app.json (version + versionCode),
-# syncs package-lock.json, commits and creates the annotated tag.
-node scripts/release.mjs 0.2.0
+# deploy/docker-compose.yml and deploy/server.Dockerfile, syncs
+# package-lock.json, commits and creates the annotated tag.
+node scripts/release.mjs 0.2.1
 
 # Pushing the tag triggers the release workflow.
-git push origin main v0.2.0
+git push origin main v0.2.1
 ```
+
+When a release fixes a broken client build, write the recovery step in the tag
+annotation (it becomes `version.json.notes` and the GitHub release body).
+v0.2.0's Android app cannot open, so its users must update through F-Droid or
+download `MasterHand-0.2.1.apk` manually; the in-app update banner is not
+reachable.
 
 Rules enforced by the workflow:
 
@@ -217,6 +224,9 @@ locally and is **not** updated by this flow.
   `InputMerger` (v0.2.0). Restore the `expo-build-properties` keep rules in
   `apps/mobile/app.json` and the SDK-58 `expo-background-task`/
   `expo-task-manager` patches; never publish a release from that failed job.
+  The three class names are WorkManager internals: when an upgrade legitimately
+  renames one, update `REQUIRED_NO_ARG_CONSTRUCTORS` and the keep rule — never
+  delete the step or bypass it.
 - **Old releases use the Gradle APK name:** v0.1.0 and v0.2.0 attached
   `app-release.apk`; from v0.2.1 the asset is `MasterHand-<version>.apk`. The
   manual F-Droid workflow accepts both (the script falls back to the old name).

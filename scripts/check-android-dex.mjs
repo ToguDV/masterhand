@@ -106,16 +106,16 @@ export function checkApk({ apk, dexdump = findDexdump(), run = execFileSync }) {
   if (!existsSync(apk)) {
     return { ok: false, checked: [], errors: [`APK not found: ${apk}`] }
   }
-  const listing = String(run("unzip", ["-Z1", apk], { encoding: "utf8" }))
-  const entries = dexEntries(listing)
-  if (entries.length === 0) {
-    return { ok: false, checked: [], errors: ["APK contains no classes*.dex"] }
-  }
 
   const work = mkdtempSync(join(tmpdir(), "masterhand-dex-"))
-  const checked = []
-  const errors = []
+  const statuses = new Map()
   try {
+    const listing = String(run("unzip", ["-Z1", apk], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }))
+    const entries = dexEntries(listing)
+    if (entries.length === 0) {
+      return { ok: false, checked: [], errors: ["APK contains no classes*.dex"] }
+    }
+
     for (const entry of entries) {
       const dex = join(work, entry)
       writeFileSync(
@@ -125,23 +125,41 @@ export function checkApk({ apk, dexdump = findDexdump(), run = execFileSync }) {
           maxBuffer: 256 * 1024 * 1024,
         }),
       )
-      const dump = String(run(dexdump, ["-d", dex], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }))
+      // Plain `dexdump` (no `-d`) already prints the class/method table: the
+      // disassembly is unnecessary and multiplies the output ~2.5x (139 MB vs
+      // 57 MB for this app's dex).
+      const dump = String(
+        run(dexdump, [dex], { encoding: "utf8", maxBuffer: 128 * 1024 * 1024 }),
+      )
       for (const descriptor of REQUIRED_NO_ARG_CONSTRUCTORS) {
-        if (checked.includes(descriptor)) continue
+        if (statuses.get(descriptor) === "present") continue
         const status = noArgConstructorStatus(dump, descriptor)
         if (status === "present") {
-          checked.push(descriptor)
-        } else if (status === "missing") {
-          errors.push(`${descriptor}: class present but <init>()V is missing (R8 stripped it)`)
+          statuses.set(descriptor, "present")
+        } else if (status === "missing" && statuses.get(descriptor) !== "present") {
+          statuses.set(descriptor, "missing")
         }
       }
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      checked: [...statuses.keys()].filter((descriptor) => statuses.get(descriptor) === "present"),
+      errors: [`dex check failed: ${error instanceof Error ? error.message : error}`],
     }
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
 
+  const checked = []
+  const errors = []
   for (const descriptor of REQUIRED_NO_ARG_CONSTRUCTORS) {
-    if (!checked.includes(descriptor) && !errors.some((error) => error.startsWith(descriptor))) {
+    const status = statuses.get(descriptor) ?? "absent"
+    if (status === "present") {
+      checked.push(descriptor)
+    } else if (status === "missing") {
+      errors.push(`${descriptor}: class present but <init>()V is missing (R8 stripped it)`)
+    } else {
       errors.push(`${descriptor}: class not found in the APK`)
     }
   }
@@ -155,10 +173,16 @@ if (isMain) {
     console.error("usage: node scripts/check-android-dex.mjs <apk> [dexdump]")
     process.exit(2)
   }
-  const result = checkApk({
-    apk,
-    ...(process.argv[3] ? { dexdump: process.argv[3] } : {}),
-  })
+  let result
+  try {
+    result = checkApk({
+      apk,
+      ...(process.argv[3] ? { dexdump: process.argv[3] } : {}),
+    })
+  } catch (error) {
+    console.error(`android-release: dex check failed: ${error instanceof Error ? error.message : error}`)
+    process.exit(1)
+  }
   if (!result.ok) {
     for (const error of result.errors) console.error(`android-release: ${error}`)
     console.error(

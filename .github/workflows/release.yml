@@ -292,6 +292,7 @@ jobs:
         with:
           name: android-apk
           path: apps/mobile/android/app/build/outputs/apk/release/MasterHand-${{ needs.image.outputs.version }}.apk
+          if-no-files-found: error
 
   # Desktop installers + the electron-updater channel files (`latest*.yml`).
   # The shell bundles the web build and serves it from `masterhand://app`; its
