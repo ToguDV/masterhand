@@ -36,8 +36,13 @@ export function targetFor(action) {
 }
 
 const FRONTS = {
-  desktop: ["run", "dev", "-w", "@masterhand/desktop"],
+  desktop: ["dev", "-w", "@masterhand/desktop"],
   mobile: ["start", "-w", "@masterhand/mobile"],
+}
+
+/** Full `npm` argv for the host front end of desktop/mobile. */
+export function hostArgs(action) {
+  return ["run", ...FRONTS[action]]
 }
 
 function usage() {
@@ -87,7 +92,7 @@ function runCompose(args, extraEnv = {}) {
 
 function runHost(action) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm"
-  const child = spawn(npm, ["run", ...FRONTS[action]], { cwd: rootDir, stdio: "inherit" })
+  const child = spawn(npm, hostArgs(action), { cwd: rootDir, stdio: "inherit" })
   child.on("error", (error) => {
     console.error(`[dev] ${action} failed: ${error.message}`)
     process.exit(1)

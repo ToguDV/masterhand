@@ -10,6 +10,13 @@
 
 export const MAX_SERVER_URL_LENGTH = 2048
 
+/**
+ * Development UI origin. `npm run dev:desktop` runs the Dockerized BFF behind
+ * Vite, so Electron must load the Vite dev server; the BFF's :8787 root serves
+ * no web build in dev and answers 404. Packaged builds start empty instead.
+ */
+export const DEV_WEB_URL = "http://localhost:5173"
+
 export type ServerUrlResult = { ok: true; url: string } | { ok: false; error: string }
 
 export function normalizeDesktopServerUrl(input: unknown): ServerUrlResult {

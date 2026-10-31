@@ -47,15 +47,18 @@ run is slow) and starts the stack in the foreground; `Ctrl+C` stops it.
 |---|---|
 | `npm run dev` / `dev:web` | opencode + BFF + Vite (`http://localhost:5173`) |
 | `npm run dev:server` | opencode + BFF only (no Vite) |
-| `npm run dev:desktop` | the stack **detached**, then Electron on the host against `http://localhost:8787` |
+| `npm run dev:desktop` | the stack **detached**, then Electron on the host against Vite (`http://localhost:5173`, which proxies `/api` to the BFF on `:8787`) |
 | `npm run dev:mobile` | the stack **detached**, then the Expo dev server on the host |
 | `npm run dev:logs` | follow the stack logs |
 | `npm run dev:restart` | restart the BFF/Vite container (sources and data are kept; compose/env changes need `npm run dev`) |
 | `npm run dev:stop` | stop the stack (volumes and data are kept) |
 
 Desktop and mobile cannot run inside a container (they need a GUI/device), so
-they run on the host and talk to the containerized BFF. `dev:desktop` and
-`dev:mobile` leave the Docker stack running; stop it with `npm run dev:stop`.
+they run on the host. Electron loads the Vite dev server on `http://localhost:5173`
+(the default the connect screen prefills) and Vite proxies `/api` to the
+containerized BFF on `:8787`; loading the BFF root directly returns 404 because
+the dev image has no web build. `dev:desktop` and `dev:mobile` leave the Docker
+stack running; stop it with `npm run dev:stop`.
 
 ### Native fallback
 

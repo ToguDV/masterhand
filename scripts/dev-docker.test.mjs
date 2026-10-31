@@ -1,6 +1,14 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { ACTIONS, COMPOSE_FILES, composeArgs, DEV_SERVICE, ENV_FILE, targetFor } from "./dev-docker.mjs"
+import {
+  ACTIONS,
+  COMPOSE_FILES,
+  composeArgs,
+  DEV_SERVICE,
+  ENV_FILE,
+  hostArgs,
+  targetFor,
+} from "./dev-docker.mjs"
 
 test("composeArgs uses the deployment stack plus the dev override and env file", () => {
   const args = composeArgs(["up", "--build"])
@@ -18,6 +26,13 @@ test("the dev stack runs the web front end except for the server target", () => 
   assert.equal(targetFor("server"), "server")
   assert.equal(targetFor("desktop"), "web")
   assert.equal(targetFor("mobile"), "web")
+})
+
+test("desktop/mobile host fronts call the npm scripts that exist", () => {
+  // `npm run run dev …` was the regression: the front array must not repeat
+  // the `run` verb that hostArgs already adds.
+  assert.deepEqual(hostArgs("desktop"), ["run", "dev", "-w", "@masterhand/desktop"])
+  assert.deepEqual(hostArgs("mobile"), ["run", "start", "-w", "@masterhand/mobile"])
 })
 
 test("supported actions are stable", () => {
