@@ -13,7 +13,7 @@ services:
       dockerfile: deploy/server.Dockerfile
       args:
         CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.9.3}
-        MASTERHAND_VERSION: ${MASTERHAND_VERSION:-0.1.0}
+        MASTERHAND_VERSION: ${MASTERHAND_VERSION:-0.2.0}
         MASTERHAND_BUILD: ${MASTERHAND_BUILD:-dev}
     restart: unless-stopped
     # Bound container logs: a long agent turn can produce gigabytes, and the
