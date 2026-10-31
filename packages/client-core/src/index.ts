@@ -325,6 +325,7 @@ export {
   defaultServerLabel,
   isLoopbackHostname,
   isMixedContentBlocked,
+  isPrivateHostname,
   isSameOrigin,
   normalizeServerLabel,
   normalizeServerUrl,

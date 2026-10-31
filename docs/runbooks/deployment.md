@@ -131,7 +131,7 @@ Whatever you use, **disable response buffering for SSE** (`/api/events`) and for
 
 ## 6. Verify
 
-- `GET https://<your-domain>/api/health` returns `{ "ok": true }`.
+- `GET https://<your-domain>/api/health` returns `{ "ok": true, "ready": true, "app": "masterhand", "version": "<version>" }`.
 - Log in from web, desktop and mobile.
 - An external scan shows only the proxy port and SSH open; opencode is unreachable from outside.
 - The managed-run sandbox and the engine-data modes hold after an install or upgrade:

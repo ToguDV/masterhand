@@ -34,6 +34,12 @@ export type NormalizeServerUrlResult =
 
 export interface NormalizeServerUrlOptions {
   /**
+   * Accept plain `http://` for private and link-local hosts (RFC 1918, ULA,
+   * link-local, `.local` / `.home.arpa` names). Native mobile only: a phone
+   * on the same LAN cannot present a publicly trusted certificate.
+   */
+  allowPrivateNetwork?: boolean
+  /**
    * Accept plain `http://` for this exact origin (the page that served the
    * client). Its HttpOnly cookie never leaves that origin, so the same-origin
    * exception is safe even on a LAN deployment without TLS.
@@ -72,9 +78,81 @@ export function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
+ * Private and link-local hosts where plain `http://` may be acceptable for a
+ * native client on the same network: RFC 1918 / link-local IPv4, ULA /
+ * link-local IPv6, IPv4-mapped IPv6 and `.local` / `.home.arpa` names.
+ *
+ * CGNAT (100.64/10, Tailscale) and public addresses stay out: Tailscale
+ * already encrypts, so accepting http there would be a silent downgrade.
+ * Loopback keeps its own meaning in `isLoopbackHostname`.
+ */
+export function isPrivateHostname(hostname: string): boolean {
+  let host = hostname.trim().toLowerCase()
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1)
+  // `new URL` rejects zone ids, but direct callers may still pass them.
+  const zone = host.indexOf("%")
+  if (zone !== -1) host = host.slice(0, zone)
+
+  // A trailing root dot is the same name to DNS but hides the suffix.
+  const name = host.endsWith(".") ? host.slice(0, -1) : host
+  if (name.endsWith(".local") || name.endsWith(".home.arpa")) return true
+
+  const ipv4 = parseIpv4(host)
+  if (ipv4 !== null) return isPrivateIpv4(ipv4)
+
+  if (!host.includes(":")) return false
+
+  const mapped = /^::ffff:(.+)$/.exec(host)
+  if (mapped) {
+    const rest = mapped[1]!
+    const embedded = parseIpv4(rest) ?? parseMappedIpv4(rest)
+    return embedded !== null && isPrivateIpv4(embedded)
+  }
+
+  const first = Number.parseInt(host.split(":")[0]!, 16)
+  if (Number.isNaN(first)) return false
+  return (first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80
+}
+
+function parseIpv4(value: string): [number, number, number, number] | null {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value)
+  if (!match) return null
+  const octets = match.slice(1).map((octet) => Number(octet))
+  if (octets.some((octet) => octet > 255)) return null
+  return [octets[0]!, octets[1]!, octets[2]!, octets[3]!]
+}
+
+function isPrivateIpv4(octets: readonly [number, number, number, number]): boolean {
+  const [first, second] = octets
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254)
+  )
+}
+
+/** `<hex>:<hex>` is the URL-normalized form of `::ffff:a.b.c.d`. */
+function parseMappedIpv4(value: string): [number, number, number, number] | null {
+  const groups = value.split(":")
+  if (groups.length !== 2) return null
+  const high = parseHexGroup(groups[0]!)
+  const low = parseHexGroup(groups[1]!)
+  if (high === null || low === null) return null
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff]
+}
+
+function parseHexGroup(value: string): number | null {
+  if (!/^[0-9a-f]{1,4}$/.test(value)) return null
+  return Number.parseInt(value, 16)
+}
+
+/**
  * Normalizes a user-entered server URL:
- * - trims, accepts scheme-less input by assuming `https://`
- * - requires `https://` except on loopback hosts
+ * - trims, accepts scheme-less input by assuming `https://` (or `http://` for
+ *   private LAN hosts when `allowPrivateNetwork` is enabled)
+ * - requires `https://` except on loopback hosts and, when enabled, private
+ *   network hosts
  * - rejects credentials, query strings, hashes and non-root paths
  * - strips trailing slashes and default ports through `URL.origin`
  */
@@ -86,13 +164,22 @@ export function normalizeServerUrl(
   if (!trimmed) return { ok: false, error: "empty" }
   if (trimmed.length > MAX_SERVER_URL_LENGTH) return { ok: false, error: "too_long" }
 
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+  const withScheme = hasScheme ? trimmed : `https://${trimmed}`
 
   let parsed: URL
   try {
     parsed = new URL(withScheme)
   } catch {
     return { ok: false, error: "invalid" }
+  }
+
+  if (!hasScheme && options.allowPrivateNetwork === true && isPrivateHostname(parsed.hostname)) {
+    // An explicit conventional TLS port means the server speaks TLS: guessing
+    // http would send a cleartext client to a TLS listener. Read the port from
+    // the http candidate because the https parse drops 443.
+    const httpCandidate = new URL(`http://${trimmed}`)
+    if (httpCandidate.port !== "443" && httpCandidate.port !== "8443") parsed = httpCandidate
   }
 
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
@@ -104,8 +191,12 @@ export function normalizeServerUrl(
   if (parsed.pathname.replace(/\/+$/, "") !== "") return { ok: false, error: "path" }
   if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
     const allowedOrigin = originOf(options.allowInsecureOrigin)
+    const privateAllowed =
+      options.allowPrivateNetwork === true && isPrivateHostname(parsed.hostname)
     const insecureAllowed =
-      options.allowInsecure === true || (allowedOrigin !== null && parsed.origin === allowedOrigin)
+      privateAllowed ||
+      options.allowInsecure === true ||
+      (allowedOrigin !== null && parsed.origin === allowedOrigin)
     if (!insecureAllowed) return { ok: false, error: "https_required" }
   }
 
@@ -213,14 +304,19 @@ export function isMixedContentBlocked(
 }
 
 /** User-facing copy for a rejected URL (English, shared by both clients). */
-export function serverUrlErrorMessage(error: ServerUrlError): string {
+export function serverUrlErrorMessage(
+  error: ServerUrlError,
+  options: { allowPrivateNetwork?: boolean } = {},
+): string {
   switch (error) {
     case "empty":
       return "Enter the server URL"
     case "too_long":
       return "That URL is too long"
     case "https_required":
-      return "Use https:// — plain http:// is only allowed for localhost"
+      return options.allowPrivateNetwork === true
+        ? "Use https:// — plain http:// is only allowed for localhost and private LAN addresses"
+        : "Use https:// — plain http:// is only allowed for localhost"
     case "credentials":
       return "Remove the username or password from the URL"
     case "query":

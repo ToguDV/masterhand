@@ -7,7 +7,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.togudv.masterhand"
+      "bundleIdentifier": "dev.togudv.masterhand",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "MasterHand connects to your self-hosted server on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "dev.togudv.masterhand",
@@ -26,6 +32,7 @@
         "expo-build-properties",
         {
           "android": {
+            "usesCleartextTraffic": true,
             "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class * extends androidx.work.InputMerger { <init>(); }"
           }
         }

@@ -234,7 +234,12 @@ describe("storage resilience", () => {
 
     const response = await fetch(`${app.url}/api/health`)
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, ready: true })
+    expect(await response.json()).toEqual({
+      ok: true,
+      ready: true,
+      app: "masterhand",
+      version: app.config.version,
+    })
   })
 
   it("maps a SQLite failure to a typed 503 instead of an opaque 500", async () => {

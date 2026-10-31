@@ -287,6 +287,12 @@ jobs:
         working-directory: apps/mobile
         run: node ../../scripts/check-android-dex.mjs "android/app/build/outputs/apk/release/MasterHand-${{ needs.image.outputs.version }}.apk"
 
+      # Release builds block cleartext HTTP unless the manifest flag survives;
+      # LAN `http://` servers (ADR-47) would become unreachable for users.
+      - name: Verify the APK manifest allows LAN cleartext traffic
+        working-directory: apps/mobile
+        run: node ../../scripts/check-android-manifest.mjs "android/app/build/outputs/apk/release/MasterHand-${{ needs.image.outputs.version }}.apk"
+
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:

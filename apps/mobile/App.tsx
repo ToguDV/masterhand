@@ -416,9 +416,9 @@ function Root() {
         setError(`You can save at most ${MAX_SERVER_PROFILES} servers.`)
         return
       }
-      const normalized = normalizeServerUrl(values.url)
+      const normalized = normalizeServerUrl(values.url, { allowPrivateNetwork: true })
       if (!normalized.ok) {
-        setError(serverUrlErrorMessage(normalized.error))
+        setError(serverUrlErrorMessage(normalized.error, { allowPrivateNetwork: true }))
         return
       }
       if (isMixedContentBlocked(normalized.server.url, null)) {

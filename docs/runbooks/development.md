@@ -86,6 +86,20 @@ is unset, so the PTY inherits the user and environment of the process that runs
 `opencode serve`. Docker is the only isolation path; use the Compose stack for
 anything security-relevant (untrusted repositories, agent-produced code, demos).
 
+### Mobile over the LAN
+
+`npm run dev:mobile` starts the stack and the Expo dev server. To test the
+plain-http LAN path (ADR-47), find the host's LAN address with
+`ip route get 1 | awk '{print $7}'` and, from another device on the same
+network, open `http://<lan-ip>:8787/api/health` — it should answer with
+`app: "masterhand"`.
+Enter `http://<lan-ip>:8787` (scheme-less works too) in the app's **Servers**
+screen with the `MASTERHAND_PASSWORD` from `deploy/.env.dev`. iOS asks for
+local-network access on first connect (`NSLocalNetworkUsageDescription`);
+accept it. Expo Go and debug builds already allow cleartext; Android **release**
+builds need `android.usesCleartextTraffic: true` (checked at release, see
+[`release.md`](release.md)).
+
 ## 4. Configuration
 
 `deploy/.env.dev` uses the **same variable names** as the production

@@ -178,6 +178,21 @@ test("the Android release keeps the constructors R8 strips from reflective class
   assert.match(mobilePackage.dependencies["expo-task-manager"], /58\.0\.13/)
 })
 
+test("the mobile app requests LAN cleartext + local network access", () => {
+  // The release gate checks the built manifest, but a PR that drops the
+  // config must fail long before a release tag exists: without these flags a
+  // self-hosted server on a private LAN is unreachable on both platforms.
+  const plugin = mobileApp.expo.plugins.find(
+    (entry) => Array.isArray(entry) && entry[0] === "expo-build-properties",
+  )
+  assert.ok(plugin, "expo-build-properties must be configured")
+  assert.equal(plugin[1]?.android?.usesCleartextTraffic, true)
+  const infoPlist = mobileApp.expo.ios?.infoPlist ?? {}
+  assert.equal(typeof infoPlist.NSLocalNetworkUsageDescription, "string")
+  assert.ok(infoPlist.NSLocalNetworkUsageDescription.length > 0)
+  assert.equal(infoPlist.NSAppTransportSecurity?.NSAllowsLocalNetworking, true)
+})
+
 test("the release APK is named after the app and version, and its dex is gated", () => {
   const android = release.slice(release.indexOf("\n  android:"), release.indexOf("\n  desktop:"))
   const build = android.indexOf("assembleRelease")
@@ -188,6 +203,27 @@ test("the release APK is named after the app and version, and its dex is gated",
   assert.match(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk/)
   assert.match(android, /path: .*MasterHand-[\s\S]*?if-no-files-found: error/)
   assert.doesNotMatch(android, /path: apps\/mobile\/android\/app\/build\/outputs\/apk\/release\/app-release\.apk/)
+})
+
+test("the release APK's manifest is gated for LAN cleartext traffic before upload", () => {
+  // Android blocks cleartext HTTP by default on release builds; a self-hosted
+  // MasterHand on a private LAN is reached over plain HTTP (ADR-47), so the
+  // `usesCleartextTraffic` flag must survive into the binary manifest. A plugin
+  // or SDK bump can drop it silently, exactly like the v0.2.0 R8 crash.
+  const android = release.slice(release.indexOf("\n  android:"), release.indexOf("\n  desktop:"))
+  const build = android.indexOf("assembleRelease")
+  const dexGuard = android.indexOf("scripts/check-android-dex.mjs")
+  const manifestGuard = android.indexOf("scripts/check-android-manifest.mjs")
+  const upload = android.indexOf("actions/upload-artifact")
+  assert.ok(
+    build >= 0 && dexGuard > build && manifestGuard > dexGuard && upload > manifestGuard,
+    "both APK guards must run between assembleRelease and the artifact upload",
+  )
+  assert.match(
+    android,
+    /node \.\.\/\.\.\/scripts\/check-android-manifest\.mjs "android\/app\/build\/outputs\/apk\/release\/MasterHand-\$\{\{ needs\.image\.outputs\.version \}\}\.apk"/,
+  )
+  assert.match(android, /working-directory: apps\/mobile/)
 })
 
 test("the published APK asset includes the version and old tags remain repairable", () => {

@@ -1312,7 +1312,10 @@ export function createApp(deps: AppDeps): CreatedApp {
     // instance cannot serve, and Docker surfaces it as unhealthy. `ready` is
     // kept for compatibility; there is no longer a boot pass to wait for.
     if (!deps.store.ping()) return c.json({ ok: false, error: "storage_unavailable" }, 503)
-    return c.json({ ok: true, ready: true })
+    // `app`/`version` let LAN discovery discard other services that happen to
+    // answer on the same host/port. Not authentication: the fields are
+    // trivially spoofable, they only filter noise.
+    return c.json({ ok: true, ready: true, app: "masterhand", version: config.version })
   })
 
   app.post("/api/login", authBodyLimit, async (c) => {
