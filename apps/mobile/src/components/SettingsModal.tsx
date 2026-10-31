@@ -1,7 +1,12 @@
 import { useEffect, useState, type ComponentType } from "react"
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { ClipPath, Defs, G, Path, Svg } from "react-native-svg"
-import { DEFAULT_PALETTE, PALETTES, type Client } from "@masterhand/client-core"
+import {
+  DEFAULT_PALETTE,
+  PALETTES,
+  type AgentActivityPreferences,
+  type Client,
+} from "@masterhand/client-core"
 import type { StoredServerProfile } from "../storage"
 import { Screen } from "./Screen"
 import { AboutSection } from "./UpdateNotice"
@@ -71,6 +76,8 @@ export function SettingsModal({
   onSignOut,
   onClose,
   initialSection = null,
+  onNotificationsEnabledChange,
+  onNotificationPreferencesChange,
   servers,
 }: {
   visible: boolean
@@ -83,6 +90,9 @@ export function SettingsModal({
   onSignOut: () => void
   onClose: () => void
   initialSection?: SectionID | null
+  /** Keeps App's notification refs in sync without a foreground round-trip. */
+  onNotificationsEnabledChange?: (enabled: boolean) => void
+  onNotificationPreferencesChange?: (preferences: AgentActivityPreferences) => void
   servers: {
     profiles: StoredServerProfile[]
     activeID: string | null
@@ -247,7 +257,12 @@ export function SettingsModal({
           {section === "goal" && <GoalReviewSection client={client} />}
           {section === "websearch" && <WebSearchSection client={client} />}
           {section === "providers" && <ProvidersSection client={client} />}
-          {section === "notifications" && <NotificationsSection />}
+          {section === "notifications" && (
+            <NotificationsSection
+              onEnabledChange={onNotificationsEnabledChange}
+              onPreferencesChange={onNotificationPreferencesChange}
+            />
+          )}
           {section === "about" && <AboutSection client={client} />}
           </ScrollView>
         )}

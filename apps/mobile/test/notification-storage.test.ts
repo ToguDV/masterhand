@@ -1,6 +1,8 @@
 import {
+  loadAgentActivityPreferences,
   loadBusySnapshot,
   loadNotificationsEnabled,
+  saveAgentActivityPreferences,
   saveBusySnapshot,
   saveNotificationsEnabled,
 } from "../src/storage"
@@ -35,6 +37,34 @@ describe("notification storage", () => {
     expect(await loadNotificationsEnabled()).toBe(true)
     await saveNotificationsEnabled(false)
     expect(await loadNotificationsEnabled()).toBe(false)
+  })
+
+  it("defaults every event kind to on and round-trips them", async () => {
+    expect(await loadAgentActivityPreferences()).toEqual({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: true,
+    })
+    await saveAgentActivityPreferences({
+      finished: false,
+      failed: true,
+      permission: false,
+      question: true,
+    })
+    expect(await loadAgentActivityPreferences()).toEqual({
+      finished: false,
+      failed: true,
+      permission: false,
+      question: true,
+    })
+    store.set("masterhand.notifications.kinds", "not-json")
+    expect(await loadAgentActivityPreferences()).toEqual({
+      finished: true,
+      failed: true,
+      permission: true,
+      question: true,
+    })
   })
 
   it("round-trips the per-profile busy snapshot and ignores garbage", async () => {

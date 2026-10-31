@@ -1,4 +1,10 @@
-import { decideAgentActivity } from "../src/agent-activity"
+import { describe, expect, it } from "vitest"
+import {
+  DEFAULT_AGENT_ACTIVITY_PREFERENCES,
+  agentActivityKindEnabled,
+  decideAgentActivity,
+  normalizeAgentActivityPreferences,
+} from "../src/agent-activity"
 
 function session(overrides = {}) {
   return {
@@ -17,9 +23,7 @@ describe("decideAgentActivity", () => {
       { type: "session.idle", data: { sessionID: "ses_1" } },
       { isAppActive: false, wasBusy: true, session: session() },
     )
-    expect(result).toEqual(
-      expect.objectContaining({ kind: "finished", sessionID: "ses_1" }),
-    )
+    expect(result).toEqual(expect.objectContaining({ kind: "finished", sessionID: "ses_1" }))
   })
 
   it("stays silent when the app is active", () => {
@@ -58,9 +62,7 @@ describe("decideAgentActivity", () => {
       { type: "session.execution.failed", data: { sessionID: "ses_1" } },
       { isAppActive: false, wasBusy: true, session: session() },
     )
-    expect(result).toEqual(
-      expect.objectContaining({ kind: "failed", sessionID: "ses_1" }),
-    )
+    expect(result).toEqual(expect.objectContaining({ kind: "failed", sessionID: "ses_1" }))
   })
 
   it("never notifies for user-interrupted turns", () => {
@@ -76,9 +78,7 @@ describe("decideAgentActivity", () => {
       { type: "permission.asked", data: { id: "perm_1", sessionID: "ses_1" } },
       { isAppActive: false, wasBusy: false, session: session(), alreadyNotified: false },
     )
-    expect(first).toEqual(
-      expect.objectContaining({ kind: "permission", sessionID: "ses_1" }),
-    )
+    expect(first).toEqual(expect.objectContaining({ kind: "permission", sessionID: "ses_1" }))
     const second = decideAgentActivity(
       { type: "permission.asked", data: { id: "perm_1", sessionID: "ses_1" } },
       { isAppActive: false, wasBusy: false, session: session(), alreadyNotified: true },
@@ -167,5 +167,32 @@ describe("decideAgentActivity", () => {
         { isAppActive: false, wasBusy: false, session: session() },
       ),
     ).toEqual(expect.objectContaining({ kind: "permission", sessionID: "ses_1" }))
+  })
+})
+
+describe("agent activity preferences", () => {
+  it("keeps every kind enabled when storage is missing or malformed", () => {
+    expect(normalizeAgentActivityPreferences(null)).toEqual(DEFAULT_AGENT_ACTIVITY_PREFERENCES)
+    expect(normalizeAgentActivityPreferences("nope")).toEqual(DEFAULT_AGENT_ACTIVITY_PREFERENCES)
+    expect(normalizeAgentActivityPreferences([])).toEqual(DEFAULT_AGENT_ACTIVITY_PREFERENCES)
+  })
+
+  it("reads booleans and falls back per field", () => {
+    expect(
+      normalizeAgentActivityPreferences({ finished: false, permission: true, extra: "ignored" }),
+    ).toEqual({
+      finished: false,
+      failed: true,
+      permission: true,
+      question: true,
+    })
+  })
+
+  it("gates one kind without touching the others", () => {
+    const preferences = { ...DEFAULT_AGENT_ACTIVITY_PREFERENCES, question: false, failed: false }
+    expect(agentActivityKindEnabled(preferences, "finished")).toBe(true)
+    expect(agentActivityKindEnabled(preferences, "question")).toBe(false)
+    expect(agentActivityKindEnabled(preferences, "failed")).toBe(false)
+    expect(agentActivityKindEnabled(preferences, "permission")).toBe(true)
   })
 })

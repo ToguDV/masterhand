@@ -15,6 +15,13 @@ jest.mock("../src/storage", () => ({
   clearTheme: jest.fn(async () => {}),
   loadNotificationsEnabled: jest.fn(async () => false),
   saveNotificationsEnabled: jest.fn(async () => {}),
+  loadAgentActivityPreferences: jest.fn(async () => ({
+    finished: true,
+    failed: true,
+    permission: true,
+    question: true,
+  })),
+  saveAgentActivityPreferences: jest.fn(async () => {}),
   loadBusySnapshot: jest.fn(async () => ({})),
   saveBusySnapshot: jest.fn(async () => {}),
 }))

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
 import { Linking, Pressable, StyleSheet, Switch, Text, View } from "react-native"
+import {
+  DEFAULT_AGENT_ACTIVITY_PREFERENCES,
+  type AgentActivityKind,
+  type AgentActivityPreferences,
+} from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 import {
+  loadAgentActivityPreferences,
   loadNotificationsEnabled,
+  saveAgentActivityPreferences,
   saveNotificationsEnabled,
 } from "../storage"
 import {
@@ -12,30 +19,73 @@ import {
 } from "../notifications"
 import { registerAgentActivityTask, unregisterAgentActivityTask } from "../background-notifications"
 
+const KINDS: Array<{
+  kind: AgentActivityKind
+  label: string
+  description: string
+  accessibilityLabel: string
+}> = [
+  {
+    kind: "finished",
+    label: "Agent finished",
+    description: "A run completes or goes idle.",
+    accessibilityLabel: "Notify when an agent finishes",
+  },
+  {
+    kind: "failed",
+    label: "Agent failed",
+    description: "A run ends with an error.",
+    accessibilityLabel: "Notify when an agent fails",
+  },
+  {
+    kind: "permission",
+    label: "Permission requests",
+    description: "An agent needs approval to continue.",
+    accessibilityLabel: "Notify for permission requests",
+  },
+  {
+    kind: "question",
+    label: "Questions",
+    description: "An agent asks you for input.",
+    accessibilityLabel: "Notify for questions",
+  },
+]
+
 /**
  * Settings > Notifications: local agent-activity alerts without Play Console
  * or Firebase. Off by default; enabling asks the OS permission once, creates
- * the Android channel and registers the 15-minute background check. The
- * background check is best-effort (WorkManager decides the exact timing).
+ * the Android channel and registers the 15-minute background check. Each event
+ * kind has its own switch, and the background task only runs for finishes.
  */
-export function NotificationsSection() {
+export function NotificationsSection({
+  onEnabledChange,
+  onPreferencesChange,
+}: {
+  onEnabledChange?: (enabled: boolean) => void
+  onPreferencesChange?: (preferences: AgentActivityPreferences) => void
+} = {}) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const [enabled, setEnabled] = useState(false)
   const [granted, setGranted] = useState(false)
+  const [preferences, setPreferences] = useState<AgentActivityPreferences>(
+    DEFAULT_AGENT_ACTIVITY_PREFERENCES,
+  )
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [stored, permission] = await Promise.all([
+      const [stored, permission, kinds] = await Promise.all([
         loadNotificationsEnabled().catch(() => false),
         getNotificationPermission().catch(() => false),
+        loadAgentActivityPreferences().catch(() => DEFAULT_AGENT_ACTIVITY_PREFERENCES),
       ])
       if (cancelled) return
       setEnabled(stored)
       setGranted(permission)
+      setPreferences(kinds)
     })()
     return () => {
       cancelled = true
@@ -59,18 +109,47 @@ export function NotificationsSection() {
             return
           }
           await saveNotificationsEnabled(true)
-          await registerAgentActivityTask()
+          if (preferences.finished) await registerAgentActivityTask()
           setEnabled(true)
+          onEnabledChange?.(true)
         } else {
           await saveNotificationsEnabled(false)
           await unregisterAgentActivityTask()
           setEnabled(false)
+          onEnabledChange?.(false)
         }
       } finally {
         setBusy(false)
       }
     },
-    [],
+    [onEnabledChange, preferences.finished],
+  )
+
+  const setKind = useCallback(
+    async (kind: AgentActivityKind, value: boolean) => {
+      if (busy) return
+      const next = { ...preferences, [kind]: value }
+      setBusy(true)
+      setNotice(null)
+      setPreferences(next)
+      try {
+        await saveAgentActivityPreferences(next)
+        onPreferencesChange?.(next)
+        // The periodic task exists only for finishes: keep it in sync so the
+        // device does not wake up for alerts the user turned off.
+        if (kind === "finished") {
+          if (enabled && value) await registerAgentActivityTask()
+          if (!value) await unregisterAgentActivityTask()
+        }
+      } catch {
+        // A failed write must not leave the switch lying about the device.
+        setPreferences(preferences)
+        setNotice("Could not save the notification settings.")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, enabled, onPreferencesChange, preferences],
   )
 
   const sendTest = useCallback(async () => {
@@ -113,6 +192,26 @@ export function NotificationsSection() {
           onValueChange={(value) => void setOn(value)}
         />
       </View>
+
+      {KINDS.map((item) => (
+        <View key={item.kind} style={[styles.row, !enabled && styles.rowDisabled]}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>{item.label}</Text>
+            <Text style={styles.rowDesc}>{item.description}</Text>
+          </View>
+          <Switch
+            value={preferences[item.kind]}
+            disabled={busy || !enabled}
+            accessibilityLabel={item.accessibilityLabel}
+            trackColor={{ true: colors.accent }}
+            onValueChange={(value) => void setKind(item.kind, value)}
+          />
+        </View>
+      ))}
+
+      {!enabled ? (
+        <Text style={styles.hint}>Turn on Agent activity to use these switches.</Text>
+      ) : null}
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
@@ -172,6 +271,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
     },
+    rowDisabled: { opacity: 0.5 },
     rowText: { flex: 1, paddingRight: 12 },
     rowLabel: { color: colors.text, fontFamily: fonts.ui, fontSize: 14, fontWeight: "600" },
     rowDesc: { color: colors.textMuted, fontFamily: fonts.ui, fontSize: 12, marginTop: 2 },

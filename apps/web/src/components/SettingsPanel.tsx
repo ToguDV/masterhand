@@ -3,6 +3,7 @@ import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterh
 import { useModalFocus } from "./useModalFocus"
 import {
   ArrowLeftIcon,
+  BellIcon,
   ChevronRightIcon,
   CircleIcon,
   KeyIcon,
@@ -17,8 +18,10 @@ import {
   type IconProps,
 } from "./icons"
 import { GoalReviewSection } from "./GoalReviewSection"
+import { NotificationsSection } from "./NotificationsSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
+import { DEFAULT_NOTIFICATION_PREFERENCES, type NotificationPreferences } from "../notifications"
 import { AboutSection } from "./UpdateNotice"
 import { ServerMonogram, ServerStatus } from "./ServerBits"
 import type { ServerProfile } from "../servers"
@@ -29,11 +32,24 @@ const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
   { value: "dark", label: "Dark", canvas: "#0C0C0B" },
 ]
 
-export type SettingsModule = "servers" | "appearance" | "goal" | "websearch" | "providers" | "about"
+export type SettingsModule =
+  | "servers"
+  | "appearance"
+  | "notifications"
+  | "goal"
+  | "websearch"
+  | "providers"
+  | "about"
 
 const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: ComponentType<IconProps> }> = [
   { id: "servers", label: "Servers", desc: "Connections and credentials", icon: ServerIcon },
   { id: "appearance", label: "Appearance", desc: "Theme and color", icon: SunIcon },
+  {
+    id: "notifications",
+    label: "Notifications",
+    desc: "Agent alerts on this device",
+    icon: BellIcon,
+  },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
   { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
@@ -51,6 +67,8 @@ export function SettingsDialog({
   onSelectMode,
   palette,
   onSelectPalette,
+  notifications,
+  onNotificationsChange,
   onSignOut,
   onClose,
   initialModule,
@@ -60,6 +78,8 @@ export function SettingsDialog({
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
   onSelectPalette: (palette: PaletteID) => void
+  notifications?: NotificationPreferences
+  onNotificationsChange?: (preferences: NotificationPreferences) => void
   /** Kept for the mobile settings list; the active server's Disconnect lives in Servers. */
   onSignOut: () => void
   onClose: () => void
@@ -166,6 +186,11 @@ export function SettingsDialog({
                 onSelectMode={onSelectMode}
                 palette={palette}
                 onSelectPalette={onSelectPalette}
+              />
+            ) : module === "notifications" ? (
+              <NotificationsSection
+                preferences={notifications ?? DEFAULT_NOTIFICATION_PREFERENCES}
+                onChange={onNotificationsChange ?? (() => {})}
               />
             ) : module === "goal" ? (
               <GoalReviewSection />
