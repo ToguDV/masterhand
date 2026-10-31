@@ -11,6 +11,7 @@ import {
 } from "@masterhand/client-core"
 import { useQueryClient } from "@tanstack/react-query"
 import { client } from "../client"
+import { isBundledDesktop } from "../platform"
 import { CLIENT_BUILD, CLIENT_VERSION } from "../version"
 
 const SKIPPED_UPDATE_KEY = "masterhand.skippedUpdate"
@@ -168,7 +169,9 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
   const action = useUpdateAction(latest ?? null, status)
 
   const serverBuild = status?.build
-  const staleBundle = Boolean(serverBuild && CLIENT_BUILD && serverBuild !== CLIENT_BUILD)
+  // The bundled desktop app updates its UI through electron-updater, so
+  // reloading the page cannot pick up a newer server build.
+  const staleBundle = Boolean(serverBuild && CLIENT_BUILD && serverBuild !== CLIENT_BUILD && !isBundledDesktop())
 
   const current = status?.version ?? CLIENT_VERSION
   const updateAvailable =

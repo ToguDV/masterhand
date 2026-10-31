@@ -90,6 +90,16 @@ test("the desktop job packages Linux, Windows and macOS with electron-builder", 
   assert.match(release, /needs: \[image, android, desktop\]/)
 })
 
+test("the desktop bundle ships the web build with the release identity", () => {
+  const desktop = release.slice(release.indexOf("\n  desktop:"), release.indexOf("\n  publish:"))
+  // The shell serves `dist/renderer`; package it and bake the tag's identity so
+  // the bundled UI matches the server image (no `dev` build id in releases).
+  assert.match(desktop, /MASTERHAND_VERSION="\$\{GITHUB_REF_NAME#v\}"/)
+  assert.match(desktop, /MASTERHAND_BUILD="\$GITHUB_SHA"/)
+  assert.match(builderConfig, /files:\s*\n\s*- dist\/\*\*\/\*/)
+  assert.match(builderConfig, /- static\/\*\*\/\*/)
+})
+
 test("the Linux desktop target ships both the AppImage and a .deb", () => {
   assert.match(builderConfig, /- AppImage\s*\n\s*- deb/)
   assert.match(builderConfig, /artifactName: "MasterHand-\$\{version\}-\$\{arch\}\.deb"/)

@@ -102,6 +102,7 @@ import {
   type ServerProfile,
   type ServerRegistry,
 } from "./servers"
+import { isBundledDesktop } from "./platform"
 
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
@@ -478,6 +479,13 @@ export default function App() {
     setBootError(null)
     setPhase("loading")
     if (current.profiles.length === 0) {
+      // The bundled desktop app serves a static bundle from `masterhand://app`,
+      // so there is no same-origin BFF to probe: the first-run Servers form is
+      // the only valid entry point.
+      if (isBundledDesktop()) {
+        setPhase("servers")
+        return
+      }
       const probe = createServerClient({ baseUrl: window.location.origin })
       try {
         await probe.auth.status()
@@ -548,6 +556,7 @@ export default function App() {
       }
       const normalized = normalizeServerUrl(submission.url, {
         allowInsecureOrigin: window.location.origin,
+        allowInsecure: isBundledDesktop(),
       })
       if (!normalized.ok) {
         setConnectError(serverUrlErrorMessage(normalized.error))
@@ -798,7 +807,9 @@ export default function App() {
       <ServersScreen
         profiles={registry.profiles}
         activeID={registry.activeID}
-        initialUrl={window.location.origin}
+        // The bundled desktop app is served from `masterhand://app`, which is
+        // not a server: only a real http(s) page can prefill itself.
+        initialUrl={/^https?:$/.test(window.location.protocol) ? window.location.origin : ""}
         busy={busy}
         error={connectError}
         notice={notice}

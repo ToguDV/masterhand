@@ -85,7 +85,7 @@ Docker Compose reads `deploy/.env` and injects it into the containers; inside th
 ## Stack
 
 - **Web:** React 19 + Vite + TypeScript + Tailwind
-- **Desktop:** Electron (loads the BFF-served web app; first-run server URL, persisted locally, `electron-updater` from GitHub Releases)
+- **Desktop:** Electron (bundled web build served from `masterhand://app`; the app's Servers screen owns server selection, `electron-updater` from GitHub Releases)
 - **Mobile:** React Native + Expo
 - **Shared:** `packages/client-core` (API client, query hooks, SSE, auth adapters)
 - **BFF:** Node 22 + Hono (auth, proxy, SSE relay)

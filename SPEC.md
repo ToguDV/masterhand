@@ -33,7 +33,7 @@ One user: the owner of the instance (single-user, multi-device). No teams, roles
 
 | ID | Requirement | Detail |
 |---|---|---|
-| FR-1 | Authentication | Password login; HttpOnly cookie for web/desktop on the serving origin; per-server Bearer device tokens for remote servers and mobile; multiple saved server profiles with independent credentials and one active connection; persistent session; disconnect/logout; login rate limiting |
+| FR-1 | Authentication | Password login; HttpOnly cookie for the web app on the serving origin; per-server Bearer device tokens for remote servers, the desktop app and mobile; multiple saved server profiles with independent credentials and one active connection; persistent session; disconnect/logout; login rate limiting |
 | FR-2 | Sessions | List sessions grouped by project; create, open and delete; distinguish states (idle / busy / error) |
 | FR-3 | Chat | Send text prompts and attach files (clip, drag & drop and clipboard paste on web/desktop; the native document picker on mobile); choose agent and model; render history (text, tool calls, reasoning, attachments); live streaming of the response |
 | FR-4 | Approvals | Show permission requests (`permission.updated`) with title, type, pattern and metadata; answer "once" / "always" / "reject"; reflect `permission.replied` |
