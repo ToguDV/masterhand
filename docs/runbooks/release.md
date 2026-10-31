@@ -130,17 +130,21 @@ the installer's job.
 
 1. **Workflow:** all jobs green; the GitHub release exists and contains
    `version.json`, the APK, both server images and the desktop assets.
-2. **Image:** `docker pull ghcr.io/togudv/masterhand:<version>` and check
+2. **Manifest:** `curl -fsSL .../releases/download/v<version>/version.json` —
+   `notes` must be the annotated tag's subject, not a commit message (the image
+   job fetches the tag object before reading it; a commit subject means the
+   checkout left a lightweight tag, see §7).
+3. **Image:** `docker pull ghcr.io/togudv/masterhand:<version>` and check
    `GET /api/status` reports `{ version, build }` on a test host.
-3. **Android:** install the APK from the release (or F-Droid once Pages is on);
+4. **Android:** install the APK from the release (or F-Droid once Pages is on);
    Settings → About shows the installed version and the update path.
-4. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
+5. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
-5. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
+6. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
    the first run opens the app's **Servers** screen — add the server URL and
    password there. The native menu only has **Check for updates…** and
    **About**.
-6. **Auto-update:** after the *next* release, the desktop app should download
+7. **Auto-update:** after the *next* release, the desktop app should download
    and prompt; the web banner should offer **Update now** when the one-click
    updater is enabled.
 
@@ -194,6 +198,13 @@ locally and is **not** updated by this flow.
 - **Preflight fails:** run `node scripts/check-release-versions.mjs vX.Y.Z`
   locally; it names each stale file. Never move a published tag — delete the
   remote tag only if the release job did not create a GitHub release yet.
+- **`version.json` notes show a commit message:** the checkout left the tag as a
+  lightweight ref, so the annotation was never read (v0.2.0). The `image` job
+  re-fetches `refs/tags/$TAG` before reading `%(contents:subject)` (pinned by
+  `scripts/release-workflow.test.mjs`). Repair a published manifest in place:
+  `gh release delete-asset vX.Y.Z version.json --yes`, upload a corrected file
+  named `version.json` (a `file#version.json` label does not rename it), then
+  re-download it to confirm.
 - **Android job fails on the keystore:** the secrets are missing or the alias
   is wrong; the APK-signature verification step names the mismatch.
 - **Desktop packaging fails:** `electron-builder` requires an **exact** Electron
