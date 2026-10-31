@@ -2,7 +2,19 @@
 
 Self-hosted server to use your [opencode](https://opencode.ai) agents from any device — web, desktop and mobile. Open source, single-user across multiple devices.
 
-> Status: v0.1.0 — BFF + web + Electron + React Native, deploy-ready. See `PROGRESS.md`.
+> Status: v0.2.0 — BFF + web + Electron + React Native, deploy-ready. See `PROGRESS.md`.
+
+## Screenshots
+
+The web app at a desktop viewport (the Electron shell serves the same build):
+
+![Chat with agent tool cards on desktop](docs/screenshots/desktop-chat.png)
+
+| Mobile — sessions | Mobile — chat |
+|---|---|
+| ![Session list on mobile](docs/screenshots/mobile-sessions.png) | ![Chat with tool cards on mobile](docs/screenshots/mobile-chat.png) |
+
+Captured from the E2E harness (mocked opencode) at 1600×1000 and 390×844; no instance data.
 
 ## Install
 
@@ -11,9 +23,9 @@ Self-hosted server to use your [opencode](https://opencode.ai) agents from any d
   The web UI is served by the BFF; there is no separate static site.
 - **Desktop:** Linux AppImage or `.deb`, Windows installer and macOS DMG/ZIP
   from the [latest release](https://github.com/ToguDV/masterhand/releases/latest).
-  The first launch asks for your server URL; the app updates itself from GitHub
-  releases (the `.deb` is a manual install; the AppImage is the auto-update
-  channel).
+  The first launch opens the app's **Servers** screen (add your server URL and
+  password there); the app updates itself from GitHub releases (the `.deb` is a
+  manual install; the AppImage is the auto-update channel).
 - **Android:** signed APK from the same release, or add the self-hosted F-Droid
   repo `https://togudv.github.io/masterhand/fdroid/repo/`.
 
