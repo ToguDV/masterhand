@@ -269,11 +269,30 @@ jobs:
           fi
           echo "APK signature matches the release key ($APK_CERT)"
 
+      # The GitHub asset carries the app name and the tag; F-Droid keeps its
+      # own `dev.togudv.masterhand_<versionCode>.apk` copy.
+      - name: Name the APK after the app and version
+        working-directory: apps/mobile
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.image.outputs.version }}"
+          cp android/app/build/outputs/apk/release/app-release.apk \
+            "android/app/build/outputs/apk/release/MasterHand-${VERSION}.apk"
+
+      # v0.2.0 shipped an APK that crashed on launch before React Native: R8
+      # stripped `androidx.work.impl.WorkDatabase_Impl.<init>` (Room creates the
+      # database by reflection from `androidx.startup.InitializationProvider`).
+      # Fail the release when the built dex loses a required constructor.
+      - name: Verify the minified APK keeps reflective constructors
+        working-directory: apps/mobile
+        run: node ../../scripts/check-android-dex.mjs "android/app/build/outputs/apk/release/MasterHand-${{ needs.image.outputs.version }}.apk"
+
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          path: apps/mobile/android/app/build/outputs/apk/release/MasterHand-${{ needs.image.outputs.version }}.apk
+          if-no-files-found: error
 
   # Desktop installers + the electron-updater channel files (`latest*.yml`).
   # The shell bundles the web build and serves it from `masterhand://app`; its
@@ -412,7 +431,7 @@ jobs:
           fi
           gh release upload "$TAG" --clobber \
             "assets/version-json/version.json#version.json" \
-            "assets/android-apk/app-release.apk#app-release.apk"
+            "assets/android-apk/MasterHand-${VERSION}.apk"
           # Desktop installers + electron-updater channel files (`latest*.yml`,
           # blockmaps). Keep the per-file loop so filenames with spaces survive.
           count="$(find assets/desktop-* -maxdepth 1 -type f | wc -l)"
@@ -443,7 +462,7 @@ jobs:
       - name: Refresh the F-Droid repo
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APK_SOURCE: assets/android-apk/app-release.apk
+          APK_SOURCE: assets/android-apk/MasterHand-${{ needs.image.outputs.version }}.apk
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}

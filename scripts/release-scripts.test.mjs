@@ -23,7 +23,12 @@ function fixtures(overrides = {}) {
     },
     ...overrides,
   }
+  const texts = {
+    "deploy/docker-compose.yml": `        MASTERHAND_VERSION: \${MASTERHAND_VERSION:-${VERSION}}\n`,
+    "deploy/server.Dockerfile": `ARG MASTERHAND_VERSION=${VERSION}\nARG MASTERHAND_BUILD=dev\nARG MASTERHAND_VERSION=${VERSION}\n`,
+  }
   return (path) => {
+    if (path in texts) return texts[path]
     if (!(path in files)) throw new Error(`ENOENT: ${path}`)
     return JSON.stringify(files[path])
   }
@@ -70,6 +75,32 @@ test("checkReleaseVersions rejects a stale mobile version and versionCode", () =
   })
   assert.equal(staleCode.ok, false)
   assert.match(staleCode.errors.join("\n"), /versionCode is 100, expected 200/)
+})
+
+test("checkReleaseVersions rejects stale compose/Dockerfile app versions", () => {
+  const compose = checkReleaseVersions({
+    tag: "v0.2.0",
+    readFile: (path) => {
+      if (path === "deploy/docker-compose.yml") {
+        return "        MASTERHAND_VERSION: ${MASTERHAND_VERSION:-0.1.0}\n"
+      }
+      return fixtures()(path)
+    },
+  })
+  assert.equal(compose.ok, false)
+  assert.match(compose.errors.join("\n"), /deploy\/docker-compose\.yml MASTERHAND_VERSION is 0\.1\.0/)
+
+  const dockerfile = checkReleaseVersions({
+    tag: "v0.2.0",
+    readFile: (path) => {
+      if (path === "deploy/server.Dockerfile") {
+        return "ARG MASTERHAND_VERSION=0.1.0\nARG MASTERHAND_VERSION=0.1.0\n"
+      }
+      return fixtures()(path)
+    },
+  })
+  assert.equal(dockerfile.ok, false)
+  assert.match(dockerfile.errors.join("\n"), /deploy\/server\.Dockerfile MASTERHAND_VERSION is 0\.1\.0/)
 })
 
 test("checkReleaseVersions rejects non-final tags and missing files", () => {

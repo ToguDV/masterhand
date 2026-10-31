@@ -2,7 +2,7 @@
 
 Self-hosted server to use your [opencode](https://opencode.ai) agents from any device — web, desktop and mobile. Open source, single-user across multiple devices.
 
-> Status: v0.2.0 — BFF + web + Electron + React Native, deploy-ready. See `PROGRESS.md`.
+> Status: v0.2.1 — BFF + web + Electron + React Native, deploy-ready. See `PROGRESS.md`.
 
 ## Screenshots
 
@@ -26,8 +26,8 @@ Captured from the E2E harness (mocked opencode) at 1600×1000 and 390×844; no i
   The first launch opens the app's **Servers** screen (add your server URL and
   password there); the app updates itself from GitHub releases (the `.deb` is a
   manual install; the AppImage is the auto-update channel).
-- **Android:** signed APK from the same release, or add the self-hosted F-Droid
-  repo `https://togudv.github.io/masterhand/fdroid/repo/`.
+- **Android:** signed `MasterHand-<version>.apk` from the same release, or add
+  the self-hosted F-Droid repo `https://togudv.github.io/masterhand/fdroid/repo/`.
 
 Updating: the desktop app checks every 6 hours and prompts to restart; Android
 notifies through F-Droid; the server shows an update banner and, when the

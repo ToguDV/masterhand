@@ -86,12 +86,19 @@ git switch main
 git pull
 
 # Bumps every package.json + apps/mobile/app.json (version + versionCode),
-# syncs package-lock.json, commits and creates the annotated tag.
-node scripts/release.mjs 0.2.0
+# deploy/docker-compose.yml and deploy/server.Dockerfile, syncs
+# package-lock.json, commits and creates the annotated tag.
+node scripts/release.mjs 0.2.1
 
 # Pushing the tag triggers the release workflow.
-git push origin main v0.2.0
+git push origin main v0.2.1
 ```
+
+When a release fixes a broken client build, write the recovery step in the tag
+annotation (it becomes `version.json.notes` and the GitHub release body).
+v0.2.0's Android app cannot open, so its users must update through F-Droid or
+download `MasterHand-0.2.1.apk` manually; the in-app update banner is not
+reachable.
 
 Rules enforced by the workflow:
 
@@ -111,7 +118,7 @@ Rules enforced by the workflow:
 |---|---|
 | `preflight` | Version/versionCode guard; nothing is built when it fails |
 | `image` | `ghcr.io/togudv/masterhand:<version>` + `:latest` (web UI bundled), `ghcr.io/togudv/masterhand-updater:<version>` + `:latest`, `version.json` |
-| `android` | Signed `app-release.apk`, verified against the release keystore |
+| `android` | Signed `MasterHand-<version>.apk` (release asset; F-Droid stores it as `dev.togudv.masterhand_<versionCode>.apk`), verified against the release keystore and gated by the reflective-constructor check |
 | `desktop` (Linux) | `MasterHand-<version>.AppImage`, `MasterHand-<version>-amd64.deb`, `latest-linux.yml`, blockmap |
 | `desktop` (Windows) | `MasterHand Setup <version>.exe`, `latest.yml`, blockmap |
 | `desktop` (macOS) | `MasterHand-<version>-universal.dmg`, `-universal-mac.zip`, `latest-mac.yml`, blockmap |
@@ -136,8 +143,13 @@ the installer's job.
    checkout left a lightweight tag, see §7).
 3. **Image:** `docker pull ghcr.io/togudv/masterhand:<version>` and check
    `GET /api/status` reports `{ version, build }` on a test host.
-4. **Android:** install the APK from the release (or F-Droid once Pages is on);
-   Settings → About shows the installed version and the update path.
+4. **Android:** install `MasterHand-<version>.apk` from the release (or F-Droid
+   once Pages is on) and **launch it** — it must reach the Servers screen. A
+   build can pass the signature check and still crash before `MainActivity`
+   (v0.2.0 stripped `WorkDatabase_Impl.<init>` with R8); the `android` job's
+   `scripts/check-android-dex.mjs` step is the automated gate, and a manual
+   launch catches anything else. Settings → About shows the installed version
+   and the update path.
 5. **F-Droid:** `curl -fsSL https://togudv.github.io/masterhand/fdroid/repo/index-v2.json`
    and confirm the new `versionCode`.
 6. **Desktop:** install the AppImage/EXE/DMG (or the `.deb` on Debian/Ubuntu);
@@ -207,6 +219,17 @@ locally and is **not** updated by this flow.
   re-download it to confirm.
 - **Android job fails on the keystore:** the secrets are missing or the alias
   is wrong; the APK-signature verification step names the mismatch.
+- **Android job fails in “Verify the minified APK keeps reflective
+  constructors”:** R8 removed `<init>` from `WorkDatabase_Impl` or an
+  `InputMerger` (v0.2.0). Restore the `expo-build-properties` keep rules in
+  `apps/mobile/app.json` and the SDK-58 `expo-background-task`/
+  `expo-task-manager` patches; never publish a release from that failed job.
+  The three class names are WorkManager internals: when an upgrade legitimately
+  renames one, update `REQUIRED_NO_ARG_CONSTRUCTORS` and the keep rule — never
+  delete the step or bypass it.
+- **Old releases use the Gradle APK name:** v0.1.0 and v0.2.0 attached
+  `app-release.apk`; from v0.2.1 the asset is `MasterHand-<version>.apk`. The
+  manual F-Droid workflow accepts both (the script falls back to the old name).
 - **Desktop packaging fails:** `electron-builder` requires an **exact** Electron
   version (no `^`), and the scoped workspace name is not a valid executable
   name (`executableName: masterhand` is set in `electron-builder.yml`).

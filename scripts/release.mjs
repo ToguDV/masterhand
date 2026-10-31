@@ -45,6 +45,16 @@ function bumpJson(file, mutate) {
   writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`)
 }
 
+function bumpText(file, pattern, replace) {
+  const path = join(repoRoot, file)
+  const text = readFileSync(path, "utf8")
+  const next = text.replace(pattern, replace)
+  if (next === text) {
+    throw new Error(`release: ${file} has no version placeholder to bump`)
+  }
+  writeFileSync(path, next)
+}
+
 function run(command, args) {
   // Rule 30 (docs/past-mistakes.md): never let a leaked GIT_DIR/WORK_TREE
   // redirect a release commit/tag into another repository.
@@ -72,6 +82,19 @@ if (isMain) {
     body.expo.version = identity.version
     body.expo.android.versionCode = identity.versionCode
   })
+  // `deploy/docker-compose.yml` and the server image default keep the app
+  // version in sync with the packages; a stale default makes a source build
+  // report the previous version and offer a permanent update.
+  bumpText(
+    "deploy/docker-compose.yml",
+    /(MASTERHAND_VERSION: \$\{MASTERHAND_VERSION:-)[^}]+(\})/g,
+    (_match, prefix, suffix) => `${prefix}${identity.version}${suffix}`,
+  )
+  bumpText(
+    "deploy/server.Dockerfile",
+    /(^ARG MASTERHAND_VERSION=).+$/gm,
+    (_match, prefix) => `${prefix}${identity.version}`,
+  )
 
   // Keep workspace versions in the lockfile in sync without reinstalling.
   run("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"])
@@ -84,6 +107,8 @@ if (isMain) {
       "add",
       ...PACKAGE_FILES,
       "apps/mobile/app.json",
+      "deploy/docker-compose.yml",
+      "deploy/server.Dockerfile",
       "package-lock.json",
     ])
     run("git", ["commit", "-m", `chore(release): ${identity.version}`])

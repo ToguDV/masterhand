@@ -69,7 +69,7 @@ FROM base AS build
 # Release identity baked into the server (`/api/status`) and the web bundle
 # (stale-bundle notice). The release workflow passes the tag; local builds
 # keep the package version with a `dev` build id.
-ARG MASTERHAND_VERSION=0.1.0
+ARG MASTERHAND_VERSION=0.2.1
 ARG MASTERHAND_BUILD=dev
 ENV MASTERHAND_VERSION=${MASTERHAND_VERSION}
 ENV MASTERHAND_BUILD=${MASTERHAND_BUILD}
@@ -89,7 +89,7 @@ RUN npm prune --omit=dev
 FROM toolchain AS runtime
 # Build args are stage-scoped: re-declare them here so the runtime image
 # carries the same release identity the `build` stage compiled in.
-ARG MASTERHAND_VERSION=0.1.0
+ARG MASTERHAND_VERSION=0.2.1
 ARG MASTERHAND_BUILD=dev
 ENV NODE_ENV=production
 ENV DATA_DIR=/data

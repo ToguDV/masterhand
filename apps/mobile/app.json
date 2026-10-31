@@ -2,7 +2,7 @@
   "expo": {
     "name": "MasterHand",
     "slug": "masterhand",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -11,7 +11,7 @@
     },
     "android": {
       "package": "dev.togudv.masterhand",
-      "versionCode": 200
+      "versionCode": 201
     },
     "plugins": [
       [
@@ -22,6 +22,14 @@
       ],
       "expo-font",
       "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "-keep class * extends androidx.room.RoomDatabase { <init>(); }\n-keep class * extends androidx.work.InputMerger { <init>(); }"
+          }
+        }
+      ],
       "expo-background-task",
       [
         "expo-notifications",

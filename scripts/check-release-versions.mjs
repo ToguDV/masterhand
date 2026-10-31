@@ -27,6 +27,21 @@ const PACKAGE_FILES = [
   "e2e/package.json",
 ]
 
+/**
+ * Non-JSON files that also carry the release identity. A stale default makes
+ * a source-built image report the old version (and a permanent update notice).
+ */
+const TEXT_VERSION_FILES = [
+  {
+    file: "deploy/docker-compose.yml",
+    pattern: /MASTERHAND_VERSION: \$\{MASTERHAND_VERSION:-([^}]+)\}/g,
+  },
+  {
+    file: "deploy/server.Dockerfile",
+    pattern: /^ARG MASTERHAND_VERSION=(\S+)$/gm,
+  },
+]
+
 export function androidVersionCode(version) {
   const [major, minor, patch] = version.split(".").map(Number)
   return major * 10000 + minor * 100 + patch
@@ -73,6 +88,23 @@ export function checkReleaseVersions({ tag, readFile = (path) => readFileSync(jo
     }
   } catch (error) {
     errors.push(`apps/mobile/app.json could not be read: ${error instanceof Error ? error.message : error}`)
+  }
+
+  for (const { file, pattern } of TEXT_VERSION_FILES) {
+    try {
+      const values = [...readFile(file).matchAll(pattern)].map((match) => match[1])
+      if (values.length === 0) {
+        errors.push(`${file} has no MASTERHAND_VERSION entry`)
+        continue
+      }
+      for (const value of new Set(values)) {
+        if (value !== version) {
+          errors.push(`${file} MASTERHAND_VERSION is ${value}, expected ${version}`)
+        }
+      }
+    } catch (error) {
+      errors.push(`${file} could not be read: ${error instanceof Error ? error.message : error}`)
+    }
   }
 
   return errors.length === 0
