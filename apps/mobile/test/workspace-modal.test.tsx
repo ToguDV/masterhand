@@ -24,11 +24,44 @@ describe("WorkspaceModal", () => {
     const handlers = await setup()
 
     expect(screen.getByText("demo")).toBeOnTheScreen()
-    expect(screen.getByText("/workspaces/other")).toBeOnTheScreen()
+    expect(screen.getByText("other")).toBeOnTheScreen()
 
     await fireEvent.press(screen.getByText("demo"))
     expect(handlers.onSelect).toHaveBeenCalledWith("ws1")
     expect(handlers.onClose).toHaveBeenCalled()
+  })
+
+  it("previews the five most recent workspaces and expands with Show all", async () => {
+    const many: WorkspaceRecord[] = Array.from({ length: 7 }, (_, index) => ({
+      id: `ws${index}`,
+      name: `project-${index}`,
+      path: `/workspaces/project-${index}`,
+      createdAt: index,
+    }))
+    await setup({ workspaces: many })
+
+    // Newest first: 6..2, with 1 and 0 behind "Show all".
+    expect(screen.getByText("project-6")).toBeOnTheScreen()
+    expect(screen.getByText("project-2")).toBeOnTheScreen()
+    expect(screen.queryByText("project-1")).toBeNull()
+
+    await fireEvent.press(screen.getByText("Show all 7"))
+    expect(screen.getByText("project-1")).toBeOnTheScreen()
+    expect(screen.getByText("project-0")).toBeOnTheScreen()
+  })
+
+  it("searches workspaces by name", async () => {
+    const many: WorkspaceRecord[] = Array.from({ length: 7 }, (_, index) => ({
+      id: `ws${index}`,
+      name: `project-${index}`,
+      path: `/workspaces/project-${index}`,
+      createdAt: index,
+    }))
+    await setup({ workspaces: many })
+
+    await fireEvent.changeText(screen.getByPlaceholderText("Search…"), "project-1")
+    expect(screen.getByText("project-1")).toBeOnTheScreen()
+    expect(screen.queryByText("project-6")).toBeNull()
   })
 
   it("shows an empty state without workspaces", async () => {

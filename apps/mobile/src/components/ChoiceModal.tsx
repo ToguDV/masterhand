@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import {
   KeyboardAvoidingView,
   Modal,
@@ -24,6 +24,10 @@ export function ChoiceModal({
   selected,
   onSelect,
   onClose,
+  previewCount,
+  footer,
+  emptyLabel = "No matches",
+  showAllLabel,
 }: {
   visible: boolean
   title: string
@@ -31,18 +35,35 @@ export function ChoiceModal({
   selected: string
   onSelect: (value: string) => void
   onClose: () => void
+  /** When set, show this many options first plus a "Show all" action. */
+  previewCount?: number
+  /** Extra actions rendered under the list (management, filters, …). */
+  footer?: ReactNode
+  emptyLabel?: string
+  showAllLabel?: string
 }) {
   const [query, setQuery] = useState("")
+  const [expanded, setExpanded] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
   const insets = useSafeAreaInsets()
 
   useEffect(() => {
-    if (!visible) setQuery("")
+    if (visible) return
+    setQuery("")
+    setExpanded(false)
   }, [visible])
 
+  const searchable = previewCount === undefined || options.length > previewCount
   const term = query.trim().toLowerCase()
   const filtered = term ? options.filter((option) => option.label.toLowerCase().includes(term)) : options
+  const pinned = selected
+    ? [options.find((option) => option.value === selected), ...filtered.filter((option) => option.value !== selected)]
+    : filtered
+  const truncated = searchable && previewCount !== undefined && !expanded && !term && options.length > previewCount
+  const shown = truncated
+    ? pinned.filter((option): option is ChoiceOption => Boolean(option)).slice(0, previewCount)
+    : filtered
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -54,21 +75,23 @@ export function ChoiceModal({
           >
             <View style={styles.grab} />
             <Text style={styles.title}>{title}</Text>
-            {/* Always available: model and agent catalogs are long enough that
-                scrolling alone is not a usable picker. */}
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search…"
-              placeholderTextColor={colors.textFaint}
-              autoCorrect={false}
-              autoCapitalize="none"
-              accessibilityLabel={`Search ${title}`}
-              style={styles.search}
-            />
+            {/* Model and agent catalogs are long enough that scrolling alone is
+                not a usable picker; a short list can skip the field. */}
+            {searchable ? (
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search…"
+                placeholderTextColor={colors.textFaint}
+                autoCorrect={false}
+                autoCapitalize="none"
+                accessibilityLabel={`Search ${title}`}
+                style={styles.search}
+              />
+            ) : null}
             <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-              {filtered.length === 0 && <Text style={styles.empty}>No matches</Text>}
-              {filtered.map((option) => (
+              {shown.length === 0 && <Text style={styles.empty}>{emptyLabel}</Text>}
+              {shown.map((option) => (
                 <Pressable
                   key={option.value}
                   testID={`choice-${option.value}`}
@@ -83,6 +106,17 @@ export function ChoiceModal({
                   </Text>
                 </Pressable>
               ))}
+              {truncated ? (
+                <Pressable
+                  style={styles.showAll}
+                  onPress={() => setExpanded(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={showAllLabel ?? `Show all ${options.length}`}
+                >
+                  <Text style={styles.showAllText}>{showAllLabel ?? `Show all ${options.length}`}</Text>
+                </Pressable>
+              ) : null}
+              {footer}
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -172,6 +206,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
     optionTextSelected: {
       color: colors.accent,
       fontWeight: "600",
+    },
+    showAll: {
+      minHeight: 44,
+      justifyContent: "center",
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+    },
+    showAllText: {
+      color: colors.accent,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      fontWeight: "500",
     },
   })
 }

@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react"
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native"
-import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { useEffect, useMemo, useState } from "react"
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native"
 import { ApiError, type CreateWorkspaceInput, type WorkspaceRecord } from "@masterhand/client-core"
-import { Deco } from "./Deco"
-import { CheckIcon } from "./icons"
+import { ChoiceModal } from "./ChoiceModal"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 function errorMessage(error: unknown): string {
@@ -14,6 +12,12 @@ function errorMessage(error: unknown): string {
   return "Could not add the workspace"
 }
 
+/**
+ * Workspace selector and management sheet. The list follows the web model
+ * picker: the five most recent workspaces (plus the selected one), a search
+ * field when there are more, and a "Show all" action. Add/remove live below
+ * the list so the sheet stays minimal.
+ */
 export function WorkspaceModal({
   visible,
   workspaces,
@@ -38,7 +42,6 @@ export function WorkspaceModal({
   const [error, setError] = useState<string | null>(null)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
-  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     if (visible) return
@@ -49,6 +52,15 @@ export function WorkspaceModal({
     setError(null)
   }, [visible])
 
+  const options = useMemo(
+    () =>
+      [...workspaces]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((workspace) => ({ value: workspace.id, label: workspace.name })),
+    [workspaces],
+  )
+  const selected = workspaces.find((workspace) => workspace.id === selectedID) ?? null
+
   async function submit(): Promise<void> {
     const trimmed = name.trim()
     if (!trimmed || busy) return
@@ -56,217 +68,97 @@ export function WorkspaceModal({
     setError(null)
     try {
       await onAdd({ name: trimmed })
+      onClose()
     } catch (err) {
       setError(errorMessage(err))
       setBusy(false)
     }
   }
 
-  const selected = workspaces.find((workspace) => workspace.id === selectedID) ?? null
+  function remove(): void {
+    if (!selectedID) return
+    onRemove(selectedID, { deleteFiles })
+    onClose()
+  }
+
+  const footer = adding ? (
+    <View style={styles.form}>
+      <Text style={styles.formHint}>A new folder with this name is created inside the workspaces root.</Text>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        placeholder="my-project"
+        placeholderTextColor={colors.textFaint}
+        autoCorrect={false}
+        autoCapitalize="none"
+        style={styles.input}
+        testID="workspace-name-input"
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <View style={styles.formActions}>
+        <Pressable style={styles.secondary} disabled={busy} onPress={() => setAdding(false)}>
+          <Text style={styles.secondaryText}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.primary, (!name.trim() || busy) && styles.disabled]}
+          disabled={!name.trim() || busy}
+          onPress={() => void submit()}
+        >
+          <Text style={styles.primaryText}>{busy ? "Adding…" : "Add"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  ) : (
+    <View style={styles.actions}>
+      {selected ? (
+        <Pressable style={styles.deleteRow} onPress={() => setDeleteFiles((value) => !value)}>
+          <Switch
+            value={deleteFiles}
+            onValueChange={setDeleteFiles}
+            trackColor={{ true: colors.accent, false: colors.surfaceMuted }}
+            thumbColor={colors.surface}
+          />
+          <Text style={styles.deleteLabel}>Also delete files from disk</Text>
+        </Pressable>
+      ) : null}
+      <View style={styles.actionRow}>
+        {selectedID ? (
+          <Pressable style={styles.danger} onPress={remove} accessibilityRole="button">
+            <Text style={styles.dangerText}>Remove workspace</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={styles.primary} onPress={() => setAdding(true)} accessibilityRole="button">
+          <Text style={styles.primaryText}>Add workspace</Text>
+        </Pressable>
+      </View>
+    </View>
+  )
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.root} behavior="padding">
-        <Pressable style={styles.backdrop} onPress={onClose}>
-          <Pressable
-            style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}
-            onPress={() => {}}
-          >
-            <View style={styles.grab} />
-            <Text style={styles.title}>Workspaces</Text>
-
-            <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-              {workspaces.length === 0 && (
-                <View style={styles.emptyWrap}>
-                  <Deco variant="hatch" style={styles.emptyDeco} />
-                  <Text style={styles.empty}>No workspaces yet.</Text>
-                </View>
-              )}
-              {workspaces.map((workspace) => (
-                <Pressable
-                  key={workspace.id}
-                  style={[styles.option, workspace.id === selectedID && styles.optionSelected]}
-                  onPress={() => {
-                    onSelect(workspace.id)
-                    onClose()
-                  }}
-                >
-                  <View style={styles.optionBody}>
-                    <Text style={[styles.optionText, workspace.id === selectedID && styles.optionTextSelected]}>
-                      {workspace.name}
-                    </Text>
-                    <Text style={styles.optionMeta} numberOfLines={1}>
-                      {workspace.path}
-                    </Text>
-                  </View>
-                  {workspace.id === selectedID ? <CheckIcon size={16} color={colors.accent} /> : null}
-                </Pressable>
-              ))}
-            </ScrollView>
-
-          {adding ? (
-            <View style={styles.form}>
-              <Text style={styles.formHint}>
-                A new folder with this name is created inside the workspaces root.
-              </Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="my-project"
-                placeholderTextColor={colors.textFaint}
-                autoCorrect={false}
-                autoCapitalize="none"
-                style={styles.input}
-                testID="workspace-name-input"
-              />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
-              <View style={styles.formActions}>
-                <Pressable style={styles.secondary} disabled={busy} onPress={() => setAdding(false)}>
-                  <Text style={styles.secondaryText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.primary, (!name.trim() || busy) && styles.disabled]}
-                  disabled={!name.trim() || busy}
-                  onPress={() => void submit()}
-                >
-                  <Text style={styles.primaryText}>{busy ? "Adding…" : "Add"}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.form}>
-              {selected ? (
-                <Pressable style={styles.checkRow} onPress={() => setDeleteFiles((value) => !value)}>
-                  <Switch
-                    value={deleteFiles}
-                    onValueChange={setDeleteFiles}
-                    trackColor={{ true: colors.accent, false: colors.surfaceMuted }}
-                    thumbColor={colors.surface}
-                  />
-                  <Text style={styles.checkLabel}>Also delete files from disk</Text>
-                </Pressable>
-              ) : null}
-              <View style={styles.formActions}>
-                {selectedID ? (
-                  <Pressable
-                    style={styles.danger}
-                    onPress={() => onRemove(selectedID, { deleteFiles })}
-                  >
-                    <Text style={styles.dangerText}>Remove workspace</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable style={styles.primary} onPress={() => setAdding(true)}>
-                  <Text style={styles.primaryText}>Add workspace</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {selected && !adding ? (
-            <Text style={styles.hint} numberOfLines={1}>
-              {selected.path}
-            </Text>
-          ) : null}
-        </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
+    <ChoiceModal
+      visible={visible}
+      title="Workspaces"
+      options={options}
+      selected={selectedID ?? ""}
+      onSelect={onSelect}
+      onClose={onClose}
+      previewCount={5}
+      emptyLabel="No workspaces yet."
+      showAllLabel={`Show all ${workspaces.length}`}
+      footer={footer}
+    />
   )
 }
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
-    root: {
-      flex: 1,
-    },
-    backdrop: {
-      flex: 1,
-      justifyContent: "flex-end",
-      backgroundColor: colors.overlay,
-    },
-    sheet: {
-      maxHeight: "80%",
-      overflow: "hidden",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      backgroundColor: colors.surface,
-    },
-    grab: {
-      alignSelf: "center",
-      width: 36,
-      height: 4,
-      marginTop: 8,
-      borderRadius: 2,
-      backgroundColor: colors.hairlineStrong,
-    },
-    title: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      fontWeight: "600",
-      letterSpacing: 0.8,
-      textTransform: "uppercase",
-      paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: 8,
-    },
-    list: {
-      flexGrow: 0,
-      flexShrink: 1,
-    },
-    option: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-    },
-    optionBody: {
-      flex: 1,
-      gap: 2,
-    },
-    optionSelected: {
-      backgroundColor: colors.surfaceMuted,
-    },
-    optionText: {
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 15,
-    },
-    optionTextSelected: {
-      color: colors.accent,
-      fontWeight: "600",
-    },
-    optionMeta: {
-      color: colors.textMuted,
-      fontFamily: fonts.mono,
-      fontSize: 12,
-    },
-    emptyWrap: {
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 32,
-      paddingHorizontal: 16,
-      overflow: "hidden",
-    },
-    emptyDeco: {
-      position: "absolute",
-      top: -6,
-      right: -30,
-    },
-    empty: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-    },
     form: {
       gap: 8,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
       paddingHorizontal: 16,
       paddingTop: 12,
+      paddingBottom: 4,
     },
     formHint: {
       color: colors.textMuted,
@@ -284,15 +176,31 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingHorizontal: 12,
       paddingVertical: 10,
     },
-    checkRow: {
+    actions: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.hairline,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 4,
+      gap: 4,
+    },
+    deleteRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
+      minHeight: 44,
     },
-    checkLabel: {
-      color: colors.text,
+    deleteLabel: {
+      color: colors.textSoft,
       fontFamily: fonts.ui,
-      fontSize: 14,
+      fontSize: 13,
+    },
+    actionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: 8,
+      paddingBottom: 4,
     },
     formActions: {
       flexDirection: "row",
@@ -345,13 +253,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 12,
-    },
-    hint: {
-      color: colors.textMuted,
-      fontFamily: fonts.mono,
-      fontSize: 12,
-      paddingHorizontal: 16,
-      paddingTop: 8,
     },
     disabled: {
       opacity: 0.5,
