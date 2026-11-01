@@ -60,6 +60,19 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml ps
 ```
 
+> **Never reuse a development image in production.** `up -d` without
+> `--build`/`pull` reuses whatever image is tagged locally, and the dev overlay
+> deliberately runs `NODE_ENV=development` with Vite + `tsx watch`. It now tags
+> `masterhand-dev:local`, but a stale `ghcr.io/togudv/masterhand:latest` can
+> still exist from older checkouts. Verify the running container:
+>
+> ```bash
+> docker compose -f deploy/docker-compose.yml exec masterhand sh -c 'echo "$NODE_ENV"'
+> # production
+> docker inspect --format '{{json .Config.Cmd}}' "$(docker compose -f deploy/docker-compose.yml ps -q masterhand)"
+> # ["sh","-c","umask 002; exec node apps/server/dist/index.js"]
+> ```
+
 The BFF is published on a host port (default `8787`, configurable with `MASTERHAND_PORT`/`MASTERHAND_BIND`). opencode stays on the internal network and publishes no ports.
 
 ## 4. Authenticate providers (one-time)

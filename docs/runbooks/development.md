@@ -43,6 +43,11 @@ npm run dev                                  # opencode + BFF + web (Vite on :51
 `npm run dev` is an alias of `npm run dev:web`. It builds the images (the first
 run is slow) and starts the stack in the foreground; `Ctrl+C` stops it.
 
+The dev overlay tags its BFF image `masterhand-dev:local` (override with
+`MASTERHAND_DEV_IMAGE`), **never** the production
+`ghcr.io/togudv/masterhand:<version>` tag. A hot-reloading dev image must not be
+reusable by a production `docker compose up` on the same host.
+
 | Command | What it does |
 |---|---|
 | `npm run dev` / `dev:web` | opencode + BFF + Vite (`http://localhost:5173`) |
