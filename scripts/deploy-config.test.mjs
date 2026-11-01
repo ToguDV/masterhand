@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
 const compose = readFileSync(join(repoRoot, "deploy", "docker-compose.yml"), "utf8")
+const devCompose = readFileSync(join(repoRoot, "deploy", "docker-compose.dev.yml"), "utf8")
 
 // #218: project-level opencode plugins/config execute as the engine user
 // (verified with a marker plugin against the pinned 2.0.6 image: it ran on
@@ -20,4 +21,12 @@ test("the shell dropper stays configured alongside the project disable (#218)", 
   // `OPENCODE_CONFIG_CONTENT` is explicit config: it still applies with
   // project discovery off, so agent shells keep dropping to `agent`.
   assert.match(compose, /OPENCODE_CONFIG_CONTENT:.*agent-exec/)
+})
+
+test("the dev overlay tags its own image instead of the production tag", () => {
+  // A dev build (`NODE_ENV=development`, Vite + tsx watch) once reused
+  // `ghcr.io/togudv/masterhand:latest`; a later production `docker compose up`
+  // silently ran that image and skipped the production secret checks.
+  assert.match(devCompose, /image:\s*\$\{MASTERHAND_DEV_IMAGE:-masterhand-dev:local\}/)
+  assert.doesNotMatch(devCompose, /image:\s*ghcr\.io\/togudv\/masterhand:/)
 })

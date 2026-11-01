@@ -13,6 +13,12 @@
 # Windows, Git Bash/WSL is required for the bind mounts.)
 services:
   masterhand:
+    # Never reuse the production tag: this stage is hot-reloading dev code with
+    # NODE_ENV=development, and a local dev build tagged
+    # `ghcr.io/togudv/masterhand:latest` used to be picked up by a production
+    # `docker compose up`, silently running Vite/tsx and skipping the
+    # production secret checks. Keep the dev image clearly local.
+    image: ${MASTERHAND_DEV_IMAGE:-masterhand-dev:local}
     build:
       # Same Dockerfile and context as production, only the stage changes.
       target: dev
