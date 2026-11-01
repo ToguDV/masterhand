@@ -380,7 +380,7 @@ describe("App — workspaces", () => {
   it("selects another workspace from the sheet", async () => {
     await renderAuthenticated({ workspaces: [workspace, otherWorkspace] })
 
-    await fireEvent.press(screen.getByText("Workspace"))
+    await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("other"))
 
     expect(storage.saveServerRegistry).toHaveBeenCalledWith(
@@ -393,7 +393,7 @@ describe("App — workspaces", () => {
   it("adds a workspace and selects it", async () => {
     await renderAuthenticated()
 
-    await fireEvent.press(screen.getByText("Workspace"))
+    await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "fresh")
     await fireEvent.press(screen.getByText("Add"))
@@ -410,7 +410,7 @@ describe("App — workspaces", () => {
     await renderAuthenticated()
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
-    await fireEvent.press(screen.getByText("Workspace"))
+    await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
     alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
 
@@ -432,7 +432,7 @@ describe("App — workspaces", () => {
     await renderAuthenticated()
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
-    await fireEvent.press(screen.getByText("Workspace"))
+    await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
     alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
 

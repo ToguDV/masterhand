@@ -149,7 +149,7 @@ describe("SessionsScreen", () => {
     const handlers = await setup()
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
-    await fireEvent.press(screen.getByText("Workspace"))
+    await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
 
     const destructive = alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")

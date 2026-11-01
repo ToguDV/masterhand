@@ -33,16 +33,25 @@ describe("ChoiceModal", () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it("only offers search for long lists", async () => {
+  it("always offers search, even for short lists", async () => {
     const { rerender } = await render(
       <ChoiceModal visible title="Model" options={shortList} selected="a" onSelect={() => {}} onClose={() => {}} />,
     )
-    expect(screen.queryByPlaceholderText("Search…")).toBeNull()
+    expect(screen.getByPlaceholderText("Search…")).toBeOnTheScreen()
 
     await rerender(
       <ChoiceModal visible title="Model" options={longList} selected="a" onSelect={() => {}} onClose={() => {}} />,
     )
     expect(screen.getByPlaceholderText("Search…")).toBeOnTheScreen()
+  })
+
+  it("filters a short list too", async () => {
+    await render(
+      <ChoiceModal visible title="Model" options={shortList} selected="a" onSelect={() => {}} onClose={() => {}} />,
+    )
+    await fireEvent.changeText(screen.getByPlaceholderText("Search…"), "beta")
+    expect(screen.getByText("Beta")).toBeOnTheScreen()
+    expect(screen.queryByText("Alpha")).toBeNull()
   })
 
   it("filters options by the search term and reports no matches", async () => {

@@ -47,7 +47,7 @@ import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { BrainIcon, ChevronDownIcon, CloseIcon, FileIcon, PaperclipIcon, SlidersIcon } from "./icons"
+import { BrainIcon, ChevronDownIcon, CloseIcon, FileIcon, PaperclipIcon, SlidersIcon, SparkleIcon } from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -747,6 +747,7 @@ export function Composer({
             <PaperclipIcon size={18} color={colors.textMuted} />
           </Pressable>
           <Selector
+            icon={<SparkleIcon size={14} color={colors.textMuted} />}
             label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
             onPress={() => setPicker("agent")}
             disabled={agentChoices.length === 0}

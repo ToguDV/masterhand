@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react"
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { Modal, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   ApiError,
   RequestTimeoutError,
@@ -449,6 +450,7 @@ function PickerTrigger({
 function TaskSheet({ client, task, onClose }: { client: Client; task: ScheduledTask | null; onClose: () => void }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
   const modelsQuery = useModels(client)
   const workspacesQuery = useWorkspaces(client)
   const createMutation = useCreateScheduledTask(client)
@@ -604,9 +606,10 @@ function TaskSheet({ client, task, onClose }: { client: Client; task: ScheduledT
   return (
     <>
       <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-        <View style={styles.backdrop}>
-          <View style={styles.sheet}>
-            <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
+        <KeyboardAvoidingView style={styles.root} behavior="padding">
+          <View style={styles.backdrop}>
+            <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
+              <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
             <Text style={styles.sheetTitle}>{task ? "Edit task" : "New task"}</Text>
             <Text style={styles.muted}>Fires the prompt into a fresh session in the workspace on its schedule.</Text>
 
@@ -689,8 +692,9 @@ function TaskSheet({ client, task, onClose }: { client: Client; task: ScheduledT
               </Pressable>
             </View>
           </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <ChoiceModal
@@ -764,6 +768,7 @@ function DeleteTaskSheet({
   onClose: () => void
 }) {
   const styles = useThemedStyles(createStyles)
+  const insets = useSafeAreaInsets()
   const [error, setError] = useState<string | null>(null)
   /** Guard so a double tap cannot submit the delete twice. */
   const confirmingRef = useRef(false)
@@ -784,7 +789,7 @@ function DeleteTaskSheet({
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
           <Text style={styles.sheetTitle}>Delete task</Text>
           <Text style={styles.muted}>
             Delete <Text style={styles.strong}>{task.name}</Text>? Its run history is removed with it. The sessions it
@@ -1150,14 +1155,17 @@ function createStyles(colors: Palette, fonts: Fonts) {
       justifyContent: "flex-end",
       backgroundColor: colors.overlay,
     },
+    root: {
+      flex: 1,
+    },
     sheet: {
       maxHeight: "85%",
+      overflow: "hidden",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       backgroundColor: colors.surface,
-      paddingBottom: 24,
     },
     sheetContent: {
       padding: 16,

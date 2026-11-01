@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import type { ReactNode } from "react"
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native"
 // The section slot scrolls through the gesture-handler ScrollView so a card
 // drag (long-press pan, #164) negotiates with scrolling instead of fighting
@@ -16,7 +16,7 @@ import {
 import { Screen } from "../components/Screen"
 import { BottomNav, type HomeSection } from "../components/BottomNav"
 import { NewSessionMenu } from "../components/NewSessionMenu"
-import { WorkspaceModal } from "../components/WorkspaceModal"
+import { WorkspacePicker } from "../components/WorkspacePicker"
 import { Deco } from "../components/Deco"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -81,10 +81,8 @@ export function SessionsScreen({
   /** Scheduler task manager rendered in place of the session list. */
   scheduler?: ReactNode
 }) {
-  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
-  const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
   // Subagent children are reachable from their parent's card, not the list.
   const visible = rootSessions(sessions)
 
@@ -139,13 +137,15 @@ export function SessionsScreen({
         </ScrollView>
       ) : (
       <>
-      <Pressable style={styles.workspaceBar} onPress={() => setWorkspaceOpen(true)}>
-        <Text style={styles.workspaceLabel}>Workspace</Text>
-        <Text style={styles.workspaceName} numberOfLines={1}>
-          {workspace ? workspace.name : "Add a workspace"}
-        </Text>
-        <Text style={styles.chevron}>▾</Text>
-      </Pressable>
+      <View style={styles.workspaceBar}>
+        <WorkspacePicker
+          workspaces={workspaces}
+          workspaceID={workspaceID}
+          onSelect={onSelectWorkspace}
+          onAdd={onAddWorkspace}
+          onRemove={confirmRemoveWorkspace}
+        />
+      </View>
 
       {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       {!connected ? <Text style={styles.banner}>Reconnecting to the server…</Text> : null}
@@ -187,18 +187,6 @@ export function SessionsScreen({
         showScheduler={Boolean(scheduler)}
       />
 
-      <WorkspaceModal
-        visible={workspaceOpen}
-        workspaces={workspaces}
-        selectedID={workspaceID}
-        onSelect={onSelectWorkspace}
-        onAdd={onAddWorkspace}
-        onRemove={(id, options) => {
-          setWorkspaceOpen(false)
-          confirmRemoveWorkspace(id, options)
-        }}
-        onClose={() => setWorkspaceOpen(false)}
-      />
     </Screen>
   )
 }
@@ -284,30 +272,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
     workspaceBar: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
       paddingHorizontal: 14,
-      paddingVertical: 10,
+      paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
-    },
-    workspaceLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      letterSpacing: 0.8,
-      textTransform: "uppercase",
-      fontWeight: "600",
-    },
-    workspaceName: {
-      flex: 1,
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "600",
-    },
-    chevron: {
-      color: colors.textMuted,
-      fontSize: 12,
     },
     banner: {
       color: colors.warning,

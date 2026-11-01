@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react"
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native"
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { ApiError, type CreateWorkspaceInput, type WorkspaceRecord } from "@masterhand/client-core"
 import { Deco } from "./Deco"
+import { CheckIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 function errorMessage(error: unknown): string {
@@ -36,6 +38,7 @@ export function WorkspaceModal({
   const [error, setError] = useState<string | null>(null)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     if (visible) return
@@ -63,35 +66,43 @@ export function WorkspaceModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
-          <Text style={styles.title}>Workspaces</Text>
+      <KeyboardAvoidingView style={styles.root} behavior="padding">
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          <Pressable
+            style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}
+            onPress={() => {}}
+          >
+            <View style={styles.grab} />
+            <Text style={styles.title}>Workspaces</Text>
 
-          <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            {workspaces.length === 0 && (
-              <View style={styles.emptyWrap}>
-                <Deco variant="hatch" style={styles.emptyDeco} />
-                <Text style={styles.empty}>No workspaces yet.</Text>
-              </View>
-            )}
-            {workspaces.map((workspace) => (
-              <Pressable
-                key={workspace.id}
-                style={[styles.option, workspace.id === selectedID && styles.optionSelected]}
-                onPress={() => {
-                  onSelect(workspace.id)
-                  onClose()
-                }}
-              >
-                <Text style={[styles.optionText, workspace.id === selectedID && styles.optionTextSelected]}>
-                  {workspace.name}
-                </Text>
-                <Text style={styles.optionMeta} numberOfLines={1}>
-                  {workspace.path}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+            <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+              {workspaces.length === 0 && (
+                <View style={styles.emptyWrap}>
+                  <Deco variant="hatch" style={styles.emptyDeco} />
+                  <Text style={styles.empty}>No workspaces yet.</Text>
+                </View>
+              )}
+              {workspaces.map((workspace) => (
+                <Pressable
+                  key={workspace.id}
+                  style={[styles.option, workspace.id === selectedID && styles.optionSelected]}
+                  onPress={() => {
+                    onSelect(workspace.id)
+                    onClose()
+                  }}
+                >
+                  <View style={styles.optionBody}>
+                    <Text style={[styles.optionText, workspace.id === selectedID && styles.optionTextSelected]}>
+                      {workspace.name}
+                    </Text>
+                    <Text style={styles.optionMeta} numberOfLines={1}>
+                      {workspace.path}
+                    </Text>
+                  </View>
+                  {workspace.id === selectedID ? <CheckIcon size={16} color={colors.accent} /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
 
           {adding ? (
             <View style={styles.form}>
@@ -157,13 +168,17 @@ export function WorkspaceModal({
             </Text>
           ) : null}
         </Pressable>
-      </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
+    root: {
+      flex: 1,
+    },
     backdrop: {
       flex: 1,
       justifyContent: "flex-end",
@@ -171,12 +186,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     sheet: {
       maxHeight: "80%",
+      overflow: "hidden",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       backgroundColor: colors.surface,
-      paddingBottom: 24,
+    },
+    grab: {
+      alignSelf: "center",
+      width: 36,
+      height: 4,
+      marginTop: 8,
+      borderRadius: 2,
+      backgroundColor: colors.hairlineStrong,
     },
     title: {
       color: colors.textMuted,
@@ -191,12 +214,19 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     list: {
       flexGrow: 0,
+      flexShrink: 1,
     },
     option: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.hairline,
+    },
+    optionBody: {
+      flex: 1,
       gap: 2,
     },
     optionSelected: {

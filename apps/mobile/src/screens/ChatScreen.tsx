@@ -43,8 +43,10 @@ import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 const INITIAL_VISIBLE = 10
 /** How many older messages each tap of the history pill reveals. */
 const OLDER_PAGE = 20
-/** Inverted list: distance from the newest message that still counts as "at the bottom". */
-const BOTTOM_THRESHOLD = 120
+/** Distance from the bottom (inverted offset 0) that still counts as "following". */
+const FOLLOW_THRESHOLD = 12
+/** Distance from the bottom that reveals the jump-to-latest shortcut. */
+const JUMP_THRESHOLD = 120
 
 export function ChatScreen({
   client,
@@ -207,15 +209,20 @@ export function ChatScreen({
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       // Inverted list: distance from the newest message is the offset itself.
-      const nearBottom = event.nativeEvent.contentOffset.y < BOTTOM_THRESHOLD
-      followRef.current = nearBottom
+      // Follow only when the reader is truly at the bottom (a few px of
+      // tolerance). The jump shortcut keeps its own, wider threshold so a
+      // reader parked 100 px away is never snapped back by streaming output.
+      const atBottom = event.nativeEvent.contentOffset.y < FOLLOW_THRESHOLD
+      followRef.current = atBottom
       setView((prev) => {
         if (prev.sessionID !== sessionID) return prev
-        const nextShowJump = !nearBottom
+        const nextShowJump = prev.showJump
+          ? !atBottom
+          : event.nativeEvent.contentOffset.y > JUMP_THRESHOLD
         // Freeze the window the first time the reader leaves the bottom;
         // compact back as soon as they return (the dropped rows are above the
         // viewport).
-        const nextHidden = nearBottom
+        const nextHidden = atBottom
           ? null
           : (prev.hidden ?? Math.max(0, totalRef.current - INITIAL_VISIBLE))
         if (prev.showJump === nextShowJump && prev.hidden === nextHidden) return prev

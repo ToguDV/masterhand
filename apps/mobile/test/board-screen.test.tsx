@@ -136,6 +136,9 @@ describe("BoardScreen states (#164)", () => {
     })
 
     expect(await screen.findByText(/This workspace has no columns yet/)).toBeOnTheScreen()
+    // The first add-column input fills the row: an intrinsic-width input
+    // resized the row on every keystroke.
+    expect(screen.getByLabelText("New column title")).toHaveStyle({ flex: 1 })
 
     await fireEvent.press(screen.getByLabelText("Add column"))
     expect(await screen.findByText("Give it a title (1–200 characters)")).toBeOnTheScreen()
