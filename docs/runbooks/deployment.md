@@ -218,6 +218,18 @@ MasterHand's BFF and `opencode serve` must share the same `OPENCODE_SERVER_PASSW
 
 Symptoms of a mismatch: every conversation shows a red `opencode rejected MasterHand's credentials…` message, a banner under the header repeats the hint, the sessions list is empty and `/api/status` returns `opencode: { healthy: false, error: "unauthorized" }`. Fix the password and restart both processes (a BFF restart is required: it reads the password at boot).
 
-## 10. Clock and auth notes
+## 10. Troubleshooting: session previews (quick tunnels)
+
+Session previews use **Cloudflare quick tunnels**: a random `https://<name>.trycloudflare.com` host per session, forwarded to the workspace dev server. The tunnel is public and ephemeral; when it dies, the old hostname stops resolving.
+
+- **`Domain: undefined` / `ERR_NAME_NOT_RESOLVED` (Android WebView):** `Domain: undefined` is the generic Android WebView error text for a DNS lookup failure, not the URL the app sent. The phone could not resolve the tunnel hostname. Check the phone's internet, VPN/Private DNS, and any DNS filter/ad-blocker that blocks `*.trycloudflare.com`; try another network. **Restart the preview** (Stop → Start) to get a fresh hostname; the mobile client's preview error panel now offers Retry, Restart preview and Open in browser.
+- **`ERR_NAME_NOT_RESOLVED` from the server too:** `cloudflared` could not establish the tunnel or the URL has already expired. Check `docker compose … logs masterhand` for `[preview]` lines and retry.
+- **Cloudflare 502/1033 / "origin unreachable":** the tunnel is up but nothing is listening on the session's reserved port. Start the workspace's dev server (Run control) on `0.0.0.0:<port>`; the agent must never start it on another port.
+- **`preview_not_running`:** the BFF probed the reserved port and found no listener before spawning `cloudflared`.
+- **`cloudflared` unavailable:** the runtime image bundles it; a native/dev setup needs the binary on `PATH` or `CLOUDFLARED_BIN`.
+
+The BFF readiness probe waits for the URL to answer **from the server**; it cannot prove the phone's resolver can reach it. Quick tunnels are for testing, not a stable production URL — use a named Cloudflare tunnel/domain or TLS reverse proxy if a stable public preview is required.
+
+## 11. Clock and auth notes
 
 Keep the host clock synchronized (NTP / `systemd-timesyncd`). Session cookies and device tokens are HMAC-signed with `iat`/`exp`: a **backward** jump beyond 60 s makes existing tokens fail verification (users sign in again), and a forward jump can expire them early. Tokens whose `iat` is more than 60 s in the future are rejected outright. The login rate limiter is in-memory, so a BFF restart clears its 15-minute window; acceptable for a single-user instance.

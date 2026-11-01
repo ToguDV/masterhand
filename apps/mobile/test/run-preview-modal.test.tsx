@@ -181,6 +181,51 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
     expect(screen.getByLabelText("Stop preview")).toBeOnTheScreen()
   })
 
+  it("shows an actionable error and retries when the WebView cannot resolve the tunnel", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    await setup(client)
+
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+
+    expect(await screen.findByText("Could not load the preview.")).toBeOnTheScreen()
+    expect(screen.getByText("net::ERR_NAME_NOT_RESOLVED")).toBeOnTheScreen()
+    expect(screen.getByText(runningPreview.url)).toBeOnTheScreen()
+
+    await fireEvent.press(screen.getByLabelText("Retry preview"))
+    expect(await screen.findByText(`WebView: ${runningPreview.url}`)).toBeOnTheScreen()
+  })
+
+  it("restarts the tunnel from the preview error to get a fresh hostname", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    client.api.startPreview.mockResolvedValue({
+      ...runningPreview,
+      url: "https://new-tunnel.trycloudflare.com",
+    })
+    await setup(client)
+
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+    await fireEvent.press(await screen.findByLabelText("Restart preview"))
+
+    expect(client.api.stopPreview).toHaveBeenCalledWith("s1")
+    await waitFor(() => expect(client.api.startPreview).toHaveBeenCalledWith("s1"))
+    expect(await screen.findByText("WebView: https://new-tunnel.trycloudflare.com")).toBeOnTheScreen()
+  })
+
+  it("reports an HTTP error from the tunnel", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    await setup(client)
+
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView HTTP error"))
+
+    expect(await screen.findByText(/The tunnel answered HTTP 502/)).toBeOnTheScreen()
+  })
+
   it("stops the tunnel and returns to the placeholder", async () => {
     const client = fakeClient()
     client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
