@@ -1,6 +1,13 @@
 import type { Page } from "@playwright/test"
 import { expect } from "../fixtures"
 
+/**
+ * Fake cloudflared URL announced by `fake-cloudflared.sh`: a unique hostname
+ * per spawned process. The host is not real, so specs assert the URL the UI
+ * renders (iframe `src`, Open link, text), never that the iframe loads.
+ */
+export const E2E_TUNNEL_URL = /^https:\/\/e2e-preview-\d+\.trycloudflare\.com$/
+
 export async function login(page: Page): Promise<void> {
   await page.goto("/")
   // First run: the current origin is prefilled, so only the password is needed.

@@ -228,6 +228,7 @@ export function previewErrorMessage(error: unknown): string {
     if (code === "preview_not_running") {
       return "The agent has not started a web server yet. Ask it to run the project, then try again."
     }
+    if (code === "preview_stopped") return "The preview start was cancelled. Press Start again."
     if (code === "preview_unavailable") return "cloudflared is not available on the server."
     if (code === "preview_ports_exhausted") {
       return "No preview ports are free. Stop another preview or widen PREVIEW_PORT_RANGE."

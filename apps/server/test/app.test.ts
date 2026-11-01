@@ -15,6 +15,7 @@ import {
 } from "./helpers.js"
 import { createSqliteStore, type Store } from "../src/store.js"
 import { createCachedDiskFree } from "../src/app.js"
+import { PreviewError } from "../src/preview.js"
 
 let app: TestApp | null = null
 let upstream: MockOpencode | null = null
@@ -473,7 +474,7 @@ describe("preview routes", () => {
     const initial = await fetch(`${app.url}/api/sessions/ses_1/preview`, { headers: { cookie } })
     expect(initial.status).toBe(200)
     expect(await initial.json()).toEqual({
-      preview: { status: "stopped", url: null, port: null, error: null },
+      preview: { status: "stopped", url: null, lastUrl: null, port: null, error: null },
     })
 
     const started = await fetch(`${app.url}/api/sessions/ses_1/preview`, {
@@ -485,6 +486,7 @@ describe("preview routes", () => {
       preview: {
         status: "running",
         url: "https://fake-preview.trycloudflare.com",
+        lastUrl: "https://fake-preview.trycloudflare.com",
         port: 32900,
         error: null,
       },
@@ -499,6 +501,17 @@ describe("preview routes", () => {
     })
     expect(stopped.status).toBe(200)
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+
+    const afterStop = await fetch(`${app.url}/api/sessions/ses_1/preview`, { headers: { cookie } })
+    expect(await afterStop.json()).toEqual({
+      preview: {
+        status: "stopped",
+        url: null,
+        lastUrl: "https://fake-preview.trycloudflare.com",
+        port: 32900,
+        error: null,
+      },
+    })
   })
 
   it("returns 409 when the dev server is not listening", async () => {
@@ -508,6 +521,33 @@ describe("preview routes", () => {
     const response = await fetch(`${app.url}/api/sessions/ses_1/preview`, { method: "POST", headers: { cookie } })
     expect(response.status).toBe(409)
     expect(((await response.json()) as { error: string }).error).toBe("preview_not_running")
+  })
+
+  it("returns 409 when a stop cancelled the preview start", async () => {
+    app = await startTestApp({
+      preview: {
+        status: () => ({ status: "stopped", url: null, lastUrl: null, port: 32900, error: null }),
+        portFor: () => 32900,
+        start: async () => {
+          throw new PreviewError("preview_stopped", "stop requested")
+        },
+        stop: async () => {},
+        stopAll: async () => {},
+        forget: async () => {},
+        available: async () => true,
+      },
+    })
+    const cookie = await login(app.url)
+
+    const response = await fetch(`${app.url}/api/sessions/ses_1/preview`, {
+      method: "POST",
+      headers: { cookie },
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "preview_stopped",
+      detail: "preview_stopped: stop requested",
+    })
   })
 
   it("returns 503 when cloudflared is not installed", async () => {

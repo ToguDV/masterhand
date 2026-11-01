@@ -1,15 +1,28 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
+import { Linking } from "react-native"
 import { ApiError, queryKeys } from "@masterhand/client-core"
-import { RunPreviewModal } from "../src/components/RunPreviewModal"
+import { RunPreviewModal, previewExternalUrl } from "../src/components/RunPreviewModal"
+import {
+  resetWebviewMounts,
+  setNextWebViewError,
+  setNextWebViewHttpError,
+  webviewMounts,
+} from "./mocks/react-native-webview"
 import { fakeClient, makeQueryClient, QueryWrapper } from "./support/render"
+
+beforeEach(() => {
+  resetWebviewMounts()
+  setNextWebViewError(null)
+  setNextWebViewHttpError(null)
+})
 
 async function setup(client = fakeClient(), onClose = jest.fn()) {
   const queryClient = makeQueryClient()
-  await render(
+  const rendered = await render(
     <RunPreviewModal client={client} sessionID="s1" workspaceID="ws1" onClose={onClose} />,
     { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client, onClose, queryClient }
+  return { client, onClose, queryClient, rerender: rendered.rerender }
 }
 
 /**
@@ -49,6 +62,19 @@ const runningPreview = {
 
 const enabled = { enabled: true, available: true, portRange: { min: 3000, max: 3010 } }
 
+describe("previewExternalUrl", () => {
+  it("only allows http(s) URLs to leave the app", () => {
+    expect(previewExternalUrl("https://abc.trycloudflare.com")).toBe("https://abc.trycloudflare.com")
+    expect(previewExternalUrl("http://localhost:3000/path")).toBe("http://localhost:3000/path")
+    expect(previewExternalUrl("javascript:alert(1)")).toBeNull()
+    expect(previewExternalUrl("file:///etc/passwd")).toBeNull()
+    expect(previewExternalUrl("intent://scan/#Intent;end")).toBeNull()
+    expect(previewExternalUrl("not a url")).toBeNull()
+    expect(previewExternalUrl(null)).toBeNull()
+    expect(previewExternalUrl(undefined)).toBeNull()
+  })
+})
+
 describe("RunPreviewModal — one control, two tabs (#99)", () => {
   it("shows both tabs and switches between them without forcing a tab", async () => {
     const client = fakeClient()
@@ -74,7 +100,7 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
     client.api.preview.mockResolvedValue(runningPreview)
     await setup(client)
 
-    expect(await screen.findByText("WebView: https://abc.trycloudflare.com")).toBeOnTheScreen()
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
     expect(screen.getByLabelText("Stop preview")).toBeOnTheScreen()
   })
 
@@ -176,9 +202,196 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
     await fireEvent.press(screen.getByLabelText("Start preview"))
 
     expect(client.api.startPreview).toHaveBeenCalledWith("s1")
-    expect(await screen.findByText("WebView: https://abc.trycloudflare.com")).toBeOnTheScreen()
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
     expect(screen.queryByLabelText("Start preview")).toBeNull()
     expect(screen.getByLabelText("Stop preview")).toBeOnTheScreen()
+  })
+
+  it("shows the live URL and opens it while the preview runs", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
+    try {
+      await setup(client)
+
+      const url = await screen.findByTestId("preview-url")
+      expect(url).toHaveTextContent(runningPreview.url)
+      expect(url.props.selectable).toBe(true)
+      await fireEvent.press(screen.getByLabelText("Open preview in browser"))
+
+      expect(open).toHaveBeenCalledWith(runningPreview.url)
+    } finally {
+      open.mockRestore()
+    }
+  })
+
+  it("loads the new tunnel URL after Stop and Start", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    const second = { ...runningPreview, url: "https://second.trycloudflare.com" }
+    client.api.startPreview.mockResolvedValueOnce(runningPreview).mockResolvedValueOnce(second)
+    const { queryClient } = await setup(client)
+    await waitForInitialPreview(queryClient)
+    await fireEvent.press(await screen.findByLabelText("Preview"))
+
+    await fireEvent.press(screen.getByLabelText("Start preview"))
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(runningPreview.url)
+
+    await fireEvent.press(screen.getByLabelText("Stop preview"))
+    expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
+    expect(screen.queryByTestId("preview-webview-source")).toBeNull()
+    expect(screen.getByTestId("preview-last-url")).toHaveTextContent(runningPreview.url)
+    expect(queryClient.getQueryData(queryKeys.preview("s1"))).toMatchObject({
+      status: "stopped",
+      lastUrl: runningPreview.url,
+    })
+
+    await fireEvent.press(screen.getByLabelText("Start preview"))
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+    expect(webviewMounts).toEqual([runningPreview.url, second.url])
+  })
+
+  it("does not let a late status fetch overwrite the new tunnel URL", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    const second = { ...runningPreview, url: "https://after-restart.trycloudflare.com" }
+    let calls = 0
+    let resolveLate!: (value: typeof runningPreview) => void
+    const late = new Promise<typeof runningPreview>((resolve) => {
+      resolveLate = resolve
+    })
+    client.api.preview.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) return Promise.resolve(runningPreview)
+      if (calls === 2) return late
+      return Promise.resolve(second)
+    })
+    client.api.startPreview.mockResolvedValue(second)
+    const { queryClient } = await setup(client)
+    await waitForInitialPreview(queryClient)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+
+    // The WebView failure starts a status fetch that stays in flight.
+    await fireEvent.press(screen.getByLabelText("Trigger WebView error"))
+    await waitFor(() => expect(calls).toBe(2))
+
+    await fireEvent.press(screen.getByLabelText("Stop preview"))
+    expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Start preview"))
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(second.url)
+
+    // Resolve the old fetch with the previous tunnel URL: it must be discarded.
+    await act(async () => {
+      resolveLate(runningPreview)
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+    expect(queryClient.getQueryData(queryKeys.preview("s1"))).toMatchObject({
+      status: "running",
+      url: second.url,
+    })
+  })
+
+  it("discards a status refetch started right after the new start resolves", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    const second = { ...runningPreview, url: "https://post-start.trycloudflare.com" }
+    let calls = 0
+    let resolveLate!: (value: typeof runningPreview) => void
+    const late = new Promise<typeof runningPreview>((resolve) => {
+      resolveLate = resolve
+    })
+    client.api.preview.mockImplementation(() => {
+      calls += 1
+      return calls === 1 ? Promise.resolve(runningPreview) : late
+    })
+    let resolveStart!: (value: typeof runningPreview) => void
+    const startResponse = new Promise<typeof runningPreview>((resolve) => {
+      resolveStart = resolve
+    })
+    client.api.startPreview.mockReturnValueOnce(startResponse)
+    const { queryClient } = await setup(client)
+    await waitForInitialPreview(queryClient)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+
+    await fireEvent.press(screen.getByLabelText("Stop preview"))
+    expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Start preview"))
+    await waitFor(() => expect(client.api.startPreview).toHaveBeenCalledWith("s1"))
+
+    let staleRefetch!: Promise<unknown>
+    await act(async () => {
+      // Resolve Start B, then start the status refetch in the same tick: it
+      // captured tunnel A before the start's post-resolution cancel runs.
+      resolveStart(second)
+      staleRefetch = queryClient.refetchQueries({ queryKey: queryKeys.preview("s1"), exact: true })
+      await startResponse
+    })
+    await waitFor(() => expect(calls).toBe(2))
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+
+    // The post-start refetch resolves with A: the cancellation guard must keep B.
+    await act(async () => {
+      resolveLate(runningPreview)
+      await Promise.allSettled([staleRefetch])
+    })
+    expect(screen.getByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+    expect(queryClient.getQueryData(queryKeys.preview("s1"))).toMatchObject({
+      status: "running",
+      url: second.url,
+    })
+  })
+
+  it("does not carry another session's URL or WebView failure", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockImplementation(async (sessionID: string) =>
+      sessionID === "s1"
+        ? runningPreview
+        : { status: "stopped" as const, url: null, lastUrl: null, port: 3000, error: null },
+    )
+    const { queryClient, rerender } = await setup(client)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+    expect(await screen.findByTestId("preview-failure-panel")).toBeOnTheScreen()
+
+    await rerender(
+      <RunPreviewModal client={client} sessionID="s2" workspaceID="ws1" onClose={jest.fn()} />,
+    )
+    await waitFor(() =>
+      expect(queryClient.getQueryState(queryKeys.preview("s2"))?.status).toBe("success"),
+    )
+
+    await waitFor(() => expect(screen.queryByTestId("preview-failure-panel")).toBeNull())
+    expect(screen.queryByText(runningPreview.url)).toBeNull()
+    expect(screen.queryByTestId("preview-webview-source")).toBeNull()
+    expect(screen.queryByTestId("preview-last-url")).toBeNull()
+    expect(screen.queryByLabelText("Open last preview URL in browser")).toBeNull()
+  })
+
+  it("never opens a non-http URL reported by a WebView failure", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
+    try {
+      await setup(client)
+      setNextWebViewError({ url: "javascript:alert(1)", code: -2, description: "blocked" })
+      await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+      expect(await screen.findByTestId("preview-failure-panel")).toBeOnTheScreen()
+
+      await fireEvent.press(screen.getByLabelText("Open failing URL in browser"))
+      expect(open).not.toHaveBeenCalled()
+    } finally {
+      open.mockRestore()
+    }
   })
 
   it("shows an actionable error and retries when the WebView cannot resolve the tunnel", async () => {
@@ -190,11 +403,50 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
     await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
 
     expect(await screen.findByText("Could not load the preview.")).toBeOnTheScreen()
-    expect(screen.getByText("net::ERR_NAME_NOT_RESOLVED")).toBeOnTheScreen()
-    expect(screen.getByText(runningPreview.url)).toBeOnTheScreen()
+    expect(screen.getByTestId("preview-failure-description")).toHaveTextContent("net::ERR_NAME_NOT_RESOLVED")
+    expect(screen.getByTestId("preview-failure-code")).toHaveTextContent("Error code -2")
+    expect(screen.getByTestId("preview-failure-url")).toHaveTextContent(runningPreview.url)
 
     await fireEvent.press(screen.getByLabelText("Retry preview"))
-    expect(await screen.findByText(`WebView: ${runningPreview.url}`)).toBeOnTheScreen()
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+  })
+
+  it("keeps the WebView failure when the status flips to error", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    const failingUrl = "https://failed.trycloudflare.com"
+    const description = "net::ERR_CONNECTION_REFUSED"
+    client.api.preview.mockResolvedValueOnce(runningPreview).mockResolvedValue({
+      status: "error" as const,
+      url: null,
+      lastUrl: runningPreview.url,
+      port: 3000,
+      error: "cloudflared exited (1)",
+    })
+    await setup(client)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+
+    setNextWebViewError({ url: failingUrl, code: -2, description })
+    await fireEvent.press(screen.getByLabelText("Trigger WebView error"))
+
+    // The BFF nulls `url` and retains the old one in `lastUrl`; the panel must
+    // keep the URL the WebView actually failed on.
+    expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
+    const panel = screen.getByTestId("preview-failure-panel")
+    expect(within(panel).getByText("Could not load the preview.")).toBeOnTheScreen()
+    expect(within(panel).getByText(description)).toBeOnTheScreen()
+    expect(within(panel).getByText("Error code -2")).toBeOnTheScreen()
+    expect(within(panel).getByText(failingUrl)).toBeOnTheScreen()
+    expect(within(panel).getByLabelText("Retry preview")).toBeOnTheScreen()
+    expect(within(panel).getByLabelText("Restart preview")).toBeOnTheScreen()
+    expect(within(panel).getByLabelText("Open failing URL in browser")).toBeOnTheScreen()
+    expect(screen.getByTestId("preview-last-url")).toHaveTextContent(runningPreview.url)
+
+    const refetches = (client.api.preview as jest.Mock).mock.calls.length
+    await fireEvent.press(screen.getByLabelText("Retry preview"))
+    await waitFor(() => expect(client.api.preview).toHaveBeenCalledTimes(refetches + 1))
+    expect(screen.getByTestId("preview-failure-panel")).toBeOnTheScreen()
+    expect(screen.getByTestId("preview-failure-url")).toHaveTextContent(failingUrl)
   })
 
   it("restarts the tunnel from the preview error to get a fresh hostname", async () => {
@@ -212,7 +464,23 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
 
     expect(client.api.stopPreview).toHaveBeenCalledWith("s1")
     await waitFor(() => expect(client.api.startPreview).toHaveBeenCalledWith("s1"))
-    expect(await screen.findByText("WebView: https://new-tunnel.trycloudflare.com")).toBeOnTheScreen()
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(
+      "https://new-tunnel.trycloudflare.com",
+    )
+  })
+
+  it("surfaces a failed stop on restart and does not start another tunnel", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    client.api.stopPreview.mockRejectedValue(new Error("nope"))
+    await setup(client)
+
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+    await fireEvent.press(screen.getByLabelText("Restart preview"))
+
+    expect(await screen.findByText("Could not stop the preview")).toBeOnTheScreen()
+    expect(client.api.startPreview).not.toHaveBeenCalled()
   })
 
   it("reports an HTTP error from the tunnel", async () => {
@@ -224,6 +492,53 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
     await fireEvent.press(await screen.findByLabelText("Trigger WebView HTTP error"))
 
     expect(await screen.findByText(/The tunnel answered HTTP 502/)).toBeOnTheScreen()
+    expect(screen.getByTestId("preview-failure-url")).toHaveTextContent(runningPreview.url)
+  })
+
+  it("names the failing URL and status on an HTTP error", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    const failingUrl = "https://bad-gateway.trycloudflare.com"
+    await setup(client)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+
+    setNextWebViewHttpError({ url: failingUrl, statusCode: 502, description: "upstream refused" })
+    await fireEvent.press(screen.getByLabelText("Trigger WebView HTTP error"))
+
+    const panel = await screen.findByTestId("preview-failure-panel")
+    const status = within(panel).getByTestId("preview-failure-status")
+    expect(status).toHaveTextContent(/The tunnel answered HTTP 502/)
+    expect(status).toHaveTextContent(/upstream refused/)
+    expect(within(panel).getByTestId("preview-failure-url")).toHaveTextContent(failingUrl)
+    expect(within(panel).getByLabelText("Retry preview")).toBeOnTheScreen()
+    expect(within(panel).getByLabelText("Restart preview")).toBeOnTheScreen()
+    expect(within(panel).getByLabelText("Open failing URL in browser")).toBeOnTheScreen()
+  })
+
+  it("shows the server's last preview URL with an Open action after a failure", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue({
+      status: "error" as const,
+      url: null,
+      lastUrl: runningPreview.url,
+      port: 3000,
+      error: "cloudflared exited (1)",
+    })
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
+    try {
+      await setup(client)
+      await fireEvent.press(await screen.findByLabelText("Preview"))
+
+      expect(await screen.findByText("Last preview URL")).toBeOnTheScreen()
+      expect(screen.getByTestId("preview-last-url")).toHaveTextContent(runningPreview.url)
+      await fireEvent.press(screen.getByLabelText("Open last preview URL in browser"))
+
+      expect(open).toHaveBeenCalledWith(runningPreview.url)
+    } finally {
+      open.mockRestore()
+    }
   })
 
   it("stops the tunnel and returns to the placeholder", async () => {
@@ -236,7 +551,8 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
 
     expect(client.api.stopPreview).toHaveBeenCalledWith("s1")
     expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
-    expect(screen.queryByText(/WebView:/)).toBeNull()
+    expect(screen.queryByTestId("preview-webview-source")).toBeNull()
+    expect(screen.getByTestId("preview-last-url")).toHaveTextContent(runningPreview.url)
   })
 
   it("explains when cloudflared is unavailable", async () => {

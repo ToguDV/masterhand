@@ -2381,7 +2381,14 @@ export function createApp(deps: AppDeps): CreatedApp {
       // infrastructure and must reach app.onError (503), not `preview_failed`.
       if (isStorageError(error)) throw error
       const code = error instanceof PreviewError ? error.code : "preview_failed"
-      const status = code === "preview_not_running" ? 409 : code === "preview_ports_exhausted" ? 503 : 502
+      // `preview_stopped` is a deliberate cancellation (Stop crossed the start),
+      // not an upstream failure: the client only needs to offer Start again.
+      const status =
+        code === "preview_not_running" || code === "preview_stopped"
+          ? 409
+          : code === "preview_ports_exhausted"
+            ? 503
+            : 502
       return c.json({ error: code, detail: error instanceof Error ? error.message : undefined }, status)
     }
   })

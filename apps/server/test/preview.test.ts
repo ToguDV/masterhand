@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
@@ -114,14 +114,267 @@ describe("preview tunnel lifecycle", () => {
     expect(started).toMatchObject({
       status: "running",
       url: "https://fake-preview.trycloudflare.com",
+      lastUrl: "https://fake-preview.trycloudflare.com",
       port: 32900,
     })
     expect(tunnel.children).toHaveLength(1)
+    expect(manager.status("ses_1")).toMatchObject({
+      status: "running",
+      url: "https://fake-preview.trycloudflare.com",
+      lastUrl: "https://fake-preview.trycloudflare.com",
+      error: null,
+    })
 
     const again = await manager.start("ses_1")
     expect(again.url).toBe(started.url)
+    expect(again.lastUrl).toBe(started.url)
     expect(tunnel.children).toHaveLength(1)
     expect(manager.status("ses_1")).toMatchObject({ status: "running", error: null })
+  })
+
+  it("logs the running URL after readiness", async () => {
+    const { manager } = setup()
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      await manager.start("ses_1")
+      expect(info).toHaveBeenCalledWith(
+        "[preview] ses_1: running at https://fake-preview.trycloudflare.com (port 32900)",
+      )
+      await manager.stop("ses_1")
+    } finally {
+      info.mockRestore()
+    }
+  })
+
+  it("returns the new URL after a stop and restart", async () => {
+    const first = "https://first-preview.trycloudflare.com"
+    const second = "https://second-preview.trycloudflare.com"
+    const tunnel = createFakeTunnel(first, { urls: [first, second] })
+    const { manager } = setup({}, tunnel)
+
+    const started = await manager.start("ses_1")
+    expect(started).toMatchObject({ status: "running", url: first, lastUrl: first })
+
+    await manager.stop("ses_1")
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", url: null, lastUrl: first })
+
+    const restarted = await manager.start("ses_1")
+    expect(restarted).toMatchObject({ status: "running", url: second, lastUrl: second })
+    expect(manager.status("ses_1")).toMatchObject({ status: "running", url: second, lastUrl: second })
+    expect(tunnel.children).toHaveLength(2)
+  })
+
+  it("cancels a start that a stop crosses and restarts cleanly", async () => {
+    const first = "https://first-preview.trycloudflare.com"
+    const second = "https://second-preview.trycloudflare.com"
+    const tunnel = createFakeTunnel(first, { urls: [first, second] })
+    const release = deferred()
+    let readinessEntered = false
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        readinessEntered = true
+        await release.promise
+        return true
+      },
+    })
+
+    const oldStart = manager.start("ses_1")
+    await waitFor(() => readinessEntered)
+    expect(manager.status("ses_1")).toMatchObject({ status: "starting", url: null, lastUrl: first })
+
+    // The stop must not wait out the readiness budget: it kills the child now.
+    await manager.stop("ses_1")
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+
+    release.resolve()
+    await expect(oldStart).rejects.toMatchObject({ code: "preview_stopped" })
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", url: null, lastUrl: first })
+
+    const restarted = await manager.start("ses_1")
+    expect(restarted).toMatchObject({ status: "running", url: second, lastUrl: second })
+    expect(tunnel.children).toHaveLength(2)
+    expect(tunnel.children[1]!.signalCode).toBeNull()
+  })
+
+  it("never retains the URL of a launch cancelled before it announced", async () => {
+    const first = "https://stale-preview.trycloudflare.com"
+    const second = "https://fresh-preview.trycloudflare.com"
+    // The first child ignores the kill and waits on a gate, so the test (not a
+    // sleep) decides when its URL is announced: after Stop and the second Start
+    // published, exactly the window where it used to overwrite the new URL.
+    const gate = deferred()
+    const tunnel = createFakeTunnel(first, {
+      urls: [first, second],
+      announceGates: [gate.promise],
+      ignoreKill: [true, false],
+    })
+    const { manager } = setup({}, tunnel)
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const staleStart = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+
+      await manager.stop("ses_1")
+      const restarted = await manager.start("ses_1")
+      expect(restarted).toMatchObject({ status: "running", url: second, lastUrl: second })
+
+      // The cancelled launch announces its URL now. It must not become the
+      // session's last URL, log a failure, or disturb the live tunnel.
+      gate.resolve()
+      await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
+      expect(manager.status("ses_1")).toMatchObject({ status: "running", url: second, lastUrl: second })
+      expect(tunnel.children[0]!.signalCode).toBeNull()
+
+      await manager.stop("ses_1")
+      expect(manager.status("ses_1")).toMatchObject({ status: "stopped", url: null, lastUrl: second })
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining(first))
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining(first))
+    } finally {
+      info.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
+  it("does not let a launch cancelled by stopAll publish into a fresh start", async () => {
+    const first = "https://stale-after-stopall.trycloudflare.com"
+    const second = "https://fresh-after-stopall.trycloudflare.com"
+    const gate = deferred()
+    const tunnel = createFakeTunnel(first, {
+      urls: [first, second],
+      announceGates: [gate.promise],
+      ignoreKill: [true, false],
+    })
+    const { manager } = setup({}, tunnel)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const staleStart = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+      await manager.stopAll()
+      // stopAll drops the epoch slot while the old launch is still unwinding; a
+      // fresh start must not reuse its epoch value and revive it.
+      await manager.start("ses_1")
+
+      gate.resolve()
+      await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
+      await manager.stop("ses_1")
+      expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: second })
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining(first))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("signals a starting child once when Stop and its stale abort both target it", async () => {
+    const gate = deferred()
+    const tunnel = createFakeTunnel("https://killed-once.trycloudflare.com", {
+      announceGates: [gate.promise],
+      ignoreKill: [true],
+    })
+    const { manager } = setup({}, tunnel)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const start = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+
+      await manager.stop("ses_1")
+      expect(tunnel.killSignals[0]).toEqual(["SIGTERM"])
+
+      gate.resolve()
+      await expect(start).resolves.toMatchObject({ code: "preview_stopped" })
+      // Stop already signalled the child; the stale launch's abort and failure
+      // paths must not signal it again (the WeakSet guard).
+      expect(tunnel.killSignals[0]).toEqual(["SIGTERM"])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("clears the session's epoch slot once forget's pending start settles", async () => {
+    const gate = deferred()
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        await gate.promise
+        return true
+      },
+    })
+    const start = manager.start("ses_1").catch(() => {})
+    await waitFor(() => tunnel.children.length === 1)
+
+    // `epochs` is private. Observe Map.set while forget bumps the epoch: it is
+    // the only manager map filled with a numeric value (session ID -> epoch).
+    const numericMaps = new Set<Map<unknown, unknown>>()
+    const originalSet = Map.prototype.set
+    const setSpy = vi.spyOn(Map.prototype, "set").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+      value: unknown,
+    ) {
+      if (typeof value === "number") numericMaps.add(this)
+      return originalSet.call(this, key, value)
+    })
+    try {
+      const forgotten = manager.forget("ses_1")
+      const epochMap = [...numericMaps].find((map) => map.has("ses_1"))
+      expect(epochMap).toBeDefined()
+
+      // The slot survives while the cancelled launch unwinds, then disappears
+      // with it: a forgotten session must not leave an epoch behind.
+      expect(epochMap!.has("ses_1")).toBe(true)
+      gate.resolve()
+      await forgotten
+      await start
+      expect(epochMap!.has("ses_1")).toBe(false)
+    } finally {
+      setSpy.mockRestore()
+    }
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: null, port: null })
+  })
+
+  it("does not recycle the port of a tunnel that is still starting", async () => {
+    const release = deferred()
+    let readinessEntered = false
+    const store = createSqliteStore(":memory:")
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config: testConfig({ previewPortRange: { min: 33000, max: 33001 } }),
+      store,
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        readinessEntered = true
+        await release.promise
+        return true
+      },
+    })
+
+    const starting = manager.start("ses_a")
+    await waitFor(() => readinessEntered)
+    expect(store.getPreviewPort("ses_a")).toBe(33000)
+    expect(manager.portFor("ses_b")).toBe(33001)
+
+    // The pool is drained: ses_b is stale and recyclable, ses_a is not, even
+    // though it has not reached `running` yet.
+    expect(manager.portFor("ses_c")).toBe(33001)
+    expect(store.getPreviewPort("ses_a")).toBe(33000)
+    expect(store.getPreviewPort("ses_b")).toBeNull()
+    expect(store.getPreviewPort("ses_c")).toBe(33001)
+
+    release.resolve()
+    await expect(starting).resolves.toMatchObject({ status: "running", port: 33000 })
+    await manager.stopAll()
   })
 
   it("rewrites the Host header so host-allowlisting dev servers accept the tunnel", async () => {
@@ -191,7 +444,12 @@ describe("preview tunnel lifecycle", () => {
 
     await expect(manager.start("ses_1")).rejects.toMatchObject({ code: "preview_tunnel_unreachable" })
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
-    expect(manager.status("ses_1").status).toBe("stopped")
+    // The announced URL survives the readiness failure for diagnosis.
+    expect(manager.status("ses_1")).toMatchObject({
+      status: "stopped",
+      url: null,
+      lastUrl: "https://fake-preview.trycloudflare.com",
+    })
   })
 
   it("skips the readiness check when it is disabled", async () => {
@@ -217,7 +475,12 @@ describe("preview tunnel lifecycle", () => {
     await manager.start("ses_1")
 
     tunnel.children[0]!.kill("SIGKILL")
-    expect(manager.status("ses_1")).toMatchObject({ status: "error", error: "cloudflared exited (SIGKILL)" })
+    expect(manager.status("ses_1")).toMatchObject({
+      status: "error",
+      url: null,
+      lastUrl: "https://fake-preview.trycloudflare.com",
+      error: "cloudflared exited (SIGKILL)",
+    })
   })
 
   it("stops and forgets a preview", async () => {
@@ -230,11 +493,17 @@ describe("preview tunnel lifecycle", () => {
     expect(stopped).toBeInstanceOf(Promise)
     await stopped
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
-    expect(manager.status("ses_1").status).toBe("stopped")
+    // The last URL survives the stop; only the live URL is cleared.
+    expect(manager.status("ses_1")).toMatchObject({
+      status: "stopped",
+      url: null,
+      lastUrl: "https://fake-preview.trycloudflare.com",
+    })
     // stop keeps the reserved port: the tunnel can be restarted.
     expect(store.getPreviewPort("ses_1")).toBe(32900)
 
     await manager.forget("ses_1")
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: null })
     expect(store.getPreviewPort("ses_1")).toBeNull()
   })
 
@@ -279,6 +548,33 @@ describe("preview tunnel lifecycle", () => {
     for (const child of tunnel.children) expect(child.signalCode).toBe("SIGTERM")
     expect(manager.status("ses_1").status).toBe("stopped")
     expect(manager.status("ses_2").status).toBe("stopped")
+  })
+
+  it("stopAll cancels a starting tunnel", async () => {
+    const tunnel = createFakeTunnel()
+    const release = deferred()
+    let readinessEntered = false
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        readinessEntered = true
+        await release.promise
+        return true
+      },
+    })
+
+    const start = manager.start("ses_1")
+    await waitFor(() => readinessEntered)
+    await manager.stopAll()
+    expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", url: null, lastUrl: null })
+
+    release.resolve()
+    await expect(start).rejects.toMatchObject({ code: "preview_stopped" })
   })
 })
 

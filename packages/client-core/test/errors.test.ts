@@ -89,6 +89,7 @@ describe("previewErrorMessage", () => {
 
   it("explains every known preview failure", () => {
     expect(previewErrorMessage(apiError(409, { error: "preview_not_running" }))).toContain("has not started")
+    expect(previewErrorMessage(apiError(409, { error: "preview_stopped" }))).toContain("cancelled")
     expect(previewErrorMessage(apiError(503, { error: "preview_unavailable" }))).toContain("cloudflared")
     expect(previewErrorMessage(apiError(503, { error: "preview_ports_exhausted" }))).toContain("preview ports")
     expect(previewErrorMessage(apiError(502, { error: "preview_tunnel_unreachable" }))).toContain("never became")

@@ -8,7 +8,11 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 
-echo "Your quick Tunnel has been created! Visit it at https://e2e-preview.trycloudflare.com" >&2
+# Each fake process announces its own hostname: $$ is unique per process, so a
+# Stop -> Start never reuses the previous URL. Specs match this shape (see
+# E2E_TUNNEL_URL in tests/helpers.ts) and assert the src/Open link/text, never
+# that the iframe loads: the host is not real.
+echo "Your quick Tunnel has been created! Visit it at https://e2e-preview-$$.trycloudflare.com" >&2
 while true; do
   if [ -n "$E2E_CLOUDFLARED_DIE_FILE" ] && [ -f "$E2E_CLOUDFLARED_DIE_FILE" ]; then
     exit 1
