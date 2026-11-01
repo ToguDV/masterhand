@@ -33,15 +33,16 @@ export function WorkspacePicker({
       <Pressable
         style={styles.trigger}
         onPress={() => setOpen(true)}
+        hitSlop={6}
         accessibilityRole="button"
         accessibilityLabel="Workspace"
         accessibilityValue={{ text: workspace?.name ?? "No workspace" }}
       >
-        <FolderIcon size={15} color={colors.textMuted} />
+        <FolderIcon size={12} color={colors.textMuted} />
         <Text style={[styles.name, !workspace && styles.nameEmpty]} numberOfLines={1}>
           {workspace?.name ?? "No workspace"}
         </Text>
-        <ChevronDownIcon size={14} color={colors.textMuted} />
+        <ChevronDownIcon size={12} color={colors.textMuted} />
       </Pressable>
 
       <WorkspaceModal
@@ -66,8 +67,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
-      minHeight: 44,
-      maxWidth: "100%",
+      maxWidth: 224,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
@@ -77,10 +77,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     name: {
       flexShrink: 1,
-      color: colors.text,
+      color: colors.textSoft,
       fontFamily: fonts.ui,
-      fontSize: 13,
-      fontWeight: "500",
+      fontSize: 12,
     },
     nameEmpty: {
       color: colors.textMuted,
