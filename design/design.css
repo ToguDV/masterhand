@@ -1114,8 +1114,8 @@ kbd {
 .mh-input.is-focused,
 .mh-textarea.is-focused {
   outline: none;
-  border-color: var(--mh-text-muted);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mh-text-muted) 12%, transparent);
+  border-color: var(--mh-hairline-strong);
+  box-shadow: none;
 }
 
 .mh-textarea {

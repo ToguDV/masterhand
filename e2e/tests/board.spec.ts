@@ -394,15 +394,16 @@ test("card editor uses quiet fields, multi-line titles and icon actions", async 
   const twoLines = (await title.boundingBox())!.height
   expect(twoLines).toBeGreaterThan(oneLine)
 
-  // Focus is neutral: the accent never becomes a field border or halo. Wait
-  // for the 150ms color transition so we read the settled value.
+  // Focus is opaque and quiet: the accent never becomes a field border or
+  // halo. Wait for the 150ms color transition so we read the settled value.
   await title.focus()
   await page.waitForTimeout(250)
   const focus = await title.evaluate((element) => {
     const style = getComputedStyle(element)
     return { borderColor: style.borderColor, boxShadow: style.boxShadow }
   })
-  expect(focus.borderColor).toBe("rgb(110, 110, 106)")
-  expect(focus.boxShadow).not.toContain("11, 107, 83")
-  expect(focus.boxShadow).not.toContain("62, 216, 168")
+  expect(focus.borderColor).toBe("rgb(214, 214, 208)")
+  expect(focus.boxShadow).toBe("none")
+  expect(focus.borderColor).not.toContain("110, 110, 106")
+  expect(focus.borderColor).not.toContain("62, 216, 168")
 })
