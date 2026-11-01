@@ -50,15 +50,20 @@ export function QuestionCard({
   onRespond: (form: FormInfo, answer: FormAnswer) => void
   onCancel: (form: FormInfo) => void
 }) {
+  const answered = answeredForms.find((entry) => formToolCallID(entry.form) === part.callID)
   const byCall = forms.find((form) => formToolCallID(form) === part.callID)
-  const sameSession = forms.filter((form) => form.sessionID === part.sessionID && formIsQuestion(form))
-  const form = byCall ?? (sameSession.length === 1 ? sameSession[0]! : null) ?? null
+  // Only a legacy form (no tool-call metadata) may use the single-pending
+  // fallback. A modern form belongs to its own call ID: attaching it here is
+  // what made an old answered question display a newer question's content.
+  const legacy = forms.filter(
+    (form) => form.sessionID === part.sessionID && formIsQuestion(form) && formToolCallID(form) === null,
+  )
+  const form = byCall ?? (legacy.length === 1 ? legacy[0]! : null)
 
   if (form) {
     return <QuestionForm key={form.id} form={form} busy={busyFormID === form.id} onRespond={onRespond} onCancel={onCancel} />
   }
 
-  const answered = answeredForms.find((entry) => formToolCallID(entry.form) === part.callID)
   return <AnsweredCard part={part} answered={answered ?? null} />
 }
 

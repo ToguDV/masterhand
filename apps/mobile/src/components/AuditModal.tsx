@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { useQueryClient } from "@tanstack/react-query"
 import { formatRelative, queryKeys, useAudit, type Client } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
@@ -28,7 +29,7 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top", "bottom", "left", "right"]}>
         <View style={styles.header}>
           <Text style={styles.heading}>Denied commands</Text>
           <View style={styles.spacer} />
@@ -66,7 +67,7 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
             </View>
           )}
         />
-      </View>
+      </SafeAreaView>
     </Modal>
   )
 }

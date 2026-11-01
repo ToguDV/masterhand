@@ -348,6 +348,61 @@ describe("QuestionCard", () => {
     expect(screen.getByText("Name")).toBeOnTheScreen()
   })
 
+  it("never attaches a newer pending question to an older answered part", async () => {
+    const answeredForm = form(
+      [{ key: "db", type: "string", title: "Database" }],
+      { kind: "question", tool: { messageID: "m1", id: "c1" } },
+    )
+    const newerForm: FormInfo = {
+      ...form(
+        [{ key: "lang", type: "string", title: "Language", options: [{ label: "TypeScript", value: "ts" }] }],
+        { kind: "question", tool: { messageID: "m2", id: "c2" } },
+      ),
+      id: "frm_2",
+    }
+
+    await render(
+      <QuestionCard
+        part={questionPart({ status: "completed" })}
+        forms={[newerForm]}
+        answeredForms={[{ form: answeredForm, answer: { db: "pg" } }]}
+        busyFormID={null}
+        onRespond={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId("question-answered")).toBeOnTheScreen()
+    expect(screen.getByText("pg")).toBeOnTheScreen()
+    expect(screen.queryByText("Language")).toBeNull()
+    expect(screen.queryByText("TypeScript")).toBeNull()
+  })
+
+  it("never attaches a newer pending question to an older part without a local answer", async () => {
+    const newerForm: FormInfo = {
+      ...form(
+        [{ key: "lang", type: "string", title: "Language", options: [{ label: "TypeScript", value: "ts" }] }],
+        { kind: "question", tool: { messageID: "m2", id: "c2" } },
+      ),
+      id: "frm_2",
+    }
+
+    await render(
+      <QuestionCard
+        part={questionPart({ status: "completed", output: "Answered: postgres" })}
+        forms={[newerForm]}
+        answeredForms={[]}
+        busyFormID={null}
+        onRespond={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText("Answered: postgres")).toBeOnTheScreen()
+    expect(screen.queryByText("Language")).toBeNull()
+    expect(screen.queryByText("TypeScript")).toBeNull()
+  })
+
   it("falls back to the tool output when no local answer is available", async () => {
     await render(
       <QuestionCard

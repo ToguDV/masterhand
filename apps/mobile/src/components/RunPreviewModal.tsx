@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Pressable,
@@ -11,6 +12,7 @@ import {
   View,
 } from "react-native"
 import { WebView } from "react-native-webview"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   isAmbiguousError,
@@ -408,11 +410,16 @@ export function RunPreviewModal({
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.heading}>Run &amp; preview</Text>
-          {port !== null ? <Text style={styles.port}>port {port}</Text> : null}
-          <View style={styles.spacer} />
+      <SafeAreaView style={styles.container} edges={["top", "bottom", "left", "right"]}>
+        <KeyboardAvoidingView style={styles.container} behavior="padding">
+          <View style={styles.header}>
+            <View style={styles.headerText}>
+              <Text style={styles.heading} numberOfLines={1}>
+                Run &amp; preview
+              </Text>
+              {port !== null ? <Text style={styles.port}>port {port}</Text> : null}
+            </View>
+            <View style={styles.spacer} />
           {tab === "run" ? (
             runBusy ? (
               <ActivityIndicator color={colors.accent} />
@@ -734,7 +741,8 @@ export function RunPreviewModal({
             )}
           </>
         )}
-      </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   )
 }
@@ -751,7 +759,15 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
     },
+    headerText: {
+      flexShrink: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0,
+    },
     heading: {
+      flexShrink: 1,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 15,

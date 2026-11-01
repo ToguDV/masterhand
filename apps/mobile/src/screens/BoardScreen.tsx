@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View, type ScrollViewInstance, type ViewInstance } from "react-native"
+import { Alert, KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View, type ScrollViewInstance, type ViewInstance } from "react-native"
 import { Gesture, GestureDetector, ScrollView } from "react-native-gesture-handler"
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   queryKeys,
@@ -14,7 +15,7 @@ import {
   type WorkspaceRecord,
 } from "@masterhand/client-core"
 import { ChoiceModal } from "../components/ChoiceModal"
-import { WorkspaceModal } from "../components/WorkspaceModal"
+import { WorkspacePicker } from "../components/WorkspacePicker"
 import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -336,6 +337,7 @@ function EditCardSheet({
 }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
   const [draft, setDraft] = useState({ title: card.title, description: card.description })
   const [movePickerOpen, setMovePickerOpen] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -357,90 +359,98 @@ function EditCardSheet({
   return (
     <>
       <Modal visible animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>Edit card</Text>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          {localError ? <Text style={styles.error}>{localError}</Text> : null}
-
-          <Text style={styles.label}>Title</Text>
-          <TextInput
-            value={draft.title}
-            onChangeText={(value) => setDraft({ ...draft, title: value })}
-            accessibilityLabel="Card title"
-            maxLength={200}
-            style={styles.input}
-          />
-          <Text style={styles.label}>Description</Text>
-          <TextInput
-            value={draft.description}
-            onChangeText={(value) => setDraft({ ...draft, description: value })}
-            accessibilityLabel="Card description"
-            multiline
-            numberOfLines={4}
-            maxLength={10000}
-            style={[styles.input, styles.multiline]}
-          />
-
-          <View style={styles.moveRow}>
-            <Pressable
-              onPress={() => onMoveStep(card.id, -1)}
-              accessibilityRole="button"
-              accessibilityLabel="Move card up"
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Move up</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => onMoveStep(card.id, 1)}
-              accessibilityRole="button"
-              accessibilityLabel="Move card down"
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Move down</Text>
-            </Pressable>
-            {others.length > 0 ? (
-              <Pressable
-                onPress={() => setMovePickerOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Move card to…"
-                style={styles.secondary}
+        <KeyboardAvoidingView style={styles.flex} behavior="padding">
+          <View style={styles.backdrop}>
+            <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
+              <ScrollView
+                contentContainerStyle={styles.sheetContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.secondaryText}>Move to…</Text>
-              </Pressable>
-            ) : null}
-          </View>
+                <Text style={styles.sheetTitle}>Edit card</Text>
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+                {localError ? <Text style={styles.error}>{localError}</Text> : null}
 
-          <View style={styles.sheetActions}>
-            <Pressable
-              onPress={() => onDelete(card)}
-              accessibilityRole="button"
-              accessibilityLabel="Delete card"
-              style={styles.danger}
-            >
-              <TrashIcon size={14} color={colors.danger} />
-              <Text style={styles.dangerText}>Delete</Text>
-            </Pressable>
-            <View style={styles.spacer} />
-            <Pressable
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              onPress={save}
-              accessibilityRole="button"
-              accessibilityLabel="Save card"
-              style={styles.primary}
-            >
-              <Text style={styles.primaryText}>Save</Text>
-            </Pressable>
+                <Text style={styles.label}>Title</Text>
+                <TextInput
+                  value={draft.title}
+                  onChangeText={(value) => setDraft({ ...draft, title: value })}
+                  accessibilityLabel="Card title"
+                  maxLength={200}
+                  style={styles.input}
+                />
+                <Text style={styles.label}>Description</Text>
+                <TextInput
+                  value={draft.description}
+                  onChangeText={(value) => setDraft({ ...draft, description: value })}
+                  accessibilityLabel="Card description"
+                  multiline
+                  numberOfLines={4}
+                  maxLength={10000}
+                  style={[styles.input, styles.multiline]}
+                />
+
+                <View style={styles.moveRow}>
+                  <Pressable
+                    onPress={() => onMoveStep(card.id, -1)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Move card up"
+                    style={styles.secondary}
+                  >
+                    <Text style={styles.secondaryText}>Move up</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => onMoveStep(card.id, 1)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Move card down"
+                    style={styles.secondary}
+                  >
+                    <Text style={styles.secondaryText}>Move down</Text>
+                  </Pressable>
+                  {others.length > 0 ? (
+                    <Pressable
+                      onPress={() => setMovePickerOpen(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Move card to…"
+                      style={styles.secondary}
+                    >
+                      <Text style={styles.secondaryText}>Move to…</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <View style={styles.sheetActions}>
+                  <Pressable
+                    onPress={() => onDelete(card)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete card"
+                    style={styles.danger}
+                  >
+                    <TrashIcon size={14} color={colors.danger} />
+                    <Text style={styles.dangerText}>Delete</Text>
+                  </Pressable>
+                  <View style={styles.spacer} />
+                  <Pressable
+                    onPress={onClose}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                    style={styles.secondary}
+                  >
+                    <Text style={styles.secondaryText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={save}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save card"
+                    style={styles.primary}
+                  >
+                    <Text style={styles.primaryText}>Save</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            </View>
           </View>
-        </View>
-      </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <ChoiceModal
@@ -480,7 +490,6 @@ export function BoardScreen({
   const board = boardQuery.data ?? null
   const columns = useMemo(() => board?.columns ?? [], [board])
 
-  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [newColumnTitle, setNewColumnTitle] = useState("")
   const [creatingColumn, setCreatingColumn] = useState(false)
   const [newCardTitles, setNewCardTitles] = useState<Record<string, string>>({})
@@ -508,8 +517,6 @@ export function BoardScreen({
   const grabY = useSharedValue(0)
   const boardX = useSharedValue(0)
   const boardY = useSharedValue(0)
-
-  const workspace = workspaces.find((item) => item.id === workspaceID) ?? null
 
   function failBoard(failure: unknown) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
@@ -834,33 +841,15 @@ export function BoardScreen({
   }
 
   const workspaceBar = (
-    <Pressable
-      onPress={() => setWorkspaceOpen(true)}
-      accessibilityRole="button"
-      accessibilityLabel="Workspace"
-      style={styles.workspaceBar}
-    >
-      <Text style={styles.workspaceLabel}>Workspace</Text>
-      <Text style={styles.workspaceName} numberOfLines={1}>
-        {workspace ? workspace.name : "Add a workspace"}
-      </Text>
-      <Text style={styles.chevron}>▾</Text>
-    </Pressable>
-  )
-
-  const workspaceModal = (
-    <WorkspaceModal
-      visible={workspaceOpen}
-      workspaces={workspaces}
-      selectedID={workspaceID}
-      onSelect={onSelectWorkspace}
-      onAdd={onAddWorkspace}
-      onRemove={(id, options) => {
-        setWorkspaceOpen(false)
-        confirmRemoveWorkspace(id, options)
-      }}
-      onClose={() => setWorkspaceOpen(false)}
-    />
+    <View style={styles.workspaceBar}>
+      <WorkspacePicker
+        workspaces={workspaces}
+        workspaceID={workspaceID}
+        onSelect={onSelectWorkspace}
+        onAdd={onAddWorkspace}
+        onRemove={confirmRemoveWorkspace}
+      />
+    </View>
   )
 
   function confirmRemoveWorkspace(id: string, options: { deleteFiles: boolean }) {
@@ -884,7 +873,6 @@ export function BoardScreen({
           <Text style={styles.title}>Board</Text>
           <Text style={styles.muted}>Add a workspace first — each workspace has its own board.</Text>
         </View>
-        {workspaceModal}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     )
@@ -895,7 +883,6 @@ export function BoardScreen({
       <View style={styles.section}>
         {workspaceBar}
         <Text style={styles.muted}>Loading board…</Text>
-        {workspaceModal}
       </View>
     )
   }
@@ -916,7 +903,6 @@ export function BoardScreen({
             <Text style={styles.secondaryText}>Retry</Text>
           </Pressable>
         </View>
-        {workspaceModal}
       </View>
     )
   }
@@ -940,7 +926,7 @@ export function BoardScreen({
               placeholderTextColor={colors.textFaint}
               accessibilityLabel="New column title"
               maxLength={200}
-              style={styles.input}
+              style={[styles.input, styles.quickAddInput]}
             />
             <Pressable
               onPress={() => void createColumn()}
@@ -1128,7 +1114,6 @@ export function BoardScreen({
       )}
 
       {error && !editingCard ? <Text style={styles.error}>{error}</Text> : null}
-      {workspaceModal}
 
       {editingCard ? (
         <EditCardSheet
@@ -1172,31 +1157,11 @@ function createStyles(colors: Palette, fonts: Fonts) {
     workspaceBar: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
       minHeight: 44,
       paddingHorizontal: 14,
-      paddingVertical: 10,
+      paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
-    },
-    workspaceLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 11,
-      letterSpacing: 0.8,
-      textTransform: "uppercase",
-      fontWeight: "600",
-    },
-    workspaceName: {
-      flex: 1,
-      color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "600",
-    },
-    chevron: {
-      color: colors.textMuted,
-      fontSize: 12,
     },
     centerBox: {
       alignItems: "center",
@@ -1347,16 +1312,22 @@ function createStyles(colors: Palette, fonts: Fonts) {
       justifyContent: "flex-end",
       backgroundColor: colors.overlay,
     },
+    flex: {
+      flex: 1,
+    },
     sheet: {
       maxHeight: "85%",
+      overflow: "hidden",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       backgroundColor: colors.surface,
       padding: 16,
-      paddingBottom: 24,
+    },
+    sheetContent: {
       gap: 2,
+      paddingBottom: 4,
     },
     sheetTitle: {
       color: colors.text,
