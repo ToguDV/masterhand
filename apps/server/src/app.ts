@@ -502,8 +502,9 @@ export function createApp(deps: AppDeps): CreatedApp {
    * Bearer-only CORS (ADR-39): any origin may read responses with a device
    * token, but credentials are never allowed, so a browser can never replay a
    * cookie cross-origin. `ALLOWED_ORIGINS` keeps its separate CSRF role.
-   * Headers must survive error responses and the SSE stream, so they are
-   * applied on the context (which Hono copies into every response it builds).
+   * Headers must survive error responses, the SSE stream and raw `Response`
+   * objects (the opencode proxy and attachment downloads), so they are applied
+   * both before routing (preflight/context) and to the final response.
    */
   const applyCorsHeaders = (c: Context): void => {
     c.header("access-control-allow-origin", "*")
@@ -515,6 +516,11 @@ export function createApp(deps: AppDeps): CreatedApp {
     applyCorsHeaders(c)
     if (c.req.method === "OPTIONS") return c.body(null, 204)
     await next()
+    // A handler that returns a bare `Response` (the opencode proxy, attachment
+    // downloads) replaces `c.res` without inheriting the context headers.
+    // Re-apply them so bundled-desktop clients (`masterhand://app`, always
+    // cross-origin to a saved server) can read proxied messages/catalogs.
+    applyCorsHeaders(c)
   })
   // One structured error path for every uncaught route/middleware failure:
   // method + path in the log, a typed JSON body for clients, and storage
