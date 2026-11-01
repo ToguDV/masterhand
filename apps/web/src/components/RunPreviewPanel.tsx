@@ -19,6 +19,11 @@ import { ExternalLinkIcon, PlayIcon } from "./icons"
 const STOPPED_RUN: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
 const STOPPED_PREVIEW: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
 
+/** A stopped preview that keeps the last tunnel URL for diagnosis. */
+function stoppedPreview(lastUrl: string | null, port: number | null): PreviewStatus {
+  return { status: "stopped", url: null, lastUrl, port, error: null }
+}
+
 type PanelTab = "run" | "preview"
 
 /**
@@ -143,6 +148,15 @@ export function RunPreviewSheet({
   const run = runQuery.data ?? STOPPED_RUN
   const preview = previewQuery.data ?? STOPPED_PREVIEW
   const previewKey = queryKeys.preview(sessionID)
+  const liveUrl = preview.status === "running" ? preview.url : null
+  const [lastSeenUrl, setLastSeenUrl] = useState<string | null>(null)
+  // The BFF retains `lastUrl`; older servers do not, so also keep the last URL
+  // this panel saw while the tunnel was running.
+  const lastPreviewUrl = preview.lastUrl ?? lastSeenUrl ?? null
+
+  useEffect(() => {
+    if (liveUrl) setLastSeenUrl(liveUrl)
+  }, [liveUrl])
 
   // Open on Preview when the tunnel is already running; otherwise on Run. The
   // choice is only made until the user picks a tab, and Start/Stop never
@@ -322,7 +336,12 @@ export function RunPreviewSheet({
     setPreviewBusy(true)
     setPreviewError(null)
     try {
+      await queryClient.cancelQueries({ queryKey: previewKey, exact: true })
       const next = await client.api.startPreview(sessionID)
+      // A poll/refetch that started while the mutation was in flight may still
+      // resolve with the previous tunnel (or with `starting`); discard it so it
+      // can never overwrite the URL this start just published.
+      await queryClient.cancelQueries({ queryKey: previewKey, exact: true })
       queryClient.setQueryData(previewKey, next)
     } catch (startError) {
       // The tunnel may already be starting (or up) after a lost response.
@@ -342,9 +361,14 @@ export function RunPreviewSheet({
   async function stopPreview() {
     setPreviewBusy(true)
     setPreviewError(null)
+    const lastUrl = liveUrl ?? lastPreviewUrl
     try {
+      await queryClient.cancelQueries({ queryKey: previewKey, exact: true })
       await client.api.stopPreview(sessionID)
-      queryClient.setQueryData(previewKey, STOPPED_PREVIEW)
+      await queryClient.cancelQueries({ queryKey: previewKey, exact: true })
+      // Keep the URL in the stopped state: the tunnel is gone, but it stays
+      // available for diagnosis and for opening/copying.
+      queryClient.setQueryData(previewKey, stoppedPreview(lastUrl, preview.port))
     } catch (stopError) {
       const fresh = await reconcilePreview()
       if (fresh?.status === "stopped") {
@@ -542,6 +566,23 @@ export function RunPreviewSheet({
             <p className="mh-banner mh-banner--warning" role="status">
               {previewNotice ?? preview.error}
             </p>
+          )}
+
+          {!liveUrl && lastPreviewUrl && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
+              <span className="text-xs text-ink-muted">Last preview URL</span>
+              <code className="mh-mono-sm break-all text-ink">{lastPreviewUrl}</code>
+              <a
+                href={lastPreviewUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open last preview URL"
+                className="mh-btn mh-btn--ghost mh-btn--sm shrink-0"
+              >
+                Open
+                <ExternalLinkIcon size={12} />
+              </a>
+            </div>
           )}
 
           <div className="min-h-[60vh] bg-white">
