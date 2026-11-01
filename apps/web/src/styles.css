@@ -995,10 +995,8 @@ body {
   color: var(--mh-text-faint);
 }
 
-.mh-input:hover:not(:disabled),
-.mh-textarea:hover:not(:disabled) {
-  border-color: var(--mh-hairline);
-}
+/* No hover edge: board inputs lost their border when the pointer left, which
+   read as a flicker. The field only gains a border on focus. */
 
 /* A textarea styled as a one-line field still must not keep the UA resize
    grip: Chromium paints it light regardless of `color-scheme`. */
@@ -1069,10 +1067,6 @@ textarea.mh-textarea {
   transition:
     border-color 150ms ease,
     box-shadow 150ms ease;
-}
-
-.mh-select:hover:not(:disabled) {
-  border-color: var(--mh-hairline);
 }
 
 .mh-select:focus-visible {

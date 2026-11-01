@@ -388,6 +388,15 @@ test("card editor uses quiet fields, multi-line titles and icon actions", async 
   expect(await title.evaluate((element) => getComputedStyle(element).resize)).toBe("none")
   expect(await description.evaluate((element) => getComputedStyle(element).resize)).toBe("none")
 
+  // No hover edge: an unfocused field keeps the same transparent border when
+  // the pointer enters and leaves it (the inline board inputs used to flicker).
+  const borderOf = (element: Element) => getComputedStyle(element).borderColor
+  expect(await description.evaluate(borderOf)).toBe("rgba(0, 0, 0, 0)")
+  await description.hover()
+  await page.mouse.move(0, 0)
+  await page.waitForTimeout(250)
+  expect(await description.evaluate(borderOf)).toBe("rgba(0, 0, 0, 0)")
+
   // The title grows with a second line instead of clipping it.
   const oneLine = (await title.boundingBox())!.height
   await title.fill("A long card title\nthat keeps a second line")

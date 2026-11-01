@@ -1102,10 +1102,7 @@ kbd {
   color: var(--mh-text-faint);
 }
 
-.mh-input:hover:not(:disabled),
-.mh-textarea:hover:not(:disabled) {
-  border-color: var(--mh-hairline);
-}
+/* No hover edge: the field only gains a border on focus. */
 
 .mh-input:focus-visible,
 .mh-textarea:focus-visible,
