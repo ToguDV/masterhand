@@ -396,7 +396,7 @@ describe("App — workspaces", () => {
     await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "fresh")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     await waitFor(() => expect(client.workspaces.create).toHaveBeenCalledWith({ name: "fresh" }))
     expect(storage.saveServerRegistry).toHaveBeenCalledWith(

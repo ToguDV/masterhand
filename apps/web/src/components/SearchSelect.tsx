@@ -107,7 +107,7 @@ export function SearchSelect({
               }}
               placeholder="Search…"
               aria-label={`Search ${ariaLabel.toLowerCase()}`}
-              className="mb-2 w-full rounded-sm border border-hairline-strong bg-surface px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+              className="mb-2 w-full rounded-sm border border-hairline bg-surface-muted px-2 py-1.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-ink-muted"
             />
           )}
 

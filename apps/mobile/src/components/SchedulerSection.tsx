@@ -23,7 +23,7 @@ import {
   type ScheduleSpec,
 } from "@masterhand/client-core"
 import { ChoiceModal } from "./ChoiceModal"
-import { ChevronDownIcon, PauseIcon, PlayIcon, PlusIcon, TrashIcon } from "./icons"
+import { CheckIcon, ChevronDownIcon, CloseIcon, PauseIcon, PlayIcon, PlusIcon, TrashIcon } from "./icons"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -610,7 +610,18 @@ function TaskSheet({ client, task, onClose }: { client: Client; task: ScheduledT
           <View style={styles.backdrop}>
             <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
               <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
-            <Text style={styles.sheetTitle}>{task ? "Edit task" : "New task"}</Text>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>{task ? "Edit task" : "New task"}</Text>
+              <Pressable
+                onPress={onClose}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+                style={styles.iconButton}
+              >
+                <CloseIcon size={18} color={colors.textMuted} />
+              </Pressable>
+            </View>
             <Text style={styles.muted}>Fires the prompt into a fresh session in the workspace on its schedule.</Text>
 
             <Text style={styles.label}>Name</Text>
@@ -673,22 +684,13 @@ function TaskSheet({ client, task, onClose }: { client: Client; task: ScheduledT
 
             <View style={styles.sheetActions}>
               <Pressable
-                onPress={onClose}
-                disabled={saving}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel"
-                style={styles.secondary}
-              >
-                <Text style={styles.secondaryText}>Cancel</Text>
-              </Pressable>
-              <Pressable
                 onPress={() => void submit()}
                 disabled={saving}
                 accessibilityRole="button"
                 accessibilityLabel={task ? "Save changes" : "Create task"}
-                style={styles.primary}
+                style={styles.iconPrimary}
               >
-                <Text style={styles.primaryText}>{saving ? "Saving…" : task ? "Save changes" : "Create task"}</Text>
+                <CheckIcon size={19} color={colors.accent} />
               </Pressable>
             </View>
           </ScrollView>
@@ -768,6 +770,7 @@ function DeleteTaskSheet({
   onClose: () => void
 }) {
   const styles = useThemedStyles(createStyles)
+  const { colors } = useTheme()
   const insets = useSafeAreaInsets()
   const [error, setError] = useState<string | null>(null)
   /** Guard so a double tap cannot submit the delete twice. */
@@ -789,8 +792,19 @@ function DeleteTaskSheet({
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
-          <Text style={styles.sheetTitle}>Delete task</Text>
+        <View style={[styles.sheet, styles.sheetBody, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>Delete task</Text>
+            <Pressable
+              onPress={onClose}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+              style={styles.iconButton}
+            >
+              <CloseIcon size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
           <Text style={styles.muted}>
             Delete <Text style={styles.strong}>{task.name}</Text>? Its run history is removed with it. The sessions it
             created stay. This cannot be undone.
@@ -799,15 +813,6 @@ function DeleteTaskSheet({
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <View style={styles.sheetActions}>
-            <Pressable
-              onPress={onClose}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-              style={styles.secondary}
-            >
-              <Text style={styles.secondaryText}>Cancel</Text>
-            </Pressable>
             <Pressable
               onPress={() => void confirm()}
               disabled={busy}
@@ -1115,9 +1120,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     input: {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
@@ -1135,9 +1140,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       gap: 8,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       paddingHorizontal: 12,
       marginTop: 6,
     },
@@ -1171,7 +1176,18 @@ function createStyles(colors: Palette, fonts: Fonts) {
       padding: 16,
       gap: 2,
     },
+    sheetBody: {
+      padding: 16,
+    },
+    sheetHead: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      marginBottom: 4,
+    },
     sheetTitle: {
+      flex: 1,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 16,
@@ -1183,19 +1199,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
       gap: 8,
       marginTop: 16,
     },
-    primary: {
+    iconButton: {
       minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
+      borderRadius: 10,
     },
-    primaryText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "500",
+    iconPrimary: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 10,
     },
     secondary: {
       minHeight: 44,

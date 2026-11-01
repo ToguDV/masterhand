@@ -361,3 +361,48 @@ test("board add-column buttons are icon-only and aligned with their inputs", asy
   await expect(page.locator('section[aria-label="Column First"]')).toBeVisible()
   await expectIconButtonAligned(main.getByLabel("New column title").last(), main.getByRole("button", { name: "Add column" }).last())
 })
+
+test("card editor uses quiet fields, multi-line titles and icon actions", async ({ page }) => {
+  // Design decision (2026-11-01): no accent border/glow on field focus, no
+  // native resize grip (it paints light on dark), titles grow, and the dialog
+  // commits/deletes with icons while the corner X replaces a Cancel button.
+  await login(page)
+  await addWorkspace(page)
+  await openBoard(page)
+  const main = page.locator("main")
+  await main.getByLabel("New column title").first().fill("To do")
+  await main.getByRole("button", { name: "Add column" }).first().click()
+  await main.getByLabel("New card title in To do").fill("A long card title")
+  await main.getByRole("button", { name: "Add card to To do" }).click()
+  await page.getByRole("button", { name: "Edit card A long card title" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Edit card" })
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Delete card" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Save card" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toHaveCount(0)
+
+  const title = dialog.locator("#board-card-title")
+  const description = dialog.locator("#board-card-description")
+  await expect(title).toHaveJSProperty("tagName", "TEXTAREA")
+  expect(await title.evaluate((element) => getComputedStyle(element).resize)).toBe("none")
+  expect(await description.evaluate((element) => getComputedStyle(element).resize)).toBe("none")
+
+  // The title grows with a second line instead of clipping it.
+  const oneLine = (await title.boundingBox())!.height
+  await title.fill("A long card title\nthat keeps a second line")
+  const twoLines = (await title.boundingBox())!.height
+  expect(twoLines).toBeGreaterThan(oneLine)
+
+  // Focus is neutral: the accent never becomes a field border or halo. Wait
+  // for the 150ms color transition so we read the settled value.
+  await title.focus()
+  await page.waitForTimeout(250)
+  const focus = await title.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { borderColor: style.borderColor, boxShadow: style.boxShadow }
+  })
+  expect(focus.borderColor).toBe("rgb(110, 110, 106)")
+  expect(focus.boxShadow).not.toContain("11, 107, 83")
+  expect(focus.boxShadow).not.toContain("62, 216, 168")
+})

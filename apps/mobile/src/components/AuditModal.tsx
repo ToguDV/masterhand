@@ -3,6 +3,7 @@ import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View }
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useQueryClient } from "@tanstack/react-query"
 import { formatRelative, queryKeys, useAudit, type Client } from "@masterhand/client-core"
+import { CloseIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -40,8 +41,13 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
               <Text style={styles.buttonText}>Clear</Text>
             </Pressable>
           ) : null}
-          <Pressable style={styles.button} onPress={onClose}>
-            <Text style={styles.buttonText}>Close</Text>
+          <Pressable
+            style={styles.iconButton}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          >
+            <CloseIcon size={20} color={colors.textMuted} />
           </Pressable>
         </View>
 
@@ -91,6 +97,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontWeight: "600",
     },
     spacer: { flex: 1 },
+    iconButton: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+    },
     button: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,

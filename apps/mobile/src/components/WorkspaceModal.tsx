@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native"
 import { ApiError, type CreateWorkspaceInput, type WorkspaceRecord } from "@masterhand/client-core"
 import { ChoiceModal } from "./ChoiceModal"
+import { CheckIcon, CloseIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 function errorMessage(error: unknown): string {
@@ -96,15 +97,23 @@ export function WorkspaceModal({
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.formActions}>
-        <Pressable style={styles.secondary} disabled={busy} onPress={() => setAdding(false)}>
-          <Text style={styles.secondaryText}>Cancel</Text>
+        <Pressable
+          style={styles.iconButton}
+          disabled={busy}
+          onPress={() => setAdding(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+        >
+          <CloseIcon size={18} color={colors.textMuted} />
         </Pressable>
         <Pressable
-          style={[styles.primary, (!name.trim() || busy) && styles.disabled]}
+          style={[styles.iconPrimary, (!name.trim() || busy) && styles.disabled]}
           disabled={!name.trim() || busy}
           onPress={() => void submit()}
+          accessibilityRole="button"
+          accessibilityLabel="Add workspace"
         >
-          <Text style={styles.primaryText}>{busy ? "Adding…" : "Add"}</Text>
+          <CheckIcon size={19} color={colors.accent} />
         </Pressable>
       </View>
     </View>
@@ -166,10 +175,11 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 12,
     },
     input: {
+      minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 15,
@@ -207,6 +217,21 @@ function createStyles(colors: Palette, fonts: Fonts) {
       justifyContent: "flex-end",
       gap: 8,
       paddingTop: 4,
+    },
+    iconButton: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+    },
+    iconPrimary: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 10,
     },
     primary: {
       backgroundColor: colors.accent,

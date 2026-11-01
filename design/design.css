@@ -1072,10 +1072,11 @@ kbd {
 
 .mh-label {
   display: block;
-  margin-bottom: var(--sp-xs);
-  color: var(--mh-text-soft);
-  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--mh-text-muted);
+  font-size: 12px;
   font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .mh-input,
@@ -1083,21 +1084,27 @@ kbd {
 .mh-select,
 .mh-search {
   width: 100%;
-  background: var(--mh-surface);
-  border: 1px solid var(--mh-hairline-strong);
-  border-radius: var(--r-md);
+  background: var(--mh-surface-muted);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
   color: var(--mh-text);
+  caret-color: var(--mh-accent);
   font-family: var(--font-ui);
   font-size: 15px;
-  line-height: 1.4;
+  line-height: 1.45;
   padding: 10px 12px;
   min-height: 44px;
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
 .mh-input::placeholder,
 .mh-textarea::placeholder {
   color: var(--mh-text-faint);
+}
+
+.mh-input:hover:not(:disabled),
+.mh-textarea:hover:not(:disabled) {
+  border-color: var(--mh-hairline);
 }
 
 .mh-input:focus-visible,
@@ -1107,14 +1114,28 @@ kbd {
 .mh-input.is-focused,
 .mh-textarea.is-focused {
   outline: none;
-  border-color: var(--mh-accent);
-  box-shadow: 0 0 0 3px var(--mh-accent-soft);
+  border-color: var(--mh-text-muted);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mh-text-muted) 12%, transparent);
 }
 
 .mh-textarea {
   min-height: 92px;
-  border-radius: var(--r-lg);
-  resize: vertical;
+  border-radius: var(--r-md);
+  resize: none;
+  field-sizing: content;
+  max-height: 50vh;
+}
+
+textarea.mh-input,
+textarea.mh-textarea {
+  resize: none;
+}
+
+.mh-input--auto {
+  min-height: 44px;
+  max-height: 9rem;
+  overflow-y: auto;
+  resize: none;
 }
 
 .mh-select {
@@ -1641,12 +1662,13 @@ kbd {
    -------------------------------------------------------------------------- */
 
 .mh-dialog {
+  position: relative;
   width: 100%;
   max-width: var(--dialog-max);
   background: var(--mh-surface);
   border: 1px solid var(--mh-hairline);
   border-radius: var(--r-xl);
-  padding: var(--sp-lg);
+  padding: 22px;
   box-shadow: var(--mh-shadow-3);
 }
 
@@ -1655,17 +1677,79 @@ kbd {
   align-items: center;
   gap: var(--sp-xs);
   margin-bottom: var(--sp-xs);
+  padding-right: 32px;
+}
+
+.mh-dialog__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
 }
 
 .mh-dialog__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-xs);
-  margin-top: var(--sp-md);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 18px;
 }
 
 .mh-dialog__actions .mh-btn {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+}
+
+.mh-dialog__action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--mh-text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.mh-dialog__action::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+
+.mh-dialog__action:hover:not(:disabled) {
+  background: var(--mh-surface-muted);
+  color: var(--mh-text);
+}
+
+.mh-dialog__action--primary {
+  background: color-mix(in srgb, var(--mh-accent) 12%, transparent);
+  color: var(--mh-accent);
+}
+
+.mh-dialog__action--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mh-accent) 18%, transparent);
+  color: var(--mh-accent);
+}
+
+.mh-dialog__action--danger {
+  color: var(--mh-danger);
+}
+
+.mh-dialog__action--danger:hover:not(:disabled) {
+  background: var(--mh-danger-soft);
+  color: var(--mh-danger);
+}
+
+.mh-dialog__action:disabled {
+  color: var(--mh-text-faint);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .mh-question {

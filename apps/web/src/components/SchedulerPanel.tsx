@@ -20,10 +20,11 @@ import {
   type ScheduleSpec,
 } from "@masterhand/client-core"
 import { client } from "../client"
+import { DialogClose } from "./DialogClose"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect"
 import { useModalFocus } from "./useModalFocus"
-import { ChevronDownIcon, ClockIcon, PauseIcon, PlayIcon, TrashIcon } from "./icons"
+import { CheckIcon, ChevronDownIcon, ClockIcon, PauseIcon, PlayIcon, TrashIcon } from "./icons"
 
 /**
  * Sidebar "Scheduler" section (issue #147): scheduled prompts the BFF fires
@@ -547,6 +548,7 @@ function TaskDialog({ task, onClose }: { task: ScheduledTask | null; onClose: ()
         }}
         className="pb-safe mh-dialog max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-b-none outline-none md:rounded-xl"
       >
+        <DialogClose onClose={onClose} disabled={saving} />
         <h3 className="mh-dialog__title mh-heading-4">{task ? "Edit task" : "New task"}</h3>
         <p className="mh-body-sm text-ink-muted">
           Fires the prompt into a fresh session in the workspace on its schedule.
@@ -644,11 +646,14 @@ function TaskDialog({ task, onClose }: { task: ScheduledTask | null; onClose: ()
         )}
 
         <div className="mh-dialog__actions">
-          <button type="button" onClick={onClose} disabled={saving} className="mh-btn mh-btn--secondary">
-            Cancel
-          </button>
-          <button type="submit" disabled={saving} className="mh-btn mh-btn--primary">
-            {saving ? "Saving…" : task ? "Save changes" : "Create task"}
+          <button
+            type="submit"
+            disabled={saving}
+            className="mh-dialog__action mh-dialog__action--primary"
+            aria-label={task ? "Save changes" : "Create task"}
+            title={task ? "Save changes" : "Create task"}
+          >
+            <CheckIcon size={18} />
           </button>
         </div>
       </form>
@@ -716,6 +721,7 @@ function DeleteTaskDialog({
       aria-label="Delete task"
     >
       <div ref={dialogRef} tabIndex={-1} className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl">
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Delete task</h3>
         <p className="mh-body-sm text-ink-muted">
           Delete <span className="font-medium text-ink">{task.name}</span>?{" "}

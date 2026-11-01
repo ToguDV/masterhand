@@ -18,6 +18,7 @@ import {
   type IconProps,
 } from "./icons"
 import { GoalReviewSection } from "./GoalReviewSection"
+import { DialogClose } from "./DialogClose"
 import { NotificationsSection } from "./NotificationsSection"
 import { ProvidersSection } from "./ProvidersSection"
 import { WebSearchSection } from "./WebSearchSection"
@@ -374,6 +375,7 @@ function RemoveServerDialog({
         aria-label={`Remove ${profile.label}`}
         className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
       >
+        <DialogClose onClose={onClose} />
         <h4 className="mh-dialog__title mh-heading-4">Remove server</h4>
         <p className="mh-body-sm text-ink-muted">
           Remove <span className="font-medium text-ink">{profile.label}</span> from this device?

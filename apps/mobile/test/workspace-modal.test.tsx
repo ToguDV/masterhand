@@ -75,7 +75,7 @@ describe("WorkspaceModal", () => {
 
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "  new-project  ")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     expect(handlers.onAdd).toHaveBeenCalledWith({ name: "new-project" })
   })
@@ -88,10 +88,10 @@ describe("WorkspaceModal", () => {
 
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "demo")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     expect(await screen.findByText("That workspace already exists")).toBeOnTheScreen()
-    expect(screen.getByText("Add")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Add workspace")).toBeOnTheScreen()
   })
 
   it("removes the selected workspace, with the delete-files option", async () => {
@@ -113,7 +113,7 @@ describe("WorkspaceModal", () => {
 
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "a/b")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     expect(await screen.findByText("Enter a valid folder name (no slashes or leading dots)")).toBeOnTheScreen()
   })
@@ -126,7 +126,7 @@ describe("WorkspaceModal", () => {
 
     await fireEvent.press(screen.getByText("Add workspace"))
     await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "fresh")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     expect(await screen.findByText("Could not add the workspace")).toBeOnTheScreen()
   })
@@ -137,7 +137,7 @@ describe("WorkspaceModal", () => {
     await fireEvent.press(screen.getByText("Add workspace"))
     expect(screen.getByPlaceholderText("my-project")).toBeOnTheScreen()
 
-    await fireEvent.press(screen.getByText("Cancel"))
+    await fireEvent.press(screen.getByLabelText("Cancel"))
     expect(screen.queryByPlaceholderText("my-project")).toBeNull()
   })
 

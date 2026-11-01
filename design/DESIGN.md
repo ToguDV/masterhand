@@ -208,39 +208,41 @@ components:
     padding: "0"
     size: "40x40 (44x44 on touch)"
   text-field:
-    backgroundColor: "{colors.surface}"
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.sm}"
+    padding: "10px 12px"
+    border: "1px solid transparent"
+    height: 44px
+    caret: "{colors.accent}"
+  text-field-focused:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text}"
+    border: "1px solid {colors.text-muted}"
+    ring: "0 0 0 3px color-mix(in srgb, {colors.text-muted} 12%, transparent)"
+  text-area:
+    backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
     typography: "{typography.body-md}"
     rounded: "{rounded.md}"
-    padding: "10px 12px"
-    border: "1px solid {colors.hairline-strong}"
-    height: 44px
-  text-field-focused:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    border: "1px solid {colors.accent}"
-    ring: "0 0 0 3px {colors.accent-soft}"
-  text-area:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.text}"
-    typography: "{typography.body-md}"
-    rounded: "{rounded.lg}"
     padding: "{spacing.sm} {spacing.md}"
-    border: "1px solid {colors.hairline-strong}"
+    border: "1px solid transparent"
+    resize: "none (fields grow with their content; the native grip is UA-drawn and does not follow the dark theme)"
   select-trigger:
-    backgroundColor: "{colors.surface}"
+    backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
     typography: "{typography.body-sm}"
     rounded: "{rounded.sm}"
     padding: "6px 10px"
-    border: "1px solid {colors.hairline-strong}"
+    border: "1px solid transparent"
   search-field:
-    backgroundColor: "{colors.surface}"
+    backgroundColor: "{colors.surface-muted}"
     textColor: "{colors.text}"
     typography: "{typography.body-md}"
     rounded: "{rounded.lg}"
     padding: "10px 12px 10px 36px"
-    border: "1px solid {colors.hairline-strong}"
+    border: "1px solid transparent"
   composer-bar:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
@@ -830,7 +832,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Forms
 
-**`text-field`** — default input, 44px height, `{colors.surface}` background, `{colors.hairline-strong}` border, `{rounded.md}`. **`text-field-focused`** switches the border to `{colors.accent}` and adds a 3px `{colors.accent-soft}` ring. **`text-area`** uses `{rounded.lg}` for multi-line input (composer, prompts). **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise, and the model trigger carries the provider brand mark (ADR-28, monogram fallback) plus the short model name — the full `Provider · Model` label stays in the list rows and the tooltip. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, deliberately no focus ring): a context bar above the input — the workspace menu, read-only branch viewer and stats behind a bottom hairline — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it. The Goal Mode control line renders just above the composer, constrained to the chat column width.
+**`text-field`** — default input, 44px height, `{colors.surface-muted}` background with a transparent 1px border and `{rounded.sm}`. It reads as one quiet surface step, not a boxed control. **`text-field-focused`** switches the border to `{colors.text-muted}` and adds a faint 12%-opacity neutral ring — the accent never floods a field. The caret is the only accent. **`text-area`** uses `{rounded.md}` for multi-line input (prompts, descriptions), grows with its content and disables the native resize grip (Chromium paints it light regardless of `color-scheme`, so it showed as a white corner on dark); fields used for titles grow into paragraphs instead of clipping. **`select-trigger`** is the compact dropdown (agent, model, effort); the effort trigger carries a brain glyph for reasoning-effort variants and a generic sliders glyph otherwise, and the model trigger carries the provider brand mark (ADR-28, monogram fallback) plus the short model name — the full `Provider · Model` label stays in the list rows and the tooltip. Inside the composer dock the three triggers render borderless (ghost pills) while menus elsewhere keep the bordered trigger. **`search-field`** is a `{rounded.lg}` input with a leading glyph (session filter, model search). **`composer-bar`** is a single dock card on `{colors.surface}` (`{rounded.lg}`, level-1 shadow, deliberately no focus ring): a context bar above the input — the workspace menu, read-only branch viewer and stats behind a bottom hairline — a borderless message field, and the context selectors (agent, model, effort as ghost pills, auto-accept, Send/Stop with icons) integrated in the toolbar below it. The Goal Mode control line renders just above the composer, constrained to the chat column width.
 
 **`attachment-chip`** — staged files sit in a wrapping strip above the message field and in the user bubble after sending. One chip is a `{colors.surface-muted}` row (`{rounded.md}`, hairline border): a 36px square thumbnail (images) or a 36px glyph tile (others; history uses 64px), the name truncated to one line at 12px/500, the size or error at 11px/`{colors.text-muted}`, and a 24px remove/download icon button. Uploading swaps the trailing icon for a 14px spinner; an error switches the border to `{colors.danger-line}` and the background to `{colors.danger-soft}`. Inside the dark user bubble the chip uses a translucent white surface and `{colors.bubble-user-text}`. The paperclip lives at the start of the composer toolbar as a ghost `button-icon` (30px, 44px touch target). While a file is dragged over the chat column, a `dropzone` overlay covers the column with a 2px dashed `{colors.accent}` border, canvas wash, accent text and a paperclip glyph; it is `pointer-events: none` and never intercepts the drop.
 
@@ -896,7 +898,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 ### Overlays
 
-**`dialog`** — `{components.dialog-overlay}` scrim + surface card, `{rounded.xl}`, max 440px. Reserved for **management flows the agent cannot raise**: add/remove workspace, plus the `choice-modal`. On mobile it is a bottom sheet with 44px actions. Blocking agent requests (permission, questions) are never dialogs — they render inline in the transcript.
+**`dialog`** — `{components.dialog-overlay}` scrim + surface card, `{rounded.xl}`, max 440px, with a quiet X in the top-right corner as the only dismiss control. Reserved for **management flows the agent cannot raise**: add/remove workspace, plus the `choice-modal`. Editor dialogs commit with a soft accent-tinted icon action (check) and resolve discard with the corner X; a destructive editor keeps a danger-tinted trash icon on the left. Irreversible confirmations keep their verb in text (Delete/Remove) — an icon alone is too ambiguous for something that cannot be undone — and still get the corner X. On mobile it is a bottom sheet with 44px actions. Blocking agent requests (permission, questions) are never dialogs — they render inline in the transcript.
 
 **`choice-modal`** — a question raised by a session that is **not the one on screen** still needs an answer, or its agent stays blocked invisibly: the same content as `question-card`, presented as a modal with an "open session" action. Once that session is opened, the question lives inline in its transcript.
 
@@ -932,9 +934,15 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Keep usage stats as icons + numbers with tooltip labels; never show cache read/write
 - Reuse the icon set before drawing a glyph; reuse `chip-*` before a new badge; reuse `button-secondary` before inventing a variant
 - On native, use the square app radii (pickers/chips 8, actions 12) instead of pills
+- Make editor dialogs icon-first: a soft accent-tinted check to commit, a danger-tinted trash to delete, and the corner X to dismiss; every icon action keeps an `aria-label`/`title` (web) or `accessibilityLabel` (native)
+- Let a title field grow across several lines instead of clipping a long card title
 
 ### Don't
 - Don't introduce a second accent hue, gradients, or colored glows
+- Don't use `{colors.accent}` (or `{colors.accent-soft}`) as an input focus border/glow: focus is a neutral `{colors.text-muted}` border plus a faint neutral ring, and the caret is the only accent
+- Don't rely on the native textarea resize grip: Chromium paints it light even with `color-scheme: dark`, so it shows as a white corner on dark; fields grow with their content instead
+- Don't use a filled high-chroma primary block for a dialog's commit action — a soft accent tint is enough signal
+- Don't put "Cancel"/"Save" text buttons in editor dialogs — the corner X and the check icon replace them
 - Don't use colored borders on cards, banners, options or selection grids — hairlines do that job; color lives in dots, icons and text
 - Don't use emerald as a large background fill or flood a screen with it
 - Don't place blobs, dots or hatching behind text, diffs, code or tool output
@@ -946,6 +954,15 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 - Don't turn a permission request or an agent question into a modal or bottom sheet — only a question raised in a *different* session uses `choice-modal`
 - Don't use emoji or font-dependent symbols as UI glyphs — every icon comes from the shared set
 - Don't show cache token counts in session or message stats
+
+## Locked decisions
+
+User decisions, recorded so they are not reverted by a later redesign:
+
+1. **Quiet inputs (2026-11-01)** — the accent border + 3px accent-soft halo on focus was judged too noisy and bright, especially on dark. Fields are one `{colors.surface-muted}` surface step with a transparent border; focus is a neutral `{colors.text-muted}` border with a faint neutral ring. No accent on field chrome.
+2. **No white resize corner (2026-11-01)** — the native textarea resize grip does not follow the dark theme and looked like a broken control. Textareas set `resize: none` and grow with their content; the title field in the board card editor accepts several lines.
+3. **Icon-first editor dialogs (2026-11-01)** — Save/Delete text buttons in dialogs are replaced by a soft accent-tinted check and a danger-tinted trash icon; Cancel is the X in the top-right corner. This applies on web and native, to every dialog that edits content.
+4. **Destructive confirmations stay verbal (2026-11-01)** — dialogs that confirm an irreversible delete keep the verb in text (`Delete`, `Remove`, `Delete column and N cards`). The corner X still dismisses them. Icons alone are not a safe confirmation.
 
 ## Responsive Behavior
 

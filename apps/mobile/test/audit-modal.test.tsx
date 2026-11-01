@@ -59,7 +59,7 @@ describe("AuditModal", () => {
     const { onClose } = await setup(client)
 
     expect(await screen.findByText(/Nothing blocked yet/)).toBeOnTheScreen()
-    await fireEvent.press(screen.getByText("Close"))
+    await fireEvent.press(screen.getByLabelText("Close"))
     expect(onClose).toHaveBeenCalled()
   })
 })

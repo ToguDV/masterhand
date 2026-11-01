@@ -11,6 +11,7 @@ import {
 } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { CloseIcon } from "./icons"
 
 export interface ChoiceOption {
   value: string
@@ -74,7 +75,17 @@ export function ChoiceModal({
             onPress={() => {}}
           >
             <View style={styles.grab} />
-            <Text style={styles.title}>{title}</Text>
+            <View style={styles.head}>
+              <Text style={styles.title}>{title}</Text>
+              <Pressable
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                style={styles.closeButton}
+              >
+                <CloseIcon size={18} color={colors.textMuted} />
+              </Pressable>
+            </View>
             {/* Model and agent catalogs are long enough that scrolling alone is
                 not a usable picker; a short list can skip the field. */}
             {searchable ? (
@@ -152,24 +163,39 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderRadius: 2,
       backgroundColor: colors.hairlineStrong,
     },
+    head: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingLeft: 16,
+      paddingRight: 6,
+      paddingTop: 10,
+      paddingBottom: 6,
+    },
+    closeButton: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+    },
     title: {
+      flex: 1,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 11,
       fontWeight: "600",
       letterSpacing: 0.8,
       textTransform: "uppercase",
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 8,
     },
     search: {
       marginHorizontal: 16,
       marginBottom: 8,
+      minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 15,

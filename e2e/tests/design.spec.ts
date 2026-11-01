@@ -198,7 +198,7 @@ test("answers a question from another session through the choice modal", async (
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText("Which database should the project use?")).toBeVisible()
 
-  await dialog.getByRole("button", { name: "Not now" }).click()
+  await dialog.getByRole("button", { name: "Close" }).click()
   await expect(dialog).toBeHidden()
   await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
 
@@ -219,7 +219,7 @@ test("keeps later other-session questions reachable after dismissing one", async
   await newSession(page)
   const dialog = page.getByRole("dialog", { name: "Question from another session" })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole("button", { name: "Not now" }).click()
+  await dialog.getByRole("button", { name: "Close" }).click()
   await expect(dialog).toBeHidden()
 
   // Session B asks too; the third session must surface B even though A was
@@ -230,6 +230,6 @@ test("keeps later other-session questions reachable after dismissing one", async
 
   await newSession(page)
   await expect(dialog).toBeVisible()
-  await dialog.getByRole("button", { name: "Not now" }).click()
+  await dialog.getByRole("button", { name: "Close" }).click()
   await expect(page.getByText("The agent is waiting for your answer · Open session")).toBeVisible()
 })
