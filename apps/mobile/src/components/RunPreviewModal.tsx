@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -90,6 +91,8 @@ export function RunPreviewModal({
   const [previewBusy, setPreviewBusy] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewNotice, setPreviewNotice] = useState<string | null>(null)
+  const [webviewError, setWebviewError] = useState<string | null>(null)
+  const [webviewReload, setWebviewReload] = useState(0)
   const previousPreviewStatus = useRef<PreviewStatus["status"]>("stopped")
 
   useEffect(() => {
@@ -111,6 +114,13 @@ export function RunPreviewModal({
       setPreviewNotice(null)
     }
   }, [preview.status, preview.error])
+
+  // A new status/URL is a new attempt: never keep a stale WebView error from
+  // the previous tunnel (a stopped/error preview clears it, a fresh URL
+  // remounts the WebView through the key).
+  useEffect(() => {
+    setWebviewError(null)
+  }, [preview.status, preview.url])
 
   if (!workspaceID) return null
 
@@ -268,6 +278,26 @@ export function RunPreviewModal({
       } else {
         setPreviewError("Could not stop the preview")
       }
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
+
+  /**
+   * A quick tunnel URL is ephemeral: once it dies the WebView can only show
+   * the OS error page (Android renders `Domain: undefined` for any lookup
+   * failure). Restarting is the only recovery that gets a fresh hostname.
+   */
+  async function restartPreview() {
+    setPreviewBusy(true)
+    setPreviewError(null)
+    setWebviewError(null)
+    try {
+      await client.api.stopPreview(sessionID)
+      queryClient.setQueryData(previewKey, STOPPED_PREVIEW)
+      queryClient.setQueryData(previewKey, await client.api.startPreview(sessionID))
+    } catch (restartError) {
+      setPreviewError(previewErrorMessage(restartError))
     } finally {
       setPreviewBusy(false)
     }
@@ -469,7 +499,64 @@ export function RunPreviewModal({
             ) : null}
 
             {preview.status === "running" && preview.url ? (
-              <WebView source={{ uri: preview.url }} style={styles.webview} startInLoadingState />
+              webviewError ? (
+                <ScrollView contentContainerStyle={styles.previewError}>
+                  <Text style={styles.error}>Could not load the preview.</Text>
+                  <Text style={styles.placeholderText}>{webviewError}</Text>
+                  <Text style={styles.previewErrorUrl}>{preview.url}</Text>
+                  <Text style={styles.placeholderText}>
+                    If the URL cannot be resolved, check the phone&apos;s internet, VPN/Private DNS, or a
+                    DNS filter that blocks *.trycloudflare.com. The quick tunnel may have expired; restart it.
+                  </Text>
+                  <View style={styles.previewErrorActions}>
+                    <Pressable
+                      style={[styles.button, styles.primary]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Retry preview"
+                      onPress={() => {
+                        setWebviewError(null)
+                        setWebviewReload((value) => value + 1)
+                      }}
+                    >
+                      <Text style={[styles.buttonText, styles.primaryText]}>Retry</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.button, previewBusy && styles.disabled]}
+                      disabled={previewBusy}
+                      accessibilityRole="button"
+                      accessibilityLabel="Restart preview"
+                      onPress={() => void restartPreview()}
+                    >
+                      <Text style={styles.buttonText}>Restart preview</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.button}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open preview in browser"
+                      onPress={() => void Linking.openURL(preview.url!).catch(() => {})}
+                    >
+                      <Text style={styles.buttonText}>Open in browser</Text>
+                    </Pressable>
+                  </View>
+                </ScrollView>
+              ) : (
+                <WebView
+                  key={`${preview.url}:${webviewReload}`}
+                  source={{ uri: preview.url }}
+                  style={styles.webview}
+                  startInLoadingState
+                  onError={(event) => {
+                    setWebviewError(event.nativeEvent.description || "The preview URL could not be loaded.")
+                    void previewQuery.refetch()
+                  }}
+                  onHttpError={(event) => {
+                    setWebviewError(
+                      `The tunnel answered HTTP ${event.nativeEvent.statusCode}. The dev server may be down.`,
+                    )
+                    void previewQuery.refetch()
+                  }}
+                />
+              )
             ) : (
               <View style={styles.placeholder}>
                 <Text style={styles.placeholderText}>
@@ -634,6 +721,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flex: 1,
       backgroundColor: "#fff",
     },
+    previewError: { flexGrow: 1, padding: 16, gap: 10 },
+    previewErrorUrl: {
+      color: colors.textFaint,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    previewErrorActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
     placeholder: {
       flex: 1,
       alignItems: "center",
