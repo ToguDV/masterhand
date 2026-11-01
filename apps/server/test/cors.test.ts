@@ -12,6 +12,7 @@ afterEach(async () => {
 })
 
 const OTHER_ORIGIN = "https://studio.example.com"
+const DESKTOP_ORIGIN = "masterhand://app"
 
 function expectCors(response: Response, status?: number): void {
   if (status !== undefined) expect(response.status).toBe(status)
@@ -45,6 +46,20 @@ describe("bearer-only CORS", () => {
       method: "OPTIONS",
       headers: { origin: OTHER_ORIGIN, "access-control-request-method": "GET" },
     })
+    expectCors(response, 204)
+  })
+
+  it("answers preflight for a proxied opencode route before auth", async () => {
+    app = await startTestApp()
+    const response = await fetch(`${app.url}/api/oc/api/agent`, {
+      method: "OPTIONS",
+      headers: {
+        origin: DESKTOP_ORIGIN,
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization",
+      },
+    })
+
     expectCors(response, 204)
   })
 
@@ -152,7 +167,7 @@ describe("bearer-only CORS", () => {
     const { token } = await createDevice(app.url)
 
     const response = await fetch(`${app.url}/api/oc/api/agent`, {
-      headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+      headers: { origin: DESKTOP_ORIGIN, authorization: `Bearer ${token}` },
     })
 
     expectCors(response, 200)
@@ -171,7 +186,7 @@ describe("bearer-only CORS", () => {
     const { token } = await createDevice(app.url)
 
     const response = await fetch(`${app.url}/api/oc/api/agent`, {
-      headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+      headers: { origin: DESKTOP_ORIGIN, authorization: `Bearer ${token}` },
     })
 
     expectCors(response, 400)
@@ -199,7 +214,7 @@ describe("bearer-only CORS", () => {
       expect(upload.status).toBe(201)
 
       const response = await fetch(`${app.url}/api/workspaces/ws_cors/attachments/ses_cors/a1`, {
-        headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+        headers: { origin: DESKTOP_ORIGIN, authorization: `Bearer ${token}` },
       })
 
       expectCors(response, 200)
