@@ -513,7 +513,16 @@ interface FakeChildProcess extends EventEmitter {
  */
 export function createFakeTunnel(
   url = "https://fake-preview.trycloudflare.com",
-  options: { fail?: boolean; silent?: boolean; pid?: number; urls?: string[] } = {},
+  options: {
+    fail?: boolean
+    silent?: boolean
+    pid?: number
+    urls?: string[]
+    /** Per-spawn delay before the URL is announced (default 5 ms). */
+    announceDelaysMs?: number[]
+    /** Per-spawn processes that ignore a kill, so they can announce late. */
+    ignoreKill?: boolean[]
+  } = {},
 ): FakeTunnel {
   const children: ChildProcess[] = []
   const calls: FakeTunnel["calls"] = []
@@ -521,6 +530,8 @@ export function createFakeTunnel(
     calls.push({ command, args })
     const index = children.length
     const announcedUrl = options.urls?.[index] ?? url
+    const delayMs = options.announceDelaysMs?.[index] ?? 5
+    const ignoresKill = options.ignoreKill?.[index] === true
     const child = new EventEmitter() as unknown as FakeChildProcess
     child.pid = options.pid
     child.stdout = new PassThrough()
@@ -528,6 +539,7 @@ export function createFakeTunnel(
     child.exitCode = null
     child.signalCode = null
     child.kill = (signal?: NodeJS.Signals) => {
+      if (ignoresKill) return true
       if (child.exitCode !== null || child.signalCode !== null) return true
       child.exitCode = 0
       child.signalCode = signal ?? "SIGTERM"
@@ -543,7 +555,7 @@ export function createFakeTunnel(
           return
         }
         child.stderr.write(`Your quick Tunnel has been created! Visit it at ${announcedUrl}\n`)
-      }, 5)
+      }, delayMs)
     }
     return child as unknown as ChildProcess
   }) as unknown as typeof import("node:child_process").spawn

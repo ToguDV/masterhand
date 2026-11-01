@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native"
 import { Linking } from "react-native"
 import { ApiError, queryKeys } from "@masterhand/client-core"
-import { RunPreviewModal } from "../src/components/RunPreviewModal"
+import { RunPreviewModal, previewExternalUrl } from "../src/components/RunPreviewModal"
 import {
   resetWebviewMounts,
   setNextWebViewError,
@@ -18,11 +18,11 @@ beforeEach(() => {
 
 async function setup(client = fakeClient(), onClose = jest.fn()) {
   const queryClient = makeQueryClient()
-  await render(
+  const rendered = await render(
     <RunPreviewModal client={client} sessionID="s1" workspaceID="ws1" onClose={onClose} />,
     { wrapper: ({ children }) => <QueryWrapper client={queryClient}>{children}</QueryWrapper> },
   )
-  return { client, onClose, queryClient }
+  return { client, onClose, queryClient, rerender: rendered.rerender }
 }
 
 /**
@@ -61,6 +61,19 @@ const runningPreview = {
 }
 
 const enabled = { enabled: true, available: true, portRange: { min: 3000, max: 3010 } }
+
+describe("previewExternalUrl", () => {
+  it("only allows http(s) URLs to leave the app", () => {
+    expect(previewExternalUrl("https://abc.trycloudflare.com")).toBe("https://abc.trycloudflare.com")
+    expect(previewExternalUrl("http://localhost:3000/path")).toBe("http://localhost:3000/path")
+    expect(previewExternalUrl("javascript:alert(1)")).toBeNull()
+    expect(previewExternalUrl("file:///etc/passwd")).toBeNull()
+    expect(previewExternalUrl("intent://scan/#Intent;end")).toBeNull()
+    expect(previewExternalUrl("not a url")).toBeNull()
+    expect(previewExternalUrl(null)).toBeNull()
+    expect(previewExternalUrl(undefined)).toBeNull()
+  })
+})
 
 describe("RunPreviewModal — one control, two tabs (#99)", () => {
   it("shows both tabs and switches between them without forcing a tab", async () => {
@@ -282,6 +295,103 @@ describe("RunPreviewModal — one control, two tabs (#99)", () => {
       status: "running",
       url: second.url,
     })
+  })
+
+  it("discards a status refetch started right after the new start resolves", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    const second = { ...runningPreview, url: "https://post-start.trycloudflare.com" }
+    let calls = 0
+    let resolveLate!: (value: typeof runningPreview) => void
+    const late = new Promise<typeof runningPreview>((resolve) => {
+      resolveLate = resolve
+    })
+    client.api.preview.mockImplementation(() => {
+      calls += 1
+      return calls === 1 ? Promise.resolve(runningPreview) : late
+    })
+    let resolveStart!: (value: typeof runningPreview) => void
+    const startResponse = new Promise<typeof runningPreview>((resolve) => {
+      resolveStart = resolve
+    })
+    client.api.startPreview.mockReturnValueOnce(startResponse)
+    const { queryClient } = await setup(client)
+    await waitForInitialPreview(queryClient)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+
+    await fireEvent.press(screen.getByLabelText("Stop preview"))
+    expect(await screen.findByLabelText("Start preview")).toBeOnTheScreen()
+    await fireEvent.press(screen.getByLabelText("Start preview"))
+    await waitFor(() => expect(client.api.startPreview).toHaveBeenCalledWith("s1"))
+
+    let staleRefetch!: Promise<unknown>
+    await act(async () => {
+      // Resolve Start B, then start the status refetch in the same tick: it
+      // captured tunnel A before the start's post-resolution cancel runs.
+      resolveStart(second)
+      staleRefetch = queryClient.refetchQueries({ queryKey: queryKeys.preview("s1"), exact: true })
+      await startResponse
+    })
+    await waitFor(() => expect(calls).toBe(2))
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+
+    // The post-start refetch resolves with A: the cancellation guard must keep B.
+    await act(async () => {
+      resolveLate(runningPreview)
+      await Promise.allSettled([staleRefetch])
+    })
+    expect(screen.getByTestId("preview-webview-source")).toHaveTextContent(second.url)
+    expect(screen.getByTestId("preview-url")).toHaveTextContent(second.url)
+    expect(queryClient.getQueryData(queryKeys.preview("s1"))).toMatchObject({
+      status: "running",
+      url: second.url,
+    })
+  })
+
+  it("does not carry another session's URL or WebView failure", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockImplementation(async (sessionID: string) =>
+      sessionID === "s1"
+        ? runningPreview
+        : { status: "stopped" as const, url: null, lastUrl: null, port: 3000, error: null },
+    )
+    const { queryClient, rerender } = await setup(client)
+    expect(await screen.findByTestId("preview-webview-source")).toHaveTextContent(runningPreview.url)
+    await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+    expect(await screen.findByTestId("preview-failure-panel")).toBeOnTheScreen()
+
+    await rerender(
+      <RunPreviewModal client={client} sessionID="s2" workspaceID="ws1" onClose={jest.fn()} />,
+    )
+    await waitFor(() =>
+      expect(queryClient.getQueryState(queryKeys.preview("s2"))?.status).toBe("success"),
+    )
+
+    await waitFor(() => expect(screen.queryByTestId("preview-failure-panel")).toBeNull())
+    expect(screen.queryByText(runningPreview.url)).toBeNull()
+    expect(screen.queryByTestId("preview-webview-source")).toBeNull()
+    expect(screen.queryByTestId("preview-last-url")).toBeNull()
+    expect(screen.queryByLabelText("Open last preview URL in browser")).toBeNull()
+  })
+
+  it("never opens a non-http URL reported by a WebView failure", async () => {
+    const client = fakeClient()
+    client.auth.status.mockResolvedValue({ ok: true, preview: enabled })
+    client.api.preview.mockResolvedValue(runningPreview)
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined as never)
+    try {
+      await setup(client)
+      setNextWebViewError({ url: "javascript:alert(1)", code: -2, description: "blocked" })
+      await fireEvent.press(await screen.findByLabelText("Trigger WebView error"))
+      expect(await screen.findByTestId("preview-failure-panel")).toBeOnTheScreen()
+
+      await fireEvent.press(screen.getByLabelText("Open failing URL in browser"))
+      expect(open).not.toHaveBeenCalled()
+    } finally {
+      open.mockRestore()
+    }
   })
 
   it("shows an actionable error and retries when the WebView cannot resolve the tunnel", async () => {

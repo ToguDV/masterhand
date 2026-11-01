@@ -493,6 +493,7 @@ export function ChatScreen({
 
       {runPreviewOpen && workspaceID ? (
         <RunPreviewModal
+          key={sessionID}
           client={client}
           sessionID={sessionID}
           workspaceID={workspaceID}

@@ -201,6 +201,108 @@ describe("preview tunnel lifecycle", () => {
     expect(tunnel.children[1]!.signalCode).toBeNull()
   })
 
+  it("never retains the URL of a launch cancelled before it announced", async () => {
+    const first = "https://stale-preview.trycloudflare.com"
+    const second = "https://fresh-preview.trycloudflare.com"
+    // The first child ignores the kill and announces its URL only after Stop
+    // and a second Start: exactly the window where it used to overwrite the
+    // URL the new tunnel had already published.
+    const tunnel = createFakeTunnel(first, {
+      urls: [first, second],
+      announceDelaysMs: [80, 5],
+      ignoreKill: [true, false],
+    })
+    const { manager } = setup({}, tunnel)
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const staleStart = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+
+      await manager.stop("ses_1")
+      const restarted = await manager.start("ses_1")
+      expect(restarted).toMatchObject({ status: "running", url: second, lastUrl: second })
+
+      // The cancelled launch announces its URL now. It must not become the
+      // session's last URL, log a failure, or disturb the live tunnel.
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(manager.status("ses_1")).toMatchObject({ status: "running", url: second, lastUrl: second })
+      await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
+      expect(tunnel.children[0]!.signalCode).toBeNull()
+
+      await manager.stop("ses_1")
+      expect(manager.status("ses_1")).toMatchObject({ status: "stopped", url: null, lastUrl: second })
+      expect(info).not.toHaveBeenCalledWith(expect.stringContaining(first))
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining(first))
+    } finally {
+      info.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
+  it("does not let a launch cancelled by stopAll publish into a fresh start", async () => {
+    const first = "https://stale-after-stopall.trycloudflare.com"
+    const second = "https://fresh-after-stopall.trycloudflare.com"
+    const tunnel = createFakeTunnel(first, {
+      urls: [first, second],
+      announceDelaysMs: [80, 5],
+      ignoreKill: [true, false],
+    })
+    const { manager } = setup({}, tunnel)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const staleStart = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+      await manager.stopAll()
+      // stopAll drops the epoch slot while the old launch is still unwinding; a
+      // fresh start must not reuse its epoch value and revive it.
+      await manager.start("ses_1")
+
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
+      await manager.stop("ses_1")
+      expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: second })
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining(first))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("does not recycle the port of a tunnel that is still starting", async () => {
+    const release = deferred()
+    let readinessEntered = false
+    const store = createSqliteStore(":memory:")
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config: testConfig({ previewPortRange: { min: 33000, max: 33001 } }),
+      store,
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        readinessEntered = true
+        await release.promise
+        return true
+      },
+    })
+
+    const starting = manager.start("ses_a")
+    await waitFor(() => readinessEntered)
+    expect(store.getPreviewPort("ses_a")).toBe(33000)
+    expect(manager.portFor("ses_b")).toBe(33001)
+
+    // The pool is drained: ses_b is stale and recyclable, ses_a is not, even
+    // though it has not reached `running` yet.
+    expect(manager.portFor("ses_c")).toBe(33001)
+    expect(store.getPreviewPort("ses_a")).toBe(33000)
+    expect(store.getPreviewPort("ses_b")).toBeNull()
+    expect(store.getPreviewPort("ses_c")).toBe(33001)
+
+    release.resolve()
+    await expect(starting).resolves.toMatchObject({ status: "running", port: 33000 })
+    await manager.stopAll()
+  })
+
   it("rewrites the Host header so host-allowlisting dev servers accept the tunnel", async () => {
     const { manager, tunnel } = setup()
     await manager.start("ses_1")

@@ -149,14 +149,17 @@ export function RunPreviewSheet({
   const preview = previewQuery.data ?? STOPPED_PREVIEW
   const previewKey = queryKeys.preview(sessionID)
   const liveUrl = preview.status === "running" ? preview.url : null
-  const [lastSeenUrl, setLastSeenUrl] = useState<string | null>(null)
+  const [lastSeen, setLastSeen] = useState<{ sessionID: string; url: string } | null>(null)
   // The BFF retains `lastUrl`; older servers do not, so also keep the last URL
-  // this panel saw while the tunnel was running.
+  // this panel saw while the tunnel was running. The sheet can receive another
+  // session without remounting, so a URL remembered for the previous session
+  // must never be shown (or opened) for the new one.
+  const lastSeenUrl = lastSeen?.sessionID === sessionID ? lastSeen.url : null
   const lastPreviewUrl = preview.lastUrl ?? lastSeenUrl ?? null
 
   useEffect(() => {
-    if (liveUrl) setLastSeenUrl(liveUrl)
-  }, [liveUrl])
+    if (liveUrl) setLastSeen({ sessionID, url: liveUrl })
+  }, [liveUrl, sessionID])
 
   // Open on Preview when the tunnel is already running; otherwise on Run. The
   // choice is only made until the user picks a tab, and Start/Stop never
@@ -189,6 +192,18 @@ export function RunPreviewSheet({
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewNotice, setPreviewNotice] = useState<string | null>(null)
   const previousPreviewStatus = useRef<PreviewStatus["status"]>("stopped")
+
+  // Another session's start/stop errors and lifecycle notices are not this
+  // session's state: drop them when the sheet is pointed at a new session. The
+  // remembered URL is already gated by `sessionID` during render.
+  useEffect(() => {
+    setRunError(null)
+    setRunNotice(null)
+    setPreviewError(null)
+    setPreviewNotice(null)
+    previousRunStatus.current = "stopped"
+    previousPreviewStatus.current = "stopped"
+  }, [sessionID])
 
   useEffect(() => {
     const before = previousRunStatus.current

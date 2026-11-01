@@ -277,6 +277,14 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const startingChildren = new Map<string, ChildProcess>()
   /** Bumped on every start and stop; stale launches abort instead of publishing. */
   const epochs = new Map<string, number>()
+  /**
+   * Monotonic epoch source. Entries are dropped when a session is forgotten or
+   * every tunnel is stopped, and a launch unwinding at that moment must not
+   * match a fresh start that reuses the map slot: never reuse an epoch value.
+   */
+  let nextEpoch = 0
+  /** Children whose kill was already requested; stop and a stale abort share it. */
+  const killed = new WeakSet<ChildProcess>()
   const failures = new Map<string, string>()
   /** Last URL announced by a tunnel; kept after stops and failures for support. */
   const lastUrls = new Map<string, string>()
@@ -353,14 +361,14 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return availableInFlight
   }
 
-  function epochFor(sessionID: string): number {
-    return epochs.get(sessionID) ?? 0
+  function epochFor(sessionID: string): number | undefined {
+    return epochs.get(sessionID)
   }
 
   function bumpEpoch(sessionID: string): number {
-    const next = epochFor(sessionID) + 1
-    epochs.set(sessionID, next)
-    return next
+    nextEpoch += 1
+    epochs.set(sessionID, nextEpoch)
+    return nextEpoch
   }
 
   function allocatePort(): number {
@@ -370,8 +378,12 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       if (!used.has(port)) return port
     }
     // The pool is drained: drop the oldest mapping without a live tunnel. Ports
-    // are persisted for stability, so restarts leave stale rows behind.
-    const stale = store.listPreviewPorts().find((record) => !running.has(record.sessionID))
+    // are persisted for stability, so restarts leave stale rows behind. A
+    // session still starting already told the agent which port to bind and may
+    // publish its URL later, so its reservation is not stale either.
+    const live = (sessionID: string): boolean =>
+      running.has(sessionID) || starting.has(sessionID) || startingChildren.has(sessionID)
+    const stale = store.listPreviewPorts().find((record) => !live(record.sessionID))
     if (stale) {
       store.removePreviewPort(stale.sessionID)
       failures.delete(stale.sessionID)
@@ -420,7 +432,10 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   }
 
   function kill(child: ChildProcess): void {
-    if (child.exitCode !== null || child.signalCode !== null) return
+    // stop(), a stale launch abort and a failure path can all target the same
+    // child; the first kill owns the SIGTERM/SIGKILL timer.
+    if (killed.has(child) || child.exitCode !== null || child.signalCode !== null) return
+    killed.add(child)
     child.kill("SIGTERM")
     const timer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS)
     timer.unref()
@@ -550,10 +565,13 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         let announced: string | null = null
         try {
           announced = await waitForUrl(proc)
+          // A launch cancelled while waiting for the URL must abort before it
+          // publishes: the slot may already belong to a newer start, and this
+          // URL must never replace the one that start just retained.
+          abortIfStale()
           // Retain the URL immediately: readiness can fail or the tunnel can die
           // right after announcing, and support still needs to see the last one.
           lastUrls.set(sessionID, announced)
-          abortIfStale()
           await waitUntilReachable(announced, () => failure)
           abortIfStale()
           return announced
@@ -647,6 +665,9 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       startingChildren.clear()
       failures.clear()
       lastUrls.clear()
+      // Cancellation above is synchronous; the monotonic epoch source keeps a
+      // launch still unwinding stale even though every map slot is gone.
+      epochs.clear()
       return Promise.all([...children].map((child) => untrack(child))).then(() => {})
     },
     async forget(sessionID) {
@@ -670,6 +691,9 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
       failures.delete(sessionID)
       lastUrls.delete(sessionID)
+      // The in-flight start (if any) has settled above; a forgotten session
+      // leaves no epoch behind.
+      epochs.delete(sessionID)
       store.removePreviewPort(sessionID)
     },
     available,

@@ -45,6 +45,21 @@ function stoppedPreview(lastUrl: string | null, port: number | null): PreviewSta
 }
 
 /**
+ * Only http(s) URLs may be handed to the OS. The preview body is untrusted
+ * workspace content, and a WebView failure event reports whatever URL it
+ * tried — including `javascript:` or `file:` schemes.
+ */
+export function previewExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * One modal for the whole dev-server lifecycle (issue #99): the run command
  * starts the server on the session's reserved port and the preview is the
  * tunnel that exposes it, so both live as internal tabs of a single control.
@@ -106,10 +121,27 @@ export function RunPreviewModal({
   const [previewNotice, setPreviewNotice] = useState<string | null>(null)
   const [webviewFailure, setWebviewFailure] = useState<WebViewFailure | null>(null)
   const [webviewReload, setWebviewReload] = useState(0)
-  const [lastSeenUrl, setLastSeenUrl] = useState<string | null>(null)
+  const [lastSeen, setLastSeen] = useState<{ sessionID: string; url: string } | null>(null)
   const previousPreviewStatus = useRef<PreviewStatus["status"]>("stopped")
+  // Gate the remembered URL by session: the modal can be reused for another
+  // session without unmounting, and the previous tunnel must not be shown or
+  // opened for the new one.
+  const lastSeenUrl = lastSeen?.sessionID === sessionID ? lastSeen.url : null
   const lastPreviewUrl = preview.lastUrl ?? lastSeenUrl ?? null
   const failureBrowserUrl = webviewFailure?.url || liveUrl || preview.lastUrl || lastSeenUrl || null
+
+  // A different session must not inherit the previous one's errors, failure
+  // panel or lifecycle notices. The remembered URL is gated during render.
+  useEffect(() => {
+    setRunError(null)
+    setRunNotice(null)
+    setPreviewError(null)
+    setPreviewNotice(null)
+    setWebviewFailure(null)
+    setWebviewReload(0)
+    previousRunStatus.current = "stopped"
+    previousPreviewStatus.current = "stopped"
+  }, [sessionID])
 
   useEffect(() => {
     const before = previousRunStatus.current
@@ -137,9 +169,9 @@ export function RunPreviewModal({
   // failure panel and the URL the WebView actually tried visible.
   useEffect(() => {
     if (!liveUrl) return
-    setLastSeenUrl(liveUrl)
+    setLastSeen({ sessionID, url: liveUrl })
     setWebviewFailure((failure) => (failure && failure.url !== liveUrl ? null : failure))
-  }, [liveUrl])
+  }, [liveUrl, sessionID])
 
   if (!workspaceID) return null
 
@@ -265,7 +297,7 @@ export function RunPreviewModal({
 
   /** Opens an external URL; selectable text is the fallback if this fails. */
   function openInBrowser(url: string | null | undefined): void {
-    const target = url ?? liveUrl ?? lastPreviewUrl
+    const target = previewExternalUrl(url ?? liveUrl ?? lastPreviewUrl)
     if (!target) return
     void Linking.openURL(target).catch(() => {})
   }

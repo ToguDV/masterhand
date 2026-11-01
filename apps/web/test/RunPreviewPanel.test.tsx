@@ -67,7 +67,7 @@ beforeEach(() => {
   fake.api.stopSessionRun.mockReset()
 })
 
-function renderPanel() {
+function renderPanel(sessionID = "s1") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   })
@@ -75,16 +75,16 @@ function renderPanel() {
     return createElement(QueryClientProvider, { client: queryClient }, children)
   }
   return {
-    ...render(createElement(RunPreviewSheet, { sessionID: "s1", workspaceID: "ws1", onClose: vi.fn() }), {
+    ...render(createElement(RunPreviewSheet, { sessionID, workspaceID: "ws1", onClose: vi.fn() }), {
       wrapper: Wrapper,
     }),
     queryClient,
   }
 }
 
-async function waitForPreview(queryClient: QueryClient): Promise<void> {
+async function waitForPreview(queryClient: QueryClient, sessionID = "s1"): Promise<void> {
   await waitFor(() =>
-    expect(queryClient.getQueryState(queryKeys.preview("s1"))?.status).toBe("success"),
+    expect(queryClient.getQueryState(queryKeys.preview(sessionID))?.status).toBe("success"),
   )
 }
 
@@ -162,6 +162,29 @@ describe("RunPreviewSheet preview lifecycle", () => {
       url: secondPreview.url,
     })
     expect(screen.getByTitle("Session preview").getAttribute("src")).toBe(secondPreview.url)
+  })
+
+  it("does not carry the previous session's URL into a stopped session", async () => {
+    fake.api.preview.mockImplementation(async (sessionID: string) =>
+      sessionID === "s1"
+        ? firstPreview
+        : { status: "stopped", url: null, lastUrl: null, port: 3000, error: null },
+    )
+    const { queryClient, rerender } = renderPanel("s1")
+    await waitForPreview(queryClient)
+    expect((await screen.findByTitle("Session preview")).getAttribute("src")).toBe(firstPreview.url)
+
+    // The sheet is reused with another session and no remount: session A was
+    // running and remembered its URL, session B stopped without one.
+    rerender(
+      createElement(RunPreviewSheet, { sessionID: "s2", workspaceID: "ws1", onClose: vi.fn() }),
+    )
+    await waitForPreview(queryClient, "s2")
+
+    expect(screen.queryByLabelText("Open preview")).toBeNull()
+    expect(screen.queryByLabelText("Open last preview URL")).toBeNull()
+    expect(screen.queryByText(firstPreview.url!)).toBeNull()
+    expect(screen.queryByTitle("Session preview")).toBeNull()
   })
 
   it("shows the retained URL, clearly labelled, after the preview errors", async () => {

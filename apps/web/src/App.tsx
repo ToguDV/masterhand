@@ -2287,7 +2287,12 @@ function AuthenticatedApp({
         />
       )}
       {sessionID && panel === "run" && (
-        <RunPreviewSheet sessionID={sessionID} workspaceID={workspaceID} onClose={() => setPanel(null)} />
+        <RunPreviewSheet
+          key={sessionID}
+          sessionID={sessionID}
+          workspaceID={workspaceID}
+          onClose={() => setPanel(null)}
+        />
       )}
     </div>
   )
