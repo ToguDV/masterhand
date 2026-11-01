@@ -28,7 +28,11 @@ import {
  * `AmbiguousMutationError`: the run is marked `failed`, never blind-replayed.
  * Overlap is a single serialized slot per task: a due task that already has an
  * active run gets one `queued` envelope (coalesced) and fires it as soon as
- * the active run ends. See `docs/past-mistakes.md`.
+ * the active run ends. Downtime catch-up is one run per task: boot leaves a
+ * stale `nextRunAt` pending so the first tick fires once (never a backlog),
+ * except for a fire the restart interrupted — its non-idempotent create/prompt
+ * may already have landed, so it is advanced silently instead. See
+ * `docs/past-mistakes.md`.
  */
 
 export const SCHEDULER_MARKER_KEY = "masterhand.scheduler"
@@ -200,10 +204,11 @@ function parseMs(value: string | null | undefined): number | null {
 }
 
 /**
- * Next quote of the schedule strictly after `anchorMs`, advanced past `nowMs`
- * (missed slots are skipped silently — no catch-up, no backlog records).
- * Croner owns cron math in the task's timezone (server default when empty);
- * a corrupt or nonsensical spec yields `null` so it can never stall the loop.
+ * Next quote of the schedule strictly after `anchorMs`, advanced past `nowMs`.
+ * It never creates backlog records: a stale slot is either fired once by the
+ * boot catch-up or advanced silently (interrupted fire, resume). Croner owns
+ * cron math in the task's timezone (server default when empty); a corrupt or
+ * nonsensical spec yields `null` so it can never stall the loop.
  */
 export function nextScheduledRunAt(
   spec: ScheduleSpec,
@@ -441,7 +446,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
   /**
    * The next slot for a task: an already-future `nextRunAt` is kept (terminal
    * recomputes are idempotent); a stale or missing one advances from itself —
-   * so the schedule phase is preserved and missed slots are skipped silently.
+   * so the schedule phase is preserved and no backlog records are created.
+   * Boot deliberately does not call this for a missed slot: the catch-up tick
+   * fires it once first.
    */
   function computeNextRunAt(task: ScheduledTask, currentMs: number): string | null {
     const prev = parseMs(task.nextRunAt)
@@ -722,11 +729,13 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
 
   function reconcileTasks(): void {
     const current = now()
+    const interruptedFires = new Set<string>()
     for (const run of store.listActiveScheduledRuns()) {
       // Only the envelope-below-fire states are interrupted by a restart: a
       // `running` turn may still be executing in opencode and heals on the
       // next tick (or keeps its own idle/error close).
       if (run.status === "firing") {
+        interruptedFires.add(run.taskId)
         persistRun({
           ...run,
           status: "interrupted",
@@ -746,6 +755,14 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
       // Boot pass: a directory removed while MasterHand was down must not
       // resume firing just because the task row survived.
       if (pauseWithoutWorkspace(task)) continue
+      const slot = parseMs(task.nextRunAt)
+      // Catch-up (one run per task, never a backlog): a slot that passed while
+      // MasterHand was down stays pending, so the first tick fires the task
+      // once and `fire()` advances `nextRunAt` from that stale slot straight
+      // past now. The exception is a fire the restart interrupted: its
+      // create/prompt may already have landed, and replaying a non-idempotent
+      // mutation is exactly what ADR-32 forbids — advance it silently instead.
+      if (slot !== null && slot <= current && !interruptedFires.has(task.id)) continue
       const next = computeNextRunAt(task, current)
       if (next !== task.nextRunAt) patchTask(task.id, { nextRunAt: next }, true)
     }

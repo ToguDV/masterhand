@@ -749,7 +749,11 @@ describe("scheduler validation", () => {
     // Feb 30 never fires: route validation rejects it, but a row that reaches
     // the manager this way must surface a visible warning (log-only, never a
     // new error field) instead of parking silently (#212).
-    const task = makeTask({ id: "task_impossible", schedule: { kind: "cron", cron: "0 0 30 2 *" } })
+    const task = makeTask({
+      id: "task_impossible",
+      schedule: { kind: "cron", cron: "0 0 30 2 *" },
+      nextRunAt: null,
+    })
     const h = harness({ tasks: [task] })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
@@ -828,7 +832,7 @@ describe("scheduler nextRunAt", () => {
 // ---------------------------------------------------------------------------
 
 describe("scheduler boot reconciliation", () => {
-  it("marks firing runs interrupted and queued runs skipped, then recomputes nextRunAt", async () => {
+  it("marks firing runs interrupted and queued runs skipped, then advances an interrupted task", async () => {
     clockMs = BASE
     const store = createSqliteStore(":memory:")
     seedWorkspace(store)
@@ -866,7 +870,8 @@ describe("scheduler boot reconciliation", () => {
     expect(store.getScheduledRun("run_queued")?.endedAt).not.toBeNull()
     expect(store.getScheduledRun("run_done")?.status).toBe("completed")
 
-    // nextRunAt recomputed from the stale slot, no catch-up fire.
+    // The interrupted fire may have landed upstream: its stale slot is
+    // advanced silently, never replayed as a catch-up.
     const recomputed = store.getScheduledTask("task_1")!
     expect(recomputed.nextRunAt).toBe(new Date(clockMs - 1000 + 30 * MINUTE).toISOString())
     await manager.tick()
@@ -885,7 +890,7 @@ describe("scheduler boot reconciliation", () => {
     manager.reconcileTasks()
   })
 
-  it("never auto-fires after the boot reconciliation", async () => {
+  it("does not catch up a fire the restart interrupted", async () => {
     clockMs = BASE
     const store = createSqliteStore(":memory:")
     seedWorkspace(store)
@@ -906,6 +911,70 @@ describe("scheduler boot reconciliation", () => {
     await manager.tick()
     expect(opencode.creates).toHaveLength(0)
     manager.stop()
+  })
+
+  it("fires a missed slot exactly once after boot reconciliation", async () => {
+    const h = harness()
+    // The seeded slot passed one second ago while the server was down.
+    h.manager.reconcileTasks()
+    expect(liveTask(h).nextRunAt).toBe(h.iso(BASE - 1000))
+
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(1)
+    expect(h.opencode.prompts).toHaveLength(1)
+    expect(liveTask(h).nextRunAt).toBe(h.iso(BASE - 1000 + 30 * MINUTE))
+
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(1)
+  })
+
+  it("collapses a long downtime into one run per task, never a backlog", async () => {
+    const h = harness({
+      tasks: [makeTask({ nextRunAt: new Date(BASE - 100 * 30 * MINUTE).toISOString() })],
+    })
+    h.manager.reconcileTasks()
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(1)
+    expect(h.opencode.prompts).toHaveLength(1)
+    expect(h.store.listScheduledRuns("task_1")).toHaveLength(1)
+    // Straight past every missed slot, to the first future one.
+    expect(liveTask(h).nextRunAt).toBe(h.iso(BASE + 30 * MINUTE))
+
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(1)
+  })
+
+  it("catches up each task once and skips paused tasks", async () => {
+    const h = harness({
+      tasks: [
+        makeTask(),
+        makeTask({ id: "task_2", name: "Other", nextRunAt: new Date(BASE - 90 * MINUTE).toISOString() }),
+        makeTask({ id: "task_3", name: "Paused", paused: true, nextRunAt: new Date(BASE - 90 * MINUTE).toISOString() }),
+      ],
+    })
+    h.manager.reconcileTasks()
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(2)
+    expect(h.store.listScheduledRuns("task_3")).toHaveLength(0)
+  })
+
+  it("skips a queued boot envelope but still catches the task up once", async () => {
+    const h = harness()
+    h.store.createScheduledRun({
+      id: "run_queued",
+      taskId: "task_1",
+      sessionID: null,
+      status: "queued",
+      source: "schedule",
+      error: null,
+      startedAt: new Date(BASE - MINUTE).toISOString(),
+      endedAt: null,
+    })
+    h.manager.reconcileTasks()
+    expect(h.store.getScheduledRun("run_queued")?.status).toBe("skipped")
+
+    await h.manager.tick()
+    expect(h.opencode.creates).toHaveLength(1)
   })
 })
 
