@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
 
 export function RemoveWorkspaceDialog({
@@ -22,12 +23,13 @@ export function RemoveWorkspaceDialog({
         tabIndex={-1}
         className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
       >
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Remove workspace</h3>
         <p className="mh-body-sm text-ink-muted">
           Remove <span className="font-medium text-ink">{name}</span> from MasterHand. Sessions are kept.
         </p>
 
-        <label className="mt-4 flex items-start gap-2 rounded-md border border-hairline-strong p-3">
+        <label className="mt-4 flex items-start gap-2 rounded-md border border-hairline bg-surface-muted p-3">
           <input
             type="checkbox"
             checked={deleteFiles}

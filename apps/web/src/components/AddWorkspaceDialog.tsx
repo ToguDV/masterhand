@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { ApiError, type CreateWorkspaceInput } from "@masterhand/client-core"
+import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
+import { CheckIcon } from "./icons"
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -46,6 +48,7 @@ export function AddWorkspaceDialog({
         }}
         className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
       >
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Add workspace</h3>
         <p className="mh-body-sm text-ink-muted">
           A new folder with this name is created inside the workspaces root, isolated from the others.
@@ -68,11 +71,14 @@ export function AddWorkspaceDialog({
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
 
         <div className="mh-dialog__actions">
-          <button type="button" onClick={onClose} disabled={busy} className="mh-btn mh-btn--secondary">
-            Cancel
-          </button>
-          <button type="submit" disabled={!name.trim() || busy} className="mh-btn mh-btn--primary">
-            {busy ? "Adding…" : "Add"}
+          <button
+            type="submit"
+            disabled={!name.trim() || busy}
+            className="mh-dialog__action mh-dialog__action--primary"
+            aria-label="Add"
+            title="Add"
+          >
+            <CheckIcon size={18} />
           </button>
         </div>
       </form>

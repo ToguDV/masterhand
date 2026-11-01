@@ -34,8 +34,10 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { client } from "../client"
 import { Deco } from "./Deco"
+import { DialogClose } from "./DialogClose"
 import { WorkspacePicker } from "./WorkspacePicker"
 import { useToast } from "./Toast"
+import { useAutoGrow } from "./useAutoGrow"
 import { useDismissable } from "./useDismissable"
 import { useModalFocus } from "./useModalFocus"
 import { CheckIcon, EllipsisIcon, PlusIcon, TrashIcon, XIcon } from "./icons"
@@ -370,13 +372,14 @@ function DeleteColumnDialog({
         className="mh-dialog outline-none"
         onClick={(event) => event.stopPropagation()}
       >
-        <h3 id="delete-column-title" className="mh-dialog__title mh-heading-2">
+        <DialogClose onClose={onCancel} disabled={busy} />
+        <h3 id="delete-column-title" className="mh-dialog__title mh-heading-4">
           Delete column?
         </h3>
         <p id="delete-column-description" className="mh-body-sm text-ink-muted">
           “{title}” and its {cardCount} {cardCount === 1 ? "card" : "cards"} will be deleted. This cannot be undone.
         </p>
-        <div className="mh-dialog__actions mt-4">
+        <div className="mh-dialog__actions">
           <button type="button" onClick={onCancel} className="mh-btn mh-btn--ghost" disabled={busy}>
             Cancel
           </button>
@@ -406,6 +409,8 @@ function EditCardDialog({
   onDelete: () => void
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onCancel)
+  const titleRef = useAutoGrow(draft.title)
+  const descriptionRef = useAutoGrow(draft.description)
   return (
     <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
       <div
@@ -417,41 +422,55 @@ function EditCardDialog({
         className="mh-dialog outline-none"
         onClick={(event) => event.stopPropagation()}
       >
-        <h3 id="edit-card-title" className="mh-dialog__title mh-heading-2">
+        <DialogClose onClose={onCancel} disabled={busy} />
+        <h3 id="edit-card-title" className="mh-dialog__title mh-heading-4">
           Edit card
         </h3>
-        <label className="mt-2 block text-xs font-medium text-ink-muted" htmlFor="board-card-title">
+        <label className="mh-label mt-2" htmlFor="board-card-title">
           Title
         </label>
-        <input
+        <textarea
+          ref={titleRef}
           id="board-card-title"
           value={draft.title}
           onChange={(event) => onDraft({ ...draft, title: event.target.value })}
-          className="mh-input mt-1 w-full"
+          className="mh-input mh-input--auto mt-1 w-full"
           maxLength={200}
+          rows={1}
         />
-        <label className="mt-3 block text-xs font-medium text-ink-muted" htmlFor="board-card-description">
+        <label className="mh-label mt-3" htmlFor="board-card-description">
           Description
         </label>
         <textarea
+          ref={descriptionRef}
           id="board-card-description"
           value={draft.description}
           onChange={(event) => onDraft({ ...draft, description: event.target.value })}
-          className="mh-input mt-1 min-h-24 w-full"
+          className="mh-input mt-1 max-h-[40vh] w-full overflow-y-auto"
           maxLength={10000}
           rows={4}
         />
-        <div className="mh-dialog__actions mt-4">
-          <button type="button" onClick={onDelete} disabled={busy} className="mh-btn mh-btn--danger">
-            <TrashIcon size={14} />
-            Delete
+        <div className="mh-dialog__actions">
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            className="mh-dialog__action mh-dialog__action--danger"
+            aria-label="Delete card"
+            title="Delete card"
+          >
+            <TrashIcon size={17} />
           </button>
           <span className="flex-1" />
-          <button type="button" onClick={onCancel} className="mh-btn mh-btn--ghost" disabled={busy}>
-            Cancel
-          </button>
-          <button type="button" onClick={onSave} disabled={busy} className="mh-btn mh-btn--primary">
-            {busy ? "Saving…" : "Save"}
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={busy}
+            className="mh-dialog__action mh-dialog__action--primary"
+            aria-label="Save card"
+            title="Save card"
+          >
+            <CheckIcon size={18} />
           </button>
         </div>
       </div>

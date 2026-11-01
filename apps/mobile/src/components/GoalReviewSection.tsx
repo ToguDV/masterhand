@@ -288,9 +288,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     input: {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,

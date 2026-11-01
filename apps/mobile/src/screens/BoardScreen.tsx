@@ -367,7 +367,17 @@ function EditCardSheet({
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.sheetTitle}>Edit card</Text>
+                <View style={styles.sheetHead}>
+                  <Text style={styles.sheetTitle}>Edit card</Text>
+                  <Pressable
+                    onPress={onClose}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel"
+                    style={styles.iconButton}
+                  >
+                    <CloseIcon size={18} color={colors.textMuted} />
+                  </Pressable>
+                </View>
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 {localError ? <Text style={styles.error}>{localError}</Text> : null}
 
@@ -377,7 +387,9 @@ function EditCardSheet({
                   onChangeText={(value) => setDraft({ ...draft, title: value })}
                   accessibilityLabel="Card title"
                   maxLength={200}
-                  style={styles.input}
+                  multiline
+                  scrollEnabled={false}
+                  style={[styles.input, styles.titleInput]}
                 />
                 <Text style={styles.label}>Description</Text>
                 <TextInput
@@ -424,27 +436,18 @@ function EditCardSheet({
                     onPress={() => onDelete(card)}
                     accessibilityRole="button"
                     accessibilityLabel="Delete card"
-                    style={styles.danger}
+                    style={styles.iconDanger}
                   >
-                    <TrashIcon size={14} color={colors.danger} />
-                    <Text style={styles.dangerText}>Delete</Text>
+                    <TrashIcon size={18} color={colors.danger} />
                   </Pressable>
                   <View style={styles.spacer} />
-                  <Pressable
-                    onPress={onClose}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel"
-                    style={styles.secondary}
-                  >
-                    <Text style={styles.secondaryText}>Cancel</Text>
-                  </Pressable>
                   <Pressable
                     onPress={save}
                     accessibilityRole="button"
                     accessibilityLabel="Save card"
-                    style={styles.primary}
+                    style={styles.iconPrimary}
                   >
-                    <Text style={styles.primaryText}>Save</Text>
+                    <CheckIcon size={19} color={colors.accent} />
                   </Pressable>
                 </View>
               </ScrollView>
@@ -935,7 +938,7 @@ export function BoardScreen({
               accessibilityLabel="Add column"
               style={styles.primary}
             >
-              <PlusIcon size={16} color={colors.onAccent} />
+              <PlusIcon size={16} color={colors.accent} />
             </Pressable>
           </View>
         </View>
@@ -1293,9 +1296,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     input: {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
@@ -1303,8 +1306,14 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 10,
       marginTop: 6,
     },
+    /** A one-line field that grows into a paragraph instead of clipping. */
+    titleInput: {
+      minHeight: 44,
+      textAlignVertical: "top",
+    },
     multiline: {
       minHeight: 88,
+      maxHeight: 320,
       textAlignVertical: "top",
     },
     backdrop: {
@@ -1329,6 +1338,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       gap: 2,
       paddingBottom: 4,
     },
+    sheetHead: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      marginBottom: 4,
+    },
     sheetTitle: {
       color: colors.text,
       fontFamily: fonts.ui,
@@ -1350,53 +1366,44 @@ function createStyles(colors: Palette, fonts: Fonts) {
     spacer: {
       flex: 1,
     },
+    /** A soft accent square: primary without a bright filled block. */
     primary: {
       minHeight: 44,
       minWidth: 44,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 12,
+      backgroundColor: colors.accentSoft,
+      borderRadius: 10,
       paddingHorizontal: 14,
       paddingVertical: 10,
     },
-    primaryText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "500",
+    iconPrimary: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 10,
+    },
+    iconDanger: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
     },
     secondary: {
       minHeight: 44,
       justifyContent: "center",
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
-      borderRadius: 12,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
       paddingHorizontal: 14,
       paddingVertical: 10,
     },
     secondaryText: {
       color: colors.text,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "500",
-    },
-    danger: {
-      minHeight: 44,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      justifyContent: "center",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.dangerLine,
-      backgroundColor: colors.dangerSoft,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-    },
-    dangerText: {
-      color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 14,
       fontWeight: "500",

@@ -77,7 +77,7 @@ describe("SessionToolbar", () => {
     await fireEvent.press(await screen.findByLabelText("Workspace"))
     await fireEvent.press(await screen.findByText("Add workspace"))
     await fireEvent.changeText(await screen.findByTestId("workspace-name-input"), "demo-2")
-    await fireEvent.press(screen.getByText("Add"))
+    await fireEvent.press(screen.getByLabelText("Add workspace"))
 
     expect(onAddWorkspace).toHaveBeenCalledWith({ name: "demo-2" })
   })

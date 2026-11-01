@@ -23,7 +23,9 @@ import {
 } from "@masterhand/client-core"
 import { client } from "../client"
 import { ConnectKeyDialog } from "./ConnectKeyDialog"
+import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
+import { CheckIcon } from "./icons"
 
 /** Providers shown before the "Show all" affordance. */
 const PROVIDER_PAGE_SIZE = 5
@@ -594,12 +596,13 @@ function AddProviderDialog({
         aria-modal="true"
         aria-label="Add OpenAI-compatible provider"
       >
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Add OpenAI-compatible provider</h3>
         <p className="mh-body-sm text-ink-muted">
           opencode gains the provider's models; the key stays in opencode's data volume.
         </p>
         <form onSubmit={(event) => void submit(event)} className="mt-3 flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             Display name
             <input
               type="text"
@@ -616,7 +619,7 @@ function AddProviderDialog({
               className="mh-input"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             Provider id
             <input
               type="text"
@@ -636,7 +639,7 @@ function AddProviderDialog({
               Lowercase letters, numbers, hyphens or underscores. Used in model ids.
             </span>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             Base URL
             <input
               type="url"
@@ -650,7 +653,7 @@ function AddProviderDialog({
               className="mh-input"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             API key (optional)
             <input
               type="password"
@@ -780,11 +783,14 @@ function AddProviderDialog({
 
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="mh-dialog__actions">
-            <button type="button" onClick={onClose} disabled={busy} className="mh-btn mh-btn--secondary">
-              Cancel
-            </button>
-            <button type="submit" disabled={!canSubmit} className="mh-btn mh-btn--primary">
-              {busy ? "Adding…" : "Add provider"}
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="mh-dialog__action mh-dialog__action--primary"
+              aria-label="Add provider"
+              title="Add provider"
+            >
+              <CheckIcon size={18} />
             </button>
           </div>
         </form>

@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from "react"
 import { providerConnectErrorMessage } from "@masterhand/client-core"
 import { client } from "../client"
+import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
+import { CheckIcon } from "./icons"
 
 /**
  * Write-only API key dialog shared by Settings > Providers and Settings > Web
@@ -58,12 +60,13 @@ export function ConnectKeyDialog({
         aria-modal="true"
         aria-label={`Connect ${name}`}
       >
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Connect {name}</h3>
         <p className="mh-body-sm text-ink-muted">
           The key goes straight to opencode and stays in its data volume. MasterHand never stores a copy.
         </p>
         <form onSubmit={(event) => void submit(event)} className="mt-3 flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             API key
             <input
               type="password"
@@ -78,7 +81,7 @@ export function ConnectKeyDialog({
               className="mh-input"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-muted">
+          <label className="mh-label flex flex-col gap-1">
             Label (optional)
             <input
               type="text"
@@ -92,11 +95,14 @@ export function ConnectKeyDialog({
           </label>
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="mh-dialog__actions">
-            <button type="button" onClick={onClose} disabled={busy} className="mh-btn mh-btn--secondary">
-              Cancel
-            </button>
-            <button type="submit" disabled={!key.trim() || busy} className="mh-btn mh-btn--primary">
-              {busy ? "Connecting…" : "Connect"}
+            <button
+              type="submit"
+              disabled={!key.trim() || busy}
+              className="mh-dialog__action mh-dialog__action--primary"
+              aria-label="Connect"
+              title="Connect"
+            >
+              <CheckIcon size={18} />
             </button>
           </div>
         </form>

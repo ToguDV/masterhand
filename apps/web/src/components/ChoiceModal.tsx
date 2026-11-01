@@ -1,4 +1,5 @@
 import type { FormAnswer, FormInfo } from "@masterhand/client-core"
+import { DialogClose } from "./DialogClose"
 import { QuestionForm } from "./QuestionCard"
 import { useModalFocus } from "./useModalFocus"
 
@@ -36,8 +37,9 @@ export function ChoiceModal({
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="mh-dialog max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-b-none p-0 outline-none md:rounded-xl [&>.mh-question]:border-0 [&>.mh-question]:bg-transparent"
+        className="mh-dialog max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-b-none p-0 outline-none md:rounded-xl [&>.mh-question]:border-0 [&>.mh-question]:bg-transparent [&>.mh-question]:pr-12"
       >
+        <DialogClose onClose={onNotNow} />
         <QuestionForm
           key={form.id}
           form={form}
@@ -46,12 +48,9 @@ export function ChoiceModal({
           onRespond={onRespond}
           onCancel={onCancel}
         />
-        <div className="flex flex-wrap gap-2 px-4 pb-4">
-          <button type="button" className="mh-btn mh-btn--primary flex-1" onClick={onOpenSession}>
+        <div className="flex flex-wrap justify-end gap-2 px-4 pb-4">
+          <button type="button" className="mh-btn mh-btn--secondary" onClick={onOpenSession}>
             Open session
-          </button>
-          <button type="button" className="mh-btn mh-btn--ghost" onClick={onNotNow}>
-            Not now
           </button>
         </div>
       </div>

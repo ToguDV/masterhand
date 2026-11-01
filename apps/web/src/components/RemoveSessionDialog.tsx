@@ -1,3 +1,4 @@
+import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
 
 export function RemoveSessionDialog({
@@ -20,6 +21,7 @@ export function RemoveSessionDialog({
         tabIndex={-1}
         className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
       >
+        <DialogClose onClose={onClose} disabled={busy} />
         <h3 className="mh-dialog__title mh-heading-4">Delete session</h3>
         <p className="mh-body-sm text-ink-muted">
           Delete <span className="font-medium text-ink">{name}</span> and all its data? This cannot be undone.

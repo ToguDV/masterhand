@@ -34,6 +34,7 @@ import {
   type CustomProviderPackage,
   type Integration,
 } from "@masterhand/client-core"
+import { CheckIcon, CloseIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /** Providers shown before the "Show all" affordance. */
@@ -629,7 +630,18 @@ function AddProviderModal({
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard} accessibilityLabel="Add OpenAI-compatible provider">
           <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
-            <Text style={styles.modalTitle}>Add OpenAI-compatible provider</Text>
+            <View style={styles.modalHead}>
+              <Text style={styles.modalTitle}>Add OpenAI-compatible provider</Text>
+              <Pressable
+                onPress={onClose}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel add provider"
+                style={styles.iconButton}
+              >
+                <CloseIcon size={18} color={colors.textMuted} />
+              </Pressable>
+            </View>
             <Text style={styles.hint}>
               opencode gains the provider's models; the key stays in opencode's data volume.
             </Text>
@@ -800,22 +812,13 @@ function AddProviderModal({
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <View style={styles.formActions}>
               <Pressable
-                onPress={onClose}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel add provider"
-                style={styles.secondary}
-              >
-                <Text style={styles.secondaryText}>Cancel</Text>
-              </Pressable>
-              <Pressable
                 onPress={() => void submit()}
                 disabled={!canSubmit}
                 accessibilityRole="button"
                 accessibilityLabel="Save provider"
-                style={[styles.primary, !canSubmit && styles.disabled]}
+                style={[styles.iconPrimary, !canSubmit && styles.disabled]}
               >
-                <Text style={styles.primaryText}>{busy ? "Adding…" : "Add provider"}</Text>
+                <CheckIcon size={19} color={colors.accent} />
               </Pressable>
             </View>
           </ScrollView>
@@ -1056,9 +1059,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     input: {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      borderRadius: 12,
-      backgroundColor: colors.surface,
+      borderColor: colors.hairline,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceMuted,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
@@ -1072,6 +1075,21 @@ function createStyles(colors: Palette, fonts: Fonts) {
       justifyContent: "flex-end",
       gap: 8,
       marginTop: 8,
+    },
+    iconButton: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 10,
+    },
+    iconPrimary: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 10,
     },
     secondary: {
       minHeight: 44,
@@ -1136,7 +1154,14 @@ function createStyles(colors: Palette, fonts: Fonts) {
       padding: 16,
       gap: 8,
     },
+    modalHead: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+    },
     modalTitle: {
+      flex: 1,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 16,

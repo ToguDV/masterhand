@@ -771,9 +771,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     input: {
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      borderRadius: 12,
-      backgroundColor: colors.surface,
+      borderColor: colors.hairline,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceMuted,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 13,
