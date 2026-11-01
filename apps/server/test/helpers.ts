@@ -495,6 +495,8 @@ export interface FakeTunnel {
   children: ChildProcess[]
   /** Command and args of every spawn call. */
   calls: { command: string; args: string[] }[]
+  /** Signals received by each fake child, in spawn order. */
+  killSignals: NodeJS.Signals[][]
   url: string
 }
 
@@ -518,20 +520,27 @@ export function createFakeTunnel(
     silent?: boolean
     pid?: number
     urls?: string[]
-    /** Per-spawn delay before the URL is announced (default 5 ms). */
-    announceDelaysMs?: number[]
+    /**
+     * Per-spawn gate the URL announcement waits on. When supplied it replaces
+     * the default delay, so a test controls exactly when the URL is published
+     * instead of sleeping for a fixed window.
+     */
+    announceGates?: (Promise<void> | undefined)[]
     /** Per-spawn processes that ignore a kill, so they can announce late. */
     ignoreKill?: boolean[]
   } = {},
 ): FakeTunnel {
   const children: ChildProcess[] = []
   const calls: FakeTunnel["calls"] = []
+  const killSignals: NodeJS.Signals[][] = []
   const spawnImpl = ((command: string, args: string[]): ChildProcess => {
     calls.push({ command, args })
     const index = children.length
     const announcedUrl = options.urls?.[index] ?? url
-    const delayMs = options.announceDelaysMs?.[index] ?? 5
+    const gate = options.announceGates?.[index]
     const ignoresKill = options.ignoreKill?.[index] === true
+    const signals: NodeJS.Signals[] = []
+    killSignals.push(signals)
     const child = new EventEmitter() as unknown as FakeChildProcess
     child.pid = options.pid
     child.stdout = new PassThrough()
@@ -539,6 +548,7 @@ export function createFakeTunnel(
     child.exitCode = null
     child.signalCode = null
     child.kill = (signal?: NodeJS.Signals) => {
+      signals.push(signal ?? "SIGTERM")
       if (ignoresKill) return true
       if (child.exitCode !== null || child.signalCode !== null) return true
       child.exitCode = 0
@@ -548,18 +558,20 @@ export function createFakeTunnel(
     }
     children.push(child as unknown as ChildProcess)
     if (!options.silent) {
-      setTimeout(() => {
+      void (async () => {
+        if (gate) await gate
+        else await new Promise((resolve) => setTimeout(resolve, 5))
         if (options.fail) {
           child.exitCode = 1
           child.emit("exit", 1, null)
           return
         }
         child.stderr.write(`Your quick Tunnel has been created! Visit it at ${announcedUrl}\n`)
-      }, delayMs)
+      })()
     }
     return child as unknown as ChildProcess
   }) as unknown as typeof import("node:child_process").spawn
-  return { spawnImpl, children, calls, url }
+  return { spawnImpl, children, calls, killSignals, url }
 }
 
 export async function startTestApp(

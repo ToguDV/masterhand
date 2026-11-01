@@ -204,12 +204,13 @@ describe("preview tunnel lifecycle", () => {
   it("never retains the URL of a launch cancelled before it announced", async () => {
     const first = "https://stale-preview.trycloudflare.com"
     const second = "https://fresh-preview.trycloudflare.com"
-    // The first child ignores the kill and announces its URL only after Stop
-    // and a second Start: exactly the window where it used to overwrite the
-    // URL the new tunnel had already published.
+    // The first child ignores the kill and waits on a gate, so the test (not a
+    // sleep) decides when its URL is announced: after Stop and the second Start
+    // published, exactly the window where it used to overwrite the new URL.
+    const gate = deferred()
     const tunnel = createFakeTunnel(first, {
       urls: [first, second],
-      announceDelaysMs: [80, 5],
+      announceGates: [gate.promise],
       ignoreKill: [true, false],
     })
     const { manager } = setup({}, tunnel)
@@ -225,9 +226,9 @@ describe("preview tunnel lifecycle", () => {
 
       // The cancelled launch announces its URL now. It must not become the
       // session's last URL, log a failure, or disturb the live tunnel.
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      expect(manager.status("ses_1")).toMatchObject({ status: "running", url: second, lastUrl: second })
+      gate.resolve()
       await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
+      expect(manager.status("ses_1")).toMatchObject({ status: "running", url: second, lastUrl: second })
       expect(tunnel.children[0]!.signalCode).toBeNull()
 
       await manager.stop("ses_1")
@@ -243,9 +244,10 @@ describe("preview tunnel lifecycle", () => {
   it("does not let a launch cancelled by stopAll publish into a fresh start", async () => {
     const first = "https://stale-after-stopall.trycloudflare.com"
     const second = "https://fresh-after-stopall.trycloudflare.com"
+    const gate = deferred()
     const tunnel = createFakeTunnel(first, {
       urls: [first, second],
-      announceDelaysMs: [80, 5],
+      announceGates: [gate.promise],
       ignoreKill: [true, false],
     })
     const { manager } = setup({}, tunnel)
@@ -258,7 +260,7 @@ describe("preview tunnel lifecycle", () => {
       // fresh start must not reuse its epoch value and revive it.
       await manager.start("ses_1")
 
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      gate.resolve()
       await expect(staleStart).resolves.toMatchObject({ code: "preview_stopped" })
       await manager.stop("ses_1")
       expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: second })
@@ -266,6 +268,78 @@ describe("preview tunnel lifecycle", () => {
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it("signals a starting child once when Stop and its stale abort both target it", async () => {
+    const gate = deferred()
+    const tunnel = createFakeTunnel("https://killed-once.trycloudflare.com", {
+      announceGates: [gate.promise],
+      ignoreKill: [true],
+    })
+    const { manager } = setup({}, tunnel)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const start = manager.start("ses_1").catch((error: unknown) => error)
+      await waitFor(() => tunnel.children.length === 1)
+
+      await manager.stop("ses_1")
+      expect(tunnel.killSignals[0]).toEqual(["SIGTERM"])
+
+      gate.resolve()
+      await expect(start).resolves.toMatchObject({ code: "preview_stopped" })
+      // Stop already signalled the child; the stale launch's abort and failure
+      // paths must not signal it again (the WeakSet guard).
+      expect(tunnel.killSignals[0]).toEqual(["SIGTERM"])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("clears the session's epoch slot once forget's pending start settles", async () => {
+    const gate = deferred()
+    const tunnel = createFakeTunnel()
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      spawnImpl: tunnel.spawnImpl,
+      probe: async () => true,
+      availableImpl: () => true,
+      readinessImpl: async () => {
+        await gate.promise
+        return true
+      },
+    })
+    const start = manager.start("ses_1").catch(() => {})
+    await waitFor(() => tunnel.children.length === 1)
+
+    // `epochs` is private. Observe Map.set while forget bumps the epoch: it is
+    // the only manager map filled with a numeric value (session ID -> epoch).
+    const numericMaps = new Set<Map<unknown, unknown>>()
+    const originalSet = Map.prototype.set
+    const setSpy = vi.spyOn(Map.prototype, "set").mockImplementation(function (
+      this: Map<unknown, unknown>,
+      key: unknown,
+      value: unknown,
+    ) {
+      if (typeof value === "number") numericMaps.add(this)
+      return originalSet.call(this, key, value)
+    })
+    try {
+      const forgotten = manager.forget("ses_1")
+      const epochMap = [...numericMaps].find((map) => map.has("ses_1"))
+      expect(epochMap).toBeDefined()
+
+      // The slot survives while the cancelled launch unwinds, then disappears
+      // with it: a forgotten session must not leave an epoch behind.
+      expect(epochMap!.has("ses_1")).toBe(true)
+      gate.resolve()
+      await forgotten
+      await start
+      expect(epochMap!.has("ses_1")).toBe(false)
+    } finally {
+      setSpy.mockRestore()
+    }
+    expect(manager.status("ses_1")).toMatchObject({ status: "stopped", lastUrl: null, port: null })
   })
 
   it("does not recycle the port of a tunnel that is still starting", async () => {

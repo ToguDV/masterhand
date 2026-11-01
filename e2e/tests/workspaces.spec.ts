@@ -1,5 +1,5 @@
 import { expect, test } from "../fixtures"
-import { addWorkspace, login, newSession } from "./helpers"
+import { E2E_TUNNEL_URL, addWorkspace, login, newSession } from "./helpers"
 
 test("adds a workspace, deletes a session and removes the workspace", async ({ page }) => {
   await login(page)
@@ -60,10 +60,7 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   await page.getByRole("button", { name: "Run and preview" }).click()
   await page.getByRole("tab", { name: "Preview" }).click()
   await page.getByRole("button", { name: "Start preview" }).click()
-  await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute(
-    "src",
-    "https://e2e-preview.trycloudflare.com",
-  )
+  await expect(page.locator('iframe[title="Session preview"]')).toHaveAttribute("src", E2E_TUNNEL_URL)
   await page.getByRole("button", { name: "Close run and preview" }).click()
 
   // Switching to an empty workspace must drop A's chat and preview, not keep
@@ -83,7 +80,7 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   // A's preview is running: the unified panel opens straight on the Preview tab.
   await page.getByRole("button", { name: "Run and preview" }).click()
   const frame = page.locator('iframe[title="Session preview"]')
-  await expect(frame).toHaveAttribute("src", "https://e2e-preview.trycloudflare.com")
+  await expect(frame).toHaveAttribute("src", E2E_TUNNEL_URL)
 
   // The preview must stay running across the workspace switches (that is the
   // regression this test locks), but it must not outlive the test: this worker
