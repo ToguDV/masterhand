@@ -513,12 +513,14 @@ interface FakeChildProcess extends EventEmitter {
  */
 export function createFakeTunnel(
   url = "https://fake-preview.trycloudflare.com",
-  options: { fail?: boolean; silent?: boolean; pid?: number } = {},
+  options: { fail?: boolean; silent?: boolean; pid?: number; urls?: string[] } = {},
 ): FakeTunnel {
   const children: ChildProcess[] = []
   const calls: FakeTunnel["calls"] = []
   const spawnImpl = ((command: string, args: string[]): ChildProcess => {
     calls.push({ command, args })
+    const index = children.length
+    const announcedUrl = options.urls?.[index] ?? url
     const child = new EventEmitter() as unknown as FakeChildProcess
     child.pid = options.pid
     child.stdout = new PassThrough()
@@ -540,7 +542,7 @@ export function createFakeTunnel(
           child.emit("exit", 1, null)
           return
         }
-        child.stderr.write(`Your quick Tunnel has been created! Visit it at ${url}\n`)
+        child.stderr.write(`Your quick Tunnel has been created! Visit it at ${announcedUrl}\n`)
       }, 5)
     }
     return child as unknown as ChildProcess

@@ -145,6 +145,11 @@ export interface PreviewStatus {
   status: PreviewPhase
   /** Public trycloudflare.com URL while the tunnel is running. */
   url: string | null
+  /**
+   * Last URL the tunnel announced, retained after stop or failure for
+   * diagnosis. Absent on older BFFs.
+   */
+  lastUrl?: string | null
   /** Port reserved for the session's dev server (null until first used). */
   port: number | null
   error: string | null

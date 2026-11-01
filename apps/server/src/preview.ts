@@ -9,7 +9,10 @@ export type PreviewStatus = "stopped" | "starting" | "running" | "error"
 
 export interface PreviewState {
   status: PreviewStatus
+  /** Public URL while the tunnel is running; null in every other state. */
   url: string | null
+  /** Last URL the tunnel announced, retained after stop or failure for diagnosis. */
+  lastUrl: string | null
   port: number | null
   error: string | null
 }
@@ -270,7 +273,13 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const readinessIntervalMs = deps.readinessIntervalMs ?? READINESS_INTERVAL_MS
   const running = new Map<string, RunningPreview>()
   const starting = new Map<string, Promise<PreviewState>>()
+  /** Children spawned by an in-flight start, killable before readiness finishes. */
+  const startingChildren = new Map<string, ChildProcess>()
+  /** Bumped on every start and stop; stale launches abort instead of publishing. */
+  const epochs = new Map<string, number>()
   const failures = new Map<string, string>()
+  /** Last URL announced by a tunnel; kept after stops and failures for support. */
+  const lastUrls = new Map<string, string>()
   let availableCache: boolean | null = null
   let availableInFlight: Promise<boolean> | null = null
   const pidFile = tunnelPidFile(config.dataDir)
@@ -344,6 +353,16 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return availableInFlight
   }
 
+  function epochFor(sessionID: string): number {
+    return epochs.get(sessionID) ?? 0
+  }
+
+  function bumpEpoch(sessionID: string): number {
+    const next = epochFor(sessionID) + 1
+    epochs.set(sessionID, next)
+    return next
+  }
+
   function allocatePort(): number {
     const { min, max } = config.previewPortRange
     const used = new Set(store.listPreviewPorts().map((record) => record.port))
@@ -356,6 +375,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     if (stale) {
       store.removePreviewPort(stale.sessionID)
       failures.delete(stale.sessionID)
+      lastUrls.delete(stale.sessionID)
       return stale.port
     }
     throw new PreviewError("preview_ports_exhausted")
@@ -383,13 +403,20 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   }
 
   function state(sessionID: string): PreviewState {
+    const lastUrl = lastUrls.get(sessionID) ?? null
     const active = running.get(sessionID)
-    if (active) return { status: "running", url: active.url, port: active.port, error: null }
-    if (starting.has(sessionID)) return { status: "starting", url: null, port: portFor(sessionID), error: null }
+    if (active) {
+      return { status: "running", url: active.url, lastUrl: active.url, port: active.port, error: null }
+    }
+    if (starting.has(sessionID)) {
+      return { status: "starting", url: null, lastUrl, port: portFor(sessionID), error: null }
+    }
     const failure = failures.get(sessionID)
-    if (failure) return { status: "error", url: null, port: portFor(sessionID), error: failure }
+    if (failure) {
+      return { status: "error", url: null, lastUrl, port: portFor(sessionID), error: failure }
+    }
     const port = store.getPreviewPort(sessionID)
-    return { status: "stopped", url: null, port, error: null }
+    return { status: "stopped", url: null, lastUrl, port, error: null }
   }
 
   function kill(child: ChildProcess): void {
@@ -442,75 +469,120 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     throw new PreviewError("preview_tunnel_unreachable", url)
   }
 
-  async function launch(sessionID: string): Promise<PreviewState> {
-    const port = portFor(sessionID)
-    const reachable = await probe(config.previewOrigin, port, PROBE_TIMEOUT_MS)
-    if (!reachable) {
-      console.warn(`[preview] ${sessionID}: no server listening on ${config.previewOrigin}:${port}`)
-      throw new PreviewError(
-        "preview_not_running",
-        `no server on ${config.previewOrigin}:${port}; ask the agent to start it first`,
-      )
+  async function launch(sessionID: string, epoch: number): Promise<PreviewState> {
+    const current = (): boolean => epochFor(sessionID) === epoch
+    const stoppedError = (): PreviewError => new PreviewError("preview_stopped", "stop requested")
+    let child: ChildProcess | null = null
+
+    // A stop/forget bumps the epoch: a launch cancelled while parked in an
+    // await (probe, PID write, URL, readiness) must never publish its tunnel.
+    const abortIfStale = (): void => {
+      if (current()) return
+      if (child) kill(child)
+      throw stoppedError()
     }
 
-    let child: ChildProcess
     try {
-      child = spawnImpl(
-        config.cloudflaredBin,
-        [
-          "tunnel",
-          "--no-autoupdate",
-          "--url",
-          `http://${config.previewOrigin}:${port}`,
-          // Rewrite the Host header: dev servers reject the tunnel hostname
-          // (Vite's `server.allowedHosts` answers 403 otherwise), and localhost
-          // is always an allowed origin.
-          "--http-host-header",
-          `localhost:${port}`,
-        ],
-        { stdio: ["ignore", "pipe", "pipe"] },
-      )
-    } catch (error) {
-      throw new PreviewError("preview_spawn_failed", error instanceof Error ? error.message : "spawn failed")
-    }
-
-    let failure: string | null = null
-    child.once("error", (error) => {
-      failure = error.message
-    })
-    await track(child)
-    // Keep cloudflared diagnostics flowing to the BFF logs for the whole
-    // lifetime: post-URL connection failures are otherwise invisible.
-    const logCloudflared = (chunk: Buffer): void => {
-      for (const line of chunk.toString().split("\n")) {
-        if (line.includes("ERR") || line.includes("WRN")) console.warn(`[preview] ${sessionID}: ${line.trim()}`)
+      const port = portFor(sessionID)
+      const reachable = await probe(config.previewOrigin, port, PROBE_TIMEOUT_MS)
+      abortIfStale()
+      if (!reachable) {
+        console.warn(`[preview] ${sessionID}: no server listening on ${config.previewOrigin}:${port}`)
+        throw new PreviewError(
+          "preview_not_running",
+          `no server on ${config.previewOrigin}:${port}; ask the agent to start it first`,
+        )
       }
-    }
-    child.stdout?.on("data", logCloudflared)
-    child.stderr?.on("data", logCloudflared)
-    // Persist the reason once the tunnel was live: status flips to `error`.
-    child.once("exit", (code, signal) => {
-      void untrack(child)
-      failure = failure ?? `cloudflared exited (${signal ?? code ?? "unknown"})`
-      if (running.get(sessionID)?.child === child) {
-        running.delete(sessionID)
-        failures.set(sessionID, failure)
+
+      let proc: ChildProcess
+      try {
+        proc = spawnImpl(
+          config.cloudflaredBin,
+          [
+            "tunnel",
+            "--no-autoupdate",
+            "--url",
+            `http://${config.previewOrigin}:${port}`,
+            // Rewrite the Host header: dev servers reject the tunnel hostname
+            // (Vite's `server.allowedHosts` answers 403 otherwise), and localhost
+            // is always an allowed origin.
+            "--http-host-header",
+            `localhost:${port}`,
+          ],
+          { stdio: ["ignore", "pipe", "pipe"] },
+        )
+      } catch (error) {
+        throw new PreviewError("preview_spawn_failed", error instanceof Error ? error.message : "spawn failed")
       }
-    })
+      child = proc
+      // Register the child before the first await so a stop crossing this start
+      // kills it immediately instead of waiting out the URL+readiness budget.
+      startingChildren.set(sessionID, proc)
 
-    let url: string
-    try {
-      url = await waitForUrl(child)
-      await waitUntilReachable(url, () => failure)
-    } catch (error) {
-      console.warn(`[preview] ${sessionID}: ${error instanceof Error ? error.message : String(error)}`)
-      kill(child)
-      throw error
+      let failure: string | null = null
+      proc.once("error", (error) => {
+        failure = error.message
+      })
+      await track(proc)
+      abortIfStale()
+      // Keep cloudflared diagnostics flowing to the BFF logs for the whole
+      // lifetime: post-URL connection failures are otherwise invisible.
+      const logCloudflared = (chunk: Buffer): void => {
+        for (const line of chunk.toString().split("\n")) {
+          if (line.includes("ERR") || line.includes("WRN")) console.warn(`[preview] ${sessionID}: ${line.trim()}`)
+        }
+      }
+      proc.stdout?.on("data", logCloudflared)
+      proc.stderr?.on("data", logCloudflared)
+      // Persist the reason once the tunnel was live: status flips to `error`.
+      proc.once("exit", (code, signal) => {
+        void untrack(proc)
+        failure = failure ?? `cloudflared exited (${signal ?? code ?? "unknown"})`
+        if (running.get(sessionID)?.child === proc) {
+          running.delete(sessionID)
+          failures.set(sessionID, failure)
+          const lastUrl = lastUrls.get(sessionID)
+          console.warn(`[preview] ${sessionID}: ${failure}${lastUrl ? ` (url ${lastUrl})` : ""}`)
+        }
+      })
+
+      const bringUp = async (): Promise<string> => {
+        let announced: string | null = null
+        try {
+          announced = await waitForUrl(proc)
+          // Retain the URL immediately: readiness can fail or the tunnel can die
+          // right after announcing, and support still needs to see the last one.
+          lastUrls.set(sessionID, announced)
+          abortIfStale()
+          await waitUntilReachable(announced, () => failure)
+          abortIfStale()
+          return announced
+        } catch (error) {
+          if (!current()) {
+            kill(proc)
+            throw stoppedError()
+          }
+          const message = error instanceof Error ? error.message : String(error)
+          console.warn(`[preview] ${sessionID}: ${message}${announced ? ` (url ${announced})` : ""}`)
+          kill(proc)
+          throw error
+        }
+      }
+      const url = await bringUp()
+
+      abortIfStale()
+      running.set(sessionID, { child: proc, url, port })
+      failures.delete(sessionID)
+      console.info(`[preview] ${sessionID}: running at ${url} (port ${port})`)
+      return { status: "running", url, lastUrl: url, port, error: null }
+    } finally {
+      // Only this launch's own child may be dropped: a newer start can already
+      // own the slot while this one is still unwinding.
+      if (child && startingChildren.get(sessionID) === child) startingChildren.delete(sessionID)
+      // A cancelled/failed start never becomes `running`: drop its PID now
+      // instead of waiting for an exit listener that may not exist yet.
+      if (child && running.get(sessionID)?.child !== child) await untrack(child)
     }
-
-    running.set(sessionID, { child, url, port })
-    failures.delete(sessionID)
-    return { status: "running", url, port, error: null }
   }
 
   return {
@@ -520,37 +592,75 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     portFor,
     start(sessionID) {
       const active = running.get(sessionID)
-      if (active) return Promise.resolve({ status: "running" as const, url: active.url, port: active.port, error: null })
+      if (active) {
+        return Promise.resolve({
+          status: "running" as const,
+          url: active.url,
+          lastUrl: active.url,
+          port: active.port,
+          error: null,
+        })
+      }
       const pending = starting.get(sessionID)
       if (pending) return pending
       failures.delete(sessionID)
-      const task = launch(sessionID).finally(() => starting.delete(sessionID))
+      const epoch = bumpEpoch(sessionID)
+      const task = launch(sessionID, epoch).finally(() => {
+        // Only the entry this start installed may be removed: a stop can clear
+        // it and a new start can install a newer one while this unwinds.
+        if (starting.get(sessionID) === task) starting.delete(sessionID)
+      })
       starting.set(sessionID, task)
       return task
     },
     stop(sessionID) {
+      bumpEpoch(sessionID)
+      // Cancel a child that is still inside its URL/readiness budget. The
+      // launch notices the stale epoch and rejects with `preview_stopped`.
+      const pendingChild = startingChildren.get(sessionID)
+      if (pendingChild) {
+        kill(pendingChild)
+        startingChildren.delete(sessionID)
+      }
+      // Do not reuse a cancelled start: the next start begins a fresh launch.
+      starting.delete(sessionID)
       const active = running.get(sessionID)
       if (active) {
         kill(active.child)
         running.delete(sessionID)
       }
       failures.delete(sessionID)
+      const lastUrl = lastUrls.get(sessionID)
+      console.info(`[preview] ${sessionID}: stopped${lastUrl ? ` (last url ${lastUrl})` : ""}`)
       // State flips synchronously (as before); only the PID-file write waits.
       return active ? untrack(active.child) : Promise.resolve()
     },
     stopAll() {
-      const children = [...running.values()].map((active) => active.child)
+      const sessions = new Set([...running.keys(), ...starting.keys(), ...startingChildren.keys()])
+      for (const sessionID of sessions) bumpEpoch(sessionID)
+      const children = new Set<ChildProcess>()
+      for (const active of running.values()) children.add(active.child)
+      for (const pending of startingChildren.values()) children.add(pending)
       for (const child of children) kill(child)
       running.clear()
       starting.clear()
+      startingChildren.clear()
       failures.clear()
-      return Promise.all(children.map((child) => untrack(child))).then(() => {})
+      lastUrls.clear()
+      return Promise.all([...children].map((child) => untrack(child))).then(() => {})
     },
     async forget(sessionID) {
       // An in-flight `start` is not tracked in `running` until its readiness
-      // checks finish: wait for it, then kill the child it produced. Otherwise
-      // the tunnel outlives the session with no row left to find it by (#188).
+      // checks finish: cancel it so it unwinds promptly, then wait and kill the
+      // child it produced. Otherwise the tunnel outlives the session with no
+      // row left to find it by (#188).
+      bumpEpoch(sessionID)
       const pending = starting.get(sessionID)
+      const pendingChild = startingChildren.get(sessionID)
+      if (pendingChild) {
+        kill(pendingChild)
+        startingChildren.delete(sessionID)
+      }
       if (pending) await pending.catch(() => {})
       const active = running.get(sessionID)
       if (active) {
@@ -559,6 +669,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
         running.delete(sessionID)
       }
       failures.delete(sessionID)
+      lastUrls.delete(sessionID)
       store.removePreviewPort(sessionID)
     },
     available,

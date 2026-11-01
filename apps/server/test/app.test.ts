@@ -473,7 +473,7 @@ describe("preview routes", () => {
     const initial = await fetch(`${app.url}/api/sessions/ses_1/preview`, { headers: { cookie } })
     expect(initial.status).toBe(200)
     expect(await initial.json()).toEqual({
-      preview: { status: "stopped", url: null, port: null, error: null },
+      preview: { status: "stopped", url: null, lastUrl: null, port: null, error: null },
     })
 
     const started = await fetch(`${app.url}/api/sessions/ses_1/preview`, {
@@ -485,6 +485,7 @@ describe("preview routes", () => {
       preview: {
         status: "running",
         url: "https://fake-preview.trycloudflare.com",
+        lastUrl: "https://fake-preview.trycloudflare.com",
         port: 32900,
         error: null,
       },
@@ -499,6 +500,17 @@ describe("preview routes", () => {
     })
     expect(stopped.status).toBe(200)
     expect(tunnel.children[0]!.signalCode).toBe("SIGTERM")
+
+    const afterStop = await fetch(`${app.url}/api/sessions/ses_1/preview`, { headers: { cookie } })
+    expect(await afterStop.json()).toEqual({
+      preview: {
+        status: "stopped",
+        url: null,
+        lastUrl: "https://fake-preview.trycloudflare.com",
+        port: 32900,
+        error: null,
+      },
+    })
   })
 
   it("returns 409 when the dev server is not listening", async () => {
