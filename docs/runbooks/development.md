@@ -173,7 +173,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
 ## 7. Verify the parity
 
 ```bash
-# Same services and images as production
+# Same services as production; the BFF runs the dev stage (opencode is identical)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
   --env-file deploy/.env.dev ps
 

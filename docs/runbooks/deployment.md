@@ -72,6 +72,9 @@ docker compose -f deploy/docker-compose.yml ps
 > docker inspect --format '{{json .Config.Cmd}}' "$(docker compose -f deploy/docker-compose.yml ps -q masterhand)"
 > # ["sh","-c","umask 002; exec node apps/server/dist/index.js"]
 > ```
+>
+> If the output shows `scripts/dev.mjs`, `pull` the published runtime image or
+> rebuild with `up -d --build`; a plain `up -d` keeps reusing the stale tag.
 
 The BFF is published on a host port (default `8787`, configurable with `MASTERHAND_PORT`/`MASTERHAND_BIND`). opencode stays on the internal network and publishes no ports.
 
