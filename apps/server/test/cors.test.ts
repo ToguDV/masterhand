@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createDevice, login, startTestApp, type TestApp } from "./helpers.js"
 
@@ -127,6 +130,83 @@ describe("bearer-only CORS", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream")
     controller.abort()
     await response.body?.cancel().catch(() => {})
+  })
+
+  it("keeps CORS on raw proxy success responses (opencode pass-through)", async () => {
+    app = await startTestApp({
+      proxyRetry: { attempts: 1, baseDelayMs: 1, jitter: false },
+      fetchImpl: async (input) => {
+        const url = new URL(input instanceof Request ? input.url : String(input))
+        if (url.pathname === "/api/agent") {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+        }
+        return new Response(JSON.stringify({ error: "not_found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        })
+      },
+    })
+    const { token } = await createDevice(app.url)
+
+    const response = await fetch(`${app.url}/api/oc/api/agent`, {
+      headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+    })
+
+    expectCors(response, 200)
+    expect(await response.json()).toEqual({ data: [] })
+  })
+
+  it("keeps CORS on raw upstream error responses", async () => {
+    app = await startTestApp({
+      proxyRetry: { attempts: 1, baseDelayMs: 1, jitter: false },
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: "upstream_failed" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    })
+    const { token } = await createDevice(app.url)
+
+    const response = await fetch(`${app.url}/api/oc/api/agent`, {
+      headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+    })
+
+    expectCors(response, 400)
+    expect(await response.json()).toEqual({ error: "upstream_failed" })
+  })
+
+  it("keeps CORS on attachment downloads (raw stream response)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "masterhand-cors-"))
+    try {
+      const workspacePath = join(root, "app")
+      mkdirSync(workspacePath, { recursive: true })
+      app = await startTestApp({ config: { workspacesRoot: root } })
+      app.store.createWorkspace({ id: "ws_cors", name: "app", path: workspacePath, createdAt: Date.now() })
+      const { token } = await createDevice(app.url)
+
+      const form = new FormData()
+      form.set("sessionID", "ses_cors")
+      form.set("attachmentID", "a1")
+      form.set("file", new File(["hello"], "notes.txt", { type: "text/plain" }))
+      const upload = await fetch(`${app.url}/api/workspaces/ws_cors/attachments`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: form,
+      })
+      expect(upload.status).toBe(201)
+
+      const response = await fetch(`${app.url}/api/workspaces/ws_cors/attachments/ses_cors/a1`, {
+        headers: { origin: OTHER_ORIGIN, authorization: `Bearer ${token}` },
+      })
+
+      expectCors(response, 200)
+      expect(await response.text()).toBe("hello")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it("still rejects a cross-origin cookie mutation (CSRF unchanged)", async () => {
