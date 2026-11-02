@@ -180,7 +180,7 @@ describe("Composer", () => {
     const onToggleAutoAccept = jest.fn()
     await setup({ onToggleAutoAccept })
 
-    await fireEvent.press(await screen.findByText("auto-accept"))
+    await fireEvent.press(await screen.findByText("Auto-accept"))
 
     expect(onToggleAutoAccept).toHaveBeenCalledWith(true)
   })
@@ -601,7 +601,7 @@ describe("Composer", () => {
   it("uses the emerald accent for the active auto-accept state (#92)", async () => {
     await setup({ autoAccept: true })
 
-    const label = await screen.findByText("auto-accept: on")
+    const label = await screen.findByText("Auto-accept: on")
     // Not the old warning amber: the active state is the single accent.
     expect(label).not.toHaveStyle({ color: palettes.light.warning })
     expect(label).not.toHaveStyle({ color: palettes.dark.warning })

@@ -37,6 +37,7 @@ export function SessionToolbar({
         onSelect={onSelectWorkspace}
         onAdd={onAddWorkspace}
         onRemove={onRemoveWorkspace}
+        placement="up"
       />
       {branch}
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}

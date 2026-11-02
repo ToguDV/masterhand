@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useState } from "react"
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native"
+import { useEffect, useRef, useState } from "react"
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native"
+import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { ApiError, type CreateWorkspaceInput, type WorkspaceRecord } from "@masterhand/client-core"
-import { ChoiceModal } from "./ChoiceModal"
 import { CheckIcon, CloseIcon } from "./icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+
+export type WorkspaceDialogMode = "add" | "remove"
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -14,53 +25,44 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Workspace selector and management sheet. The list follows the web model
- * picker: the five most recent workspaces (plus the selected one), a search
- * field when there are more, and a "Show all" action. Add/remove live below
- * the list so the sheet stays minimal.
+ * Workspace management sheets (web `AddWorkspaceDialog` / `RemoveWorkspaceDialog`
+ * parity): the picker menu only lists and switches workspaces; adding and
+ * removing stay in the management dialog DESIGN.md reserves for bottom sheets.
  */
 export function WorkspaceModal({
   visible,
-  workspaces,
-  selectedID,
-  onSelect,
+  mode,
+  workspace,
   onAdd,
   onRemove,
   onClose,
 }: {
   visible: boolean
-  workspaces: WorkspaceRecord[]
-  selectedID: string | null
-  onSelect: (id: string) => void
+  mode: WorkspaceDialogMode
+  /** The selected workspace the remove action targets. */
+  workspace: WorkspaceRecord | null
   onAdd: (input: CreateWorkspaceInput) => Promise<void>
   onRemove: (id: string, options: { deleteFiles: boolean }) => void
   onClose: () => void
 }) {
-  const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
   const [deleteFiles, setDeleteFiles] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Synchronous guard: two taps in the same tick must not fire two DELETEs. */
+  const removing = useRef(false)
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  const insets = useSafeAreaInsets()
 
   useEffect(() => {
     if (visible) return
-    setAdding(false)
     setName("")
     setDeleteFiles(false)
     setBusy(false)
     setError(null)
+    removing.current = false
   }, [visible])
-
-  const options = useMemo(
-    () =>
-      [...workspaces]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .map((workspace) => ({ value: workspace.id, label: workspace.name })),
-    [workspaces],
-  )
-  const selected = workspaces.find((workspace) => workspace.id === selectedID) ?? null
 
   async function submit(): Promise<void> {
     const trimmed = name.trim()
@@ -77,109 +79,180 @@ export function WorkspaceModal({
   }
 
   function remove(): void {
-    if (!selectedID) return
-    onRemove(selectedID, { deleteFiles })
+    if (!workspace || removing.current) return
+    removing.current = true
+    setBusy(true)
+    onRemove(workspace.id, { deleteFiles })
     onClose()
   }
 
-  const footer = adding ? (
-    <View style={styles.form}>
-      <Text style={styles.formHint}>A new folder with this name is created inside the workspaces root.</Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="my-project"
-        placeholderTextColor={colors.textFaint}
-        autoCorrect={false}
-        autoCapitalize="none"
-        style={styles.input}
-        testID="workspace-name-input"
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.formActions}>
-        <Pressable
-          style={styles.iconButton}
-          disabled={busy}
-          onPress={() => setAdding(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Cancel"
-        >
-          <CloseIcon size={18} color={colors.textMuted} />
-        </Pressable>
-        <Pressable
-          style={[styles.iconPrimary, (!name.trim() || busy) && styles.disabled]}
-          disabled={!name.trim() || busy}
-          onPress={() => void submit()}
-          accessibilityRole="button"
-          accessibilityLabel="Add workspace"
-        >
-          <CheckIcon size={19} color={colors.accent} />
-        </Pressable>
-      </View>
-    </View>
-  ) : (
-    <View style={styles.actions}>
-      {selected ? (
-        <Pressable style={styles.deleteRow} onPress={() => setDeleteFiles((value) => !value)}>
-          <Switch
-            value={deleteFiles}
-            onValueChange={setDeleteFiles}
-            trackColor={{ true: colors.accent, false: colors.surfaceMuted }}
-            thumbColor={colors.surface}
-          />
-          <Text style={styles.deleteLabel}>Also delete files from disk</Text>
-        </Pressable>
-      ) : null}
-      <View style={styles.actionRow}>
-        {selectedID ? (
-          <Pressable style={styles.danger} onPress={remove} accessibilityRole="button">
-            <Text style={styles.dangerText}>Remove workspace</Text>
-          </Pressable>
-        ) : null}
-        <Pressable style={styles.primary} onPress={() => setAdding(true)} accessibilityRole="button">
-          <Text style={styles.primaryText}>Add workspace</Text>
-        </Pressable>
-      </View>
-    </View>
-  )
-
   return (
-    <ChoiceModal
+    <Modal
       visible={visible}
-      title="Workspaces"
-      options={options}
-      selected={selectedID ?? ""}
-      onSelect={onSelect}
-      onClose={onClose}
-      previewCount={5}
-      emptyLabel="No workspaces yet."
-      showAllLabel={`Show all ${workspaces.length}`}
-      footer={footer}
-    />
+      transparent
+      animationType="slide"
+      onRequestClose={busy ? () => {} : onClose}
+    >
+      <KeyboardAvoidingView style={styles.root} behavior="padding">
+        <Pressable style={styles.backdrop} onPress={busy ? undefined : onClose}>
+          <Pressable
+            style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}
+            onPress={() => {}}
+          >
+            <View style={styles.head}>
+              <Text style={styles.title}>{mode === "add" ? "Add workspace" : "Remove workspace"}</Text>
+              <Pressable
+                onPress={onClose}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                style={styles.closeButton}
+              >
+                <CloseIcon size={18} color={colors.textMuted} />
+              </Pressable>
+            </View>
+
+            {mode === "add" ? (
+              <>
+                <Text style={styles.body}>
+                  A new folder with this name is created inside the workspaces root, isolated from the
+                  others.
+                </Text>
+                <Text style={styles.label}>Name</Text>
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="my-project"
+                  placeholderTextColor={colors.textFaint}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  style={styles.input}
+                  testID="workspace-name-input"
+                />
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+                <View style={styles.actions}>
+                  <Pressable
+                    style={[styles.iconPrimary, (!name.trim() || busy) && styles.disabled]}
+                    disabled={!name.trim() || busy}
+                    onPress={() => void submit()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add"
+                  >
+                    <CheckIcon size={19} color={colors.accent} />
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.body}>
+                  Remove <Text style={styles.bodyStrong}>{workspace?.name ?? "this workspace"}</Text> from
+                  MasterHand. Sessions are kept.
+                </Text>
+                <Pressable
+                  style={styles.deleteRow}
+                  onPress={() => setDeleteFiles((value) => !value)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: deleteFiles }}
+                >
+                  <Switch
+                    testID="workspace-delete-files"
+                    value={deleteFiles}
+                    onValueChange={setDeleteFiles}
+                    trackColor={{ true: colors.accent, false: colors.surfaceMuted }}
+                    thumbColor={colors.surface}
+                    accessible={false}
+                    importantForAccessibility="no"
+                  />
+                  <Text style={styles.deleteLabel}>
+                    Also delete its folder and all files from disk. This cannot be undone.
+                  </Text>
+                </Pressable>
+                <View style={styles.actions}>
+                  <Pressable style={styles.secondary} onPress={onClose} accessibilityRole="button">
+                    <Text style={styles.secondaryText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.danger}
+                    onPress={remove}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove"
+                  >
+                    <Text style={styles.dangerText}>Remove</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
   )
 }
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
-    form: {
-      gap: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 4,
+    root: {
+      flex: 1,
     },
-    formHint: {
+    backdrop: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: colors.overlay,
+    },
+    sheet: {
+      maxHeight: "85%",
+      overflow: "hidden",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      backgroundColor: colors.surface,
+      paddingHorizontal: 18,
+      paddingTop: 18,
+    },
+    head: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    title: {
+      flex: 1,
+      color: colors.text,
+      fontFamily: fonts.ui,
+      fontSize: 17,
+      fontWeight: "600",
+    },
+    closeButton: {
+      minHeight: 44,
+      minWidth: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: -10,
+    },
+    body: {
+      marginTop: 6,
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 13,
+      lineHeight: 20,
+    },
+    bodyStrong: {
+      color: colors.text,
+      fontWeight: "500",
+    },
+    label: {
+      marginTop: 16,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
     },
     input: {
+      marginTop: 6,
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
+      borderColor: "transparent",
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderRadius: 8,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 15,
@@ -187,43 +260,12 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 10,
     },
     actions: {
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.hairline,
-      paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 4,
-      gap: 4,
-    },
-    deleteRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      minHeight: 44,
-    },
-    deleteLabel: {
-      color: colors.textSoft,
-      fontFamily: fonts.ui,
-      fontSize: 13,
-    },
-    actionRow: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "flex-end",
       gap: 8,
+      marginTop: 18,
       paddingBottom: 4,
-    },
-    formActions: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-      gap: 8,
-      paddingTop: 4,
-    },
-    iconButton: {
-      minHeight: 44,
-      minWidth: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 10,
     },
     iconPrimary: {
       minHeight: 44,
@@ -233,25 +275,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       backgroundColor: colors.accentSoft,
       borderRadius: 10,
     },
-    primary: {
-      backgroundColor: colors.accent,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-    },
-    primaryText: {
-      color: colors.onAccent,
-      fontFamily: fonts.ui,
-      fontSize: 14,
-      fontWeight: "500",
-    },
     secondary: {
+      minHeight: 44,
+      justifyContent: "center",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
-      backgroundColor: colors.surface,
       borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
+      paddingHorizontal: 16,
     },
     secondaryText: {
       color: colors.text,
@@ -260,13 +290,13 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontWeight: "500",
     },
     danger: {
+      minHeight: 44,
+      justifyContent: "center",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.dangerLine,
       backgroundColor: colors.dangerSoft,
       borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      marginRight: "auto",
+      paddingHorizontal: 16,
     },
     dangerText: {
       color: colors.danger,
@@ -274,7 +304,26 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 14,
       fontWeight: "500",
     },
+    deleteRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 16,
+      borderRadius: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surfaceMuted,
+      padding: 12,
+    },
+    deleteLabel: {
+      flexShrink: 1,
+      color: colors.textSoft,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+      lineHeight: 17,
+    },
     error: {
+      marginTop: 8,
       color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 12,

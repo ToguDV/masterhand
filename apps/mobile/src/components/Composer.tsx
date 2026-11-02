@@ -43,15 +43,22 @@ import {
   type PendingSendController,
   type UploadedAttachment,
 } from "@masterhand/client-core"
-import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
+import { SearchSelect, type SearchSelectOption } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { BrainIcon, ChevronDownIcon, CloseIcon, FileIcon, PaperclipIcon, SlidersIcon, SparkleIcon } from "./icons"
+import {
+  ArrowUpIcon,
+  BrainIcon,
+  CloseIcon,
+  FileIcon,
+  PaperclipIcon,
+  ShieldCheckIcon,
+  SlidersIcon,
+  StopIcon,
+} from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
-
-type OpenPicker = "agent" | "model" | "effort" | null
 
 /** A file picked on the device, before/while it is uploaded on Send. */
 interface ComposerAttachment {
@@ -140,7 +147,6 @@ export function Composer({
   const [variant, setVariant] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [picker, setPicker] = useState<OpenPicker>(null)
   const [caret, setCaret] = useState(0)
   const [forcedSelection, setForcedSelection] = useState<{ start: number; end: number } | undefined>(undefined)
   const [dismissed, setDismissed] = useState(false)
@@ -646,12 +652,19 @@ export function Composer({
     }
   }
 
-  const agentChoices: ChoiceOption[] = agents.map((item) => ({ value: item.id, label: item.name }))
-  const modelChoices: ChoiceOption[] = modelOptions.map((option) => ({ value: option.value, label: option.label }))
+  const agentChoices: SearchSelectOption[] = agents.map((item) => ({ value: item.id, label: item.name }))
+  const modelChoices: SearchSelectOption[] = modelOptions.map((option) => ({
+    value: option.value,
+    label: option.label,
+    triggerLabel: option.model,
+  }))
   const selectedModel = modelOptions.find((option) => option.value === model)
-  const effortChoices: ChoiceOption[] = variants.map((key) => ({ value: key, label: variantLabel(key) }))
+  const effortChoices: SearchSelectOption[] = [
+    { value: "", label: "Default" },
+    ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
+  ]
   // Effort variants get the brain glyph; provider-specific ones the sliders.
-  const effortIsBrain = variants.length > 0 && variants.every((key) => isEffortVariant(key))
+  const effortIsBrain = variants.some((key) => isEffortVariant(key))
 
   return (
     <View style={styles.dockWrap}>
@@ -744,27 +757,37 @@ export function Composer({
             accessibilityLabel="Attach files"
             testID="composer-attach"
           >
-            <PaperclipIcon size={18} color={colors.textMuted} />
+            <PaperclipIcon size={16} color={colors.textMuted} />
           </Pressable>
-          <Selector
-            icon={<SparkleIcon size={14} color={colors.textMuted} />}
-            label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
-            onPress={() => setPicker("agent")}
+          <SearchSelect
+            value={agent}
+            options={agentChoices}
+            onChange={setAgent}
+            ariaLabel="Agent"
+            placeholder="agent…"
             disabled={agentChoices.length === 0}
           />
-          <Selector
+          <SearchSelect
+            value={model}
+            options={modelChoices}
+            onChange={(value) => {
+              modelTouched.current = true
+              setModel(value)
+            }}
             icon={
               selectedModel ? (
                 <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
               ) : undefined
             }
-            accessibilityLabel={selectedModel ? `Model, ${selectedModel.label}` : "Model"}
-            label={selectedModel?.model ?? "model…"}
-            onPress={() => setPicker("model")}
+            ariaLabel="Model"
+            placeholder="model…"
             disabled={modelChoices.length === 0}
           />
           {variants.length > 0 && (
-            <Selector
+            <SearchSelect
+              value={variant}
+              options={effortChoices}
+              onChange={setVariant}
               icon={
                 effortIsBrain ? (
                   <BrainIcon size={14} color={colors.textMuted} />
@@ -772,25 +795,31 @@ export function Composer({
                   <SlidersIcon size={14} color={colors.textMuted} />
                 )
               }
-              accessibilityLabel="Effort"
-              label={variant ? variantLabel(variant) : "Default"}
-              onPress={() => setPicker("effort")}
-              disabled={false}
+              ariaLabel="Effort"
+              placeholder="Default"
             />
           )}
           <Pressable
-            style={[styles.autoAccept, autoAccept && styles.autoAcceptOn]}
+            style={styles.autoAccept}
             onPress={() => onToggleAutoAccept(!autoAccept)}
             accessibilityRole="switch"
             accessibilityState={{ checked: autoAccept }}
             accessibilityLabel="Auto-accept permission requests for this session"
+            hitSlop={4}
           >
+            <ShieldCheckIcon size={13} color={autoAccept ? colors.accent : colors.textMuted} />
             <Text style={[styles.autoAcceptText, autoAccept && styles.autoAcceptTextOn]} numberOfLines={1}>
-              {autoAccept ? "auto-accept: on" : "auto-accept"}
+              {autoAccept ? "Auto-accept: on" : "Auto-accept"}
             </Text>
           </Pressable>
           {busy ? (
-            <Pressable style={[styles.send, styles.stop]} onPress={() => void stop()}>
+            <Pressable
+              style={[styles.send, styles.stop]}
+              onPress={() => void stop()}
+              accessibilityRole="button"
+              accessibilityLabel="Stop the agent"
+            >
+              <StopIcon size={14} color={colors.danger} />
               <Text style={[styles.sendText, styles.stopText]}>Stop</Text>
             </Pressable>
           ) : (
@@ -802,75 +831,20 @@ export function Composer({
               ]}
               disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion || startingGoal}
               onPress={() => void send()}
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
             >
-              <Text style={styles.sendText}>{startingSideQuestion || startingGoal ? "Starting…" : "Send"}</Text>
+              <ArrowUpIcon size={14} color={colors.onAccent} />
+              <Text style={styles.sendText}>
+                {startingSideQuestion || startingGoal ? "Starting…" : sending ? "Sending…" : "Send"}
+              </Text>
             </Pressable>
           )}
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
-
-      <ChoiceModal
-        visible={picker === "agent"}
-        title="Agent"
-        options={agentChoices}
-        selected={agent}
-        onSelect={setAgent}
-        onClose={() => setPicker(null)}
-      />
-      <ChoiceModal
-        visible={picker === "model"}
-        title="Model"
-        options={modelChoices}
-        selected={model}
-        onSelect={(value) => {
-          modelTouched.current = true
-          setModel(value)
-        }}
-        onClose={() => setPicker(null)}
-      />
-      <ChoiceModal
-        visible={picker === "effort"}
-        title="Effort"
-        options={[{ value: "", label: "Default" }, ...effortChoices]}
-        selected={variant}
-        onSelect={setVariant}
-        onClose={() => setPicker(null)}
-      />
     </View>
-  )
-}
-
-function Selector({
-  label,
-  onPress,
-  disabled,
-  icon,
-  accessibilityLabel,
-}: {
-  label: string
-  onPress: () => void
-  disabled: boolean
-  icon?: React.ReactNode
-  accessibilityLabel?: string
-}) {
-  const styles = useThemedStyles(createStyles)
-  const { colors } = useTheme()
-  return (
-    <Pressable
-      style={[styles.selector, disabled && styles.actionDisabled]}
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel ?? label}
-    >
-      {icon}
-      <Text style={styles.selectorText} numberOfLines={1}>
-        {label}
-      </Text>
-      <ChevronDownIcon size={12} color={colors.textFaint} />
-    </Pressable>
   )
 }
 
@@ -981,33 +955,16 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingTop: 4,
       paddingBottom: 8,
     },
-    selector: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      maxWidth: "100%",
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-    },
-    selectorText: {
-      flexShrink: 1,
-      color: colors.textSoft,
-      fontFamily: fonts.ui,
-      fontSize: 12,
-    },
     autoAccept: {
       flexDirection: "row",
       alignItems: "center",
+      gap: 5,
+      marginLeft: "auto",
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairlineStrong,
-      borderRadius: 8,
+      borderColor: colors.hairline,
+      borderRadius: 999,
       paddingHorizontal: 10,
-      paddingVertical: 6,
-    },
-    autoAcceptOn: {
-      borderColor: colors.accentLine,
-      backgroundColor: colors.accentSoft,
+      paddingVertical: 5,
     },
     autoAcceptText: {
       color: colors.textSoft,
@@ -1018,12 +975,15 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.accent,
     },
     send: {
-      marginLeft: "auto",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      minHeight: 36,
       justifyContent: "center",
       backgroundColor: colors.accent,
       borderRadius: 12,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
     },
     stop: {
       backgroundColor: colors.dangerSoft,
