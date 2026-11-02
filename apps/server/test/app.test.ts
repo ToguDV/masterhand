@@ -7,6 +7,7 @@ import {
   createFakeTunnel,
   createFakeGitManager,
   login,
+  readUntil,
   startMockOpencode,
   startTestApp,
   waitFor,
@@ -1068,6 +1069,39 @@ describe("/api/workspaces", () => {
     expect(removed.status).toBe(200)
     const empty = await fetch(`${app.url}/api/workspaces`, { headers: { cookie } })
     expect((await empty.json()) as { workspaces: unknown[] }).toMatchObject({ workspaces: [] })
+  })
+
+  it("broadcasts workspace.created and workspace.deleted for other devices", async () => {
+    app = await startTestApp({ createDir: async () => {} })
+    const cookie = await login(app.url)
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100))
+
+    const createStream = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    expect(createStream.ok).toBe(true)
+    const createReader = createStream.body!.getReader()
+    await settle()
+    const created = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "shared" }),
+    })
+    expect(created.status).toBe(201)
+    const { workspace } = (await created.json()) as { workspace: { id: string; name: string } }
+    const createdFrame = await readUntil(createReader, "workspace.created")
+    expect(createdFrame).toContain('"type":"workspace.created"')
+    expect(createdFrame).toContain(`"id":"${workspace.id}"`)
+
+    const deleteStream = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    const deleteReader = deleteStream.body!.getReader()
+    await settle()
+    const removed = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(removed.status).toBe(200)
+    const deletedFrame = await readUntil(deleteReader, "workspace.deleted")
+    expect(deletedFrame).toContain('"type":"workspace.deleted"')
+    expect(deletedFrame).toContain(`"workspaceID":"${workspace.id}"`)
   })
 
   it("initializes the workspace as its own git root", async () => {

@@ -1298,6 +1298,7 @@ function AuthenticatedApp({
       void queryClient.invalidateQueries({ queryKey: ["messages"] })
       void queryClient.invalidateQueries({ queryKey: ["statuses"] })
       void queryClient.invalidateQueries({ queryKey: ["sessions"] })
+      void queryClient.invalidateQueries({ queryKey: ["workspaces"] })
     }
     document.addEventListener("visibilitychange", refresh)
     window.addEventListener("online", refresh)

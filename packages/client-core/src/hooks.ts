@@ -20,6 +20,7 @@ import { opencodeErrorMessage } from "./errors"
 import { goalPayloadOf, type GoalRun } from "./goal"
 import { boardPayloadOf, type BoardSnapshot } from "./board"
 import { schedulerEventOf, type ScheduledTaskInput, type ScheduledTaskPatch } from "./scheduler"
+import { workspaceEventOf } from "./workspaces"
 import type { SessionListOptions } from "./sessions"
 import type {
   ChatMessage,
@@ -633,6 +634,18 @@ export function createEventHandler(
       void queryClient.invalidateQueries({ queryKey: queryKeys.status })
       return
     }
+    // Another device created/removed a workspace. The list is authoritative on
+    // the BFF and cheap to refetch; a deleted workspace also invalidates the
+    // lists/boards scoped to it so no mounted view keeps a 404 reference.
+    const workspaceEvent = workspaceEventOf(raw)
+    if (workspaceEvent) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaces })
+      if (workspaceEvent.type === "workspace.deleted") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+        void queryClient.invalidateQueries({ queryKey: ["board"] })
+      }
+      return
+    }
     // Goal Mode frames are BFF-synthesized with the full run payload: write
     // them straight into the cache (stamped so an in-flight fetch cannot
     // overwrite them with a stale snapshot).
@@ -974,6 +987,7 @@ function toolContentText(content: unknown): string | undefined {
 /** Invalidates server state after (re)connecting so missed events are reconciled. */
 export function invalidateOnReconnect(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.sessions })
+  void queryClient.invalidateQueries({ queryKey: ["workspaces"] })
   void queryClient.invalidateQueries({ queryKey: ["messages"] })
   void queryClient.invalidateQueries({ queryKey: queryKeys.statuses })
   // Goal runs: `goal.updated` frames are never replayed, so a missed one is

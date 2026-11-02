@@ -60,6 +60,21 @@ describe("queryKeys", () => {
 })
 
 describe("createEventHandler", () => {
+  it("refetches workspaces when another device creates or removes one", () => {
+    const { qc, invalidate } = makeQueryClient()
+    const handler = createEventHandler(qc)
+
+    handler({ type: "workspace.created", data: { workspace: { id: "ws_1" } } })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.workspaces })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+
+    invalidate.mockClear()
+    handler({ type: "workspace.deleted", data: { workspaceID: "ws_1" } })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.workspaces })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["board"] })
+  })
+
   it("invalidates the session list on session lifecycle events", () => {
     const { qc, invalidate } = makeQueryClient()
     const handler = createEventHandler(qc)
@@ -84,8 +99,9 @@ describe("createEventHandler", () => {
     const handler = createEventHandler(qc, { onServerConnected })
     emit(handler, "server.connected", {})
     expect(onServerConnected).toHaveBeenCalledTimes(1)
-    expect(invalidate).toHaveBeenCalledTimes(10)
+    expect(invalidate).toHaveBeenCalledTimes(11)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statuses })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["goal"] })
@@ -688,6 +704,7 @@ describe("invalidateOnReconnect", () => {
     const { qc, invalidate } = makeQueryClient()
     invalidateOnReconnect(qc)
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.sessions })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspaces"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["messages"] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.statuses })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.agents })

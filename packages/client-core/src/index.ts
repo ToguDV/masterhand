@@ -63,6 +63,12 @@ export {
   type SyntaxToken,
   type SyntaxTokenKind,
 } from "./highlight"
+export {
+  WORKSPACE_EVENT_TYPES,
+  workspaceEventOf,
+  type WorkspaceEvent,
+  type WorkspaceEventType,
+} from "./workspaces"
 export { usePendingSend, type PendingSend, type PendingSendController } from "./pending"
 export {
   conversationErrorMessage,

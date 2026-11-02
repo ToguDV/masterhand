@@ -1796,6 +1796,8 @@ export function createApp(deps: AppDeps): CreatedApp {
       if (isStorageConflict(error)) return c.json({ error: "already_exists" }, 409)
       throw error
     }
+    // Other devices must see the new workspace without reopening the app.
+    deps.hub.emit({ type: "workspace.created", data: { workspace } })
     return c.json({ workspace }, 201)
   })
 
@@ -1996,6 +1998,9 @@ export function createApp(deps: AppDeps): CreatedApp {
       await resumeTasksPausedHere()
       throw error
     }
+    // The row is gone even if the child cleanup below answers a 504: announce
+    // it now so every device reconciles without waiting for a reload.
+    deps.hub.emit({ type: "workspace.deleted", data: { workspaceID: workspace.id } })
 
     // Each session owns lifecycles that outlive the folder (a managed PTY, a
     // goal run, a preview). Release them before removing the folder. Releases
