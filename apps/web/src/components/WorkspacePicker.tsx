@@ -85,7 +85,7 @@ export function WorkspacePicker({
         <div
           role="menu"
           aria-label="Workspace"
-          className={`absolute left-0 z-30 w-72 max-w-[85vw] rounded-md border border-hairline bg-surface p-2 shadow-elev1 ${
+          className={`mh-popover absolute left-0 z-30 w-72 max-w-[85vw] rounded-md border border-hairline bg-surface p-2 shadow-elev1 ${
             placement === "up" ? "bottom-full mb-2" : "top-full mt-1"
           }`}
         >

@@ -3601,3 +3601,137 @@ textarea.mh-textarea {
   }
 }
 }
+
+/* --------------------------------------------------------------------------
+   Mobile web (<768px) composer and selectors. These rules live in
+   `@layer utilities` on purpose: Tailwind's utilities (left-0, w-72,
+   text-xs, items-center…) are generated in that layer, so component-layer
+   rules would lose regardless of specificity.
+   -------------------------------------------------------------------------- */
+@layer utilities {
+  /* Desktop: the two wrappers vanish and keep the single continuous toolbar
+     row. The actions group still floats to the right as it always did. */
+  .mh-composer-dock__context,
+  .mh-composer-dock__actions {
+    display: contents;
+  }
+
+  .mh-composer-dock__actions > :first-child {
+    margin-left: auto;
+  }
+
+  @media (max-width: 767px) {
+    /* Two deliberate rows instead of a wrapped flex row that stranded
+       Auto-accept and Send on ragged half-filled lines. */
+    .mh-composer-dock__toolbar {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .mh-composer-dock__context {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .mh-composer-dock__context > * {
+      min-width: 0;
+    }
+
+    .mh-composer-dock__context > .mh-icon-btn {
+      width: 36px;
+      height: 36px;
+    }
+
+    /* Context pills stay on one line: they shrink and truncate instead of
+       wrapping to another row. 36px is the phone control height. */
+    .mh-select-ghost {
+      min-height: 36px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+
+    .mh-composer-dock__actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .mh-composer-dock__actions > :first-child {
+      margin-left: 0;
+    }
+
+    .mh-composer-dock__actions > :last-child {
+      margin-left: auto;
+    }
+
+    .mh-composer-dock__actions .mh-chip {
+      min-height: 34px;
+      padding: 6px 10px;
+    }
+
+    .mh-composer-dock__actions .mh-btn {
+      min-height: 38px;
+    }
+
+    /* Session header: workspace + branch share one line and truncate; the
+       stats keep their own line below (native composer-head parity). */
+    .mh-session-toolbar__row {
+      flex: 1 1 100%;
+      gap: 6px;
+    }
+
+    .mh-session-toolbar__row > :first-child {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .mh-session-toolbar__row > :nth-child(2) {
+      min-width: 0;
+      flex: 0 1 auto;
+      max-width: 45%;
+    }
+
+    .mh-session-toolbar__trailing {
+      margin-left: 0;
+    }
+
+    /* Picker menus become a viewport-wide sheet docked to the bottom edge:
+       a 272px popover anchored to a right-edge trigger clipped off-screen.
+       It covers the bottom nav while open, like a modal sheet would. */
+    .mh-popover {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: auto;
+      bottom: 0;
+      width: auto;
+      max-width: none;
+      max-height: min(70dvh, 480px);
+      margin: 0;
+      border-radius: var(--r-lg) var(--r-lg) 0 0;
+      border-bottom: 0;
+      padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+      box-shadow: var(--mh-shadow-3);
+      z-index: 80;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .mh-popover button {
+      min-height: 40px;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+
+    .mh-popover input {
+      min-height: 40px;
+      font-size: 13px;
+    }
+  }
+}

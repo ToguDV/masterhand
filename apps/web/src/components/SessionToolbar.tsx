@@ -26,17 +26,19 @@ export function SessionToolbar({
   trailing?: ReactNode
 }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <WorkspacePicker
-        workspaces={workspaces}
-        selectedID={workspaceID}
-        onSelect={onSelectWorkspace}
-        onAdd={onAddWorkspace}
-        onDelete={onRemoveWorkspace}
-        placement="up"
-      />
-      {branch}
-      {trailing ? <div className="ml-auto flex min-w-0 items-center">{trailing}</div> : null}
+    <div className="mh-session-toolbar flex min-w-0 flex-wrap items-center gap-2">
+      <div className="mh-session-toolbar__row flex min-w-0 items-center gap-2">
+        <WorkspacePicker
+          workspaces={workspaces}
+          selectedID={workspaceID}
+          onSelect={onSelectWorkspace}
+          onAdd={onAddWorkspace}
+          onDelete={onRemoveWorkspace}
+          placement="up"
+        />
+        {branch}
+      </div>
+      {trailing ? <div className="mh-session-toolbar__trailing ml-auto flex min-w-0 items-center">{trailing}</div> : null}
     </div>
   )
 }

@@ -77,7 +77,7 @@ export function SearchSelect({
           }
         }}
         title={title ?? ariaLabel}
-        className={ghost ? ghostTriggerClass : compact ? compactTriggerClass : triggerClass}
+        className={`${ghost ? `${ghostTriggerClass} mh-select-ghost` : compact ? compactTriggerClass : triggerClass}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
@@ -92,7 +92,7 @@ export function SearchSelect({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[85vw] rounded-md border border-hairline bg-surface p-2 shadow-elev3">
+        <div className="mh-popover absolute bottom-full left-0 z-30 mb-2 w-72 max-w-[85vw] rounded-md border border-hairline bg-surface p-2 shadow-elev3">
           {searchable && (
             <input
               ref={inputRef}

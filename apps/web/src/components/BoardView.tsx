@@ -412,14 +412,14 @@ function EditCardDialog({
   const titleRef = useAutoGrow(draft.title)
   const descriptionRef = useAutoGrow(draft.description)
   return (
-    <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+    <div className="mh-overlay fixed inset-0 z-50 flex items-end justify-center md:items-center md:p-4" onClick={onCancel}>
       <div
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="edit-card-title"
-        className="mh-dialog outline-none"
+        className="pb-safe mh-dialog w-full rounded-b-none outline-none md:rounded-xl"
         onClick={(event) => event.stopPropagation()}
       >
         <DialogClose onClose={onCancel} disabled={busy} />

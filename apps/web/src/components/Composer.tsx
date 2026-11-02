@@ -47,7 +47,7 @@ import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect } from "./SearchSelect"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { ArrowUpIcon, BrainIcon, PaperclipIcon, ShieldCheckIcon, SlidersIcon, StopIcon } from "./icons"
+import { ArrowUpIcon, BrainIcon, PaperclipIcon, ShieldCheckIcon, SlidersIcon, SparkleIcon, StopIcon } from "./icons"
 
 const PREFERENCES_STORAGE_KEY = "masterhand.sessionPreferences"
 
@@ -812,107 +812,112 @@ export function Composer({
           </div>
 
           <div className="mh-composer-dock__toolbar">
-            <button
-              type="button"
-              className="mh-icon-btn shrink-0"
-              onClick={() => fileInputRef.current?.click()}
-              title="Attach files"
-              aria-label="Attach files"
-            >
-              <PaperclipIcon size={16} />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              tabIndex={-1}
-              aria-hidden="true"
-              className="sr-only"
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? [])
-                // Reset so selecting the same file again fires `change`.
-                event.target.value = ""
-                addFiles(files)
-              }}
-            />
-            <SearchSelect
-              compact
-              ghost
-              value={agent}
-              options={agents.map((item) => ({ value: item.id, label: item.name }))}
-              onChange={setAgent}
-              ariaLabel="Agent"
-              placeholder="agent…"
-            />
-            <SearchSelect
-              compact
-              ghost
-              value={model}
-              options={modelOptions.map((option) => ({
-                value: option.value,
-                label: option.label,
-                triggerLabel: option.model,
-              }))}
-              onChange={(value) => {
-                modelTouched.current = true
-                setModel(value)
-              }}
-              icon={
-                selectedModel ? (
-                  <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
-                ) : undefined
-              }
-              title={selectedModel?.label}
-              ariaLabel="Model"
-              placeholder="model…"
-            />
-            {variants.length > 0 && (
+            <div className="mh-composer-dock__context">
+              <button
+                type="button"
+                className="mh-icon-btn shrink-0"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach files"
+                aria-label="Attach files"
+              >
+                <PaperclipIcon size={16} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                tabIndex={-1}
+                aria-hidden="true"
+                className="sr-only"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? [])
+                  // Reset so selecting the same file again fires `change`.
+                  event.target.value = ""
+                  addFiles(files)
+                }}
+              />
               <SearchSelect
                 compact
                 ghost
-                icon={effortIcon}
-                value={variant}
-                options={[
-                  { value: "", label: "Default" },
-                  ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
-                ]}
-                onChange={setVariant}
-                ariaLabel="Effort"
-                placeholder="Default"
+                icon={<SparkleIcon size={14} className="shrink-0 text-ink-muted" />}
+                value={agent}
+                options={agents.map((item) => ({ value: item.id, label: item.name }))}
+                onChange={setAgent}
+                ariaLabel="Agent"
+                placeholder="agent…"
               />
-            )}
-            <button
-              type="button"
-              aria-pressed={autoAccept}
-              onClick={() => onToggleAutoAccept(!autoAccept)}
-              title="Auto-accept permission requests for this session (answers “once”)"
-              className={`mh-chip ml-auto shrink-0 cursor-pointer ${autoAccept ? "mh-chip--outline text-accent" : "mh-chip--outline"}`}
-            >
-              <ShieldCheckIcon size={13} />
-              {autoAccept ? "Auto-accept: on" : "Auto-accept"}
-            </button>
-            {busy ? (
+              <SearchSelect
+                compact
+                ghost
+                value={model}
+                options={modelOptions.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                  triggerLabel: option.model,
+                }))}
+                onChange={(value) => {
+                  modelTouched.current = true
+                  setModel(value)
+                }}
+                icon={
+                  selectedModel ? (
+                    <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
+                  ) : undefined
+                }
+                title={selectedModel?.label}
+                ariaLabel="Model"
+                placeholder="model…"
+              />
+              {variants.length > 0 && (
+                <SearchSelect
+                  compact
+                  ghost
+                  icon={effortIcon}
+                  value={variant}
+                  options={[
+                    { value: "", label: "Default" },
+                    ...variants.map((key) => ({ value: key, label: variantLabel(key) })),
+                  ]}
+                  onChange={setVariant}
+                  ariaLabel="Effort"
+                  placeholder="Default"
+                />
+              )}
+            </div>
+            <div className="mh-composer-dock__actions">
               <button
                 type="button"
-                onClick={() => void stop()}
-                title="Stop the agent"
-                className="mh-btn mh-btn--danger mh-btn--sm shrink-0"
+                aria-pressed={autoAccept}
+                onClick={() => onToggleAutoAccept(!autoAccept)}
+                title="Auto-accept permission requests for this session (answers “once”)"
+                className={`mh-chip shrink-0 cursor-pointer ${autoAccept ? "mh-chip--outline text-accent" : "mh-chip--outline"}`}
               >
-                <StopIcon size={14} />
-                Stop
+                <ShieldCheckIcon size={13} />
+                {autoAccept ? "Auto-accept: on" : "Auto-accept"}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion}
-                title="Send message"
-                className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
-              >
-                <ArrowUpIcon size={14} />
-                {startingSideQuestion ? "Starting…" : sending ? "Sending…" : "Send"}
-              </button>
-            )}
+              {busy ? (
+                <button
+                  type="button"
+                  onClick={() => void stop()}
+                  title="Stop the agent"
+                  className="mh-btn mh-btn--danger mh-btn--sm shrink-0"
+                >
+                  <StopIcon size={14} />
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion}
+                  title="Send message"
+                  className="mh-btn mh-btn--primary mh-btn--sm shrink-0"
+                >
+                  <ArrowUpIcon size={14} />
+                  {startingSideQuestion ? "Starting…" : sending ? "Sending…" : "Send"}
+                </button>
+              )}
+            </div>
           </div>
 
           {error && <p className="mh-composer-dock__error text-xs text-danger">{error}</p>}
