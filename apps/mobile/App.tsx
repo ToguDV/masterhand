@@ -1354,6 +1354,18 @@ function AuthenticatedApp({
     selectWorkspace(id)
   }
 
+  /**
+   * Workspace switch from the board: only repoint the board. Unlike
+   * `switchWorkspace` it must never open a session — the user asked for
+   * another workspace's board, not for its latest chat — and it cancels any
+   * auto-open left pending by an earlier switch.
+   */
+  function switchBoardWorkspace(id: string) {
+    if (id === workspaceID) return
+    pendingWorkspaceAutoOpenRef.current = false
+    selectWorkspace(id)
+  }
+
   async function respondPermission(response: "once" | "always" | "reject") {
     const permission = permissions[0]
     if (!permission) return
@@ -1497,7 +1509,7 @@ function AuthenticatedApp({
               client={client}
               workspaceID={workspaceID}
               workspaces={workspaces}
-              onSelectWorkspace={switchWorkspace}
+              onSelectWorkspace={switchBoardWorkspace}
               onAddWorkspace={addWorkspace}
               onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
             />

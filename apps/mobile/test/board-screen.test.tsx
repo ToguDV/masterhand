@@ -65,23 +65,35 @@ async function setup(
     onAddWorkspace: jest.fn(async () => {}),
     onRemoveWorkspace: jest.fn(),
   }
-  await render(
-    <GestureWrapper>
-    <QueryWrapper client={queryClient}>
-      <ThemeProvider>
-        <BoardScreen
-          client={client}
-          workspaceID={props.workspaceID === undefined ? "ws1" : props.workspaceID}
-          workspaces={WORKSPACES}
-          onSelectWorkspace={handlers.onSelectWorkspace}
-          onAddWorkspace={handlers.onAddWorkspace}
-          onRemoveWorkspace={handlers.onRemoveWorkspace}
-        />
-      </ThemeProvider>
-    </QueryWrapper>
-    </GestureWrapper>,
-  )
-  return { client, queryClient, handlers }
+  function tree(workspaceID: string | null) {
+    return (
+      <GestureWrapper>
+        <QueryWrapper client={queryClient}>
+          <ThemeProvider>
+            <BoardScreen
+              client={client}
+              workspaceID={workspaceID}
+              workspaces={WORKSPACES}
+              onSelectWorkspace={handlers.onSelectWorkspace}
+              onAddWorkspace={handlers.onAddWorkspace}
+              onRemoveWorkspace={handlers.onRemoveWorkspace}
+            />
+          </ThemeProvider>
+        </QueryWrapper>
+      </GestureWrapper>
+    )
+  }
+  const initial = props.workspaceID === undefined ? "ws1" : props.workspaceID
+  const { rerender } = await render(tree(initial))
+  return {
+    client,
+    queryClient,
+    handlers,
+    /** Repoints the mounted board at another workspace, like the picker does. */
+    rerenderWorkspace: async (id: string | null) => {
+      await rerender(tree(id))
+    },
+  }
 }
 
 /** Presses an Alert button by style (destructive/cancel/default text match). */
@@ -152,6 +164,22 @@ describe("BoardScreen states (#164)", () => {
         title: "To do",
       }),
     )
+  })
+
+  it("drops the previous workspace's error when the board is repointed", async () => {
+    const { rerenderWorkspace } = await setup((c) => {
+      c.api.board.get.mockResolvedValue({ workspaceID: "ws1", columns: [] })
+    })
+
+    await screen.findByText(/This workspace has no columns yet/)
+    await fireEvent.press(screen.getByLabelText("Add column"))
+    expect(await screen.findByText("Give it a title (1–200 characters)")).toBeOnTheScreen()
+
+    await rerenderWorkspace("ws2")
+    // The screen stays mounted across the switch; its new empty board must not
+    // inherit the failed action from the workspace that was open before.
+    expect(await screen.findByText(/This workspace has no columns yet/)).toBeOnTheScreen()
+    expect(screen.queryByText("Give it a title (1–200 characters)")).toBeNull()
   })
 })
 
