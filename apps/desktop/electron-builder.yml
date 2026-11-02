@@ -17,6 +17,7 @@ directories:
 files:
   - dist/**/*
   - static/**/*
+  - assets/icon.png
   - package.json
 
 asar: true
@@ -33,6 +34,10 @@ linux:
     - AppImage
     - deb
   category: Development
+  # Electron derives WM_CLASS / app_id from `desktopName` in package.json.
+  # The installed file stays `masterhand.desktop`, so existing pins keep
+  # working while Cinnamon groups the window with the shortcut.
+  syncDesktopName: true
   maintainer: ToguDV
   synopsis: Self-hosted UI for your opencode agents
   description: Use your opencode agents from any device through your own MasterHand server.

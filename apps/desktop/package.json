@@ -5,6 +5,7 @@
   "type": "module",
   "main": "dist/main.js",
   "description": "MasterHand desktop shell — connects to your self-hosted MasterHand server",
+  "desktopName": "masterhand",
   "author": "ToguDV",
   "license": "MIT",
   "homepage": "https://github.com/ToguDV/masterhand",
