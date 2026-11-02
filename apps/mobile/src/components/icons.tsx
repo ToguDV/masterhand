@@ -27,6 +27,11 @@ export function BackIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="arrow-back" size={size} color={color} />
 }
 
+/** GitHub account integration (Settings > GitHub). */
+export function GithubIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="logo-github" size={size} color={color} />
+}
+
 /** Provider credentials / API keys (Settings > Providers). */
 export function KeyIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="key-outline" size={size} color={color} />

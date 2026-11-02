@@ -14,6 +14,7 @@ RUN gcc -O2 -Wall -Wextra -o /agent-exec /src/agent-exec.c
 FROM node:22-slim
 
 ARG OPENCODE_VERSION=2.0.6
+ARG GH_VERSION=2.102.0
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep unzip xz-utils \
@@ -21,13 +22,31 @@ RUN apt-get update \
   && npm install -g @opencode/cli@${OPENCODE_VERSION} \
   && npm cache clean --force
 
+# GitHub CLI for the agent shell (Settings > GitHub). Agents run through
+# agent-exec with HOME=/home/agent, so gh reads the BFF-written hosts.yml.
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) gh_arch=amd64 ;; \
+    arm64) gh_arch=arm64 ;; \
+    *) echo "unsupported architecture for gh: $arch" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL -o /tmp/gh.tar.gz \
+    "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${gh_arch}.tar.gz"; \
+  tar -xzf /tmp/gh.tar.gz -C /tmp; \
+  install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" /usr/local/bin/gh; \
+  rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gh_arch}"
+
 # Agent shell commands run as `agent` (uid 1001, primary group `node`), never as
 # the `node` user (uid 1000) that runs `opencode serve`. Sharing the group keeps
 # the workspace writable for both; the different uid means a broad kill from the
 # shell cannot signal the engine (EPERM). See ARCHITECTURE.md ADR-22.
 RUN useradd --uid 1001 --gid node --no-create-home --home-dir /home/agent --shell /bin/bash agent \
   && mkdir -p /home/agent \
-  && chown -R agent:node /home/agent
+  && chown -R agent:node /home/agent \
+  && mkdir -p /home/agent/.config \
+  && chown node:node /home/agent/.config \
+  && chmod 755 /home/agent/.config
 
 # The config dir holds masterhand-providers.json; keep it owner-only at build
 # time so a fresh named volume inherits 0700 (deployments with an existing

@@ -6,7 +6,11 @@ import { CheckIcon } from "./icons"
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 409) return "That workspace already exists"
+    if (error.status === 409) {
+      return error.message.includes("delete_in_progress")
+        ? "That workspace is being deleted. Try again in a moment."
+        : "That workspace already exists"
+    }
     if (error.status === 400) return "Enter a valid folder name (no slashes or leading dots)"
   }
   return "Could not add the workspace"

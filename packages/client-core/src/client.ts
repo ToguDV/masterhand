@@ -67,6 +67,7 @@ import {
 } from "./websearch"
 import { createEventStream, type EventStream, type EventStreamOptions } from "./events"
 import { normalizeUpdateCheck, type UpdateApplyResult, type UpdateCheck } from "./update"
+import { normalizeGithubStatus, type GithubStatus } from "./github"
 import { UPLOAD_TIMEOUT_MS } from "./attachments"
 
 export class ApiError extends Error {
@@ -349,6 +350,13 @@ export interface Client {
     list(): Promise<WorkspaceRecord[]>
     create(input: CreateWorkspaceInput): Promise<WorkspaceRecord>
     remove(id: string, options?: { deleteFiles?: boolean }): Promise<void>
+  }
+  /** Server-wide GitHub account used by agent shells (`git`, `gh`). */
+  github: {
+    status(): Promise<GithubStatus>
+    /** Validates the token with GitHub and writes the agent credential files. */
+    connect(token: string): Promise<GithubStatus>
+    disconnect(): Promise<GithubStatus>
   }
   eventStream(options: Omit<EventStreamOptions, "baseUrl" | "getToken" | "fetchImpl">): EventStream
 }
@@ -997,6 +1005,16 @@ export function createClient(options: ClientOptions = {}): Client {
           `/api/workspaces/${encodeURIComponent(id)}${options?.deleteFiles ? "?deleteFiles=1" : ""}`,
           { method: "DELETE" },
         ),
+    },
+    github: {
+      status: () => request<unknown>("/api/github").then(normalizeGithubStatus),
+      connect: (token) =>
+        request<unknown>("/api/github", {
+          method: "PUT",
+          body: JSON.stringify({ token }),
+        }).then(normalizeGithubStatus),
+      disconnect: () =>
+        request<unknown>("/api/github", { method: "DELETE" }).then(normalizeGithubStatus),
     },
     eventStream: (streamOptions) =>
       createEventStream({

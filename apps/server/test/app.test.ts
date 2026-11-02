@@ -1181,6 +1181,49 @@ describe("/api/workspaces", () => {
     expect(removedPaths).toEqual([workspace.path])
   })
 
+  it("refuses a same-name create while the folder delete is still running", async () => {
+    upstream = await startMockOpencode()
+    let releaseRemove!: () => void
+    let markStarted!: () => void
+    const removeStarted = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const removeGate = new Promise<void>((resolve) => {
+      releaseRemove = resolve
+    })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      removeDir: async () => {
+        markStarted()
+        await removeGate
+      },
+    })
+    const cookie = await login(app.url)
+    const created = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "race" }),
+    })
+    const { workspace } = (await created.json()) as { workspace: { id: string } }
+
+    const removal = fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    await removeStarted
+
+    const duplicate = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "race" }),
+    })
+    expect(duplicate.status).toBe(409)
+    expect(await duplicate.json()).toEqual({ error: "delete_in_progress" })
+
+    releaseRemove()
+    expect((await removal).status).toBe(200)
+  })
+
   it("fails closed when the destructive-delete busy guard cannot be evaluated", async () => {
     const removedPaths: string[] = []
     app = await startTestApp({ removeDir: async (path) => { removedPaths.push(path) } })

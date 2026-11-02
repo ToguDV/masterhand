@@ -6,6 +6,7 @@ import { ServerStatus } from "../src/components/ServerBits"
 import { ServersScreen } from "../src/components/ServersScreen"
 import { ServerSwitcher } from "../src/components/ServerSwitcher"
 import { SettingsDialog } from "../src/components/SettingsPanel"
+import type { Client } from "@masterhand/client-core"
 
 afterEach(cleanup)
 
@@ -17,6 +18,7 @@ function profile(overrides: Partial<ServerProfile> = {}): ServerProfile {
 }
 
 const noop = () => {}
+const settingsClient = {} as Client
 
 describe("ServerStatus", () => {
   it("renders the approved glyph vocabulary with the status text", () => {
@@ -311,6 +313,7 @@ describe("Settings > Servers", () => {
     const props = servers()
     render(
       <SettingsDialog
+        client={settingsClient}
         mode="light"
         onSelectMode={noop}
         palette="paper"
@@ -335,6 +338,7 @@ describe("Settings > Servers", () => {
     const props = servers()
     render(
       <SettingsDialog
+        client={settingsClient}
         mode="light"
         onSelectMode={noop}
         palette="paper"
@@ -361,6 +365,7 @@ describe("Settings > Servers", () => {
     const props = servers()
     render(
       <SettingsDialog
+        client={settingsClient}
         mode="light"
         onSelectMode={noop}
         palette="paper"

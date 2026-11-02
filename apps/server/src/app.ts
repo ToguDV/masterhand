@@ -83,6 +83,7 @@ import type {
 } from "./store.js"
 import { isStorageConflict, isStorageError } from "./store.js"
 import { createGitManager, type GitManager } from "./git.js"
+import { createGithubIntegration, GithubError, type GithubIntegration } from "./github.js"
 import { createUpdateChecker } from "./update.js"
 import { createUpdateApplier, type UpdateApplier } from "./updater.js"
 import {
@@ -108,6 +109,8 @@ export interface AppDeps {
   removeDir?: (path: string) => Promise<void>
   /** Overridable for tests: git repository operations. */
   git?: GitManager
+  /** Overridable for tests: GitHub account integration. */
+  github?: GithubIntegration
   /** Overridable for tests: Cloudflare quick-tunnel previews. */
   preview?: PreviewManager
   /** Overridable for tests: managed dev-server lifecycle. */
@@ -567,6 +570,11 @@ export function createApp(deps: AppDeps): CreatedApp {
     return c.json({ error: "attachment_failed" }, 500)
   }
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
+  // Paths whose workspace row is gone but whose folder cleanup is still in
+  // flight. A same-name create would `mkdir -p` the old folder and then be
+  // deleted by the still-running `rm -rf`; refuse it until the tombstone clears.
+  const workspacesBeingDeleted = new Set<string>()
+  const githubBodyLimit = bodyLimit({ maxSize: 16 * 1024, onError: rejectOversizedBody })
 
   /**
    * Wrong credentials: count the failure, log it without the secret, and
@@ -587,6 +595,14 @@ export function createApp(deps: AppDeps): CreatedApp {
       userEmail: config.gitUserEmail,
     })
   const preview = deps.preview ?? createPreviewManager({ config, store: deps.store })
+  const github =
+    deps.github ??
+    createGithubIntegration({
+      store: deps.store,
+      configDir: config.agentConfigDir,
+      version: config.version,
+      fetchImpl,
+    })
 
   /**
    * Managed dev-server lifecycle over opencode's PTY API. The run process is
@@ -1767,6 +1783,29 @@ export function createApp(deps: AppDeps): CreatedApp {
     }
   })
 
+  // GitHub account integration (Settings > GitHub). The token is accepted
+  // write-only, validated against GitHub, stored owner-only and materialized
+  // into the agent container's config volume; no response ever echoes it.
+  api.get("/github", (c) => c.json(github.status()))
+  api.put("/github", githubBodyLimit, async (c) => {
+    let body: { token?: unknown }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: "bad_request" }, 400)
+    }
+    if (typeof body.token !== "string" || !body.token.trim()) {
+      return c.json({ error: "invalid_token" }, 400)
+    }
+    try {
+      return c.json(await github.connect(body.token))
+    } catch (error) {
+      if (error instanceof GithubError) return c.json({ error: error.code }, error.status)
+      throw error
+    }
+  })
+  api.delete("/github", async (c) => c.json(await github.disconnect()))
+
   api.get("/workspaces", (c) => c.json({ workspaces: deps.store.listWorkspaces() }))
 
   api.post("/workspaces", async (c) => {
@@ -1781,6 +1820,9 @@ export function createApp(deps: AppDeps): CreatedApp {
     if (!result.ok) return c.json({ error: "invalid_name" }, 400)
 
     const path = workspacePath(config.workspacesRoot, result.slug)
+    if (workspacesBeingDeleted.has(path)) {
+      return c.json({ error: "delete_in_progress" }, 409)
+    }
     if (deps.store.getWorkspaceByPath(path)) {
       return c.json({ error: "already_exists" }, 409)
     }
@@ -1989,9 +2031,13 @@ export function createApp(deps: AppDeps): CreatedApp {
     // pre-insert re-check now fails and rolls the session back.
     // The row goes before the folder: if the folder delete fails, the files
     // remain for inspection, but MasterHand no longer registers them.
+    // Tombstone the folder before the row disappears so a concurrent create
+    // cannot adopt the still-present folder and then lose it to the cleanup.
+    workspacesBeingDeleted.add(workspace.path)
     try {
       deps.store.removeWorkspace(workspace.id)
     } catch (error) {
+      workspacesBeingDeleted.delete(workspace.path)
       // The delete did not happen: the folder and row are still there, so the
       // paused schedules must stay active.
       clearTimeout(deleteTimer)
@@ -2062,6 +2108,7 @@ export function createApp(deps: AppDeps): CreatedApp {
       // on expiry the removal continues detached while the route answers.
       if (deleteFiles) await removeDir(workspace.path)
     })().finally(() => {
+      workspacesBeingDeleted.delete(workspace.path)
       clearCleanupTimer()
       // The cleanup settled (or failed early): stop a still-running base
       // listing so an early rejection cannot leave it paginating without the

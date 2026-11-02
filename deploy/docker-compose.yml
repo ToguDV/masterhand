@@ -50,6 +50,11 @@ services:
       # Setuid dropper that launches managed runs as the unprivileged `agent`
       # user. The path is resolved inside the opencode container, not here.
       MANAGED_RUN_LAUNCHER: /usr/local/bin/agent-exec
+      # Shared agent config volume: the GitHub integration writes git/gh
+      # credentials here and the agent (uid 1001) reads them from
+      # /home/agent/.config. The BFF owns the files; the agent cannot rewrite
+      # them, so a compromised workspace cannot make the BFF follow a symlink.
+      AGENT_CONFIG_DIR: /agent-config
       # One-click self-updater (#134), opt-in. Empty URL/token keeps the v1
       # manual flow; the sidecar is enabled with the `updater` profile and both
       # values set in deploy/.env. The token never reaches clients.
@@ -65,6 +70,7 @@ services:
       # MasterHand writes custom OpenAI-compatible providers into opencode's
       # config dir so opencode picks them up without a restart.
       - opencode_config:/home/node/.config/opencode
+      - agent_config:/agent-config
     ports:
       # Bind to 127.0.0.1 when your reverse proxy runs on the host.
       - "${MASTERHAND_BIND:-0.0.0.0}:${MASTERHAND_PORT:-8787}:8787"
@@ -86,6 +92,7 @@ services:
       dockerfile: opencode.Dockerfile
       args:
         OPENCODE_VERSION: ${OPENCODE_VERSION:-2.0.6}
+        GH_VERSION: ${GH_VERSION:-2.102.0}
     restart: unless-stopped
     # Same log cap as the BFF: opencode and every agent shell write here.
     logging:
@@ -129,6 +136,8 @@ services:
     volumes:
       - opencode_config:/home/node/.config/opencode
       - opencode_data:/home/node/.local/share/opencode
+      # GitHub credential files are written by the BFF and read by `agent`.
+      - agent_config:/home/agent/.config
       - ${WORKSPACES_DIR:-../workspace}:/workspace
     working_dir: /workspace
     expose:
@@ -188,3 +197,4 @@ volumes:
   masterhand_data:
   opencode_config:
   opencode_data:
+  agent_config:

@@ -56,6 +56,11 @@ export {
   type PaletteID,
 } from "./palettes"
 export {
+  DISCONNECTED_GITHUB,
+  normalizeGithubStatus,
+  type GithubStatus,
+} from "./github"
+export {
   detectLanguage,
   highlightCode,
   highlightLine,

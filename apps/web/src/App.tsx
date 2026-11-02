@@ -2268,6 +2268,7 @@ function AuthenticatedApp({
       {panel === "audit" && <AuditSheet onClose={() => setPanel(null)} />}
       {panel === "settings" && (
         <SettingsDialog
+          client={client}
           mode={themeMode.mode}
           onSelectMode={themeMode.setMode}
           palette={themeMode.palette}

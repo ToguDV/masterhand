@@ -434,6 +434,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     workspacesRoot: "/tmp/masterhand-workspaces",
     gitUserName: "MasterHand Tests",
     gitUserEmail: "tests@masterhand.local",
+    agentConfigDir: null,
     previewEnabled: true,
     previewOrigin: "127.0.0.1",
     previewPortRange: { min: 32900, max: 32999 },
@@ -581,6 +582,7 @@ export async function startTestApp(
     createDir?: (path: string) => Promise<void>
     removeDir?: (path: string) => Promise<void>
     git?: GitManager
+    github?: import("../src/github.js").GithubIntegration
     runs?: import("../src/runs.js").RunManager
     providers?: CustomProviderStore
     goals?: import("../src/goal.js").GoalManager
@@ -641,6 +643,7 @@ export async function startTestApp(
     createDir: options.createDir ?? (async () => {}),
     removeDir: options.removeDir ?? (async () => {}),
     git: options.git ?? createFakeGitManager(),
+    github: options.github,
     runs: options.runs,
     providers: options.providers,
     goals: options.goals,
