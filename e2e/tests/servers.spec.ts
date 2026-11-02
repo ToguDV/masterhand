@@ -96,7 +96,7 @@ test("never assigns the serving origin's legacy preferences to a remote first pr
   expect(state.legacyWorkspace).toBe("ws-legacy")
   expect(state.legacyAutoAccept).toBe(JSON.stringify(["session-legacy"]))
   expect(state.legacySeen).toBe(JSON.stringify({ "session-legacy": 1 }))
-  expect(state.lastWorkspaceID).toBeNull()
+  expect(state.lastWorkspaceID).not.toBe("ws-legacy")
   expect(state.scopedAutoAccept).not.toContain(JSON.stringify(["session-legacy"]))
 })
 

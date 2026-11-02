@@ -14,8 +14,8 @@ test("auto-accepts permission requests for the active session", async ({ page })
 
   await page.getByRole("button", { name: "Auto-accept", exact: true }).click()
   await expect(page.getByRole("button", { name: "Auto-accept: on" })).toBeVisible()
-  // On state keeps an emerald text signal on a neutral outline chip (sober chrome).
-  await expect(page.getByRole("button", { name: "Auto-accept: on" })).toHaveCSS("color", "rgb(11, 107, 83)")
+  // On state keeps a forest text signal on a neutral outline chip (sober chrome).
+  await expect(page.getByRole("button", { name: "Auto-accept: on" })).toHaveCSS("color", "rgb(31, 107, 79)")
 
   await send(page, "hello agent")
 

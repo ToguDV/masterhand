@@ -19,19 +19,19 @@ test("switches between light and dark themes from settings and remembers the cho
   // attribute: the old bug left the attribute right while the UI stayed dark.
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgb(250, 250, 247)")
+    .toBe("rgb(247, 242, 232)")
 
   await selectThemeMode(page, "Dark")
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgb(12, 12, 11)")
+    .toBe("rgb(20, 19, 15)")
 
   await page.reload()
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgb(12, 12, 11)")
+    .toBe("rgb(20, 19, 15)")
 
   // The panel reflects the stored choice, and there is no system option.
   await page.getByRole("button", { name: "Settings" }).click()
@@ -45,7 +45,7 @@ test("switches between light and dark themes from settings and remembers the cho
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light")
   await expect
     .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-    .toBe("rgb(250, 250, 247)")
+    .toBe("rgb(247, 242, 232)")
 })
 
 test("switches color theme from settings and remembers it", async ({ page }) => {
@@ -129,9 +129,9 @@ test("paints the sidebar edge handle with the sidebar border paint", async ({ pa
     await expect
       .poll(handlePaint)
       .toEqual({
-        border: "rgb(232, 232, 226)",
+        border: "rgb(224, 215, 198)",
         count: 3,
-        stroke: "rgb(232, 232, 226)",
+        stroke: "rgb(224, 215, 198)",
         width: "1.25px",
         filter: "none",
       })
@@ -149,12 +149,12 @@ test("paints the user bubble deep emerald, never the brightest surface", async (
   await expect(bubble).toBeVisible()
   await expect
     .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe("rgb(8, 80, 65)") // emerald-800 on the light theme
+    .toBe("rgb(24, 85, 64)") // deep forest on the light theme
 
   await selectThemeMode(page, "Dark")
   await expect
     .poll(() => bubble.evaluate((element) => getComputedStyle(element).backgroundColor))
-    .toBe("rgb(6, 55, 44)") // emerald-900: a dark green fill, not a light one
+    .toBe("rgb(30, 58, 46)") // deep forest: a dark green fill, not a light one
 })
 
 test("renders permission requests inline in the transcript, not as a modal", async ({ page }) => {
@@ -173,7 +173,7 @@ test("renders permission requests inline in the transcript, not as a modal", asy
   // Sober chrome: neutral hairline border, urgency carried by the spinner.
   await expect
     .poll(() => card.evaluate((element) => getComputedStyle(element).borderTopColor))
-    .toBe("rgb(232, 232, 226)")
+    .toBe("rgb(224, 215, 198)")
   await expect(card.locator(".mh-spin")).toBeVisible()
 
   await card.getByRole("button", { name: "Allow once" }).click()

@@ -441,8 +441,8 @@ test("card editor uses quiet fields, multi-line titles and icon actions", async 
     const style = getComputedStyle(element)
     return { borderColor: style.borderColor, boxShadow: style.boxShadow }
   })
-  expect(focus.borderColor).toBe("rgb(214, 214, 208)")
+  expect(focus.borderColor).toBe("rgb(205, 194, 173)")
   expect(focus.boxShadow).toBe("none")
   expect(focus.borderColor).not.toContain("110, 110, 106")
-  expect(focus.borderColor).not.toContain("62, 216, 168")
+  expect(focus.borderColor).not.toContain("31, 107, 79")
 })
