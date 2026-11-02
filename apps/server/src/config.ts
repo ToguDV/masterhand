@@ -120,6 +120,11 @@ function boolFromEnv(name: string, value: string | undefined, fallback: boolean)
 }
 
 const MIN_PRODUCTION_PASSWORD_CHARS = 12
+/**
+ * The previous password floor (32 bytes), kept as a compatibility path: an
+ * upgrade must never reject a value that already booted production.
+ */
+const LEGACY_MIN_PRODUCTION_PASSWORD_BYTES = 32
 const MIN_PRODUCTION_SECRET_BYTES = 32
 const OPENSSL_HINT = "generate one with `openssl rand -hex 32`"
 
@@ -158,19 +163,25 @@ function isPlaceholderSecret(value: string): boolean {
   )
 }
 
-/**
- * The UI password is typed by a human, so it gets a character floor a
- * passphrase fits. The signing secret is machine-generated and keeps the
- * 32-byte random floor.
- */
+/** The UI password is typed by a human, so a character floor fits a passphrase. */
+function passwordMeetsProductionFloor(value: string): boolean {
+  return (
+    Array.from(value).length >= MIN_PRODUCTION_PASSWORD_CHARS ||
+    Buffer.byteLength(value, "utf8") >= LEGACY_MIN_PRODUCTION_PASSWORD_BYTES
+  )
+}
+
 function assertProductionPassword(value: string): void {
   if (isPlaceholderSecret(value)) {
     throw new Error(
       "MASTERHAND_PASSWORD looks like an example/placeholder value in production; use a long passphrase",
     )
   }
-  const chars = Array.from(value).length
-  if (chars < MIN_PRODUCTION_PASSWORD_CHARS) {
+  if (value.trim().length === 0) {
+    throw new Error("MASTERHAND_PASSWORD must not be blank in production; use a long passphrase")
+  }
+  if (!passwordMeetsProductionFloor(value)) {
+    const chars = Array.from(value).length
     throw new Error(
       `MASTERHAND_PASSWORD must be at least ${MIN_PRODUCTION_PASSWORD_CHARS} characters in production (got ${chars}); use a long passphrase`,
     )
@@ -192,7 +203,7 @@ function assertStrongSecret(name: string, value: string): void {
 
 /** Development keeps working with short values, but the operator is warned. */
 function warnWeakDevPassword(value: string): void {
-  if (Array.from(value).length >= MIN_PRODUCTION_PASSWORD_CHARS && !isPlaceholderSecret(value)) return
+  if (value.trim().length > 0 && passwordMeetsProductionFloor(value) && !isPlaceholderSecret(value)) return
   console.warn(
     `[masterhand] MASTERHAND_PASSWORD is weak for a deployed server (use at least ${MIN_PRODUCTION_PASSWORD_CHARS} characters, e.g. a passphrase); allowed because NODE_ENV is not production`,
   )

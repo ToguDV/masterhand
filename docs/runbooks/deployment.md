@@ -18,7 +18,7 @@ Fill in `deploy/.env`:
 
 | Variable | Purpose |
 |---|---|
-| `MASTERHAND_PASSWORD` | Password to access the UI. Production requires **at least 12 characters** and rejects the example/placeholder values; a 3–4 word passphrase is the intended shape |
+| `MASTERHAND_PASSWORD` | Password to access the UI. Production requires **at least 12 characters** (values that already met the previous 32-byte floor keep working), rejects blank and example/placeholder values, and a 3–4 word passphrase is the intended shape |
 | `SESSION_SECRET` | Cookie/token signing secret (`openssl rand -hex 32`), **at least 32 bytes** in production |
 | `OPENCODE_SERVER_PASSWORD` | Password for the internal opencode server |
 | `SESSION_TTL_HOURS` | Session lifetime in hours (default `720`) |

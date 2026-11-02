@@ -142,6 +142,10 @@ describe("loadConfig", () => {
     expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "example-example-example-example-example" }))).toThrow(
       /MASTERHAND_PASSWORD[^\n]*placeholder/i,
     )
+    // Exactly 12 characters, but still the example value.
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "dev-password" }))).toThrow(
+      /MASTERHAND_PASSWORD[^\n]*placeholder/i,
+    )
     expect(() => loadConfig(prodEnv({ SESSION_SECRET: "dev-session-secret-change-me" }))).toThrow(
       /SESSION_SECRET[^\n]*placeholder/i,
     )
@@ -155,11 +159,34 @@ describe("loadConfig", () => {
     expect(loadConfig(prodEnv({ SESSION_SECRET: "a".repeat(32) })).sessionSecret).toBe("a".repeat(32))
   })
 
+  it("never rejects a password that already met the previous 32-byte floor", () => {
+    // 8 code points but 32 UTF-8 bytes: accepted before this change.
+    expect(loadConfig(prodEnv({ MASTERHAND_PASSWORD: "😀".repeat(8) })).masterhandPassword).toBe("😀".repeat(8))
+    // 11 CJK characters, 33 UTF-8 bytes.
+    expect(loadConfig(prodEnv({ MASTERHAND_PASSWORD: "漢".repeat(11) })).masterhandPassword).toBe("漢".repeat(11))
+  })
+
+  it("counts code points, not UTF-16 units, for the UI password floor", () => {
+    // 6 code points, 12 UTF-16 units and 24 bytes: below both floors.
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "😀".repeat(6) }))).toThrow(
+      /MASTERHAND_PASSWORD[^\n]*12/,
+    )
+  })
+
+  it("rejects a blank production password even at the character floor", () => {
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: " ".repeat(12) }))).toThrow(/MASTERHAND_PASSWORD[^\n]*blank/)
+  })
+
   it("keeps short development secrets working with a warning", () => {
     const config = loadConfig(env({ MASTERHAND_PASSWORD: "pw", SESSION_SECRET: "secret" }))
     expect(config.sessionSecret).toBe("secret")
     expect(warnings.some((line) => line.includes("SESSION_SECRET"))).toBe(true)
     expect(warnings.some((line) => line.includes("MASTERHAND_PASSWORD") && line.includes("12"))).toBe(true)
+
+    // The 12-character example value is still a placeholder, so it warns.
+    warnings = []
+    loadConfig(env({ MASTERHAND_PASSWORD: "dev-password" }))
+    expect(warnings.some((line) => line.includes("MASTERHAND_PASSWORD"))).toBe(true)
   })
 
   it("disables webDist when WEB_DIST is an empty string", () => {
