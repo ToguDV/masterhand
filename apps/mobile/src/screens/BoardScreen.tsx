@@ -521,6 +521,23 @@ export function BoardScreen({
   const boardX = useSharedValue(0)
   const boardY = useSharedValue(0)
 
+  // The workspace picker repoints this screen without remounting it: drop any
+  // board-local state that belonged to the previous workspace so its error
+  // copy, open editor or drag preview never paints over the new board.
+  useEffect(() => {
+    setError(null)
+    setEditingCard(null)
+    setEditingColumnID(null)
+    setEditingColumnTitle("")
+    setNewCardTitles({})
+    setDragPreview(null)
+    rowHeights.current.clear()
+    columnLayouts.current.clear()
+    cardsOffsets.current.clear()
+    scrollX.current = 0
+    scrollRef.current?.scrollTo({ x: 0, animated: false })
+  }, [workspaceID])
+
   function failBoard(failure: unknown) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceID) })
     setError(boardErrorMessage(failure))

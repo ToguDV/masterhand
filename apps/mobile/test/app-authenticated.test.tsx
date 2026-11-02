@@ -12,6 +12,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import {
   ApiError,
   createClient,
+  useBoard,
   useEventStream,
   useMessages,
   useSessions,
@@ -72,6 +73,13 @@ jest.mock("@masterhand/client-core", () => {
     useMessages: jest.fn(() => ({ data: [], isLoading: false })),
     useAgents: jest.fn(() => ({ data: [] })),
     useModels: jest.fn(() => ({ data: { models: [], providers: [], defaultModel: null } })),
+    // The board section only needs a snapshot per workspace: this suite tests
+    // navigation, not the kanban mutations.
+    useBoard: jest.fn((_client: unknown, workspaceID?: string | null) => ({
+      data: workspaceID ? { workspaceID, columns: [] } : null,
+      isPending: false,
+      isError: false,
+    })),
   }
 })
 
@@ -81,6 +89,7 @@ const workspacesMock = useWorkspaces as unknown as jest.Mock
 const sessionsMock = useSessions as unknown as jest.Mock
 const statusesMock = useSessionStatuses as unknown as jest.Mock
 const messagesMock = useMessages as unknown as jest.Mock
+const boardMock = useBoard as unknown as jest.Mock
 
 interface MockedStorage {
   loadServerRegistry: jest.Mock
@@ -219,6 +228,8 @@ afterEach(() => {
 async function renderAuthenticated(options: {
   workspaces?: WorkspaceRecord[]
   sessions?: Session[]
+  /** Sessions of the second workspace: a switch must load a different list. */
+  otherWorkspaceSessions?: Session[]
   autoAccept?: string[]
   workspaceID?: string | null
   messages?: ChatMessage[]
@@ -237,7 +248,17 @@ async function renderAuthenticated(options: {
   storage.loadServerToken.mockResolvedValue("stored-token")
   storage.loadAutoAcceptSessionsFor.mockResolvedValue(options.autoAccept ?? [])
   workspacesMock.mockReturnValue({ data: options.workspaces ?? [workspace], isLoading: false })
-  sessionsMock.mockReturnValue({ data: options.sessions ?? [], isLoading: false })
+  // Keyed by workspace like the real hook, with stable array identities: a new
+  // reference on every render would re-trigger the list-driven effects.
+  const firstSessions = options.sessions ?? []
+  const otherSessions = options.otherWorkspaceSessions ?? []
+  sessionsMock.mockImplementation(
+    (_client: unknown, _live: unknown, _poll: unknown, workspaceIDArg?: string | null) => ({
+      data: workspaceIDArg === "ws2" ? otherSessions : firstSessions,
+      isLoading: false,
+      isSuccess: true,
+    }),
+  )
   messagesMock.mockReturnValue({ data: options.messages ?? [], isLoading: false })
 
   await render(<App />)
@@ -387,6 +408,35 @@ describe("App — workspaces", () => {
       expect.objectContaining({
         profiles: [expect.objectContaining({ lastWorkspaceID: "ws2" })],
       }),
+    )
+  })
+
+  it("keeps the board when switching workspace from the board picker", async () => {
+    await renderAuthenticated({
+      workspaces: [workspace, otherWorkspace],
+      sessions: [makeSession()],
+      // The new workspace has sessions too: the board switch must not
+      // auto-open one (the old `switchWorkspace` path landed in the chat).
+      otherWorkspaceSessions: [
+        makeSession({ id: "ses_2", title: "Other session", location: { directory: "/workspaces/other" } }),
+      ],
+    })
+
+    await fireEvent.press(screen.getByLabelText("Show board"))
+    expect(screen.getByTestId("screen-title")).toHaveTextContent("Board")
+
+    await fireEvent.press(screen.getByLabelText("Workspace"))
+    await fireEvent.press(await screen.findByText("other"))
+
+    expect(await screen.findByTestId("screen-title")).toHaveTextContent("Board")
+    expect(screen.queryByPlaceholderText("Write a message…")).toBeNull()
+    expect(boardMock).toHaveBeenLastCalledWith(client, "ws2")
+    await waitFor(() =>
+      expect(storage.saveServerRegistry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profiles: [expect.objectContaining({ lastWorkspaceID: "ws2" })],
+        }),
+      ),
     )
   })
 
