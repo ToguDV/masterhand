@@ -49,6 +49,12 @@ export interface Config {
   gitUserName: string
   gitUserEmail: string
   /**
+   * BFF-side mount of the shared agent config volume. The GitHub integration
+   * writes git/gh credentials there so `agent-exec` children can read them.
+   * Null disables injection (native development).
+   */
+  agentConfigDir: string | null
+  /**
    * Release identity served by `/api/status` (#131). Baked in at image build
    * time (`MASTERHAND_VERSION`/`MASTERHAND_BUILD`); local builds report the
    * package version with a `dev` build id.
@@ -391,6 +397,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workspacesRoot,
     gitUserName: env.GIT_COMMIT_NAME?.trim() || "MasterHand",
     gitUserEmail: env.GIT_COMMIT_EMAIL?.trim() || "masterhand@localhost",
+    agentConfigDir: env.AGENT_CONFIG_DIR?.trim() || null,
     version: env.MASTERHAND_VERSION?.trim() || "0.1.0",
     build: env.MASTERHAND_BUILD?.trim() || "dev",
     updateManifestUrl:

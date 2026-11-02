@@ -219,6 +219,27 @@ export const MIGRATIONS: readonly Migration[] = [
       "DROP TABLE IF EXISTS isolated_sessions",
     ],
   },
+  {
+    version: 5,
+    description: "GitHub account integration",
+    statements: [
+      // A single server-wide GitHub account: the token is validated by the
+      // BFF, stored owner-only and injected into the agent container's config
+      // volume. Clients only ever read the login/avatar, never the token.
+      `
+        CREATE TABLE IF NOT EXISTS github_auth (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          token TEXT NOT NULL,
+          login TEXT NOT NULL,
+          github_id INTEGER NOT NULL DEFAULT 0,
+          name TEXT,
+          avatar_url TEXT,
+          scopes TEXT NOT NULL DEFAULT '[]',
+          updated_at INTEGER NOT NULL
+        )
+      `,
+    ],
+  },
 ]
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(

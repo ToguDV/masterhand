@@ -30,7 +30,10 @@ Fill in `deploy/.env`:
 | `PROXY_BODY_LIMIT_MB` | Cap on proxied opencode request bodies (default `10`, range 1–1024) |
 | `PROVIDERS_ALLOW_LOOPBACK` | Allow loopback provider-discovery targets (default `false`; set `true` only for a local provider in native/dev, not in Docker) |
 | `OPENCODE_VERSION` | Pinned opencode version |
+| `GH_VERSION` | Pinned GitHub CLI version installed in the opencode image (Settings > GitHub, optional) |
 
+> **GitHub for agents (optional):** Settings > GitHub stores a fine-grained personal access token server-side and writes `git`/`gh` credentials into the shared `agent_config` volume, mounted at `/home/agent/.config` in opencode and `/agent-config` in the BFF (`AGENT_CONFIG_DIR`). Agents run as `agent` (uid 1001) with `HOME=/home/agent`, so they can read the files but cannot rewrite them. See `docs/runbooks/github.md` for the token permissions and verification commands. Native development stores the token but cannot inject it.
+>
 > **Workspaces:** a workspace is a single project folder. From the UI you give it a name and the BFF creates the subfolder under the workspaces root (`/workspace` in the container, i.e. `WORKSPACES_DIR` on the host), isolated from the rest. The BFF and opencode share that mount, so the BFF can create and (optionally) delete the folder while opencode works inside it. Removing a workspace only forgets it in MasterHand unless you tick "also delete files from disk", which deletes the folder and its contents.
 
 > **Git:** a workspace is made its own git root (`git init` + an empty first commit) so opencode resolves its project root there. MasterHand only reads the current branch for the composer viewer; agents commit/push themselves with their own tools and credentials when the task requires it. There is no Finish/PR control.

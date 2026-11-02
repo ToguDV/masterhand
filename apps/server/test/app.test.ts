@@ -7,6 +7,7 @@ import {
   createFakeTunnel,
   createFakeGitManager,
   login,
+  readUntil,
   startMockOpencode,
   startTestApp,
   waitFor,
@@ -1070,6 +1071,39 @@ describe("/api/workspaces", () => {
     expect((await empty.json()) as { workspaces: unknown[] }).toMatchObject({ workspaces: [] })
   })
 
+  it("broadcasts workspace.created and workspace.deleted for other devices", async () => {
+    app = await startTestApp({ createDir: async () => {} })
+    const cookie = await login(app.url)
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100))
+
+    const createStream = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    expect(createStream.ok).toBe(true)
+    const createReader = createStream.body!.getReader()
+    await settle()
+    const created = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "shared" }),
+    })
+    expect(created.status).toBe(201)
+    const { workspace } = (await created.json()) as { workspace: { id: string; name: string } }
+    const createdFrame = await readUntil(createReader, "workspace.created")
+    expect(createdFrame).toContain('"type":"workspace.created"')
+    expect(createdFrame).toContain(`"id":"${workspace.id}"`)
+
+    const deleteStream = await fetch(`${app.url}/api/events`, { headers: { cookie } })
+    const deleteReader = deleteStream.body!.getReader()
+    await settle()
+    const removed = await fetch(`${app.url}/api/workspaces/${workspace.id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    expect(removed.status).toBe(200)
+    const deletedFrame = await readUntil(deleteReader, "workspace.deleted")
+    expect(deletedFrame).toContain('"type":"workspace.deleted"')
+    expect(deletedFrame).toContain(`"workspaceID":"${workspace.id}"`)
+  })
+
   it("initializes the workspace as its own git root", async () => {
     const git = createFakeGitManager()
     app = await startTestApp({ git })
@@ -1145,6 +1179,49 @@ describe("/api/workspaces", () => {
     })
     expect(response.status).toBe(200)
     expect(removedPaths).toEqual([workspace.path])
+  })
+
+  it("refuses a same-name create while the folder delete is still running", async () => {
+    upstream = await startMockOpencode()
+    let releaseRemove!: () => void
+    let markStarted!: () => void
+    const removeStarted = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const removeGate = new Promise<void>((resolve) => {
+      releaseRemove = resolve
+    })
+    app = await startTestApp({
+      config: { opencodeUrl: upstream.url },
+      removeDir: async () => {
+        markStarted()
+        await removeGate
+      },
+    })
+    const cookie = await login(app.url)
+    const created = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "race" }),
+    })
+    const { workspace } = (await created.json()) as { workspace: { id: string } }
+
+    const removal = fetch(`${app.url}/api/workspaces/${workspace.id}?deleteFiles=1`, {
+      method: "DELETE",
+      headers: { cookie },
+    })
+    await removeStarted
+
+    const duplicate = await fetch(`${app.url}/api/workspaces`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ name: "race" }),
+    })
+    expect(duplicate.status).toBe(409)
+    expect(await duplicate.json()).toEqual({ error: "delete_in_progress" })
+
+    releaseRemove()
+    expect((await removal).status).toBe(200)
   })
 
   it("fails closed when the destructive-delete busy guard cannot be evaluated", async () => {

@@ -48,33 +48,33 @@
   --gutter: 16px;
 
   /* Surfaces */
-  --mh-canvas: light-dark(#fafaf7, #0c0c0b);
-  --mh-surface: light-dark(#ffffff, #141413);
-  --mh-surface-muted: light-dark(#f2f2ee, #1c1c1a);
+  --mh-canvas: light-dark(#eef4ec, #0e1612);
+  --mh-surface: light-dark(#f9fcf7, #15211b);
+  --mh-surface-muted: light-dark(#e1eadf, #1c2b23);
 
   /* Text */
-  --mh-text: light-dark(#0c0c0b, #f2f2ed);
-  --mh-text-soft: light-dark(#4a4a46, #c9c9c2);
-  --mh-text-muted: light-dark(#6e6e6a, #8e8e88);
-  --mh-text-faint: light-dark(#8e8e88, #6a6a65);
+  --mh-text: light-dark(#18211b, #e8f0ea);
+  --mh-text-soft: light-dark(#405044, #c3d2c8);
+  --mh-text-muted: light-dark(#5f7064, #8ca295);
+  --mh-text-faint: light-dark(#7f9085, #667d70);
 
   /* Lines */
-  --mh-hairline: light-dark(#e8e8e2, #262624);
-  --mh-hairline-strong: light-dark(#d6d6d0, #3a3a37);
+  --mh-hairline: light-dark(#d2ded3, #26382e);
+  --mh-hairline-strong: light-dark(#b8c9ba, #3a5144);
 
   /* The one accent */
-  --mh-accent: light-dark(#0b6b53, #3ed8a8);
-  --mh-accent-strong: light-dark(#085041, #8be9c9);
-  --mh-accent-soft: light-dark(#d9eae3, rgba(62, 216, 168, 0.14));
-  --mh-accent-line: light-dark(rgba(11, 107, 83, 0.35), rgba(62, 216, 168, 0.35));
-  --mh-on-accent: light-dark(#ffffff, #04140e);
+  --mh-accent: light-dark(#2e6f52, #6fd3a5);
+  --mh-accent-strong: light-dark(#235840, #a6e8c6);
+  --mh-accent-soft: light-dark(#d8e8dd, rgba(111, 211, 165, 0.14));
+  --mh-accent-line: light-dark(rgba(46, 111, 82, 0.35), rgba(111, 211, 165, 0.35));
+  --mh-on-accent: light-dark(#ffffff, #0a1f16);
 
-  /* User bubble — deep emerald, deliberately never the brightest surface */
-  --mh-bubble-user: light-dark(#085041, #06372c);
-  --mh-bubble-user-text: light-dark(#ffffff, #d9eae3);
+  /* User bubble — deep forest, deliberately never the brightest surface */
+  --mh-bubble-user: light-dark(#235840, #173d2d);
+  --mh-bubble-user-text: light-dark(#eef4ec, #d5eddf);
 
   /* Semantic */
-  --mh-success: light-dark(#0b6b53, #3ed8a8);
+  --mh-success: light-dark(#2e6f52, #6fd3a5);
   --mh-warning: light-dark(#8a5a00, #e3b341);
   --mh-warning-soft: light-dark(rgba(138, 90, 0, 0.09), rgba(227, 179, 65, 0.12));
   --mh-warning-line: light-dark(rgba(138, 90, 0, 0.32), rgba(227, 179, 65, 0.35));
@@ -83,31 +83,31 @@
   --mh-danger-line: light-dark(rgba(179, 38, 30, 0.32), rgba(240, 138, 130, 0.35));
 
   /* Code — dark in both themes */
-  --mh-code-surface: light-dark(#141413, #171716);
-  --mh-code-surface-soft: light-dark(#1c1c1a, #262624);
+  --mh-code-surface: light-dark(#142019, #0a120e);
+  --mh-code-surface-soft: light-dark(#1d2b22, #142019);
   --mh-code-text: #ededE8;
-  --mh-code-muted: #8e8e88;
+  --mh-code-muted: #7e9488;
 
   /* Syntax tokens: one tuned palette for the dark code surface in both
      modes. Function names follow the palette's dark accent. */
   --mh-syn-keyword: #c792ea;
-  --mh-syn-string: #9ece8a;
+  --mh-syn-string: #9dd7b0;
   --mh-syn-number: #e3b341;
-  --mh-syn-comment: #7a7a76;
-  --mh-syn-function: #3ed8a8;
-  --mh-syn-type: #7dd3fc;
+  --mh-syn-comment: #7e9488;
+  --mh-syn-function: #6fd3a5;
+  --mh-syn-type: #7fc8c4;
 
   /* Overlay & depth */
-  --mh-overlay: light-dark(rgba(12, 12, 11, 0.45), rgba(0, 0, 0, 0.6));
-  --mh-shadow-1: 0 1px 2px light-dark(rgba(12, 12, 11, 0.05), rgba(0, 0, 0, 0.4));
-  --mh-shadow-3: 0 16px 48px -12px light-dark(rgba(12, 12, 11, 0.4), rgba(0, 0, 0, 0.7));
+  --mh-overlay: light-dark(rgba(24, 33, 27, 0.45), rgba(0, 0, 0, 0.6));
+  --mh-shadow-1: 0 1px 2px light-dark(rgba(24, 33, 27, 0.05), rgba(0, 0, 0, 0.4));
+  --mh-shadow-3: 0 16px 48px -12px light-dark(rgba(24, 33, 27, 0.4), rgba(0, 0, 0, 0.7));
 
   /* Decoration */
-  --mh-dot: light-dark(#d6d6d0, #3a3a37);
-  --mh-hatch: light-dark(#e8e8e2, #262624);
-  --mh-blob: light-dark(#d9eae3, #17302a);
+  --mh-dot: light-dark(#b8c9ba, #3a5144);
+  --mh-hatch: light-dark(#d2ded3, #26382e);
+  --mh-blob: light-dark(#d8e8dd, #1a3227);
 
-  --mh-selection: light-dark(rgba(11, 107, 83, 0.18), rgba(62, 216, 168, 0.25));
+  --mh-selection: light-dark(rgba(46, 111, 82, 0.18), rgba(111, 211, 165, 0.24));
 }
 
 :root[data-theme="light"] {
@@ -1531,11 +1531,11 @@ textarea.mh-textarea {
 }
 
 .mh-code .mh-c-accent {
-  color: #7fd8ba;
+  color: #8fe6c3;
 }
 
 .mh-code .mh-c-muted {
-  color: #8e8e88;
+  color: #7e9488;
 }
 
 .mh-diff {
@@ -1557,7 +1557,7 @@ textarea.mh-textarea {
 
 .mh-diff__line.is-add {
   background: rgba(23, 166, 124, 0.16);
-  color: #8be9c9;
+  color: #a6e8c6;
 }
 
 .mh-diff__line.is-remove {

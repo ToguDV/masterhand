@@ -105,7 +105,10 @@ function createMainWindow(): BrowserWindow {
     height: 800,
     minWidth: 380,
     title: "MasterHand",
-    backgroundColor: "#09090b",
+    // The taskbar uses the window icon when no matching .desktop entry is
+    // found; ship it explicitly and keep it in sync with the packaged asset.
+    icon: join(__dirname, "..", "assets", "icon.png"),
+    backgroundColor: "#0E1612",
     show: false,
     webPreferences: {
       // The window only ever loads our own bundle (or the Vite dev server),

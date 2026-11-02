@@ -202,6 +202,18 @@ export interface WorkspaceRecord {
   createdAt: number
 }
 
+/** Single-row GitHub account integration (Settings > GitHub). The token is write-only to clients. */
+export interface GithubAuthRecord {
+  token: string
+  login: string
+  /** Numeric GitHub account id, used for the commit noreply email. */
+  githubID: number
+  name: string | null
+  avatarUrl: string | null
+  scopes: string[]
+  updatedAt: number
+}
+
 /** Reserved preview port for a session (survives BFF restarts). */
 export interface PreviewPortRecord {
   sessionID: string
@@ -494,6 +506,12 @@ export interface Store {
   getWorkspaceByPath(path: string): WorkspaceRecord | null
   createWorkspace(record: WorkspaceRecord): void
   removeWorkspace(id: string): void
+  /** Stored GitHub account, or null when the integration is disconnected. */
+  getGithubAuth(): GithubAuthRecord | null
+  /** Replaces the single GitHub credential row. */
+  saveGithubAuth(record: GithubAuthRecord): void
+  /** Idempotent: removes the credential row when it exists. */
+  deleteGithubAuth(): void
   listPreviewPorts(): PreviewPortRecord[]
   getPreviewPort(sessionID: string): number | null
   /**
@@ -672,6 +690,18 @@ export function createSqliteStore(file: string): Store {
     VALUES (@id, @name, @path, @createdAt)
   `)
   const removeWorkspaceStatement = db.prepare("DELETE FROM workspaces WHERE id = ?")
+
+  const githubAuthColumns = `
+    SELECT token, login, github_id AS githubID, name, avatar_url AS avatarUrl, scopes, updated_at AS updatedAt
+    FROM github_auth
+    WHERE id = 1
+  `
+  const getGithubAuthStatement = db.prepare(githubAuthColumns)
+  const saveGithubAuthStatement = db.prepare(`
+    INSERT OR REPLACE INTO github_auth (id, token, login, github_id, name, avatar_url, scopes, updated_at)
+    VALUES (1, @token, @login, @githubID, @name, @avatarUrl, @scopes, @updatedAt)
+  `)
+  const deleteGithubAuthStatement = db.prepare("DELETE FROM github_auth WHERE id = 1")
 
   const previewPortColumns = `SELECT session_id AS sessionID, port, created_at AS createdAt FROM preview_ports`
   const listPreviewPortsStatement = db.prepare(`${previewPortColumns} ORDER BY created_at ASC`)
@@ -1051,6 +1081,26 @@ export function createSqliteStore(file: string): Store {
     },
     createWorkspace(record) {
       createWorkspaceStatement.run(record)
+    },
+    getGithubAuth() {
+      const row = getGithubAuthStatement.get() as
+        | (Omit<GithubAuthRecord, "scopes"> & { scopes: string })
+        | undefined
+      if (!row) return null
+      let scopes: string[] = []
+      try {
+        const parsed = JSON.parse(row.scopes)
+        if (Array.isArray(parsed)) scopes = parsed.filter((scope): scope is string => typeof scope === "string")
+      } catch {
+        // A corrupt scope list must not hide a valid token; the UI only needs it for display.
+      }
+      return { ...row, scopes }
+    },
+    saveGithubAuth(record) {
+      saveGithubAuthStatement.run({ ...record, scopes: JSON.stringify(record.scopes) })
+    },
+    deleteGithubAuth() {
+      deleteGithubAuthStatement.run()
     },
     removeWorkspace(id) {
       const removeWorkspaceRows = db.transaction(() => {

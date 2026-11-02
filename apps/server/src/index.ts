@@ -11,6 +11,7 @@ import { DEFAULT_WEBSEARCH_PROVIDER, createCustomProviderStore, ensureWebsearchD
 import { shutdownServer } from "./shutdown.js"
 import { acquireDataDirLock, createSqliteStore, ensureDataDir, type DataDirLock } from "./store.js"
 import { createGitManager } from "./git.js"
+import { createGithubIntegration } from "./github.js"
 
 const config = loadConfig()
 ensureDataDir(config.dataDir)
@@ -54,6 +55,12 @@ const git = createGitManager({
   userEmail: config.gitUserEmail,
 })
 
+const github = createGithubIntegration({
+  store,
+  configDir: config.agentConfigDir,
+  version: config.version,
+})
+
 const preview = createPreviewManager({ config, store })
 
 // MasterHand owns opencode's `websearch` selection through the same config
@@ -74,11 +81,18 @@ const built = bootstrapApp({
   store,
   hub,
   git,
+  github,
   preview,
   providers,
   proxyBodyLimitBytes: config.proxyBodyLimitMb * 1024 * 1024,
 })
 const app = built.app
+// A restart or a recreated agent volume must get the stored credential back
+// without the user reconnecting. Best effort: the status endpoint reports
+// `injected: false` when the volume is unavailable.
+void github.materialize().catch((error) => {
+  console.warn("[masterhand] GitHub credential injection skipped:", error instanceof Error ? error.message : error)
+})
 // Scheduled tasks (issue #147): the manager starts its loop with the app;
 // `bootstrapApp` already ran the single boot pass settling what a restart
 // orphaned (firing → interrupted, queued → skipped) and recomputed every

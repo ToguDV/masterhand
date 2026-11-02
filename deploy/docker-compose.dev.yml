@@ -2,9 +2,10 @@
 #
 # It keeps the exact same stack as a real deployment and only swaps how the BFF
 # runs: instead of the compiled image it bind-mounts the sources and runs the
-# BFF watcher plus Vite. The `opencode` service is intentionally untouched, so
-# the agent engine, its `agent-exec` sandbox, volumes and the internal network
-# alias are byte-for-byte the production ones.
+# BFF watcher plus Vite. The `opencode` service is otherwise untouched: the dev
+# override only adds the shared `agent_config` volume, so the agent engine, its
+# `agent-exec` sandbox, the other volumes and the internal network alias stay
+# byte-for-byte the production ones.
 #
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
 #     --env-file deploy/.env.dev up --build
@@ -57,6 +58,7 @@ services:
       - ../data/dev:/data
       - ../workspace:/workspace
       - opencode_config:/home/node/.config/opencode
+      - agent_config:/agent-config
       - ../packages/client-core/src:/app/packages/client-core/src
       - ../apps/server/src:/app/apps/server/src
       - ../apps/web/src:/app/apps/web/src
@@ -64,3 +66,10 @@ services:
       - ../apps/web/vite.config.ts:/app/apps/web/vite.config.ts
     ports:
       - "${MASTERHAND_DEV_WEB_BIND:-0.0.0.0}:${MASTERHAND_DEV_WEB_PORT:-5173}:5173"
+
+  # Keep the same GitHub credential injection contract as production. The
+  # named volume is initialized by the opencode image (owner node:node), so
+  # the BFF can write and the agent uid can read it.
+  opencode:
+    volumes:
+      - agent_config:/home/agent/.config

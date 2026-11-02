@@ -91,3 +91,20 @@ test("never leaks the previous workspace's session or preview", async ({ page })
   await expect(frame).toBeHidden()
   await expect(page.getByRole("button", { name: "Start preview" })).toBeVisible()
 })
+
+test("updates the workspace list on another connected device", async ({ page }) => {
+  await login(page)
+  const second = await page.context().newPage()
+  await second.goto("/")
+  await expect(second.getByRole("button", { name: "New session" })).toBeVisible()
+
+  const workspaceName = await addWorkspace(page)
+  await second.getByRole("button", { name: "Workspace" }).click()
+  await expect(second.getByRole("menuitemradio", { name: workspaceName })).toBeVisible()
+
+  await page.getByRole("button", { name: "Workspace" }).click()
+  await page.getByRole("menuitem", { name: "Remove workspace" }).click()
+  await page.getByRole("button", { name: "Remove", exact: true }).click()
+  await expect(second.getByRole("menuitemradio", { name: workspaceName })).toHaveCount(0)
+  await second.close()
+})

@@ -1,9 +1,10 @@
 import { useState, type ComponentType } from "react"
-import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type PaletteID } from "@masterhand/client-core"
+import { DEFAULT_PALETTE, PALETTES, PALETTE_IDS, type Client, type PaletteID } from "@masterhand/client-core"
 import { useModalFocus } from "./useModalFocus"
 import {
   ArrowLeftIcon,
   BellIcon,
+  GithubIcon,
   ChevronRightIcon,
   CircleIcon,
   KeyIcon,
@@ -17,6 +18,7 @@ import {
   XIcon,
   type IconProps,
 } from "./icons"
+import { GithubSection } from "./GithubSection"
 import { GoalReviewSection } from "./GoalReviewSection"
 import { DialogClose } from "./DialogClose"
 import { NotificationsSection } from "./NotificationsSection"
@@ -29,8 +31,8 @@ import type { ServerProfile } from "../servers"
 import type { ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
-  { value: "light", label: "Light", canvas: "#FAFAF7" },
-  { value: "dark", label: "Dark", canvas: "#0C0C0B" },
+  { value: "light", label: "Light", canvas: PALETTES.paper.light.canvas },
+  { value: "dark", label: "Dark", canvas: PALETTES.paper.dark.canvas },
 ]
 
 export type SettingsModule =
@@ -38,6 +40,7 @@ export type SettingsModule =
   | "appearance"
   | "notifications"
   | "goal"
+  | "github"
   | "websearch"
   | "providers"
   | "about"
@@ -52,6 +55,7 @@ const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: Co
     icon: BellIcon,
   },
   { id: "goal", label: "Goal review", desc: "Critic, judge and rounds", icon: SparkleIcon },
+  { id: "github", label: "GitHub", desc: "Agent git and gh access", icon: GithubIcon },
   { id: "websearch", label: "Web search", desc: "Default source and keys", icon: SearchIcon },
   { id: "providers", label: "Providers", desc: "API keys and custom providers", icon: KeyIcon },
   { id: "about", label: "About", desc: "Version and updates", icon: CircleIcon },
@@ -64,6 +68,7 @@ const MODULES: Array<{ id: SettingsModule; label: string; desc: string; icon: Co
  * without reworking the shell.
  */
 export function SettingsDialog({
+  client,
   mode,
   onSelectMode,
   palette,
@@ -75,6 +80,7 @@ export function SettingsDialog({
   initialModule,
   servers,
 }: {
+  client: Client
   mode: ThemeMode
   onSelectMode: (mode: ThemeMode) => void
   palette: PaletteID
@@ -195,6 +201,8 @@ export function SettingsDialog({
               />
             ) : module === "goal" ? (
               <GoalReviewSection />
+            ) : module === "github" ? (
+              <GithubSection client={client} />
             ) : module === "websearch" ? (
               <WebSearchSection />
             ) : module === "about" ? (

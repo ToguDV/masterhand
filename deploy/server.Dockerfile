@@ -15,7 +15,7 @@ RUN apt-get update \
     "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-$(dpkg --print-architecture)" \
   && chmod +x /usr/local/bin/cloudflared \
   && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /data && chown node:node /data \
+  && mkdir -p /data /agent-config && chown node:node /data /agent-config \
   # The bind-mounted workspace may be owned by a different host uid; git would
   # otherwise refuse to operate on it ("dubious ownership"). Trust only the
   # shared workspaces mount — never `*`, which would let any repository in the

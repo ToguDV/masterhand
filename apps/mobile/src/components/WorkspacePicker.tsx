@@ -77,8 +77,8 @@ export function WorkspacePicker({
       <Pressable
         ref={popover.triggerRef}
         onPress={popover.toggle}
-        onPressIn={popover.measure}
-        onLayout={popover.measure}
+        onPressIn={() => popover.measure()}
+        onLayout={() => popover.measure()}
         hitSlop={6}
         style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}
         accessibilityRole="button"
