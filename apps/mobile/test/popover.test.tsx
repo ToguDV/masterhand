@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Pressable, Text, View } from "react-native"
+import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native"
 import { act, fireEvent, render, screen } from "@testing-library/react-native"
 import { Popover, popoverLayout, usePopover, type PopoverAnchor } from "../src/components/Popover"
 
@@ -122,6 +122,25 @@ describe("usePopover", () => {
       jest.advanceTimersByTime(200)
     })
     expect(screen.getByText("open")).toBeOnTheScreen()
+  })
+
+  it("lifts an open card when the search field opens the keyboard", async () => {
+    const listeners = new Map<string, (event: { endCoordinates: { height: number } }) => void>()
+    const spy = jest.spyOn(Keyboard, "addListener").mockImplementation((event, callback) => {
+      listeners.set(event, callback as unknown as (event: { endCoordinates: { height: number } }) => void)
+      return { remove: jest.fn() } as never
+    })
+    await render(<Harness placement="up" anchorValue={{ x: 12, y: 1200, width: 80, height: 32 }} />)
+    const card = screen.getByTestId("popover-card")
+    const before = StyleSheet.flatten(card.props.style).bottom as number
+    const listener = listeners.get("keyboardWillShow") ?? listeners.get("keyboardDidShow")
+    expect(listener).toBeDefined()
+    await act(async () => {
+      listener!({ endCoordinates: { height: 300 } })
+    })
+    const after = StyleSheet.flatten(screen.getByTestId("popover-card").props.style).bottom as number
+    expect(after).toBeGreaterThan(before)
+    spy.mockRestore()
   })
 
   it("reveals the fallback card only after the measurement window", async () => {

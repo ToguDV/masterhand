@@ -217,16 +217,18 @@ export function Popover({
   const window = useWindowDimensions()
   const keyboardInset = useKeyboardInset()
   const [revealed, setRevealed] = useState(false)
-  const currentViewport: PopoverViewport = {
-    width: window.width,
-    height: window.height,
+  // Freeze only the window box per open: a late inset/layout change must not
+  // move the card, but the keyboard inset stays live because the search field
+  // inside the popover opens the IME after the menu is already visible.
+  const frozenSize = useMemo(
+    () => (open ? { width: window.width, height: window.height } : null),
+    [open],
+  )
+  const layout = popoverLayout(anchor, placement, {
+    width: frozenSize?.width ?? window.width,
+    height: frozenSize?.height ?? window.height,
     keyboardInset,
-  }
-  // Captured once per open: a keyboard dismissal or inset change while the
-  // Modal appears must not move the already painted card. The dependency list
-  // is intentionally only `open` (the viewport is the value at open time).
-  const frozenViewport = useMemo(() => (open ? currentViewport : null), [open])
-  const layout = popoverLayout(anchor, placement, frozenViewport ?? currentViewport)
+  })
 
   useEffect(() => {
     if (!open) {
