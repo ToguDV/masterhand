@@ -38,6 +38,7 @@ import { DialogClose } from "./DialogClose"
 import { WorkspacePicker } from "./WorkspacePicker"
 import { useToast } from "./Toast"
 import { useAutoGrow } from "./useAutoGrow"
+import { backdropDismiss } from "./backdrop"
 import { useDismissable } from "./useDismissable"
 import { useModalFocus } from "./useModalFocus"
 import { CheckIcon, EllipsisIcon, PlusIcon, TrashIcon, XIcon } from "./icons"
@@ -361,7 +362,10 @@ function DeleteColumnDialog({
 }) {
   const dialogRef = useModalFocus<HTMLDivElement>(onCancel)
   return (
-    <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+    <div
+      className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+      onPointerDown={backdropDismiss(onCancel)}
+    >
       <div
         ref={dialogRef}
         tabIndex={-1}
@@ -370,7 +374,6 @@ function DeleteColumnDialog({
         aria-labelledby="delete-column-title"
         aria-describedby="delete-column-description"
         className="mh-dialog outline-none"
-        onClick={(event) => event.stopPropagation()}
       >
         <DialogClose onClose={onCancel} disabled={busy} />
         <h3 id="delete-column-title" className="mh-dialog__title mh-heading-4">
@@ -412,7 +415,10 @@ function EditCardDialog({
   const titleRef = useAutoGrow(draft.title)
   const descriptionRef = useAutoGrow(draft.description)
   return (
-    <div className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onCancel}>
+    <div
+      className="mh-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+      onPointerDown={backdropDismiss(onCancel)}
+    >
       <div
         ref={dialogRef}
         tabIndex={-1}
@@ -420,7 +426,6 @@ function EditCardDialog({
         aria-modal="true"
         aria-labelledby="edit-card-title"
         className="mh-dialog outline-none"
-        onClick={(event) => event.stopPropagation()}
       >
         <DialogClose onClose={onCancel} disabled={busy} />
         <h3 id="edit-card-title" className="mh-dialog__title mh-heading-4">

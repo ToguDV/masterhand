@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { backdropDismiss } from "./backdrop"
 import { useModalFocus } from "./useModalFocus"
 import { XIcon } from "./icons"
 
@@ -22,7 +23,7 @@ export function SidePanel({
   const sheetRef = useModalFocus<HTMLDivElement>(onClose)
 
   return (
-    <div className="mh-sheet-scrim" onClick={onClose}>
+    <div className="mh-sheet-scrim" onPointerDown={backdropDismiss(onClose)}>
       <div
         ref={sheetRef}
         tabIndex={-1}
@@ -30,7 +31,6 @@ export function SidePanel({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        onClick={(event) => event.stopPropagation()}
       >
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-hairline px-3">
           <h2 className="text-sm font-medium">{title}</h2>

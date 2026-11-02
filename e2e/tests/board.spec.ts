@@ -65,6 +65,36 @@ test("board creates, edits and persists columns and cards per workspace", async 
   await expect(page.locator('section[aria-label="Column To do now"]')).toBeHidden()
 })
 
+test("selecting card text and releasing over the backdrop keeps the edit dialog open", async ({ page }) => {
+  await login(page)
+  await addWorkspace(page)
+  await openBoard(page)
+
+  await page.getByLabel("New column title").first().fill("Notes")
+  await page.getByRole("button", { name: "Add column" }).first().click()
+  await page.getByLabel("New card title in Notes").fill("Draft")
+  await page.getByRole("button", { name: "Add card to Notes" }).click()
+  await page.getByRole("button", { name: "Edit card Draft" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Edit card" })
+  const description = dialog.locator("#board-card-description")
+  await description.fill("Select this sentence without closing the card")
+
+  // A drag that begins inside the dialog and ends on the backdrop used to
+  // produce a click on the overlay (the common ancestor) and dismiss the card.
+  const box = await description.boundingBox()
+  expect(box).not.toBeNull()
+  await page.mouse.move(box!.x + 8, box!.y + 8)
+  await page.mouse.down()
+  await page.mouse.move(2, 2, { steps: 8 })
+  await page.mouse.up()
+  await expect(dialog).toBeVisible()
+
+  // A press that really starts on the backdrop still dismisses.
+  await page.mouse.click(2, 2)
+  await expect(dialog).toBeHidden()
+})
+
 test("board drags cards within a column and across columns", async ({ page }) => {
   // Four sequential drops: each drop waits for the server to persist the new
   // order (polled straight from the API) before the next drag starts, so a
