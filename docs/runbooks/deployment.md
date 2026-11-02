@@ -208,7 +208,8 @@ PROJECT=masterhand   # masterhand-prod when COMPOSE_PROJECT_NAME renames the pro
 docker run --rm -v "${PROJECT}_opencode_data:/data" -v "$PWD":/backup busybox \
   tar czf /backup/opencode_data_v1.tgz -C /data .
 
-# upgrade
+# upgrade from source (rebuilds the images locally; published images use
+# the "Updating a published deployment" section below)
 docker compose -f deploy/docker-compose.yml build
 docker compose -f deploy/docker-compose.yml up -d
 
@@ -221,6 +222,45 @@ curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/experi
 Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading). Their real names are `<project>_masterhand_data`, `<project>_opencode_data` and `<project>_opencode_config`, where `<project>` is `COMPOSE_PROJECT_NAME` (`masterhand` by default).
 
 Only one BFF may own a data directory: a second instance refuses to boot with `another instance owns <dataDir>` (exit 1). Never delete `masterhand.lock` by hand while an instance might be alive — a crashed holder's lock is reclaimed automatically on the next boot.
+
+### Updating a published deployment
+
+A host running the published image (no local source changes) updates with `pull` + `up -d`:
+
+```bash
+# 1. Back up first: migrations are forward-only (online, consistent copy;
+#    see backups.md §2). Skip only if the one-click updater does it for you.
+mkdir -p backups
+docker compose -f deploy/docker-compose.yml exec masterhand \
+  node apps/server/dist/backup.js /data/masterhand.sqlite /data/backup-pre-update.sqlite
+docker compose -f deploy/docker-compose.yml cp \
+  masterhand:/data/backup-pre-update.sqlite ./backups/
+docker compose -f deploy/docker-compose.yml exec masterhand rm /data/backup-pre-update.sqlite
+
+# 2. Pick the target version (pinned deployments): edit deploy/.env
+#    MASTERHAND_VERSION=0.3.2
+
+# 3. Pull the image and recreate only what changed
+docker compose -f deploy/docker-compose.yml pull
+docker compose -f deploy/docker-compose.yml up -d
+
+# 4. Verify
+docker compose -f deploy/docker-compose.yml ps
+curl -fsS http://127.0.0.1:8796/api/health   # {"version":"<target>",...}
+```
+
+- `pull` follows `MASTERHAND_VERSION`: `latest` takes the newest release, a pin re-pulls that exact tag, so **bump the pin to upgrade**. The deployer decides when, which is the point of pinning.
+- `up -d` recreates only the services whose image or config changed; it never builds. Expect a few seconds of BFF downtime; the data volume and sessions stay.
+- `opencode` has no `image:` and is built locally, so `pull` skips it (`No image to be pulled`). Rebuild it when a release bumps `OPENCODE_VERSION`:
+
+  ```bash
+  docker compose -f deploy/docker-compose.yml build opencode
+  docker compose -f deploy/docker-compose.yml up -d
+  ```
+
+- Check the target **before** running them (§3): `docker compose -f deploy/docker-compose.yml config --format json | jq -r .name` must print your project (`masterhand-prod` when the dev stack shares the host), and `--dry-run up -d` lists the planned recreations.
+- Rollback: an older image cannot read a migrated database. Restore the backup and pin the previous version — see [`release.md`](release.md) §5.
+- Prefer a button? Enable the [one-click updater](#releases-and-in-app-updates-131), which performs steps 1–3 for a floating `latest` tag.
 
 ### Releases and in-app updates (#131)
 

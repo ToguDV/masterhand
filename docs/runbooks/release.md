@@ -177,7 +177,8 @@ already migrated. There is no automatic rollback.
 2. Restore the pre-update backup from `masterhand_data` (`backups/pre-update-*.sqlite`);
    the one-click updater writes one before every update.
 3. Pin `MASTERHAND_VERSION=<previous>` in `deploy/.env` and
-   `docker compose up -d`.
+   `docker compose -f deploy/docker-compose.yml up -d` (see
+   [deployment §7](deployment.md#updating-a-published-deployment)).
 4. For Android, never reuse a `versionCode`; ship a new higher version. For
    desktop, bump the version and cut a new release (electron-updater only moves
    forward).
@@ -214,7 +215,8 @@ service. It acts on the Compose project named by `COMPOSE_PROJECT_NAME`
 with the dev stack updates itself and not the dev containers — if you rename the
 project with `-p` instead, set `COMPOSE_PROJECT` on the sidecar to the same
 value. A pinned `MASTERHAND_VERSION` disables the button and keeps the manual
-`docker compose pull && up -d` flow. The opencode engine image is built
+[`docker compose pull && up -d`](deployment.md#updating-a-published-deployment)
+flow. The opencode engine image is built
 locally and is **not** updated by this flow.
 
 ## 7. Troubleshooting

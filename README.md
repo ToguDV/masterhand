@@ -33,7 +33,8 @@ Updating: the desktop app checks every 6 hours and prompts to restart; Android
 notifies through F-Droid; the server shows an update banner and, when the
 [one-click updater](docs/runbooks/release.md#6-one-click-bff-updater-opt-in) is
 enabled, an **Update now** button. A pinned `MASTERHAND_VERSION` keeps the
-manual `docker compose pull && up -d` flow.
+manual [`docker compose pull && up -d`](docs/runbooks/deployment.md#updating-a-published-deployment)
+flow.
 
 ## How it works
 
