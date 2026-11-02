@@ -80,13 +80,13 @@ describe("palettes (color themes)", () => {
     expect(labels.size).toBe(13)
   })
 
-  it("keeps the paper values the design system shipped with", () => {
-    expect(PALETTES.paper.light.accent).toBe("#0B6B53")
-    expect(PALETTES.paper.dark.accent).toBe("#3ED8A8")
-    expect(PALETTES.paper.light.bubbleUser).toBe("#085041")
-    expect(PALETTES.paper.dark.bubbleUser).toBe("#06372C")
-    expect(PALETTES.paper.light.canvas).toBe("#FAFAF7")
-    expect(PALETTES.paper.dark.canvas).toBe("#0C0C0B")
+  it("keeps the warm editorial paper values", () => {
+    expect(PALETTES.paper.light.accent).toBe("#1F6B4F")
+    expect(PALETTES.paper.dark.accent).toBe("#6FCBA4")
+    expect(PALETTES.paper.light.bubbleUser).toBe("#185540")
+    expect(PALETTES.paper.dark.bubbleUser).toBe("#1E3A2E")
+    expect(PALETTES.paper.light.canvas).toBe("#F7F2E8")
+    expect(PALETTES.paper.dark.canvas).toBe("#14130F")
   })
 
   it("accepts every known id through the resolver", () => {

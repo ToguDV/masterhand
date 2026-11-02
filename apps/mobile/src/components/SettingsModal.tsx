@@ -41,8 +41,8 @@ import {
 } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
-  { value: "light", label: "Light", canvas: "#FAFAF7" },
-  { value: "dark", label: "Dark", canvas: "#0C0C0B" },
+  { value: "light", label: "Light", canvas: PALETTES.paper.light.canvas },
+  { value: "dark", label: "Dark", canvas: PALETTES.paper.dark.canvas },
 ]
 
 const DROP_D = "M24 2 C27.5 9 42 25 42 40 A18 18 0 0 1 6 40 C6 25 20.5 9 24 2 Z"

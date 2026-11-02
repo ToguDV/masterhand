@@ -29,8 +29,8 @@ import type { ServerProfile } from "../servers"
 import type { ThemeMode } from "../theme"
 
 const THEMES: Array<{ value: ThemeMode; label: string; canvas: string }> = [
-  { value: "light", label: "Light", canvas: "#FAFAF7" },
-  { value: "dark", label: "Dark", canvas: "#0C0C0B" },
+  { value: "light", label: "Light", canvas: PALETTES.paper.light.canvas },
+  { value: "dark", label: "Dark", canvas: PALETTES.paper.dark.canvas },
 ]
 
 export type SettingsModule =
