@@ -133,7 +133,9 @@ describe("loadConfig", () => {
   it("requires strong, non-placeholder secrets in production", () => {
     expect(loadConfig(prodEnv()).sessionSecret).toBe(strongSecret)
     expect(() => loadConfig(prodEnv({ SESSION_SECRET: "short-secret" }))).toThrow(/SESSION_SECRET[^\n]*32/)
-    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "short-password" }))).toThrow(/MASTERHAND_PASSWORD[^\n]*32/)
+    expect(() => loadConfig(prodEnv({ MASTERHAND_PASSWORD: "elevenchars" }))).toThrow(
+      /MASTERHAND_PASSWORD[^\n]*12/,
+    )
     expect(() => loadConfig(prodEnv({ SESSION_SECRET: "changeme-changeme-changeme-changeme" }))).toThrow(
       /SESSION_SECRET[^\n]*placeholder/i,
     )
@@ -145,10 +147,19 @@ describe("loadConfig", () => {
     )
   })
 
+  it("accepts a 12-character UI password in production, counting characters rather than bytes", () => {
+    expect(loadConfig(prodEnv({ MASTERHAND_PASSWORD: "twelve-chars" })).masterhandPassword).toBe("twelve-chars")
+    // 12 characters but 13 UTF-8 bytes: the floor is characters, not bytes.
+    expect(loadConfig(prodEnv({ MASTERHAND_PASSWORD: "contraseña12" })).masterhandPassword).toBe("contraseña12")
+    // The signing secret keeps its 32-byte floor.
+    expect(loadConfig(prodEnv({ SESSION_SECRET: "a".repeat(32) })).sessionSecret).toBe("a".repeat(32))
+  })
+
   it("keeps short development secrets working with a warning", () => {
     const config = loadConfig(env({ MASTERHAND_PASSWORD: "pw", SESSION_SECRET: "secret" }))
     expect(config.sessionSecret).toBe("secret")
     expect(warnings.some((line) => line.includes("SESSION_SECRET"))).toBe(true)
+    expect(warnings.some((line) => line.includes("MASTERHAND_PASSWORD") && line.includes("12"))).toBe(true)
   })
 
   it("disables webDist when WEB_DIST is an empty string", () => {

@@ -119,6 +119,7 @@ function boolFromEnv(name: string, value: string | undefined, fallback: boolean)
   throw new Error(`${name} must be a boolean (true/false, 1/0, yes/no, on/off); got "${value}"`)
 }
 
+const MIN_PRODUCTION_PASSWORD_CHARS = 12
 const MIN_PRODUCTION_SECRET_BYTES = 32
 const OPENSSL_HINT = "generate one with `openssl rand -hex 32`"
 
@@ -157,6 +158,25 @@ function isPlaceholderSecret(value: string): boolean {
   )
 }
 
+/**
+ * The UI password is typed by a human, so it gets a character floor a
+ * passphrase fits. The signing secret is machine-generated and keeps the
+ * 32-byte random floor.
+ */
+function assertProductionPassword(value: string): void {
+  if (isPlaceholderSecret(value)) {
+    throw new Error(
+      "MASTERHAND_PASSWORD looks like an example/placeholder value in production; use a long passphrase",
+    )
+  }
+  const chars = Array.from(value).length
+  if (chars < MIN_PRODUCTION_PASSWORD_CHARS) {
+    throw new Error(
+      `MASTERHAND_PASSWORD must be at least ${MIN_PRODUCTION_PASSWORD_CHARS} characters in production (got ${chars}); use a long passphrase`,
+    )
+  }
+}
+
 /** Production credentials must be random and long enough to resist guessing. */
 function assertStrongSecret(name: string, value: string): void {
   if (isPlaceholderSecret(value)) {
@@ -171,6 +191,13 @@ function assertStrongSecret(name: string, value: string): void {
 }
 
 /** Development keeps working with short values, but the operator is warned. */
+function warnWeakDevPassword(value: string): void {
+  if (Array.from(value).length >= MIN_PRODUCTION_PASSWORD_CHARS && !isPlaceholderSecret(value)) return
+  console.warn(
+    `[masterhand] MASTERHAND_PASSWORD is weak for a deployed server (use at least ${MIN_PRODUCTION_PASSWORD_CHARS} characters, e.g. a passphrase); allowed because NODE_ENV is not production`,
+  )
+}
+
 function warnWeakDevSecret(name: string, value: string): void {
   if (Buffer.byteLength(value, "utf8") >= MIN_PRODUCTION_SECRET_BYTES && !isPlaceholderSecret(value)) return
   console.warn(
@@ -297,10 +324,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("SESSION_SECRET is required (cookie/token signing; generate one with `openssl rand -hex 32`)")
   }
   if (env.NODE_ENV === "production") {
-    assertStrongSecret("MASTERHAND_PASSWORD", masterhandPassword)
+    assertProductionPassword(masterhandPassword)
     assertStrongSecret("SESSION_SECRET", sessionSecret)
   } else {
-    warnWeakDevSecret("MASTERHAND_PASSWORD", masterhandPassword)
+    warnWeakDevPassword(masterhandPassword)
     warnWeakDevSecret("SESSION_SECRET", sessionSecret)
   }
 
