@@ -25,6 +25,7 @@ Fill in `deploy/.env`:
 | `COOKIE_SECURE` | Set `true` behind HTTPS, `false` only for local HTTP. Booleans accept `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive); any other value aborts boot. `false` logs a plain-HTTP warning |
 | `ALLOWED_ORIGINS` | Extra origins allowed on mutating requests (comma-separated) |
 | `MASTERHAND_BIND` / `MASTERHAND_PORT` | Host bind address and port for the BFF (default `0.0.0.0:8787`; use `127.0.0.1` when the proxy runs on the host) |
+| `COMPOSE_PROJECT_NAME` | Compose project used to namespace containers, network and volumes (default `masterhand`). Set a distinct value when the host also runs the dev stack — see §3 |
 | `WORKSPACES_DIR` | Host directory mounted into opencode as `/workspace` (default `../workspace`). Each workspace you add becomes a subfolder inside it |
 | `GIT_COMMIT_NAME` / `GIT_COMMIT_EMAIL` | Author for the initial commit when a workspace is not a git repo yet |
 | `PROXY_BODY_LIMIT_MB` | Cap on proxied opencode request bodies (default `10`, range 1–1024) |
@@ -77,6 +78,36 @@ docker compose -f deploy/docker-compose.yml ps
 > rebuild with `up -d --build`; a plain `up -d` keeps reusing the stale tag.
 
 The BFF is published on a host port (default `8787`, configurable with `MASTERHAND_PORT`/`MASTERHAND_BIND`). opencode stays on the internal network and publishes no ports.
+
+### Running next to a development stack
+
+A host that also runs `npm run dev` has a second stack on the same Docker daemon: the dev overlay keeps the default project (`masterhand`), the BFF on `:8787` and Vite on `:5173`. Give production its own project name and port so the two coexist instead of fighting over container names, volumes and the published port:
+
+```ini
+# deploy/.env
+COMPOSE_PROJECT_NAME=masterhand-prod
+MASTERHAND_PORT=8796
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml pull
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+The project name namespaces everything, so `up`, `down`, `down -v` and the dev scripts (`npm run dev`, `dev:stop`, `dev:restart`) only ever act on their own stack:
+
+| Resource | Production (`masterhand-prod`) | Development (`masterhand`) |
+|---|---|---|
+| Containers | `masterhand-prod-masterhand-1`, `masterhand-prod-opencode-1` | `masterhand-masterhand-1`, `masterhand-opencode-1` |
+| Network | `masterhand-prod_internal` | `masterhand_internal` |
+| Volumes | `masterhand-prod_masterhand_data`, `…_opencode_data`, `…_opencode_config` | `masterhand_masterhand_data`, … |
+| Web / API | `:8796` (static build served by the BFF) | `:8787` (BFF) + `:5173` (Vite) |
+
+`WORKSPACES_DIR` is the one thing both stacks intentionally share (the same files).
+
+- **Keep using `-f deploy/docker-compose.yml`** (or run from `deploy/`). Compose resolves the default env file next to the compose file, so it reads `deploy/.env` and the renamed project; a command that passes another `--env-file` (the dev overlay does) ignores `deploy/.env` and falls back to `name: masterhand`.
+- Backups, `docker run -v …` and volume restores must use the prefixed volume names (see [`backups.md`](backups.md) §1).
+- The one-click updater sidecar follows `COMPOSE_PROJECT_NAME` too. If you rename the project with `-p` instead of the env file, set `COMPOSE_PROJECT` on that service to the same value.
 
 ## 4. Authenticate providers (one-time)
 
@@ -169,8 +200,12 @@ docker compose -f deploy/docker-compose.yml exec -T opencode sh -c \
 MasterHand targets opencode **v2** (`OPENCODE_VERSION`, pinned in `deploy/.env`). The first time the `opencode` container starts with v2 it migrates the v1 session data in `opencode_data`; the v2 beta warns that data may be reset while contracts stabilize.
 
 ```bash
-# 0. back up the opencode data volume BEFORE the first v2 start
-docker run --rm -v masterhand_opencode_data:/data -v "$PWD":/backup busybox \
+# 0. back up the opencode data volume BEFORE the first v2 start.
+# Volume names carry the Compose project prefix: the default project is
+# `masterhand`; a deployment renamed with COMPOSE_PROJECT_NAME=masterhand-prod
+# stores them as `masterhand-prod_opencode_data`, etc.
+PROJECT=masterhand   # masterhand-prod when COMPOSE_PROJECT_NAME renames the project
+docker run --rm -v "${PROJECT}_opencode_data:/data" -v "$PWD":/backup busybox \
   tar czf /backup/opencode_data_v1.tgz -C /data .
 
 # upgrade
@@ -183,7 +218,7 @@ curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/experi
 
 `GET /api/experimental/migration/v1` returns the migration status (`required`, `running`, `done`, …). Sessions and history appear in MasterHand once it reports done; check `docker compose logs opencode` if it fails.
 
-Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading).
+Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading). Their real names are `<project>_masterhand_data`, `<project>_opencode_data` and `<project>_opencode_config`, where `<project>` is `COMPOSE_PROJECT_NAME` (`masterhand` by default).
 
 Only one BFF may own a data directory: a second instance refuses to boot with `another instance owns <dataDir>` (exit 1). Never delete `masterhand.lock` by hand while an instance might be alive — a crashed holder's lock is reclaimed automatically on the next boot.
 

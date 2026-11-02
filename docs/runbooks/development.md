@@ -135,6 +135,13 @@ that file for the full list. The most relevant ones:
 - **opencode config/data** → named volumes `masterhand_opencode_config` and
   `masterhand_opencode_data`, exactly like production, so `auth login` persists
   across restarts and `docker compose down` does not wipe it.
+- **Coexistence with a production stack:** the dev overlay always runs in the
+  `masterhand` project and passes `--env-file deploy/.env.dev`, which replaces
+  `deploy/.env` for interpolation. A production deployment on the same host must
+  therefore use another project name and port
+  (`COMPOSE_PROJECT_NAME=masterhand-prod`, `MASTERHAND_PORT=8796`; see
+  [`deployment.md`](deployment.md) §3): `npm run dev:stop` then stops only the
+  dev containers, and the dev volumes keep their unprefixed names.
 - **Source** → `apps/server/src`, `apps/web/src`, `apps/web/index.html`,
   `apps/web/vite.config.ts` and `packages/client-core/src` are bind-mounted on
   top of the image. `tsx watch` and Vite reload on save; dependencies stay in
@@ -205,8 +212,10 @@ container and will not pick them up. After pulling, rebuild once with
 
 ## 8. Troubleshooting
 
-- **Port already in use:** another dev stack (native or Docker) is running.
-  `npm run dev:stop` and, for the native one, `npm run dev:native:stop`.
+- **Port already in use:** another dev stack (native or Docker) is running, or a
+  production stack on the same host is bound to the port. Check
+  `docker compose ls`; stop the dev one with `npm run dev:stop` and the native one
+  with `npm run dev:native:stop`.
 - **HMR shows stale code or "doesn't provide an export named…":** the dev
   container polls for changes by default; if the watcher still looks wedged
   (for example right after a branch switch), run `npm run dev:restart` and

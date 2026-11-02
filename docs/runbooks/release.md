@@ -209,7 +209,11 @@ Pressing it:
 
 The sidecar is the **only** container with `/var/run/docker.sock` (root
 equivalent) and has no published ports; it can only recreate the `masterhand`
-service. A pinned `MASTERHAND_VERSION` disables the button and keeps the manual
+service. It acts on the Compose project named by `COMPOSE_PROJECT_NAME`
+(`deploy/.env`; `masterhand` by default), so a deployment renamed to coexist
+with the dev stack updates itself and not the dev containers — if you rename the
+project with `-p` instead, set `COMPOSE_PROJECT` on the sidecar to the same
+value. A pinned `MASTERHAND_VERSION` disables the button and keeps the manual
 `docker compose pull && up -d` flow. The opencode engine image is built
 locally and is **not** updated by this flow.
 

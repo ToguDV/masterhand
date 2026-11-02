@@ -2,6 +2,8 @@
 
 What to back up, how to take a consistent copy of the SQLite database while the BFF is running, and how to restore it. The database (`masterhand_data`) holds devices, workspaces, preview ports, the audit log and run configs; opencode keeps its own data in `opencode_data`/`opencode_config`, and the actual project files live in `WORKSPACES_DIR`.
 
+Volume names carry the Compose project prefix: with the default project (`masterhand`) they are `masterhand_masterhand_data`, `masterhand_opencode_data` and `masterhand_opencode_config`; a deployment renamed with `COMPOSE_PROJECT_NAME=masterhand-prod` uses `masterhand-prod_masterhand_data`, and so on (see [`deployment.md`](deployment.md) §3). The commands below keep the project name in `PROJECT`.
+
 ## 1. What to back up
 
 | Volume / path | Content | Method |
@@ -37,8 +39,9 @@ Keep the database backups **and** the workspace/opencode backups on a different 
 Cold alternative: stop the stack and tar the whole volume (includes the WAL files):
 
 ```bash
+PROJECT=masterhand   # masterhand-prod when COMPOSE_PROJECT_NAME renames the project
 docker compose -f deploy/docker-compose.yml stop
-docker run --rm -v masterhand_masterhand_data:/data -v "$PWD/backups":/backup busybox \
+docker run --rm -v "${PROJECT}_masterhand_data:/data" -v "$PWD/backups":/backup busybox \
   tar czf /backup/masterhand_data-2026-10-05.tgz -C /data .
 docker compose -f deploy/docker-compose.yml start
 ```
@@ -49,7 +52,8 @@ docker compose -f deploy/docker-compose.yml start
 2. Replace the database file inside the `masterhand_data` volume (remove any stale `-wal`/`-shm` files next to it):
 
    ```bash
-   docker run --rm -v masterhand_masterhand_data:/data -v "$PWD/backups":/backup busybox \
+   PROJECT=masterhand   # masterhand-prod when COMPOSE_PROJECT_NAME renames the project
+   docker run --rm -v "${PROJECT}_masterhand_data:/data" -v "$PWD/backups":/backup busybox \
      sh -c 'rm -f /data/masterhand.sqlite /data/masterhand.sqlite-wal /data/masterhand.sqlite-shm && \
             cp /backup/backup-2026-10-05.sqlite /data/masterhand.sqlite && chown 1000:1000 /data/masterhand.sqlite'
    ```

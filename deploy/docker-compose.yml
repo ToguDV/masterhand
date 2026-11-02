@@ -167,7 +167,10 @@ services:
       UPDATER_TOKEN: ${MASTERHAND_UPDATE_TOKEN:-}
       COMPOSE_FILE: /deploy/docker-compose.yml
       COMPOSE_ENV_FILE: /deploy/.env
-      COMPOSE_PROJECT: masterhand
+      # Same project as the running stack: `COMPOSE_PROJECT_NAME` in deploy/.env
+      # renames the whole deployment (e.g. masterhand-prod next to the dev stack),
+      # and the sidecar must recreate its own containers, not the default project's.
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-masterhand}
       TARGET_SERVICE: masterhand
       TARGET_TAG: ${MASTERHAND_VERSION:-latest}
     volumes:

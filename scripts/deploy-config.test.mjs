@@ -30,3 +30,10 @@ test("the dev overlay tags its own image instead of the production tag", () => {
   assert.match(devCompose, /image:\s*\$\{MASTERHAND_DEV_IMAGE:-masterhand-dev:local\}/)
   assert.doesNotMatch(devCompose, /image:\s*ghcr\.io\/togudv\/masterhand:/)
 })
+
+test("the updater sidecar follows a renamed compose project", () => {
+  // A deployment renamed with COMPOSE_PROJECT_NAME (e.g. masterhand-prod next
+  // to the dev stack) must let the sidecar recreate its own containers instead
+  // of the default `masterhand` project's.
+  assert.match(compose, /COMPOSE_PROJECT:\s*\$\{COMPOSE_PROJECT_NAME:-masterhand\}/)
+})
