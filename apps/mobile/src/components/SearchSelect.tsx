@@ -73,8 +73,8 @@ export function SearchSelect({
       <Pressable
         ref={popover.triggerRef}
         onPress={popover.toggle}
-        onPressIn={popover.measure}
-        onLayout={popover.measure}
+        onPressIn={() => popover.measure()}
+        onLayout={() => popover.measure()}
         disabled={disabled}
         hitSlop={8}
         style={({ pressed }) => [
