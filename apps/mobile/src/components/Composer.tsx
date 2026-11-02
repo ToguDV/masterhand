@@ -47,7 +47,17 @@ import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ComposerSuggestions } from "./ComposerSuggestions"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SideQuestionPanel } from "./SideQuestionPanel"
-import { BrainIcon, ChevronDownIcon, CloseIcon, FileIcon, PaperclipIcon, SlidersIcon, SparkleIcon } from "./icons"
+import {
+  ArrowUpIcon,
+  BrainIcon,
+  CloseIcon,
+  FileIcon,
+  PaperclipIcon,
+  ShieldCheckIcon,
+  SlidersIcon,
+  SparkleIcon,
+  StopIcon,
+} from "./icons"
 import { loadSessionPreferences, saveSessionPreferences } from "../storage"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
@@ -652,6 +662,8 @@ export function Composer({
   const effortChoices: ChoiceOption[] = variants.map((key) => ({ value: key, label: variantLabel(key) }))
   // Effort variants get the brain glyph; provider-specific ones the sliders.
   const effortIsBrain = variants.length > 0 && variants.every((key) => isEffortVariant(key))
+  const canSend =
+    (text.trim().length > 0 || attachments.length > 0) && !sending && !startingSideQuestion && !startingGoal
 
   return (
     <View style={styles.dockWrap}>
@@ -737,75 +749,97 @@ export function Composer({
         </View>
 
         <View style={styles.dockToolbar}>
-          <Pressable
-            style={styles.attach}
-            onPress={() => void pickFiles()}
-            accessibilityRole="button"
-            accessibilityLabel="Attach files"
-            testID="composer-attach"
-          >
-            <PaperclipIcon size={18} color={colors.textMuted} />
-          </Pressable>
-          <Selector
-            icon={<SparkleIcon size={14} color={colors.textMuted} />}
-            label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
-            onPress={() => setPicker("agent")}
-            disabled={agentChoices.length === 0}
-          />
-          <Selector
-            icon={
-              selectedModel ? (
-                <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
-              ) : undefined
-            }
-            accessibilityLabel={selectedModel ? `Model, ${selectedModel.label}` : "Model"}
-            label={selectedModel?.model ?? "model…"}
-            onPress={() => setPicker("model")}
-            disabled={modelChoices.length === 0}
-          />
-          {variants.length > 0 && (
+          <View style={styles.dockContext} testID="composer-context">
+            <Pressable
+              style={styles.attach}
+              onPress={() => void pickFiles()}
+              accessibilityRole="button"
+              accessibilityLabel="Attach files"
+              hitSlop={{ top: 5, bottom: 5 }}
+              testID="composer-attach"
+            >
+              <PaperclipIcon size={18} color={colors.textMuted} />
+            </Pressable>
+            <Selector
+              icon={<SparkleIcon size={15} color={colors.textMuted} />}
+              label={agents.find((item) => item.id === agent)?.name ?? "agent…"}
+              onPress={() => setPicker("agent")}
+              disabled={agentChoices.length === 0}
+              maxWidth={110}
+            />
             <Selector
               icon={
-                effortIsBrain ? (
-                  <BrainIcon size={14} color={colors.textMuted} />
-                ) : (
-                  <SlidersIcon size={14} color={colors.textMuted} />
-                )
+                selectedModel ? (
+                  <ProviderGlyph providerID={selectedModel.providerID} name={selectedModel.provider} />
+                ) : undefined
               }
-              accessibilityLabel="Effort"
-              label={variant ? variantLabel(variant) : "Default"}
-              onPress={() => setPicker("effort")}
-              disabled={false}
+              accessibilityLabel={selectedModel ? `Model, ${selectedModel.label}` : "Model"}
+              label={selectedModel?.model ?? "model…"}
+              onPress={() => setPicker("model")}
+              disabled={modelChoices.length === 0}
+              maxWidth={180}
             />
-          )}
-          <Pressable
-            style={[styles.autoAccept, autoAccept && styles.autoAcceptOn]}
-            onPress={() => onToggleAutoAccept(!autoAccept)}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: autoAccept }}
-            accessibilityLabel="Auto-accept permission requests for this session"
-          >
-            <Text style={[styles.autoAcceptText, autoAccept && styles.autoAcceptTextOn]} numberOfLines={1}>
-              {autoAccept ? "auto-accept: on" : "auto-accept"}
-            </Text>
-          </Pressable>
-          {busy ? (
-            <Pressable style={[styles.send, styles.stop]} onPress={() => void stop()}>
-              <Text style={[styles.sendText, styles.stopText]}>Stop</Text>
-            </Pressable>
-          ) : (
+            {variants.length > 0 && (
+              <Selector
+                icon={
+                  effortIsBrain ? (
+                    <BrainIcon size={15} color={colors.textMuted} />
+                  ) : (
+                    <SlidersIcon size={15} color={colors.textMuted} />
+                  )
+                }
+                accessibilityLabel="Effort"
+                label={variant ? variantLabel(variant) : "Default"}
+                onPress={() => setPicker("effort")}
+                disabled={false}
+                maxWidth={110}
+              />
+            )}
+          </View>
+
+          <View style={styles.dockActions} testID="composer-actions">
             <Pressable
-              style={[
-                styles.send,
-                ((!text.trim() && attachments.length === 0) || sending || startingSideQuestion || startingGoal) &&
-                  styles.actionDisabled,
-              ]}
-              disabled={(!text.trim() && attachments.length === 0) || sending || startingSideQuestion || startingGoal}
-              onPress={() => void send()}
+              style={styles.autoAccept}
+              onPress={() => onToggleAutoAccept(!autoAccept)}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: autoAccept }}
+              accessibilityLabel="Auto-accept permission requests for this session"
+              hitSlop={{ top: 6, bottom: 6 }}
             >
-              <Text style={styles.sendText}>{startingSideQuestion || startingGoal ? "Starting…" : "Send"}</Text>
+              <ShieldCheckIcon size={14} color={autoAccept ? colors.accent : colors.textMuted} />
+              <Text style={[styles.autoAcceptText, autoAccept && styles.autoAcceptTextOn]} numberOfLines={1}>
+                {autoAccept ? "Auto-accept: on" : "Auto-accept"}
+              </Text>
             </Pressable>
-          )}
+            {busy ? (
+              <Pressable
+                style={[styles.send, styles.stop]}
+                onPress={() => void stop()}
+                accessibilityRole="button"
+                accessibilityLabel="Stop the agent"
+                hitSlop={{ top: 4, bottom: 4 }}
+              >
+                <StopIcon size={14} color={colors.danger} />
+                <Text style={[styles.sendText, styles.stopText]}>Stop</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[styles.send, !canSend && styles.sendDisabled]}
+                disabled={!canSend}
+                onPress={() => void send()}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  startingSideQuestion || startingGoal ? "Starting…" : "Send message"
+                }
+                hitSlop={{ top: 4, bottom: 4 }}
+              >
+                <ArrowUpIcon size={15} color={canSend ? colors.onAccent : colors.textFaint} />
+                <Text style={[styles.sendText, !canSend && styles.sendTextDisabled]}>
+                  {startingSideQuestion || startingGoal ? "Starting…" : "Send"}
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -848,28 +882,30 @@ function Selector({
   disabled,
   icon,
   accessibilityLabel,
+  maxWidth = 180,
 }: {
   label: string
   onPress: () => void
   disabled: boolean
   icon?: React.ReactNode
   accessibilityLabel?: string
+  /** Caps the pill so three context selectors share one row on a phone. */
+  maxWidth?: number
 }) {
   const styles = useThemedStyles(createStyles)
-  const { colors } = useTheme()
   return (
     <Pressable
-      style={[styles.selector, disabled && styles.actionDisabled]}
+      style={[styles.selector, { maxWidth }, disabled && styles.actionDisabled]}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
+      hitSlop={{ top: 5, bottom: 5 }}
     >
       {icon}
       <Text style={styles.selectorText} numberOfLines={1}>
         {label}
       </Text>
-      <ChevronDownIcon size={12} color={colors.textFaint} />
     </Pressable>
   )
 }
@@ -899,8 +935,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingTop: 8,
     },
     attach: {
-      width: 30,
-      height: 30,
+      width: 34,
+      height: 34,
       alignItems: "center",
       justifyContent: "center",
       borderRadius: 8,
@@ -973,57 +1009,74 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 4,
     },
     dockToolbar: {
+      gap: 2,
+      paddingHorizontal: 6,
+      paddingTop: 2,
+      paddingBottom: 6,
+    },
+    /** Context selectors share one row; they truncate instead of wrapping. */
+    dockContext: {
       flexDirection: "row",
-      flexWrap: "wrap",
       alignItems: "center",
       gap: 4,
-      paddingHorizontal: 8,
-      paddingTop: 4,
-      paddingBottom: 8,
+    },
+    /** Actions always sit on their own line: chip left, Send/Stop right. */
+    dockActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingTop: 2,
     },
     selector: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 4,
-      maxWidth: "100%",
+      gap: 6,
+      minHeight: 34,
+      flexShrink: 1,
       borderRadius: 8,
       paddingHorizontal: 10,
-      paddingVertical: 6,
     },
     selectorText: {
       flexShrink: 1,
       color: colors.textSoft,
       fontFamily: fonts.ui,
-      fontSize: 12,
+      fontSize: 13,
+      lineHeight: 17,
     },
     autoAccept: {
       flexDirection: "row",
       alignItems: "center",
+      gap: 6,
+      minHeight: 32,
+      flexShrink: 1,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       borderRadius: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
-    autoAcceptOn: {
-      borderColor: colors.accentLine,
-      backgroundColor: colors.accentSoft,
-    },
     autoAcceptText: {
-      color: colors.textSoft,
+      color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+      lineHeight: 16,
     },
     autoAcceptTextOn: {
       color: colors.accent,
     },
     send: {
-      marginLeft: "auto",
+      flexDirection: "row",
+      alignItems: "center",
       justifyContent: "center",
+      gap: 6,
+      marginLeft: "auto",
+      minHeight: 36,
       backgroundColor: colors.accent,
       borderRadius: 12,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      paddingHorizontal: 14,
+    },
+    sendDisabled: {
+      backgroundColor: colors.surfaceMuted,
     },
     stop: {
       backgroundColor: colors.dangerSoft,
@@ -1038,6 +1091,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 13,
       fontWeight: "500",
+      lineHeight: 17,
+    },
+    sendTextDisabled: {
+      color: colors.textFaint,
     },
     stopText: {
       color: colors.danger,

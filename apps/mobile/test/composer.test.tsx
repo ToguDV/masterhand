@@ -176,11 +176,27 @@ describe("Composer", () => {
     expect(screen.queryByText("Send")).toBeNull()
   })
 
+  it("keeps context selectors and actions on deterministic rows", async () => {
+    await setup()
+
+    const context = await screen.findByTestId("composer-context")
+    const actions = screen.getByTestId("composer-actions")
+    const effort = await screen.findByLabelText("Effort")
+
+    // Selectors live in the context row; the toggle and Send never share it,
+    // so the toolbar cannot wrap them into ragged half-filled lines.
+    expect(context).toContainElement(effort)
+    expect(context).toContainElement(screen.getByTestId("composer-attach"))
+    expect(context).not.toContainElement(screen.getByText("Send"))
+    expect(actions).toContainElement(screen.getByRole("switch", { name: /Auto-accept/ }))
+    expect(actions).toContainElement(screen.getByText("Send"))
+  })
+
   it("toggles auto-accept", async () => {
     const onToggleAutoAccept = jest.fn()
     await setup({ onToggleAutoAccept })
 
-    await fireEvent.press(await screen.findByText("auto-accept"))
+    await fireEvent.press(await screen.findByText("Auto-accept"))
 
     expect(onToggleAutoAccept).toHaveBeenCalledWith(true)
   })
@@ -601,7 +617,7 @@ describe("Composer", () => {
   it("uses the emerald accent for the active auto-accept state (#92)", async () => {
     await setup({ autoAccept: true })
 
-    const label = await screen.findByText("auto-accept: on")
+    const label = await screen.findByText("Auto-accept: on")
     // Not the old warning amber: the active state is the single accent.
     expect(label).not.toHaveStyle({ color: palettes.light.warning })
     expect(label).not.toHaveStyle({ color: palettes.dark.warning })

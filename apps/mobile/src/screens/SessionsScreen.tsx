@@ -242,7 +242,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       justifyContent: "space-between",
       gap: 8,
-      paddingHorizontal: 14,
+      paddingHorizontal: 12,
       paddingVertical: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,
@@ -272,7 +272,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
     workspaceBar: {
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 14,
+      paddingHorizontal: 12,
       paddingVertical: 8,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.hairline,

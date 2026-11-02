@@ -31,14 +31,16 @@ export function SessionToolbar({
 
   return (
     <View style={styles.row}>
-      <WorkspacePicker
-        workspaces={workspaces}
-        workspaceID={workspaceID}
-        onSelect={onSelectWorkspace}
-        onAdd={onAddWorkspace}
-        onRemove={onRemoveWorkspace}
-      />
-      {branch}
+      <View style={styles.workspace}>
+        <WorkspacePicker
+          workspaces={workspaces}
+          workspaceID={workspaceID}
+          onSelect={onSelectWorkspace}
+          onAdd={onAddWorkspace}
+          onRemove={onRemoveWorkspace}
+        />
+      </View>
+      {branch ? <View style={styles.branch}>{branch}</View> : null}
       {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
     </View>
   )
@@ -46,11 +48,25 @@ export function SessionToolbar({
 
 function createStyles() {
   return StyleSheet.create({
+    /** Chips never wrap: they shrink in place, stats drop to their own line. */
     row: {
       flexDirection: "row",
       flexWrap: "wrap",
       alignItems: "center",
-      gap: 8,
+      columnGap: 8,
+      rowGap: 6,
+    },
+    workspace: {
+      flexShrink: 1,
+      maxWidth: "60%",
+    },
+    /** Fills the leftover width so a long branch truncates only when needed. */
+    branch: {
+      flexGrow: 1,
+      flexShrink: 1,
+      flexBasis: 0,
+      minWidth: 0,
+      alignItems: "flex-start",
     },
     trailing: {
       flexBasis: "100%",

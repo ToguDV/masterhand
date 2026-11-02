@@ -256,6 +256,21 @@ describe("BoardScreen card editing (#164)", () => {
     )
   })
 
+  it("uses icon-only move actions instead of text buttons", async () => {
+    await setup()
+
+    await fireEvent.press(await screen.findByLabelText("Edit card First"))
+
+    // Icon-first editor (DESIGN.md locked decision 3): the move controls are
+    // labelled glyphs, not three wrapping text blocks.
+    expect(screen.getByLabelText("Move card up")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Move card down")).toBeOnTheScreen()
+    expect(screen.getByLabelText("Move card to…")).toBeOnTheScreen()
+    expect(screen.queryByText("Move up")).toBeNull()
+    expect(screen.queryByText("Move down")).toBeNull()
+    expect(screen.queryByText("Move to…")).toBeNull()
+  })
+
   it("rejects an empty card title", async () => {
     const { client } = await setup()
 

@@ -177,9 +177,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
     input: {
       minHeight: 44,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
+      borderColor: "transparent",
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderRadius: 8,
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 15,
@@ -223,7 +223,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       minWidth: 44,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: 10,
+      borderRadius: 12,
     },
     iconPrimary: {
       minHeight: 44,
@@ -231,7 +231,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.accentSoft,
-      borderRadius: 10,
+      borderRadius: 12,
     },
     primary: {
       backgroundColor: colors.accent,

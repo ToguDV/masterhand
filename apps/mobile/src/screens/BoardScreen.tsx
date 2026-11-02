@@ -16,7 +16,16 @@ import {
 } from "@masterhand/client-core"
 import { ChoiceModal } from "../components/ChoiceModal"
 import { WorkspacePicker } from "../components/WorkspacePicker"
-import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from "../components/icons"
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  CloseIcon,
+  EllipsisIcon,
+  PlusIcon,
+  SwapHorizontalIcon,
+  TrashIcon,
+} from "../components/icons"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -362,22 +371,25 @@ function EditCardSheet({
         <KeyboardAvoidingView style={styles.flex} behavior="padding">
           <View style={styles.backdrop}>
             <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom + 12) }]}>
+              <View style={styles.grab} />
+              <View style={styles.sheetHead}>
+                <Text style={styles.sheetTitle} numberOfLines={1}>
+                  Edit card
+                </Text>
+                <Pressable
+                  onPress={onClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
+                  style={styles.iconButton}
+                >
+                  <CloseIcon size={18} color={colors.textMuted} />
+                </Pressable>
+              </View>
               <ScrollView
                 contentContainerStyle={styles.sheetContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <View style={styles.sheetHead}>
-                  <Text style={styles.sheetTitle}>Edit card</Text>
-                  <Pressable
-                    onPress={onClose}
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel"
-                    style={styles.iconButton}
-                  >
-                    <CloseIcon size={18} color={colors.textMuted} />
-                  </Pressable>
-                </View>
                 {error ? <Text style={styles.error}>{error}</Text> : null}
                 {localError ? <Text style={styles.error}>{localError}</Text> : null}
 
@@ -386,6 +398,8 @@ function EditCardSheet({
                   value={draft.title}
                   onChangeText={(value) => setDraft({ ...draft, title: value })}
                   accessibilityLabel="Card title"
+                  placeholder="Card title"
+                  placeholderTextColor={colors.textFaint}
                   maxLength={200}
                   multiline
                   scrollEnabled={false}
@@ -396,6 +410,8 @@ function EditCardSheet({
                   value={draft.description}
                   onChangeText={(value) => setDraft({ ...draft, description: value })}
                   accessibilityLabel="Card description"
+                  placeholder="Add details…"
+                  placeholderTextColor={colors.textFaint}
                   multiline
                   numberOfLines={4}
                   maxLength={10000}
@@ -407,26 +423,26 @@ function EditCardSheet({
                     onPress={() => onMoveStep(card.id, -1)}
                     accessibilityRole="button"
                     accessibilityLabel="Move card up"
-                    style={styles.secondary}
+                    style={styles.moveButton}
                   >
-                    <Text style={styles.secondaryText}>Move up</Text>
+                    <ArrowUpIcon size={16} color={colors.textMuted} />
                   </Pressable>
                   <Pressable
                     onPress={() => onMoveStep(card.id, 1)}
                     accessibilityRole="button"
                     accessibilityLabel="Move card down"
-                    style={styles.secondary}
+                    style={styles.moveButton}
                   >
-                    <Text style={styles.secondaryText}>Move down</Text>
+                    <ArrowDownIcon size={16} color={colors.textMuted} />
                   </Pressable>
                   {others.length > 0 ? (
                     <Pressable
                       onPress={() => setMovePickerOpen(true)}
                       accessibilityRole="button"
                       accessibilityLabel="Move card to…"
-                      style={styles.secondary}
+                      style={styles.moveButton}
                     >
-                      <Text style={styles.secondaryText}>Move to…</Text>
+                      <SwapHorizontalIcon size={16} color={colors.textMuted} />
                     </Pressable>
                   ) : null}
                 </View>
@@ -436,7 +452,7 @@ function EditCardSheet({
                     onPress={() => onDelete(card)}
                     accessibilityRole="button"
                     accessibilityLabel="Delete card"
-                    style={styles.iconDanger}
+                    style={styles.actionDanger}
                   >
                     <TrashIcon size={18} color={colors.danger} />
                   </Pressable>
@@ -445,7 +461,7 @@ function EditCardSheet({
                     onPress={save}
                     accessibilityRole="button"
                     accessibilityLabel="Save card"
-                    style={styles.iconPrimary}
+                    style={styles.actionPrimary}
                   >
                     <CheckIcon size={19} color={colors.accent} />
                   </Pressable>
@@ -1022,7 +1038,7 @@ export function BoardScreen({
                         accessibilityLabel="Column options"
                         style={styles.iconButton}
                       >
-                        <Text style={styles.ellipsis}>⋯</Text>
+                        <EllipsisIcon size={18} color={colors.textMuted} />
                       </Pressable>
                     </>
                   )}
@@ -1161,10 +1177,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexDirection: "row",
       alignItems: "center",
       minHeight: 44,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.hairline,
+      paddingVertical: 4,
     },
     centerBox: {
       alignItems: "center",
@@ -1193,6 +1206,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.danger,
       fontFamily: fonts.ui,
       fontSize: 12,
+      marginTop: 8,
     },
     newColumnRow: {
       flexDirection: "row",
@@ -1207,10 +1221,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingBottom: 8,
     },
     column: {
-      width: 280,
+      width: 288,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
-      borderRadius: 12,
+      borderRadius: 16,
       backgroundColor: colors.canvas,
       padding: 8,
       gap: 8,
@@ -1233,23 +1247,20 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     countBadge: {
       color: colors.textMuted,
+      backgroundColor: colors.surfaceMuted,
       fontFamily: fonts.ui,
-      fontSize: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
-      borderRadius: 999,
+      fontSize: 11,
+      fontWeight: "500",
+      borderRadius: 8,
       paddingHorizontal: 6,
-    },
-    ellipsis: {
-      color: colors.textMuted,
-      fontSize: 18,
-      lineHeight: 22,
+      paddingVertical: 1,
     },
     iconButton: {
       alignItems: "center",
       justifyContent: "center",
       minHeight: 44,
       minWidth: 44,
+      borderRadius: 12,
     },
     columnRename: {
       flex: 1,
@@ -1270,7 +1281,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.text,
       fontFamily: fonts.ui,
       fontSize: 14,
-      fontWeight: "600",
+      fontWeight: "500",
     },
     cardDescription: {
       color: colors.textMuted,
@@ -1288,23 +1299,27 @@ function createStyles(colors: Palette, fonts: Fonts) {
       marginTop: 0,
     },
     label: {
-      marginTop: 12,
+      marginTop: 14,
+      marginBottom: 6,
       color: colors.textMuted,
       fontFamily: fonts.ui,
       fontSize: 12,
+      fontWeight: "500",
+      letterSpacing: 0.12,
     },
+    /** Quiet field: one surface step, no hard box (DESIGN.md, locked decision 1). */
     input: {
       minHeight: 44,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hairline,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: "transparent",
+      borderRadius: 8,
       color: colors.text,
       fontFamily: fonts.ui,
-      fontSize: 14,
+      fontSize: 15,
+      lineHeight: 21,
       paddingHorizontal: 12,
       paddingVertical: 10,
-      marginTop: 6,
     },
     /** A one-line field that grows into a paragraph instead of clipping. */
     titleInput: {
@@ -1312,8 +1327,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       textAlignVertical: "top",
     },
     multiline: {
-      minHeight: 88,
-      maxHeight: 320,
+      minHeight: 96,
+      maxHeight: 240,
       textAlignVertical: "top",
     },
     backdrop: {
@@ -1332,39 +1347,74 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       backgroundColor: colors.surface,
-      padding: 16,
+      paddingHorizontal: 16,
+    },
+    grab: {
+      alignSelf: "center",
+      width: 36,
+      height: 4,
+      marginTop: 8,
+      borderRadius: 2,
+      backgroundColor: colors.hairlineStrong,
     },
     sheetContent: {
-      gap: 2,
       paddingBottom: 4,
     },
     sheetHead: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
       gap: 8,
-      marginBottom: 4,
+      paddingTop: 4,
+      paddingBottom: 2,
     },
     sheetTitle: {
+      flex: 1,
       color: colors.text,
       fontFamily: fonts.ui,
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: "600",
     },
     moveRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      marginTop: 12,
-    },
-    sheetActions: {
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginTop: 16,
     },
+    /** Secondary icon actions: same 44px square, hairline outline. */
+    moveButton: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      borderRadius: 12,
+    },
+    sheetActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 20,
+    },
     spacer: {
       flex: 1,
+    },
+    /** Icon-first commit: soft accent tint (DESIGN.md, locked decision 3). */
+    actionPrimary: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 12,
+    },
+    actionDanger: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.dangerSoft,
+      borderRadius: 12,
     },
     /** A soft accent square: primary without a bright filled block. */
     primary: {
@@ -1373,24 +1423,9 @@ function createStyles(colors: Palette, fonts: Fonts) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.accentSoft,
-      borderRadius: 10,
+      borderRadius: 12,
       paddingHorizontal: 14,
       paddingVertical: 10,
-    },
-    iconPrimary: {
-      minHeight: 44,
-      minWidth: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.accentSoft,
-      borderRadius: 10,
-    },
-    iconDanger: {
-      minHeight: 44,
-      minWidth: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 10,
     },
     secondary: {
       minHeight: 44,
@@ -1398,7 +1433,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: 10,
+      borderRadius: 12,
       paddingHorizontal: 14,
       paddingVertical: 10,
     },

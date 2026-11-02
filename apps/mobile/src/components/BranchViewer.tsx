@@ -15,7 +15,7 @@ export function BranchViewer({ client, workspaceID }: { client: Client; workspac
   if (!info?.current) return null
   return (
     <View style={styles.chip} accessibilityLabel={`Current branch ${info.current}`}>
-      <BranchIcon size={12} color={colors.textMuted} />
+      <BranchIcon size={14} color={colors.textMuted} />
       <Text style={styles.chipText} numberOfLines={1}>
         {info.current}
       </Text>
@@ -29,19 +29,21 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
+      flexShrink: 1,
       maxWidth: 224,
+      minHeight: 34,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
       borderRadius: 8,
       paddingHorizontal: 10,
-      paddingVertical: 6,
     },
     chipText: {
       flexShrink: 1,
       color: colors.textSoft,
       fontFamily: fonts.mono,
       fontSize: 12,
+      lineHeight: 16,
     },
   })
 }

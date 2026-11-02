@@ -49,6 +49,16 @@ export function TrashIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="trash-outline" size={size} color={color} />
 }
 
+/** Column options / generic "more actions" (replaces the text ellipsis). */
+export function EllipsisIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="ellipsis-horizontal" size={size} color={color} />
+}
+
+/** Move a board card to another column. */
+export function SwapHorizontalIcon({ size = 16, color }: IconProps) {
+  return <Ionicons name="swap-horizontal" size={size} color={color} />
+}
+
 export function CheckIcon({ size = 16, color }: IconProps) {
   return <Ionicons name="checkmark" size={size} color={color} />
 }
