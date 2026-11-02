@@ -81,12 +81,12 @@ describe("palettes (color themes)", () => {
   })
 
   it("keeps the warm editorial paper values", () => {
-    expect(PALETTES.paper.light.accent).toBe("#1F6B4F")
-    expect(PALETTES.paper.dark.accent).toBe("#6FCBA4")
-    expect(PALETTES.paper.light.bubbleUser).toBe("#185540")
-    expect(PALETTES.paper.dark.bubbleUser).toBe("#1E3A2E")
-    expect(PALETTES.paper.light.canvas).toBe("#F7F2E8")
-    expect(PALETTES.paper.dark.canvas).toBe("#14130F")
+    expect(PALETTES.paper.light.accent).toBe("#2E6F52")
+    expect(PALETTES.paper.dark.accent).toBe("#6FD3A5")
+    expect(PALETTES.paper.light.bubbleUser).toBe("#235840")
+    expect(PALETTES.paper.dark.bubbleUser).toBe("#173D2D")
+    expect(PALETTES.paper.light.canvas).toBe("#EEF4EC")
+    expect(PALETTES.paper.dark.canvas).toBe("#0E1612")
   })
 
   it("accepts every known id through the resolver", () => {

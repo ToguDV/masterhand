@@ -1,63 +1,63 @@
 ---
 version: alpha
 name: MasterHand-design-analysis
-description: 'MasterHand speaks in ''ink on paper'' — a warm, near-monochrome editorial system built on cream paper, warm ink and a single deep-forest accent, with classical display serif for brand moments, and organic decoration (soft blobs, halftone dot fields, line hatching, thin curved lines) reserved for surfaces that would otherwise feel empty. The system covers both light and dark themes as equal citizens across web, desktop and mobile, with the chat surface as the product''s centerpiece. Mobile-first by rule: every layout is designed at 360–430px first and only then expanded.'
+description: 'MasterHand speaks in ''ink on paper'' — a cool, near-monochrome editorial system built on sage paper, cool green-tinted ink and a single deep-green accent, with classical display serif for brand moments, and organic decoration (soft blobs, halftone dot fields, line hatching, thin curved lines) reserved for surfaces that would otherwise feel empty. The system covers both light and dark themes as equal citizens across web, desktop and mobile, with the chat surface as the product''s centerpiece. Mobile-first by rule: every layout is designed at 360–430px first and only then expanded.'
 colors:
   # Neutral ramps (shared by both themes)
-  paper: "#F7F2E8"
-  white: "#FFFDF7"
-  ink-950: "#221F1A"
-  ink-900: "#302C24"
-  ink-800: "#464035"
-  ink-700: "#4C463C"
-  ink-600: "#6F6759"
-  ink-500: "#948B7C"
-  grey-500: "#9B9283"
-  grey-400: "#B7AE9C"
-  grey-300: "#CFC5B3"
-  grey-200: "#CDC2AD"
-  grey-100: "#E0D7C6"
-  grey-50: "#EFE8DA"
-  # Deep-forest accent ramp (kept under the historical emerald token names)
-  emerald-900: "#123C2D"
-  emerald-800: "#185540"
-  emerald-700: "#1F6B4F"
-  emerald-600: "#2A7B5C"
-  emerald-500: "#3D9A76"
-  emerald-400: "#57B58E"
-  emerald-300: "#6FCBA4"
-  emerald-200: "#A4E4C8"
-  emerald-100: "#DCE8DE"
-  emerald-50: "#EDF4EF"
+  paper: "#EEF4EC"
+  white: "#F9FCF7"
+  ink-950: "#18211B"
+  ink-900: "#1C2B23"
+  ink-800: "#26382E"
+  ink-700: "#405044"
+  ink-600: "#5F7064"
+  ink-500: "#7F9085"
+  grey-500: "#8CA295"
+  grey-400: "#A6B8AA"
+  grey-300: "#BCD0C0"
+  grey-200: "#B8C9BA"
+  grey-100: "#D2DED3"
+  grey-50: "#E1EADF"
+  # Deep-green accent ramp (kept under the historical emerald token names)
+  emerald-900: "#0A1F16"
+  emerald-800: "#235840"
+  emerald-700: "#2E6F52"
+  emerald-600: "#3A8462"
+  emerald-500: "#4E9C77"
+  emerald-400: "#62B58D"
+  emerald-300: "#6FD3A5"
+  emerald-200: "#A6E8C6"
+  emerald-100: "#D8E8DD"
+  emerald-50: "#E8F3EC"
   # Semantic tokens — LIGHT theme values. Dark overrides: see the Colors section and design.css.
-  canvas: "#F7F2E8"
-  surface: "#FFFDF7"
-  surface-muted: "#EFE8DA"
-  text: "#221F1A"
-  text-soft: "#4C463C"
-  text-muted: "#6F6759"
-  text-faint: "#948B7C"
-  hairline: "#E0D7C6"
-  hairline-strong: "#CDC2AD"
-  accent: "#1F6B4F"
-  accent-strong: "#185540"
-  accent-soft: "#DCE8DE"
-  accent-line: "rgba(31, 107, 79, 0.35)"
+  canvas: "#EEF4EC"
+  surface: "#F9FCF7"
+  surface-muted: "#E1EADF"
+  text: "#18211B"
+  text-soft: "#405044"
+  text-muted: "#5F7064"
+  text-faint: "#7F9085"
+  hairline: "#D2DED3"
+  hairline-strong: "#B8C9BA"
+  accent: "#2E6F52"
+  accent-strong: "#235840"
+  accent-soft: "#D8E8DD"
+  accent-line: "rgba(46, 111, 82, 0.35)"
   on-accent: "#FFFFFF"
-  bubble-user: "#185540"
-  bubble-user-text: "#F7F2E8"
-  success: "#1F6B4F"
+  bubble-user: "#235840"
+  bubble-user-text: "#EEF4EC"
+  success: "#2E6F52"
   warning: "#8A5A00"
   warning-soft: "rgba(138, 90, 0, 0.09)"
   warning-line: "rgba(138, 90, 0, 0.32)"
   danger: "#B3261E"
   danger-soft: "rgba(179, 38, 30, 0.08)"
   danger-line: "rgba(179, 38, 30, 0.32)"
-  code-surface: "#1C1B17"
-  code-surface-soft: "#26241E"
+  code-surface: "#142019"
+  code-surface-soft: "#1D2B22"
   code-text: "#EDEDE8"
-  code-muted: "#8A8375"
-  overlay: "rgba(34, 31, 26, 0.45)"
+  code-muted: "#7E9488"
+  overlay: "rgba(24, 33, 27, 0.45)"
 typography:
   display-hero:
     fontFamily: Fraunces
@@ -608,14 +608,14 @@ components:
 
 ## Overview
 
-MasterHand is a serious tool that should still feel handmade. The visual language is **ink on paper**: warm ink on cream paper in light mode, chalk-white ink on warm charcoal in dark mode, with a single **deep-forest** accent (`{colors.accent}`) that behaves like a fountain-pen mark — rare, deliberate, and never decorative. Everything else is typography, hairlines and whitespace, in the spirit of editorial print: a classical serif (`{typography.display-hero}`) for brand moments, a quietly characterful grotesk for the working UI, and monospace for code and machine output.
+MasterHand is a serious tool that should still feel handmade. The visual language is **ink on paper**: cool green-black ink on sage paper in light mode, chalk-white ink on deep green-black in dark mode, with a single **deep-forest** accent (`{colors.accent}`) that behaves like a fountain-pen mark — rare, deliberate, and never decorative. Everything else is typography, hairlines and whitespace, in the spirit of editorial print: a classical serif (`{typography.display-hero}`) for brand moments, a quietly characterful grotesk for the working UI, and monospace for code and machine output.
 
 Where an interface would otherwise sit empty — login, first-run, an empty session list, a paused agent — the system allows **organic decoration**: a soft blob, a halftone dot field, a patch of line hatching, or one long curved accent line. Decoration is a courtesy, not a costume: it fills truly empty surfaces, stays out of text columns, and is removed entirely wherever content is dense (chat transcript, tool output, tables). The result should read as "a quiet desk with a few ink marks", never as a pattern catalogue.
 
-Both themes are equal citizens. Light is the default editorial surface (cream paper, warm ink text); dark is the working surface for long sessions (charcoal, chalk). The token names are semantic (`{colors.canvas}`, `{colors.surface}`, `{colors.text}`, `{colors.accent}`), so a theme flip is a value swap, not a redesign.
+Both themes are equal citizens. Light is the default editorial surface (sage paper, cool ink text); dark is the working surface for long sessions (green-black, chalk). The token names are semantic (`{colors.canvas}`, `{colors.surface}`, `{colors.text}`, `{colors.accent}`), so a theme flip is a value swap, not a redesign.
 
 **Key Characteristics:**
-- Near-monochrome base: warm paper / charcoal canvas, ink / chalk text, hairline borders — no gradients anywhere
+- Near-monochrome base: sage paper / green-black canvas, cool ink / chalk text, hairline borders — no gradients anywhere
 - Exactly ONE accent hue: deep emerald (`{colors.accent}`), budgeted to <10% of any screen (primary CTA, focus ring, status dots, links)
 - Sober chrome: neutral hairline containers everywhere; no colored card borders, no tinted banner strips, no accent selection rings
 - Editorial type pairing: **Fraunces** for display and the wordmark, **Instrument Sans** for all UI and body, **JetBrains Mono** for code — all swappable through three CSS variables
@@ -636,25 +636,25 @@ Both themes are equal citizens. Light is the default editorial surface (cream pa
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `{colors.canvas}` | `#F7F2E8` paper | `#14130F` ink-950 | Page background |
-| `{colors.surface}` | `#FFFDF7` | `#1C1A15` ink-900 | Cards, fields, dialogs |
-| `{colors.surface-muted}` | `#EFE8DA` grey-50 | `#26231C` ink-800 | Hover, active rows, chips |
-| `{colors.text}` | `#221F1A` ink-950 | `#F1EBDD` chalk | Primary text |
-| `{colors.text-soft}` | `#4C463C` ink-500 | `#D0C8B8` | Secondary text |
-| `{colors.text-muted}` | `#6F6759` grey-500 | `#9B9283` | Tertiary text, metadata |
-| `{colors.text-faint}` | `#948B7C` grey-400 | `#70695C` | Disabled, placeholders |
-| `{colors.hairline}` | `#E0D7C6` grey-100 | `#302C24` ink-700 | Dividers, card borders |
-| `{colors.hairline-strong}` | `#CDC2AD` grey-200 | `#464035` ink-600 | Input borders |
-| `{colors.accent}` | `#1F6B4F` emerald-700 | `#6FCBA4` emerald-300 | THE accent |
-| `{colors.accent-strong}` | `#185540` emerald-800 | `#A4E4C8` emerald-200 | Pressed / hover |
-| `{colors.accent-soft}` | `#DCE8DE` emerald-100 | `rgba(111,203,164,0.14)` | Tint: chips, blobs, focus ring |
-| `{colors.on-accent}` | `#FFFFFF` | `#10241C` | Text on accent fills |
-| `{colors.bubble-user}` | `#185540` emerald-800 | `#1E3A2E` emerald-900 | User message bubble fill (deep forest, never a bright surface) |
-| `{colors.bubble-user-text}` | `#F7F2E8` | `#D9EDE2` emerald-100 | Text on the user bubble (≥ 4.5:1 in both themes) |
+| `{colors.canvas}` | `#EEF4EC` paper | `#0E1612` ink-950 | Page background |
+| `{colors.surface}` | `#F9FCF7` | `#15211B` ink-900 | Cards, fields, dialogs |
+| `{colors.surface-muted}` | `#E1EADF` grey-50 | `#1C2B23` ink-800 | Hover, active rows, chips |
+| `{colors.text}` | `#18211B` ink-950 | `#E8F0EA` chalk | Primary text |
+| `{colors.text-soft}` | `#405044` ink-700 | `#C3D2C8` | Secondary text |
+| `{colors.text-muted}` | `#5F7064` grey-500 | `#8CA295` | Tertiary text, metadata |
+| `{colors.text-faint}` | `#7F9085` grey-400 | `#667D70` | Disabled, placeholders |
+| `{colors.hairline}` | `#D2DED3` grey-100 | `#26382E` ink-800 | Dividers, card borders |
+| `{colors.hairline-strong}` | `#B8C9BA` grey-200 | `#3A5144` ink-600 | Input borders |
+| `{colors.accent}` | `#2E6F52` emerald-700 | `#6FD3A5` emerald-300 | THE accent |
+| `{colors.accent-strong}` | `#235840` emerald-800 | `#A6E8C6` emerald-200 | Pressed / hover |
+| `{colors.accent-soft}` | `#D8E8DD` emerald-100 | `rgba(111,211,165,0.14)` | Tint: chips, blobs, focus ring |
+| `{colors.on-accent}` | `#FFFFFF` | `#0A1F16` | Text on accent fills |
+| `{colors.bubble-user}` | `#235840` emerald-800 | `#173D2D` emerald-900 | User message bubble fill (deep forest, never a bright surface) |
+| `{colors.bubble-user-text}` | `#EEF4EC` | `#D5EDDF` emerald-100 | Text on the user bubble (≥ 4.5:1 in both themes) |
 | `{colors.warning}` | `#8A5A00` | `#E3B341` | Busy state, banners |
 | `{colors.danger}` | `#B3261E` | `#F08A82` | Destructive, errors |
-| `{colors.success}` | `#1F6B4F` | `#6FCBA4` | Completed, connected |
-| `{colors.code-surface}` | `#1C1B17` ink-900 | `#100F0C` | Code blocks (always dark) |
+| `{colors.success}` | `#2E6F52` | `#6FD3A5` | Completed, connected |
+| `{colors.code-surface}` | `#142019` ink-900 | `#0A120E` | Code blocks (always dark) |
 
 ### Color themes
 
@@ -662,7 +662,7 @@ Settings > Appearance offers **13 color themes** (Paper default + Catppuccin, Dr
 
 | Theme | Light canvas / accent | Dark canvas / accent | Role |
 |---|---|---|---|
-| Paper (default) | `#F7F2E8` / `#1F6B4F` | `#14130F` / `#6FCBA4` | The warm ink-on-paper theme |
+| Paper (default) | `#EEF4EC` / `#2E6F52` | `#0E1612` / `#6FD3A5` | The cool green ink-on-paper theme |
 | Catppuccin | `#EFF1F5` / `#8839EF` | `#1E1E2E` / `#CBA6F7` | Latte / Mocha |
 | Dracula | `#F8F8F2` / `#7B3FD4` | `#282A36` / `#BD93F9` |  |
 | Tokyo Night | `#E1E2E7` / `#1B5FC1` | `#1A1B26` / `#7AA2F7` | Day / Night |
@@ -676,7 +676,7 @@ Settings > Appearance offers **13 color themes** (Paper default + Catppuccin, Dr
 | Monokai | `#F9F8F0` / `#A8124A` | `#272822` / `#FF6188` |  |
 | Ayu | `#FAFAFA` / `#C24A1F` | `#0F1419` / `#FFB454` | Light / Dark |
 
-A theme repaints the full surface/text/hairline/code/syntax set plus the accent family and a matching `surface-muted`/`blob`/`selection` tint. Only color tokens change — layout, spacing and radii stay identical across themes. The semantic warning/danger/success tokens stay shared. Light accents are dark shades (readable on paper), dark accents are light shades (readable on charcoal); unknown stored values (including the legacy accent-color ids) fall back to paper. Palette ids are URL-safe slugs (`paper`, `rose-pine`, `synthwave-84`, `tokyo-night`, `one-dark`); the Light/Dark picker and the color-theme picker share the same grid and selected ring (`{components.theme-swatches}`, `{components.palette-grid}`).
+A theme repaints the full surface/text/hairline/code/syntax set plus the accent family and a matching `surface-muted`/`blob`/`selection` tint. Only color tokens change — layout, spacing and radii stay identical across themes. The semantic warning/danger/success tokens stay shared. Light accents are dark shades (readable on paper), dark accents are light shades (readable on green-black); unknown stored values (including the legacy accent-color ids) fall back to paper. Palette ids are URL-safe slugs (`paper`, `rose-pine`, `synthwave-84`, `tokyo-night`, `one-dark`); the Light/Dark picker and the color-theme picker share the same grid and selected ring (`{components.theme-swatches}`, `{components.palette-grid}`).
 
 ### Syntax tokens
 
@@ -698,8 +698,8 @@ Function names follow the active palette (the dark accent reads on dark code in 
 - **Emerald Strong** (`{colors.accent-strong}`): pressed states and hover on dark.
 - **Emerald Soft** (`{colors.accent-soft}`): 10–15% tint surfaces — blobs and focus glow. Never used as a large page background, card border or banner fill.
 
-### Neutral warm (light) / charred (dark)
-- **Paper** (`{colors.paper}`): warm off-white canvas; pure white is reserved for elevated surfaces so they read as "sheets on a desk".
+### Neutral sage (light) / green-black (dark)
+- **Paper** (`{colors.paper}`): cool sage canvas; near-white is reserved for elevated surfaces so they read as "sheets on a desk".
 - **Ink 950…500** (`{colors.ink-950}` … `{colors.ink-500}`): the black ramp; also the source of the alt theme backgrounds.
 - **Grey 500…50** (`{colors.grey-500}` … `{colors.grey-50}`): secondary text and dividers.
 
