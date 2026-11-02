@@ -846,7 +846,7 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`session-item`** — full-width row, `{rounded.md}`, title in `{typography.heading-4}`, meta line in `{typography.session-meta}` (directory · relative time). **`session-item-active`** steps the surface to `{colors.surface-muted}` with no accent bar — the row weight does the work.
 
-**`workspace-picker`** — compact menu in the composer bar: shows the current workspace and, on click, the workspace list plus the add/remove management actions. The list is an anchored card (web: inline popover; native: the same card above or below the trigger) with search once it exceeds five entries, the selected row checked, "Show all" and the add/remove actions; adding and removing themselves still use the management sheets.
+**`workspace-picker`** — compact menu in the composer bar: shows the current workspace and, on click, the workspace list plus the add/remove management actions. The list is an anchored card (web: inline popover; native: the same card above or below the trigger) with search once it exceeds five entries, the selected row checked, "Show all" and the add/remove actions; adding and removing themselves still use the management sheets. On native the trigger uses the branch-viewer chip metrics (12px glyph and text, 8px radius) so the two controls sit as one row.
 
 **`branch-viewer`** — non-interactive chip next to the workspace menu: branch glyph + the current branch name, no chevron and no popover. The clients poll it every 5 s so an agent-side switch appears on its own; it hides when the workspace is not a git repository.
 

@@ -87,11 +87,11 @@ export function WorkspacePicker({
         accessibilityHint={selected?.path}
         accessibilityState={{ expanded: popover.open }}
       >
-        <FolderIcon size={16} color={colors.textMuted} />
+        <FolderIcon size={12} color={colors.textMuted} />
         <Text style={[styles.name, selected ? styles.nameSelected : styles.nameEmpty]} numberOfLines={1}>
           {selected?.name ?? "No workspace"}
         </Text>
-        <ChevronDownIcon size={14} color={colors.textMuted} />
+        <ChevronDownIcon size={12} color={colors.textMuted} />
       </Pressable>
 
       <Popover open={popover.open} anchor={popover.anchor} placement={placement} onClose={close}>
@@ -195,11 +195,11 @@ function createStyles(colors: Palette, fonts: Fonts) {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
-      maxWidth: 256,
+      maxWidth: 224,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairlineStrong,
       backgroundColor: colors.surface,
-      borderRadius: 6,
+      borderRadius: 8,
       paddingHorizontal: 10,
       paddingVertical: 6,
     },
@@ -209,7 +209,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
     name: {
       flexShrink: 1,
       fontFamily: fonts.ui,
-      fontSize: 14,
+      fontSize: 12,
     },
     nameSelected: {
       color: colors.text,
