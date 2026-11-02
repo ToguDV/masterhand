@@ -145,18 +145,14 @@ describe("SessionsScreen", () => {
     expect(trigger.props.accessibilityState?.disabled).toBe(true)
   })
 
-  it("opens the workspace sheet and confirms removal", async () => {
+  it("opens the workspace menu and confirms removal", async () => {
     const handlers = await setup()
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
     await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
+    await fireEvent.press(await screen.findByLabelText("Remove"))
 
-    const destructive = alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")
-    destructive?.onPress?.()
     expect(handlers.onRemoveWorkspace).toHaveBeenCalledWith("ws1", { deleteFiles: false })
-
-    alert.mockRestore()
   })
 })
 

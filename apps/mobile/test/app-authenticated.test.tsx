@@ -395,8 +395,8 @@ describe("App — workspaces", () => {
 
     await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Add workspace"))
-    await fireEvent.changeText(screen.getByPlaceholderText("my-project"), "fresh")
-    await fireEvent.press(screen.getByLabelText("Add workspace"))
+    await fireEvent.changeText(await screen.findByPlaceholderText("my-project"), "fresh")
+    await fireEvent.press(screen.getByLabelText("Add"))
 
     await waitFor(() => expect(client.workspaces.create).toHaveBeenCalledWith({ name: "fresh" }))
     expect(storage.saveServerRegistry).toHaveBeenCalledWith(
@@ -408,11 +408,10 @@ describe("App — workspaces", () => {
 
   it("removes the selected workspace after confirmation", async () => {
     await renderAuthenticated()
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
     await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
-    alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+    await fireEvent.press(await screen.findByLabelText("Remove"))
 
     await waitFor(() => expect(client.workspaces.remove).toHaveBeenCalledWith("ws1", { deleteFiles: false }))
     await waitFor(() =>
@@ -422,7 +421,6 @@ describe("App — workspaces", () => {
         }),
       ),
     )
-    alert.mockRestore()
   })
 
   it("banners a failed workspace removal", async () => {
@@ -430,14 +428,12 @@ describe("App — workspaces", () => {
     client.workspaces.remove.mockRejectedValue(new Error("nope"))
     createClientMock.mockReturnValue(client)
     await renderAuthenticated()
-    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {})
 
     await fireEvent.press(screen.getByLabelText("Workspace"))
     await fireEvent.press(screen.getByText("Remove workspace"))
-    alert.mock.calls[0]?.[2]?.find((button) => button.style === "destructive")?.onPress?.()
+    await fireEvent.press(await screen.findByLabelText("Remove"))
 
     expect(await screen.findByText("Could not remove the workspace")).toBeOnTheScreen()
-    alert.mockRestore()
   })
 })
 

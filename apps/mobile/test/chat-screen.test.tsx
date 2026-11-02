@@ -91,8 +91,8 @@ describe("ChatScreen", () => {
     await fireEvent.changeText(await screen.findByPlaceholderText("Write a message…"), "hello ghost")
     await fireEvent.press(screen.getByText("Send"))
 
-    expect(await screen.findByText("Sending…")).toBeOnTheScreen()
-    expect(screen.getByLabelText("Sending message")).toBeOnTheScreen()
+    const ghost = await screen.findByLabelText("Sending message")
+    expect(within(ghost).getByText("Sending…")).toBeOnTheScreen()
   })
 
   it("replaces the ghost with the real bubble when the marker is delivered (#125)", async () => {
@@ -106,7 +106,8 @@ describe("ChatScreen", () => {
     const marker = (
       client.api.prompt.mock.calls[0]?.[1] as { metadata: Record<string, string> }
     ).metadata["masterhand.delivery"]
-    expect(await screen.findByText("Sending…")).toBeOnTheScreen()
+    const ghost = await screen.findByLabelText("Sending message")
+    expect(within(ghost).getByText("Sending…")).toBeOnTheScreen()
 
     await act(async () => {
       queryClient.setQueryData<ChatMessage[]>(queryKeys.messages("s1"), [

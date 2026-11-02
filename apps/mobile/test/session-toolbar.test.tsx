@@ -77,7 +77,7 @@ describe("SessionToolbar", () => {
     await fireEvent.press(await screen.findByLabelText("Workspace"))
     await fireEvent.press(await screen.findByText("Add workspace"))
     await fireEvent.changeText(await screen.findByTestId("workspace-name-input"), "demo-2")
-    await fireEvent.press(screen.getByLabelText("Add workspace"))
+    await fireEvent.press(screen.getByLabelText("Add"))
 
     expect(onAddWorkspace).toHaveBeenCalledWith({ name: "demo-2" })
   })
@@ -87,6 +87,7 @@ describe("SessionToolbar", () => {
 
     await fireEvent.press(await screen.findByLabelText("Workspace"))
     await fireEvent.press(await screen.findByText("Remove workspace"))
+    await fireEvent.press(await screen.findByLabelText("Remove"))
 
     expect(onRemoveWorkspace).toHaveBeenCalledWith("ws1", { deleteFiles: false })
   })

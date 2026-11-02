@@ -107,7 +107,7 @@ describe("BoardScreen states (#164)", () => {
     expect(await screen.findByText("Add a workspace first — each workspace has its own board.")).toBeOnTheScreen()
 
     await fireEvent.press(screen.getByLabelText("Workspace"))
-    expect(await screen.findByText("Workspaces")).toBeOnTheScreen()
+    expect(await screen.findByTestId("workspace-option-ws1")).toBeOnTheScreen()
   })
 
   it("shows a loading state while the board resolves", async () => {
@@ -450,19 +450,12 @@ describe("BoardScreen card editing (#164)", () => {
 
   it("confirms a workspace removal like the sessions screen", async () => {
     const { handlers } = await setup()
-    const { alert, press } = await pressAlertButton((button) => button.style === "destructive")
 
     await fireEvent.press(await screen.findByLabelText("Workspace"))
     await fireEvent.press(await screen.findByText("Remove workspace"))
-    expect(alert).toHaveBeenCalledWith(
-      "Remove workspace",
-      "Files and sessions are not deleted.",
-      expect.anything(),
-    )
-    await press()
+    await fireEvent.press(await screen.findByLabelText("Remove"))
 
     expect(handlers.onRemoveWorkspace).toHaveBeenCalledWith("ws1", { deleteFiles: false })
-    alert.mockRestore()
   })
 })
 

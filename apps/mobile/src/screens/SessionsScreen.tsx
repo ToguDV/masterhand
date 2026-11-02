@@ -93,19 +93,6 @@ export function SessionsScreen({
     ])
   }
 
-  function confirmRemoveWorkspace(id: string, options: { deleteFiles: boolean }): void {
-    Alert.alert(
-      "Remove workspace",
-      options.deleteFiles
-        ? "The folder and all its files will be deleted. Sessions are kept."
-        : "Files and sessions are not deleted.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: () => onRemoveWorkspace(id, options) },
-      ],
-    )
-  }
-
   return (
     <Screen>
       <View style={styles.header}>
@@ -143,7 +130,7 @@ export function SessionsScreen({
           workspaceID={workspaceID}
           onSelect={onSelectWorkspace}
           onAdd={onAddWorkspace}
-          onRemove={confirmRemoveWorkspace}
+          onRemove={onRemoveWorkspace}
         />
       </View>
 
