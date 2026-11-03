@@ -234,7 +234,14 @@ Session previews use **Cloudflare quick tunnels**: a random `https://<name>.tryc
 - **Cloudflare 502/1033 / "origin unreachable":** the tunnel is up but nothing is listening on the session's reserved port. Start the workspace's dev server (Run control) on `0.0.0.0:<port>`; the agent must never start it on another port.
 - **`preview_not_running`:** the BFF probed the reserved port and found no listener before spawning `cloudflared`.
 - **`preview_stopped` (409):** a Stop or session/workspace cleanup cancelled the start before it published a URL. Press Start again; it will create a fresh tunnel.
-- **`cloudflared` unavailable:** the runtime image bundles it; a native/dev setup needs the binary on `PATH` or `CLOUDFLARED_BIN`.
+- **`cloudflared` unavailable (`503 preview_unavailable`):** the runtime image bundles it; a native/dev setup needs the binary on `PATH` or `CLOUDFLARED_BIN`. Before touching anything, check what the BFF sees and whether it is a transient probe:
+
+  ```bash
+  docker compose exec masterhand sh -c 'ls -l /usr/local/bin/cloudflared; cloudflared --version; echo "bin=${CLOUDFLARED_BIN-<unset>}"'
+  docker compose logs --since 1h masterhand | grep -E '\[preview\] cloudflared'
+  ```
+
+  `[preview] cloudflared unavailable: timed out after 5000 ms` on a small (1 vCPU) host is **load**, not a missing binary: the BFF retries three times and only then caches the result for 30 s; after that window the next status poll or Start probes again and the banner clears by itself (allow up to about a minute). If it comes back with `available: true`, nothing is broken and no restart is needed. `ENOENT`/`EACCES` in that line means the binary really is absent or not executable (wrong image, custom `CLOUDFLARED_BIN`): verify `docker compose ps` runs `ghcr.io/togudv/masterhand:<version>` — the image is amd64-only — and drop `CLOUDFLARED_BIN` from `deploy/.env` unless you need an override.
 
 The BFF readiness probe waits for the URL to answer **from the server**; it cannot prove the phone's resolver can reach it. If the phone cannot resolve `*.trycloudflare.com` even from another network, quick tunnels are not viable for that device: use a named Cloudflare tunnel on your own domain or a TLS reverse proxy instead. Quick tunnels are for testing, not a stable production URL.
 

@@ -629,6 +629,9 @@ export async function startTestApp(
       config,
       store,
       availableImpl: options.previewOptions?.available ?? (() => true),
+      // Tests never wait between binary-probe attempts; the retry policy itself
+      // is covered by apps/server/test/preview.test.ts.
+      probePolicy: { retryDelayMs: 0 },
       probe: options.previewOptions?.probe ?? (async () => true),
       readinessImpl: options.previewOptions?.readinessImpl ?? (async () => true),
       spawnImpl: options.previewOptions?.spawnImpl,

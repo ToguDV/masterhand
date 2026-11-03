@@ -1466,11 +1466,10 @@ export function createApp(deps: AppDeps): CreatedApp {
   }
 
   api.get("/status", async (c) => {
-    const previewStatus = {
-      enabled: config.previewEnabled,
-      available: config.previewEnabled && (await preview.available()),
-      portRange: config.previewPortRange,
-    }
+    // The `cloudflared` probe retries for seconds on a loaded host, so it runs
+    // alongside the opencode check instead of stacking in front of it: a
+    // degraded probe must not multiply the route's worst-case latency.
+    const previewAvailable = config.previewEnabled ? preview.available() : Promise.resolve(false)
     // Free space on the data volume: a full disk takes SQLite and git down
     // with it, so clients surface a warning before that happens (issue #78).
     // Asynchronous behind a TTL cache (issue #200): a synchronous `statfs`
@@ -1481,44 +1480,39 @@ export function createApp(deps: AppDeps): CreatedApp {
       freeBytes,
       low: freeBytes !== null && freeBytes < config.diskLowWatermarkMb * 1024 * 1024,
     }
+
+    let opencode: { healthy: boolean; version?: string; error?: string }
     try {
       const health = await fetchImpl(new URL("/api/info", config.opencodeUrl), {
         headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
         signal: AbortSignal.timeout(3000),
       })
       if (!health.ok) {
-        const error = health.status === 401 || health.status === 403 ? "unauthorized" : "unreachable"
-        return c.json({
-          ok: true,
-          version: config.version,
-          build: config.build,
-          opencode: { healthy: false, error },
-          preview: previewStatus,
-          storage,
-          updater: updaterStatus,
-        })
+        opencode = {
+          healthy: false,
+          error: health.status === 401 || health.status === 403 ? "unauthorized" : "unreachable",
+        }
+      } else {
+        const data = (await health.json()) as { version?: string }
+        opencode = { healthy: true, version: data.version }
       }
-      const data = (await health.json()) as { version?: string }
-      return c.json({
-        ok: true,
-        version: config.version,
-        build: config.build,
-        opencode: { healthy: true, version: data.version },
-        preview: previewStatus,
-        storage,
-        updater: updaterStatus,
-      })
     } catch {
-      return c.json({
-        ok: true,
-        version: config.version,
-        build: config.build,
-        opencode: { healthy: false, error: "unreachable" },
-        preview: previewStatus,
-        storage,
-        updater: updaterStatus,
-      })
+      opencode = { healthy: false, error: "unreachable" }
     }
+
+    return c.json({
+      ok: true,
+      version: config.version,
+      build: config.build,
+      opencode,
+      preview: {
+        enabled: config.previewEnabled,
+        available: await previewAvailable,
+        portRange: config.previewPortRange,
+      },
+      storage,
+      updater: updaterStatus,
+    })
   })
 
   api.get("/update", async (c) => {

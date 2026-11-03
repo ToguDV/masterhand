@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, statSync } from "node:fs"
+import { spawn, type ChildProcess } from "node:child_process"
+import { EventEmitter } from "node:events"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -37,6 +39,25 @@ function setup(overrides: Parameters<typeof testConfig>[0] = {}, tunnel = create
     readinessImpl: async () => true,
   })
   return { config, store, manager, tunnel }
+}
+
+/**
+ * Spawner stub for the binary probe: `hang` never settles (the probe must kill
+ * it at its budget) and `missing` fails the way a nonexistent binary does.
+ * Reuses the manager's `spawnImpl` seam, so no real process is started.
+ */
+function probeSpawn(mode: "hang" | "missing", calls: string[][]): typeof spawn {
+  return ((command: string, args: string[]) => {
+    calls.push([command, ...args])
+    const child = new EventEmitter() as EventEmitter & { kill: () => boolean }
+    child.kill = () => true
+    if (mode === "missing") {
+      setImmediate(() => {
+        child.emit("error", Object.assign(new Error(`spawn ${command} ENOENT`), { code: "ENOENT" }))
+      })
+    }
+    return child as unknown as ChildProcess
+  }) as unknown as typeof spawn
 }
 
 describe("preview port reservation", () => {
@@ -705,29 +726,100 @@ describe("orphan tunnel cleanup", () => {
 })
 
 describe("preview availability", () => {
-  it("uses the injected availability check and caches it", async () => {
-    const config = testConfig()
+  it("retries a transient probe failure and caches the success", async () => {
     let calls = 0
     const manager = createPreviewManager({
-      config,
+      config: testConfig(),
       store: createSqliteStore(":memory:"),
       availableImpl: () => {
         calls += 1
-        return false
+        return calls > 1
       },
+      probePolicy: { attempts: 3, retryDelayMs: 0 },
     })
 
-    await expect(manager.available()).resolves.toBe(false)
-    await expect(manager.available()).resolves.toBe(false)
-    expect(calls).toBe(1)
+    await expect(manager.available()).resolves.toBe(true)
+    expect(calls).toBe(2)
+    // A success is permanent for the process: status polling costs nothing.
+    await expect(manager.available()).resolves.toBe(true)
+    expect(calls).toBe(2)
   })
 
-  it("reports unavailable when the binary does not exist", async () => {
+  it("does not cache a failure forever: it re-probes after the TTL", async () => {
+    let calls = 0
+    let clock = 1_000
+    let healthy = false
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      availableImpl: () => {
+        calls += 1
+        return healthy
+      },
+      probePolicy: { attempts: 1, unavailableTtlMs: 30_000, now: () => clock },
+    })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    try {
+      await expect(manager.available()).resolves.toBe(false)
+      expect(calls).toBe(1)
+
+      // Inside the TTL the negative result is cached, so polling clients never
+      // spawn a probe per request.
+      clock += 10_000
+      await expect(manager.available()).resolves.toBe(false)
+      expect(calls).toBe(1)
+
+      // Past the TTL it self-heals: one transient failure can no longer disable
+      // previews until the BFF restarts.
+      healthy = true
+      clock += 30_000
+      await expect(manager.available()).resolves.toBe(true)
+      expect(calls).toBe(2)
+      expect(info).toHaveBeenCalledWith(expect.stringContaining("available again"))
+    } finally {
+      warn.mockRestore()
+      info.mockRestore()
+    }
+  })
+
+  it("reports a missing binary after a single attempt and logs why", async () => {
+    const spawns: string[][] = []
     const manager = createPreviewManager({
       config: testConfig({ cloudflaredBin: "/nonexistent/cloudflared-xyz" }),
       store: createSqliteStore(":memory:"),
+      spawnImpl: probeSpawn("missing", spawns),
+      probePolicy: { attempts: 3, retryDelayMs: 0, timeoutMs: 5_000 },
     })
-    await expect(manager.available()).resolves.toBe(false)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(manager.available()).resolves.toBe(false)
+      // ENOENT is definitive: retrying cannot install a binary.
+      expect(spawns).toEqual([["/nonexistent/cloudflared-xyz", "--version"]])
+      // The reason reaches the log instead of a silent `false`.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("ENOENT"))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it("kills a probe that overruns its budget and retries it", async () => {
+    const spawns: string[][] = []
+    const manager = createPreviewManager({
+      config: testConfig(),
+      store: createSqliteStore(":memory:"),
+      spawnImpl: probeSpawn("hang", spawns),
+      probePolicy: { attempts: 2, timeoutMs: 50, retryDelayMs: 0 },
+    })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await expect(manager.available()).resolves.toBe(false)
+      // Both attempts ran: a starved CPU is a transient failure, not a verdict.
+      expect(spawns).toHaveLength(2)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("timed out after 50 ms"))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 
