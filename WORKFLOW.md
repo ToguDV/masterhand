@@ -313,6 +313,39 @@ When the implementation and its tests are done and the gates are green, **ship i
 
 Only skip this when the user explicitly asked for a plan, an analysis or a review with no changes.
 
+## Releases (mandatory deployer notes)
+
+The annotated tag message **is** the release note: its subject becomes
+`version.json.notes` (the in-app update banner) and its full body becomes the
+GitHub release body. That message, not the commit log, is where the deployer
+looks, so it is written **before** tagging. `node scripts/release.mjs <version>
+--notes <file>` builds the tag with that file (`git tag -a <tag> -F <file>
+--cleanup=verbatim`, so the Markdown headings are not stripped) and rejects
+empty notes or notes without a `## Upgrade` section.
+
+Every release note carries:
+
+1. **A one-line summary** of what changed (it becomes `version.json.notes`).
+2. **`## Upgrade`** with copyable commands that take a deployed instance to the
+   new version, including **everything `docker compose pull` does not cover**:
+   - images built locally and never published — the `opencode` agent image is
+     one: `git pull` + `docker compose build opencode` (a `pull` leaves it on
+     the old build);
+   - new or changed build args and `deploy/.env` variables, with their defaults;
+   - database migrations and the mandatory backup before updating;
+   - the verification command and its expected output.
+3. **`## Rollback`** with the inverse commands whenever the upgrade is not
+   trivially reversible (data changes, moved tags, rebuilt images).
+
+These rules are enforced by `scripts/release.mjs` and pinned by
+`scripts/release-scripts.test.mjs`; the release workflow publishes the full
+annotation as the GitHub release body.
+
+**Never move or re-annotate a published tag.** Repair the GitHub release body
+with `gh release edit <tag> --notes-file <file>` and the `version.json` asset in
+place (`docs/runbooks/release.md` §7); a force-pushed tag breaks every checkout,
+cached asset, F-Droid index entry and desktop channel that already resolved it.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on PRs to `main`, pushes to `main` and manual dispatches. A `changes` job classifies the diff (`scripts/ci-changes.mjs`, covered by `npm run test:scripts`; three-dot `base...head` on PRs, `before..after` on pushes) and the pipeline adapts:

@@ -1,10 +1,16 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import test from "node:test"
+import { fileURLToPath } from "node:url"
 import {
   androidVersionCode as checkVersionCode,
   checkReleaseVersions,
 } from "./check-release-versions.mjs"
-import { androidVersionCode, releaseIdentity } from "./release.mjs"
+import { androidVersionCode, releaseIdentity, releaseNotesError } from "./release.mjs"
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
+const releaseScript = readFileSync(join(repoRoot, "scripts", "release.mjs"), "utf8")
 
 const VERSION = "0.2.0"
 const CODE = 200
@@ -44,6 +50,32 @@ test("releaseIdentity rejects leading v and prereleases", () => {
   for (const value of ["v0.2.0", "0.2.0-rc1", "0.2", "latest", ""]) {
     assert.throws(() => releaseIdentity(value), /final X\.Y\.Z/)
   }
+})
+
+test("releaseNotesError rejects empty release notes", () => {
+  for (const notes of ["", "   \n\t\n"]) {
+    assert.match(releaseNotesError(notes), /empty/)
+  }
+})
+
+test("releaseNotesError rejects notes without an Upgrade section", () => {
+  const notes = "# v0.7.0\n\nOne-line summary.\n\n## Rollback\n\nRebuild the image.\n"
+  assert.match(releaseNotesError(notes), /## Upgrade/)
+  assert.match(releaseNotesError(notes), /deployer/)
+})
+
+test("releaseNotesError accepts deployer notes with an Upgrade section", () => {
+  assert.equal(releaseNotesError("Agent toolbox.\n\n## Upgrade\n\nRebuild.\n"), null)
+  assert.equal(releaseNotesError("Agent toolbox.\n\n## upgrade\n\nRebuild.\n"), null)
+  assert.equal(releaseNotesError("Agent toolbox.\n\n## Upgrade\n\nRebuild.\n\n## Rollback\n\nRestore.\n"), null)
+})
+
+test("the release script annotates the tag from the notes file", () => {
+  assert.match(releaseScript, /"tag",\s*"-a",\s*identity\.tag,\s*"-F",\s*notesPath/)
+  assert.doesNotMatch(releaseScript, /"tag",\s*"-a",\s*identity\.tag,\s*"-m"/)
+  // git's default cleanup strips lines starting with `#`, which would delete
+  // the `## Upgrade` and `## Rollback` headings from the tag annotation.
+  assert.match(releaseScript, /--cleanup=verbatim/)
 })
 
 test("checkReleaseVersions accepts a fully consistent tree", () => {

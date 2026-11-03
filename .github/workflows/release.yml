@@ -433,7 +433,15 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists (job retry); reusing it"
           else
-            gh release create "$TAG" --title "$TAG" --generate-notes
+            # The annotated tag message is the release note: its subject feeds
+            # version.json.notes and its full body is published here, so the
+            # deployer reads the same `## Upgrade`/`## Rollback` sections that
+            # scripts/release.mjs validated before tagging. Fetch the tag object
+            # explicitly (actions/checkout leaves a tag push as a lightweight
+            # tag, see the version.json step).
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            git for-each-ref "refs/tags/$TAG" --format='%(contents)' > "$RUNNER_TEMP/release-notes.md"
+            gh release create "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           gh release upload "$TAG" --clobber \
             "assets/version-json/version.json#version.json" \

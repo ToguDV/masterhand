@@ -85,20 +85,53 @@ push, set each package to public (Package settings → Change visibility).
 git switch main
 git pull
 
-# Bumps every package.json + apps/mobile/app.json (version + versionCode),
-# deploy/docker-compose.yml and deploy/server.Dockerfile, syncs
-# package-lock.json, commits and creates the annotated tag.
-node scripts/release.mjs 0.2.1
+# The notes file becomes the annotated tag message: its first line is
+# version.json.notes (the in-app banner) and its full body is the GitHub
+# release body. It must include a `## Upgrade` section.
+node scripts/release.mjs 0.6.0 --notes <file>
 
-# Pushing the tag triggers the release workflow.
-git push origin main v0.2.1
+# That command also bumps every package.json + apps/mobile/app.json
+# (version + versionCode), deploy/docker-compose.yml and
+# deploy/server.Dockerfile, syncs package-lock.json, commits and creates the
+# annotated tag. Pushing the tag triggers the release workflow.
+git push origin main v0.6.0
 ```
 
-When a release fixes a broken client build, write the recovery step in the tag
-annotation (it becomes `version.json.notes` and the GitHub release body).
-v0.2.0's Android app cannot open, so its users must update through F-Droid or
-download `MasterHand-0.2.1.apk` manually; the in-app update banner is not
-reachable.
+The script rejects an empty notes file or one without `## Upgrade`, and annotates
+the tag with `git tag -a <tag> -F <file> --cleanup=verbatim` so the Markdown
+headings survive (git's default cleanup would drop lines starting with `#`).
+
+Release notes template:
+
+````markdown
+One-line summary of what changed (the in-app banner).
+
+## Upgrade
+
+```bash
+git pull
+docker compose -f deploy/docker-compose.yml build opencode
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+- Locally built images that `docker compose pull` does not update.
+- New/changed build args and `deploy/.env` variables, with their defaults.
+- Database migrations and the backup command to run before updating.
+- Verify: `<command>` → `<expected output>`.
+
+## Rollback
+
+```bash
+<inverse commands>
+```
+
+<What happens to data, and how to restore the pre-update backup.>
+````
+
+When a release fixes a broken client build, write the recovery step in the same
+notes file. v0.2.0's Android app cannot open, so its users must update through
+F-Droid or download `MasterHand-0.2.1.apk` manually; the in-app update banner is
+not reachable.
 
 Rules enforced by the workflow:
 
@@ -135,7 +168,8 @@ the installer's job.
 
 ## 4. Verify the release
 
-1. **Workflow:** all jobs green; the GitHub release exists and contains
+1. **Workflow:** all jobs green; the GitHub release exists, its body is the
+   full annotated tag (summary + `## Upgrade` + `## Rollback`), and it contains
    `version.json`, the APK, both server images and the desktop assets.
 2. **Manifest:** `curl -fsSL .../releases/download/v<version>/version.json` —
    `notes` must be the annotated tag's subject, not a commit message (the image
@@ -225,6 +259,11 @@ locally and is **not** updated by this flow.
   `gh release delete-asset vX.Y.Z version.json --yes`, upload a corrected file
   named `version.json` (a `file#version.json` label does not rename it), then
   re-download it to confirm.
+- **A published release note is missing the upgrade steps:** never move or
+  re-annotate the tag. Edit the body in place with
+  `gh release edit vX.Y.Z --notes-file <file>` (the same template as §2), then
+  repair `version.json` as above so the in-app banner carries the one-line
+  upgrade instruction too. Re-download both to confirm.
 - **Android job fails on the keystore:** the secrets are missing or the alias
   is wrong; the APK-signature verification step names the mismatch.
 - **Android job fails in “Verify the minified APK keeps reflective

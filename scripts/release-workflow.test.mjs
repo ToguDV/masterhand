@@ -129,6 +129,16 @@ test("version.json reads the annotated tag, not the checked-out commit", () => {
   assert.match(image, /git for-each-ref "refs\/tags\/\$TAG" --format='%\(contents:subject\)'/)
 })
 
+test("the release body is the annotated tag, not generated notes", () => {
+  // The tag annotation carries the deployer's `## Upgrade` and `## Rollback`;
+  // `--generate-notes` would publish only the commit/PR list and lose them.
+  const publish = release.slice(release.indexOf("\n  publish:"))
+  assert.match(publish, /git fetch --force origin "refs\/tags\/\$TAG:refs\/tags\/\$TAG"/)
+  assert.match(publish, /git for-each-ref "refs\/tags\/\$TAG" --format='%\(contents\)'/)
+  assert.match(publish, /gh release create "\$TAG" --title "\$TAG" --notes-file "\$RUNNER_TEMP\/release-notes\.md"/)
+  assert.doesNotMatch(publish, /--generate-notes/)
+})
+
 test("the updater sidecar image is published next to the server image", () => {
   assert.match(release, /context: deploy\s*\n\s*file: deploy\/updater\.Dockerfile/s)
   assert.match(release, /\$\{\{ env\.IMAGE \}\}-updater:\$\{\{ steps\.meta\.outputs\.version \}\}/)
