@@ -4,14 +4,19 @@
  * commit and create the annotated tag. It NEVER pushes: the release workflow
  * runs on `git push origin main vX.Y.Z`, and that step stays explicit.
  *
- * Usage: node scripts/release.mjs 0.2.0 [--no-git]
+ * Usage: node scripts/release.mjs 0.2.0 --notes <file> [--no-git]
+ *
+ * The notes file becomes the annotated tag message: its subject feeds
+ * `version.json.notes` and its full body is the GitHub release body, so it is
+ * the deployer's upgrade documentation. It is required and must contain a
+ * `## Upgrade` section (see WORKFLOW.md §Releases and docs/runbooks/release.md).
  *
  * Final versions only (`X.Y.Z`): prereleases would notify stable users as if
  * they were final (the semver compare strips suffixes, see release.yml).
  */
 import { execFileSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -36,6 +41,39 @@ export function releaseIdentity(version) {
     throw new Error(`version "${version}" must be a final X.Y.Z version (no leading v, no prerelease)`)
   }
   return { version, tag: `v${version}`, versionCode: androidVersionCode(version) }
+}
+
+export function releaseNotesError(text) {
+  if (typeof text !== "string" || text.trim() === "") {
+    return "release notes are empty: --notes <file> must contain the annotated tag message"
+  }
+  if (!/^##[ \t]+upgrade[ \t]*$/im.test(text)) {
+    return 'release notes need a "## Upgrade" section for the deployer: every command `docker compose pull` does not cover (locally built images, new build args/env), migrations and their backup, and the verification command with its expected output'
+  }
+  return null
+}
+
+function parseReleaseArgs(argv) {
+  let notesFile
+  const flags = []
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === "--notes") {
+      notesFile = argv[index + 1]
+      index += 1
+      if (!notesFile || notesFile.startsWith("--")) {
+        throw new Error("--notes requires a file path: node scripts/release.mjs <version> --notes <file>")
+      }
+    } else if (arg.startsWith("--notes=")) {
+      notesFile = arg.slice("--notes=".length)
+      if (!notesFile) {
+        throw new Error("--notes requires a file path: node scripts/release.mjs <version> --notes <file>")
+      }
+    } else {
+      flags.push(arg)
+    }
+  }
+  return { notesFile, flags }
 }
 
 function bumpJson(file, mutate) {
@@ -64,12 +102,33 @@ function run(command, args) {
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url
 if (isMain) {
-  const [rawVersion, ...flags] = process.argv.slice(2)
+  const [rawVersion, ...rest] = process.argv.slice(2)
   let identity
+  let notesFile
+  let flags
   try {
     identity = releaseIdentity(rawVersion ?? "")
+    ;({ notesFile, flags } = parseReleaseArgs(rest))
   } catch (error) {
     console.error(`release: ${error instanceof Error ? error.message : error}`)
+    process.exit(2)
+  }
+
+  if (!notesFile) {
+    console.error("release: missing --notes <file>: every release needs deployer upgrade notes (WORKFLOW.md §Releases)")
+    process.exit(2)
+  }
+  const notesPath = resolve(notesFile)
+  let notes
+  try {
+    notes = readFileSync(notesPath, "utf8")
+  } catch (error) {
+    console.error(`release: cannot read --notes file "${notesFile}": ${error instanceof Error ? error.message : error}`)
+    process.exit(2)
+  }
+  const notesError = releaseNotesError(notes)
+  if (notesError) {
+    console.error(`release: ${notesError}`)
     process.exit(2)
   }
 
@@ -112,7 +171,10 @@ if (isMain) {
       "package-lock.json",
     ])
     run("git", ["commit", "-m", `chore(release): ${identity.version}`])
-    run("git", ["tag", "-a", identity.tag, "-m", identity.version])
+    // `-F` would strip `## Upgrade`/`## Rollback` as comment lines under the
+    // default cleanup mode; verbatim keeps the Markdown headings the deployer
+    // and the release body need.
+    run("git", ["tag", "-a", identity.tag, "-F", notesPath, "--cleanup=verbatim"])
     console.log(`release: committed and tagged ${identity.tag}`)
     console.log(`release: next: git push origin main ${identity.tag}`)
   }
