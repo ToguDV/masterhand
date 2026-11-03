@@ -13,6 +13,9 @@
 # descriptors and propagates the command's exit code. Exits non-zero on the
 # first failed assertion, so it is scriptable.
 
+# Commands passed to agent-exec are single-quoted on purpose: they must expand
+# in the child shell (HOME, PORT, /proc are the child's), not in this script.
+# shellcheck disable=SC2016
 set -eu
 
 LAUNCHER=/usr/local/bin/agent-exec
@@ -76,4 +79,89 @@ rc=0
 "$LAUNCHER" --exec >/dev/null 2>&1 || rc=$?
 [ "$rc" = "127" ] || fail "expected 127 for a missing --exec command, got $rc"
 
-echo "agent-exec drill: OK (uid 1001, gid 1000 only, env scrubbed, PORT allowlisted, fds closed, exit codes propagated)"
+# (f) Agent toolbox. The tier is baked into the image as build metadata for this
+# drill only; agent-exec clears the environment, so agent code never sees it.
+#
+# Run this on a freshly created container: the agent can write
+# `/home/agent/.local/bin` and its browser cache by design, so a container that
+# already ran agent code could carry spoofed binaries. Tool probes below use a
+# PATH without the agent-writable directory.
+toolbox=${AGENT_TOOLBOX:-minimal}
+browsers=${PLAYWRIGHT_BROWSERS:-none}
+PATH_NO_AGENT=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+probe() {
+  "$LAUNCHER" --exec "$SH" -c "PATH=$PATH_NO_AGENT $1"
+}
+
+# The pruned CLI (unused musl variants removed) must still start. It runs as the
+# engine user: the agent cannot write the engine config dir by design.
+su node -s /bin/sh -c 'opencode --version >/dev/null 2>&1' ||
+  fail "opencode does not run after pruning unused platform binaries"
+
+if [ "$toolbox" != "minimal" ]; then
+  # Execute each tool, not just `command -v`: a broken library or a missing
+  # runtime would otherwise pass.
+  probe "python3 -V" >/dev/null || fail "python3 does not run as the agent"
+  probe "make -v" >/dev/null || fail "make does not run as the agent"
+  probe "g++ --version" >/dev/null || fail "g++ does not run as the agent"
+  probe "psql --version" >/dev/null || fail "psql does not run as the agent"
+  probe "sqlite3 :memory: 'select 1'" >/dev/null || fail "sqlite3 does not run as the agent"
+  probe "redis-cli --version" >/dev/null || fail "redis-cli does not run as the agent"
+  probe "jq -n 1" >/dev/null || fail "jq does not run as the agent"
+  probe "less --version" >/dev/null || fail "less does not run as the agent"
+  probe "file --version" >/dev/null || fail "file does not run as the agent"
+  probe "tree --version" >/dev/null || fail "tree does not run as the agent"
+  probe "zip -v" >/dev/null || fail "zip does not run as the agent"
+  probe "lsof -p \$\$" >/dev/null || fail "lsof does not run as the agent"
+  probe "git lfs version" >/dev/null || fail "git-lfs does not run as the agent"
+  probe "shellcheck --version" >/dev/null || fail "shellcheck does not run as the agent"
+  probe "test -x /usr/local/bin/pnpm" || fail "pnpm shim is missing (corepack)"
+  probe "test -x /usr/local/bin/yarn" || fail "yarn shim is missing (corepack)"
+
+  workdir=$("$LAUNCHER" --exec "$SH" -c 'd=$(mktemp -d /workspace/.toolbox-drill.XXXXXX); printf %s "$d"')
+  [ -n "$workdir" ] || fail "could not create a workspace scratch dir as the agent"
+  trap 'rm -rf "$workdir"' EXIT
+
+  # Build something real: a venv and a compiled C++ binary.
+  "$LAUNCHER" --exec "$SH" -c \
+    "PATH=$PATH_NO_AGENT python3 -m venv '$workdir/venv' && '$workdir/venv/bin/python' -c 'import sys; print(sys.version)'" >/dev/null ||
+    fail "python3 -m venv does not work as the agent"
+  "$LAUNCHER" --exec "$SH" -c \
+    "printf 'int main(){return 0;}' > '$workdir/probe.cpp' && PATH=$PATH_NO_AGENT g++ -O0 -o '$workdir/probe' '$workdir/probe.cpp' && '$workdir/probe'" ||
+    fail "g++ cannot compile a C++ program as the agent"
+
+  if [ "$toolbox" = "full" ]; then
+    probe "ffmpeg -version" >/dev/null || fail "full toolbox is missing ffmpeg"
+  fi
+fi
+
+# The browser depends on PLAYWRIGHT_BROWSERS, not on the tier: `minimal` +
+# `chromium` is a documented combination.
+if [ "$browsers" = "chromium" ] || { [ "$browsers" = "auto" ] && [ "$toolbox" = "full" ]; }; then
+  chrome=$(probe 'find /home/agent/.cache/ms-playwright -type f -name chrome 2>/dev/null | head -1')
+  [ -n "$chrome" ] || fail "baked Chromium not found under /home/agent/.cache/ms-playwright"
+  version=$("$LAUNCHER" --exec "$chrome" --version 2>/dev/null)
+  case "$version" in
+    *Chromium*|*Chrome*) ;;
+    *) fail "baked Chromium does not run (got '$version')" ;;
+  esac
+  # A real headless launch proves the explicit library list is enough.
+  shot=$(probe 'playwright screenshot --browser=chromium about:blank /tmp/drill-chromium.png >/dev/null 2>&1 && printf ok; rm -f /tmp/drill-chromium.png')
+  [ "$shot" = "ok" ] || fail "baked Chromium cannot take a screenshot (missing libraries?)"
+fi
+
+# No elevation, in every tier: no sudo, no container runtime, no unexpected
+# setuid binary, and no writable system package path.
+if probe 'command -v sudo' >/dev/null 2>&1; then fail "sudo is installed in the agent image"; fi
+for runtime in docker podman nerdctl; do
+  if probe "command -v $runtime" >/dev/null 2>&1; then fail "$runtime is installed in the agent image"; fi
+done
+[ ! -u /usr/lib/openssh/ssh-keysign ] || fail "ssh-keysign kept its setuid bit"
+global_prefix=$(npm prefix -g)
+if "$LAUNCHER" --exec "$SH" -c "test -w '$global_prefix'"; then
+  fail "the agent can write to the global npm prefix ($global_prefix)"
+fi
+if probe 'test -w /usr/local/bin'; then fail "the agent can write to /usr/local/bin"; fi
+
+echo "agent-exec drill: OK (uid 1001, gid 1000 only, env scrubbed, PORT allowlisted, fds closed, exit codes propagated, toolbox=${toolbox}/${browsers})"

@@ -81,6 +81,30 @@ docker compose -f deploy/docker-compose.yml ps
 
 The BFF is published on a host port (default `8787`, configurable with `MASTERHAND_PORT`/`MASTERHAND_BIND`). opencode stays on the internal network and publishes no ports.
 
+### Agent image contents (`AGENT_TOOLBOX`)
+
+The `opencode` image is built locally (`docker compose … build`, or `up -d --build`) and bakes the tooling agents need. The tier is a **build arg**: changing it requires a rebuild, not a restart.
+
+| `AGENT_TOOLBOX` | Contents | Image size |
+|---|---|---|
+| `minimal` | base only (`curl`, `git`, `gh`, `ripgrep`, opencode) | ~1.2 GB |
+| `standard` | + `python3`/`venv`/`pip`, `make`, `g++`, `pkg-config`, `psql`, `mysql`, `sqlite3`, `redis-cli`, `jq`, `lsof`, `shellcheck`, `git-lfs`, `pnpm`/`yarn` | ~1.8 GB |
+| `full` (default) | + `ffmpeg` and a pinned Playwright Chromium | ~3.4 GB |
+
+- Everything is installed as **root at build time**; agent shells still run as `agent` (uid 1001) through `agent-exec`, and the image ships no `sudo`/`docker`. The toolbox changes what exists, never who may run it.
+- `PLAYWRIGHT_BROWSERS=auto` (default) bakes Chromium only for `full`; use `chromium`/`none` to override. The browser lives in `/home/agent/.cache/ms-playwright`; a project on a different Playwright version downloads its own, so keep `PLAYWRIGHT_VERSION` aligned with yours.
+- Chromium runs headless with its sandbox disabled by default (`chromiumSandbox` defaults to `false` in containers; Docker's seccomp profile blocks the user namespaces it would need). Nothing to configure: the container + uid boundary is what isolates it.
+- `pnpm`/`yarn` are corepack shims (`standard`/`full`): the first invocation downloads that package manager into the agent's cache, like a fresh `npm` cache.
+- The build drops the unused setuid bit on `openssh-client`'s `ssh-keysign`; the drill asserts no elevation helper survives.
+- The image prunes the opencode CLI's unused musl variants (~400 MB): a Debian image can never run them.
+- Small host? Rebuild with the lean tiers and free the old layers:
+
+  ```bash
+  AGENT_TOOLBOX=minimal docker compose -f deploy/docker-compose.yml build opencode
+  docker compose -f deploy/docker-compose.yml up -d
+  docker image prune
+  ```
+
 ## 4. Authenticate providers (one-time)
 
 ```bash
@@ -156,7 +180,7 @@ Whatever you use, **disable response buffering for SSE** (`/api/events`) and for
 - The managed-run sandbox and the engine-data modes hold after an install or upgrade:
 
 ```bash
-# uid drop, env scrub, PORT allowlist, exit codes (run as root inside opencode)
+# uid drop, env scrub, PORT allowlist, toolbox, exit codes (run as root inside opencode)
 docker compose -f deploy/docker-compose.yml exec -T --user root opencode \
   sh -s < deploy/agent-exec-drill.sh
 
@@ -165,7 +189,7 @@ docker compose -f deploy/docker-compose.yml exec -T opencode sh -c \
   'stat -c "%a %U:%G %n" /home/node/.local/share/opencode/opencode.db /home/node/.local/share/opencode/log /home/node/.config/opencode'
 ```
 
-- The drill must print `agent-exec drill: OK`; the DB must be `600`, `log/` and the config dir `700`. `shell/` and `snapshot/` are expected to stay readable by the `agent` shells. Run these after `docker compose … up -d --build` (or any image upgrade): an existing container keeps the previous entrypoint and permissions until it is recreated.
+- The drill must print `agent-exec drill: OK` with the expected `toolbox=<tier>/<browsers>` and pass its tool assertions (venv, `g++`, Chromium screenshot) and negative checks (no `sudo`, non-writable global npm prefix); the DB must be `600`, `log/` and the config dir `700`. `shell/` and `snapshot/` are expected to stay readable by the `agent` shells. Run these after `docker compose … up -d --build` (or any image upgrade): an existing container keeps the previous entrypoint and permissions until it is recreated.
 
 ## 7. Upgrade and backups
 

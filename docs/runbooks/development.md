@@ -19,12 +19,20 @@ network and paths. In Docker both run the **same** image and topology:
 | Env contract | same variable names | same |
 | Previews | bundled `cloudflared`, `PREVIEW_ORIGIN=opencode` | same |
 | Managed runs | `agent-exec --exec` as `agent` (uid 1001), scrubbed env | same |
+| Agent toolbox | `AGENT_TOOLBOX` tier baked into the image (compiler, Python, DB clients, pnpm/yarn, optional Chromium) | same |
 | Runtime user | `node` (uid 1000) with `umask 002` | same |
 | BFF | **`tsx watch` from source** (dev only) | compiled `dist/` |
 | Web | **Vite dev server + HMR on `:5173`** (dev only) | static build served by the BFF |
 
 The last two rows are the deliberate differences: the runtime topology is
 identical, but the BFF and web reload in place while you edit.
+
+The dev stack builds the same `AGENT_TOOLBOX` tier, so `npm install` can compile
+native modules and, in the default `full` tier, `npx playwright test` runs
+without downloading a browser. The tier is a build arg:
+`AGENT_TOOLBOX=standard npm run dev` (or `minimal` on a small host) rebuilds only
+that layer, and the browser/ffmpeg extras are skipped. See
+`docs/runbooks/deployment.md` §"Agent image contents".
 
 ## 2. Prerequisites
 
