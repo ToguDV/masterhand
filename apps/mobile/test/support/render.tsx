@@ -111,6 +111,11 @@ export interface FakeClient {
     update: { check: jest.Mock }
     sessions: { list: jest.Mock }
     branches: { list: jest.Mock }
+    /** Resilience: interrupted chat turns + manual continuation. */
+    turns: jest.Mock
+    resumeTurn: jest.Mock
+    restartEngine: jest.Mock
+    resetEngine: jest.Mock
     /** Kanban board (#164): snapshot plus column/card mutations. */
     board: {
       get: jest.Mock
@@ -220,6 +225,10 @@ export function fakeClient(): FakeClient & Client {
       sessions: {
         list: jest.fn(async () => ({ sessions: [] })),
       },
+      turns: jest.fn(async () => []),
+      resumeTurn: jest.fn(async () => {}),
+      restartEngine: jest.fn(async () => {}),
+      resetEngine: jest.fn(async () => {}),
       branches: {
         list: jest.fn(async () => ({ current: "main", branches: ["main"] })),
       },

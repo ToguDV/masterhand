@@ -112,6 +112,18 @@ jobs:
             ${{ env.IMAGE }}-updater:${{ steps.meta.outputs.version }}
             ${{ env.IMAGE }}-updater:latest
 
+      # Resilience supervisor sidecar. Always-on in the Compose stack; it can
+      # only restart/stop the two services resolved by Compose labels.
+      - name: Build and push the watchdog image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy
+          file: deploy/watchdog.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}-watchdog:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE }}-watchdog:latest
+
       - name: Generate version.json
         run: |
           TAG="${{ steps.meta.outputs.tag }}"

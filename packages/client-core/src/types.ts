@@ -125,6 +125,49 @@ export interface BffStatus {
     /** Image tag the deployment tracks, when the BFF reports it. */
     track?: string
   }
+  /**
+   * Resilience state (watchdog + recovery), absent on older BFFs. `supervisor`
+   * is false when no sidecar is configured; the banner then hides its buttons.
+   */
+  engine?: EngineStatusView
+}
+
+export interface EngineIncidentView {
+  at: number
+  service: string
+  reason: string
+  attempt: number
+  memory: { usedBytes: number; limitBytes: number } | null
+}
+
+export interface EngineStatusView {
+  supervisor: boolean
+  healthy: boolean
+  restarting: boolean
+  circuitOpen: boolean
+  /** Current supervised state of opencode (`running`, `exited`, …). */
+  state: string
+  /** The watchdog saw ≥95% memory for its sampled window (warning, not restart). */
+  memoryWarning: boolean
+  attempts: number
+  maxAttempts: number
+  lastIncident: EngineIncidentView | null
+  memory: { usedBytes: number; limitBytes: number } | null
+  /** The most recent BFF-container incident (shown after it recovers). */
+  serverIncident: EngineIncidentView | null
+  /** The BFF container is currently stopped by the supervisor's circuit. */
+  serverCircuitOpen: boolean
+  interruptedTurns: number
+  autoResume: boolean
+  autoContinueChats: boolean
+}
+
+/** One chat turn interrupted by an engine/BFF restart. */
+export interface InterruptedTurn {
+  sessionID: string
+  startedAt: number
+  state: "interrupted" | "ambiguous"
+  reason: string | null
 }
 
 export interface PreviewPortRange {

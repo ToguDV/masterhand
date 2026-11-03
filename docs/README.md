@@ -20,6 +20,7 @@ Index of specific documentation (APIs, runbooks, decisions). High-level document
 | [`plans/issue-chunks.md`](plans/issue-chunks.md) | Batched follow-up plan: the open issues grouped in 7 chunks by shared code surface, with order and dependencies per chunk | 🔄 2026-10-20 |
 | [`runbooks/development.md`](runbooks/development.md) | Development with the deployment Docker Compose stack (hot reload) | ✅ 2026-10-20 |
 | [`runbooks/deployment.md`](runbooks/deployment.md) | Deployment with Docker Compose and TLS options for the deployer | ✅ 2026-10-20 |
+| [`runbooks/resilience.md`](runbooks/resilience.md) | Supervisor restart budget/circuit, turn journal, automatic recovery and memory hardening | ✅ 2026-11-03 |
 | [`runbooks/backups.md`](runbooks/backups.md) | Volume backups, online SQLite backup, restore and corruption behavior | ✅ 2026-10-05 |
 | [`runbooks/mobile-e2e.md`](runbooks/mobile-e2e.md) | Mobile E2E with Maestro (emulator/simulator and CI) | ✅ 2026-10-01 |
 | [`runbooks/fdroid.md`](runbooks/fdroid.md) | Self-hosted F-Droid repo and Android update notices (#133) | ✅ 2026-10-29 |

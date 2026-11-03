@@ -82,6 +82,27 @@ export interface Config {
   updateTrack: string
   /** Enables the Cloudflare quick-tunnel preview feature. */
   previewEnabled: boolean
+  /**
+   * Resilience supervisor sidecar (watchdog). `null` disables the status
+   * panel and manual restart controls; automatic recovery still works on hub
+   * reconnection. The token is shared only with the sidecar.
+   */
+  watchdogUrl: string | null
+  watchdogToken: string | null
+  /** Re-drive in-flight goal/scheduled/chat turns after a restart. */
+  resilienceAutoResume: boolean
+  /** Send one continuation prompt for interrupted chat turns. */
+  resilienceAutoContinueChats: boolean
+  /** Maximum chat continuations per incident (serialized). */
+  resilienceMaxChatResumes: number
+  /** Pause between two automatic continuations. */
+  resilienceResumeGapMs: number
+  /** How long to wait for the engine to answer after a reconnect. */
+  resilienceRecoveryTimeoutMs: number
+  /** A disconnect shorter than this is an SSE blip, not a restart. */
+  resilienceRecoveryMinOutageMs: number
+  /** The engine must be healthy this long before a continuation is sent. */
+  resilienceHealthGraceMs: number
   /** Host (no port) where the agent's dev server listens, as seen by the tunnel. */
   previewOrigin: string
   /** Inclusive port pool reserved for session previews. */
@@ -411,6 +432,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     updateToken: updater.token,
     updateTrack: updater.track,
     previewEnabled: boolFromEnv("PREVIEW_ENABLED", env.PREVIEW_ENABLED, true),
+    watchdogUrl: env.WATCHDOG_URL?.trim() || null,
+    watchdogToken: env.WATCHDOG_TOKEN?.trim() || null,
+    resilienceAutoResume: boolFromEnv("RESILIENCE_AUTO_RESUME", env.RESILIENCE_AUTO_RESUME, true),
+    resilienceAutoContinueChats: boolFromEnv(
+      "RESILIENCE_AUTO_CONTINUE_CHATS",
+      env.RESILIENCE_AUTO_CONTINUE_CHATS,
+      true,
+    ),
+    resilienceMaxChatResumes: Math.min(10, Math.max(0, intFromEnv(env.RESILIENCE_MAX_CHAT_RESUMES, 3))),
+    resilienceResumeGapMs: Math.min(300_000, Math.max(0, intFromEnv(env.RESILIENCE_RESUME_GAP_MS, 30_000))),
+    resilienceRecoveryTimeoutMs: Math.min(
+      300_000,
+      Math.max(5_000, intFromEnv(env.RESILIENCE_RECOVERY_TIMEOUT_MS, 60_000)),
+    ),
+    resilienceRecoveryMinOutageMs: Math.min(
+      60_000,
+      Math.max(0, intFromEnv(env.RESILIENCE_RECOVERY_MIN_OUTAGE_MS, 3_000)),
+    ),
+    resilienceHealthGraceMs: Math.min(
+      300_000,
+      Math.max(0, intFromEnv(env.RESILIENCE_HEALTH_GRACE_MS, 30_000)),
+    ),
     // In Docker the tunnel targets the opencode container by service name; in
     // development both processes run on the host.
     previewOrigin: env.PREVIEW_ORIGIN?.trim() || hostFromUrl(opencodeUrl, "127.0.0.1"),

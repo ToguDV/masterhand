@@ -31,8 +31,11 @@ import {
   uploadAttachment,
   type AttachmentErrorCode,
 } from "./attachments.js"
+import { SemaphoreBusyError, createSemaphore } from "./semaphore.js"
 import type { Config } from "./config.js"
+import { createEngineMonitor, type EngineMonitor } from "./engine.js"
 import type { EventHub } from "./events.js"
+import { createTurnJournal, type TurnJournal } from "./journal.js"
 import {
   createGoalManager,
   GOAL_INTERNAL_MARKER_KEY,
@@ -41,10 +44,11 @@ import {
   toGoalRun,
   type GoalManager,
 } from "./goal.js"
-import { createGoalOpencode, createSchedulerOpencode } from "./opencode.js"
+import { createGoalOpencode, createSchedulerOpencode, createTurnOpencode } from "./opencode.js"
 import { createPreviewManager, previewSystemPrompt, PreviewError, type PreviewManager } from "./preview.js"
 import { createOpencodeProxy, type ProxyRetryOptions } from "./proxy.js"
 import { OpencodeTimeoutError, RetryExhaustedError, UpstreamStatusError, isTransientStatus, withRetry } from "./retry.js"
+import { createSupervisorClient, type SupervisorClient } from "./supervisor.js"
 import {
   CustomProvidersFileError,
   DEFAULT_WEBSEARCH_PROVIDER,
@@ -79,6 +83,7 @@ import type {
   ScheduleSpec,
   ScheduledTask,
   Store,
+  TurnRecord,
   WorkspaceRunRecord,
 } from "./store.js"
 import { isStorageConflict, isStorageError } from "./store.js"
@@ -121,6 +126,18 @@ export interface AppDeps {
   goals?: GoalManager
   /** Overridable for tests: task scheduler (issue #147). */
   scheduler?: SchedulerManager
+  /** Overridable for tests: durable turn journal (resilience). */
+  journal?: TurnJournal
+  /** Overridable for tests: engine recovery monitor (resilience). */
+  engine?: EngineMonitor
+  /** Overridable for tests: supervisor sidecar client (resilience). */
+  supervisor?: SupervisorClient
+  /** Overridable for tests: the `/api/info` liveness probe used by recovery. */
+  probeOpencode?: () => Promise<boolean>
+  /** Overridable for tests: the attachment write (bounded concurrency). */
+  attachmentUpload?: typeof uploadAttachment
+  /** Concurrent attachment uploads admitted before `429 upload_busy` (default 2). */
+  attachmentConcurrency?: number
   /** Overridable for tests: proxy retry tuning (attempts/backoff/sleep). */
   proxyRetry?: ProxyRetryOptions
   /** Overridable for tests: whole-loop budget of the custom-provider key connect. */
@@ -152,6 +169,8 @@ export interface CreatedApp {
   app: Hono
   goals: GoalManager
   scheduler: SchedulerManager
+  /** Resilience recovery monitor (started by the boot entry after `hub.start`). */
+  engine: EngineMonitor
   /** Settles in-flight session releases (issue #192 shutdown drain). */
   drainInFlight: () => Promise<void>
 }
@@ -570,6 +589,11 @@ export function createApp(deps: AppDeps): CreatedApp {
     return c.json({ error: "attachment_failed" }, 500)
   }
   const authBodyLimit = bodyLimit({ maxSize: AUTH_BODY_LIMIT_BYTES, onError: rejectOversizedBody })
+  // Bounded in-process uploads: two 50 MB multiparts (plus the arrayBuffer
+  // copy) are already a large spike in a 1 GB container. Waiting requests are
+  // capped too, so a burst answers 429 instead of queueing without bound.
+  const attachmentSlots = createSemaphore(deps.attachmentConcurrency ?? 2)
+  const writeAttachment = deps.attachmentUpload ?? uploadAttachment
   // Paths whose workspace row is gone but whose folder cleanup is still in
   // flight. A same-name create would `mkdir -p` the old folder and then be
   // deleted by the still-running `rm -rf`; refuse it until the tombstone clears.
@@ -655,6 +679,7 @@ export function createApp(deps: AppDeps): CreatedApp {
       store: deps.store,
       opencode: goalOpencode,
       emit: (event) => deps.hub.emit(event),
+      autoResume: config.resilienceAutoResume,
     })
   deps.hub.subscribe((event) => goals.handleEvent(event))
 
@@ -672,8 +697,66 @@ export function createApp(deps: AppDeps): CreatedApp {
       store: deps.store,
       opencode: schedulerOpencode,
       emit: (event) => deps.hub.emit(event),
+      recoveryGapMs: config.resilienceResumeGapMs,
+      engineGraceMs: config.resilienceHealthGraceMs,
     })
   deps.hub.subscribe((event) => scheduler.handleEvent(event))
+
+  /**
+   * Resilience (turn journal + engine recovery). The journal subscribes to the
+   * same hub stream and records which sessions were executing; the monitor
+   * consumes it after an engine/BFF restart and decides what is safe to
+   * continue. Both are additive: without a supervisor sidecar the status panel
+   * hides its controls and automatic recovery still runs on reconnection.
+   */
+  const journal =
+    deps.journal ??
+    createTurnJournal({
+      store: deps.store,
+      emit: (event) => deps.hub.emit(event),
+    })
+  deps.hub.subscribe((event) => journal.handleEvent(event))
+
+  const probeOpencode = async (): Promise<boolean> => {
+    try {
+      const response = await fetchImpl(new URL("/api/info", config.opencodeUrl), {
+        headers: config.opencodeAuth ? { authorization: config.opencodeAuth } : {},
+        signal: AbortSignal.timeout(3000),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  const supervisor =
+    deps.supervisor ??
+    createSupervisorClient({
+      url: config.watchdogUrl,
+      token: config.watchdogToken,
+      fetchImpl,
+    })
+
+  const engine =
+    deps.engine ??
+    createEngineMonitor({
+      store: deps.store,
+      hub: deps.hub,
+      journal,
+      goals,
+      scheduler,
+      opencode: createTurnOpencode({ call: callOpencode, invalidateSessionsCache }),
+      supervisor,
+      probeOpencode: deps.probeOpencode ?? probeOpencode,
+      emit: (event) => deps.hub.emit(event),
+      autoResume: config.resilienceAutoResume,
+      autoContinueChats: config.resilienceAutoContinueChats,
+      maxChatResumes: config.resilienceMaxChatResumes,
+      resumeGapMs: config.resilienceResumeGapMs,
+      recoveryTimeoutMs: config.resilienceRecoveryTimeoutMs,
+      recoveryMinOutageMs: config.resilienceRecoveryMinOutageMs,
+      healthGraceMs: config.resilienceHealthGraceMs,
+    })
 
   interface SessionRelease {
     promise: Promise<void>
@@ -1512,6 +1595,10 @@ export function createApp(deps: AppDeps): CreatedApp {
       },
       storage,
       updater: updaterStatus,
+      // Resilience (additive; older clients ignore it). The supervisor status
+      // is cached for a few seconds and a slow sidecar can never fail this
+      // route: a null snapshot degrades to `supervisor: false`.
+      engine: await engine.status(),
     })
   })
 
@@ -1853,40 +1940,52 @@ export function createApp(deps: AppDeps): CreatedApp {
       const workspace = deps.store.getWorkspace(c.req.param("id"))
       if (!workspace) return c.json({ error: "not_found" }, 404)
 
-      let body: Record<string, string | File | (string | File)[]>
       try {
-        body = await c.req.parseBody()
-      } catch {
-        return c.json({ error: "invalid_attachment" }, 400)
-      }
-      const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
-      const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
-      const attachmentID = typeof body.attachmentID === "string" ? body.attachmentID : ""
-      // The native uploader (expo-file-system) uses the cache basename; the
-      // explicit field keeps the display name the user picked.
-      const requestedName = typeof body.name === "string" ? body.name.trim().slice(0, 200) : ""
-      if (!rawFile || typeof rawFile === "string" || !sessionID || !attachmentID) {
-        return c.json({ error: "invalid_attachment" }, 400)
-      }
-      if (rawFile.size > config.attachmentMaxMb * 1024 * 1024) {
-        return c.json({ error: "attachment_too_large" }, 413)
-      }
+        return await attachmentSlots.run(
+          async () => {
+            let body: Record<string, string | File | (string | File)[]>
+            try {
+              body = await c.req.parseBody()
+            } catch {
+              return c.json({ error: "invalid_attachment" }, 400)
+            }
+            const rawFile = Array.isArray(body.file) ? body.file[0] : body.file
+            const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
+            const attachmentID = typeof body.attachmentID === "string" ? body.attachmentID : ""
+            // The native uploader (expo-file-system) uses the cache basename; the
+            // explicit field keeps the display name the user picked.
+            const requestedName = typeof body.name === "string" ? body.name.trim().slice(0, 200) : ""
+            if (!rawFile || typeof rawFile === "string" || !sessionID || !attachmentID) {
+              return c.json({ error: "invalid_attachment" }, 400)
+            }
+            if (rawFile.size > config.attachmentMaxMb * 1024 * 1024) {
+              return c.json({ error: "attachment_too_large" }, 413)
+            }
 
-      try {
-        const result = await uploadAttachment({
-          workspaceID: workspace.id,
-          workspacePath: workspace.path,
-          sessionID,
-          attachmentID,
-          name: requestedName || rawFile.name || "file",
-          bytes: new Uint8Array(await rawFile.arrayBuffer()),
-          maxFileBytes: config.attachmentMaxMb * 1024 * 1024,
-          maxSessionBytes: config.attachmentMaxPerSessionMb * 1024 * 1024,
-        })
-        const { existed, ...attachment } = result
-        return c.json({ attachment }, existed ? 200 : 201)
+            try {
+              const result = await writeAttachment({
+                workspaceID: workspace.id,
+                workspacePath: workspace.path,
+                sessionID,
+                attachmentID,
+                name: requestedName || rawFile.name || "file",
+                bytes: new Uint8Array(await rawFile.arrayBuffer()),
+                maxFileBytes: config.attachmentMaxMb * 1024 * 1024,
+                maxSessionBytes: config.attachmentMaxPerSessionMb * 1024 * 1024,
+              })
+              const { existed, ...attachment } = result
+              return c.json({ attachment }, existed ? 200 : 201)
+            } catch (error) {
+              return attachmentFailure(c, error)
+            }
+          },
+          { maxWaiters: 4 },
+        )
       } catch (error) {
-        return attachmentFailure(c, error)
+        if (error instanceof SemaphoreBusyError) {
+          return c.json({ error: "upload_busy" }, 429)
+        }
+        throw error
       }
     },
   )
@@ -2984,13 +3083,66 @@ export function createApp(deps: AppDeps): CreatedApp {
     })
   })
 
+  /**
+   * Resilience surface (additive). `GET /api/turns` lists interrupted/ambiguous
+   * chat turns; `POST /api/sessions/:id/resume` sends the same continuation the
+   * automatic pass uses (marker-reconciled, single-flight); the engine controls
+   * only forward to the supervisor sidecar. None of these expose the Docker
+   * socket or accept an arbitrary service name.
+   */
+  const publicTurn = (turn: TurnRecord) => ({
+    sessionID: turn.sessionID,
+    startedAt: turn.startedAt,
+    state: turn.state,
+    reason: turn.reason,
+  })
+
+  api.get("/turns", (c) => {
+    return c.json({ turns: engine.listTurns().map(publicTurn) })
+  })
+
+  api.post("/sessions/:sessionID/resume", async (c) => {
+    const sessionID = c.req.param("sessionID")
+    if (!sessionID) return c.json({ error: "invalid_session" }, 400)
+    const result = await engine.resumeTurn(sessionID, { automatic: false })
+    if (result.status === "resumed") return c.json({ resumed: true }, 202)
+    if (result.status === "skipped") {
+      const notFound =
+        result.reason === "no_turn" || result.reason === "not_interrupted" || result.reason === "internal_turn"
+      return c.json({ error: result.reason ?? "resume_skipped" }, notFound ? 404 : 409)
+    }
+    return c.json(
+      { error: result.reason ?? "resume_failed", ambiguous: result.ambiguous === true },
+      result.ambiguous ? 504 : 502,
+    )
+  })
+
+  let lastEngineActionAt = 0
+  async function engineAction(
+    c: Context,
+    run: () => Promise<{ ok: boolean; error?: string }>,
+  ): Promise<Response> {
+    // A restart is non-idempotent and the sidecar is root-equivalent: one
+    // action per 10 s, then the client reconciles through `/api/status`.
+    const nowMs = Date.now()
+    if (nowMs - lastEngineActionAt < 10_000) return c.json({ error: "too_many_requests" }, 429)
+    lastEngineActionAt = nowMs
+    const result = await run()
+    if (result.ok) return c.json({ accepted: true }, 202)
+    const status = result.error === "not_found" ? 404 : 503
+    return c.json({ error: result.error ?? "supervisor_unavailable" }, status)
+  }
+
+  api.post("/engine/restart", (c) => engineAction(c, () => engine.restartEngine()))
+  api.post("/engine/reset", (c) => engineAction(c, () => engine.resetEngine()))
+
   app.route("/api", api)
   // In-flight releases drain against a live store on shutdown (issue #192).
   // Never rejects.
   const drainInFlight = (): Promise<void> =>
     Promise.allSettled([...releasing.values()].map((entry) => entry.promise)).then(() => {})
 
-  return { app, goals, scheduler, drainInFlight }
+  return { app, goals, scheduler, engine, drainInFlight }
 }
 
 export { SESSION_COOKIE }

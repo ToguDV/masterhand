@@ -10,6 +10,7 @@ const SMOKE_SPECS = [
   "**/permissions.spec.ts",
   "**/permission-ambiguity.spec.ts",
   "**/reconnect.spec.ts",
+  "**/resilience.spec.ts",
   "**/run.spec.ts",
   "**/composer-stuck.spec.ts",
   "**/workspaces.spec.ts",

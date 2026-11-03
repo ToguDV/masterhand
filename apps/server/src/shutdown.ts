@@ -10,6 +10,8 @@
 export interface ShutdownResources {
   scheduler?: { stop(): void; flush(): Promise<void> } | null
   goals?: { stop(): void; flush(): Promise<void> } | null
+  /** Resilience monitor: stops its timers and SSE subscription. */
+  engine?: { stop(): void } | null
   preview: { stopAll(): Promise<void> }
   hub: { stop(): void }
   store: { close(): void }
@@ -87,6 +89,11 @@ export async function shutdownServer(
 
   // No new manager work from here (timers stopped first); the in-flight
   // chains drain against a deadline while the store they write to is live.
+  try {
+    resources.engine?.stop()
+  } catch {
+    // best effort: the remaining steps still run
+  }
   for (const manager of [resources.scheduler, resources.goals]) {
     try {
       manager?.stop()

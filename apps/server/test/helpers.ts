@@ -436,6 +436,15 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     gitUserEmail: "tests@masterhand.local",
     agentConfigDir: null,
     previewEnabled: true,
+    watchdogUrl: null,
+    watchdogToken: null,
+    resilienceAutoResume: true,
+    resilienceAutoContinueChats: true,
+    resilienceMaxChatResumes: 3,
+    resilienceResumeGapMs: 0,
+    resilienceRecoveryTimeoutMs: 5_000,
+    resilienceRecoveryMinOutageMs: 0,
+    resilienceHealthGraceMs: 0,
     previewOrigin: "127.0.0.1",
     previewPortRange: { min: 32900, max: 32999 },
     previewReadinessMs: 25_000,
@@ -598,6 +607,9 @@ export async function startTestApp(
     diskFreeBytes?: (path: string) => number | null
     proxyBodyLimitBytes?: number
     updateApplier?: import("../src/updater.js").UpdateApplier
+    attachmentUpload?: typeof import("../src/attachments.js").uploadAttachment
+    attachmentConcurrency?: number
+    engine?: import("../src/engine.js").EngineMonitor
     /** Test-only request observer, e.g. to signal that a request arrived. */
     onRequest?: (request: Request) => void
     previewOptions?: {
@@ -662,6 +674,9 @@ export async function startTestApp(
     diskFreeBytes: options.diskFreeBytes,
     proxyBodyLimitBytes: options.proxyBodyLimitBytes,
     updateApplier: options.updateApplier,
+    attachmentUpload: options.attachmentUpload,
+    attachmentConcurrency: options.attachmentConcurrency,
+    engine: options.engine,
   })
   const app = built.app
   const server = serve({

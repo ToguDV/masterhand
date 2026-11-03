@@ -303,8 +303,32 @@ export interface GoalRunRecord {
   pausedPhase: GoalPhase | "cap" | null
   /** Increments per prompt so reconciliation markers stay unique. */
   promptSerial: number
+  /**
+   * Automatic crash recoveries spent by this run (bounded). Reset when a
+   * phase advances, so a single crash is retried but a restart loop is not.
+   * Optional on older callers/tests; the store reads 0 when absent.
+   */
+  recoveryAttempts?: number
   createdAt: number
   updatedAt: number
+}
+
+/** Lifecycle of one journaled agent turn (resilience, migration v6). */
+export type TurnState = "running" | "completed" | "failed" | "interrupted" | "cancelled" | "resumed" | "ambiguous"
+
+/** Who started the turn: only `chat` is auto-continued. */
+export type TurnOrigin = "chat" | "goal" | "scheduler" | "subagent"
+
+export interface TurnRecord {
+  sessionID: string
+  workspacePath: string | null
+  startedAt: number
+  lastEventAt: number
+  state: TurnState
+  origin: TurnOrigin
+  reason: string | null
+  resumeAttempts: number
+  lastResumeAt: number | null
 }
 
 /** Single-user goal settings (critic/judge models, round budget). */
@@ -544,6 +568,16 @@ export interface Store {
   listGoalRunMembers(): GoalRunMember[]
   getGoalSettings(): GoalSettingsRecord
   saveGoalSettings(settings: GoalSettingsRecord): void
+  /** Durable turn journal: one row per session, newest first when listed. */
+  getTurn(sessionID: string): TurnRecord | null
+  /** Full upsert by session id. */
+  saveTurn(record: TurnRecord): void
+  /** Rows in any of `states` (default: every row), newest first, capped. */
+  listTurns(states?: TurnState[], limit?: number): TurnRecord[]
+  /** Idempotent: a deleted session leaves no journal row. */
+  removeTurn(sessionID: string): void
+  /** Retention: closes/prunes terminal and stale open rows in one pass. */
+  pruneTurns(terminalBefore: number, openBefore: number): void
   /** Board snapshot for a workspace (columns with nested cards, sorted by position). */
   getBoard(workspaceID: string): BoardSnapshot
   /** O(1) column lookup for routes (workspace resolution without scanning). */
@@ -588,6 +622,8 @@ export interface Store {
   createScheduledRun(record: ScheduledRun): void
   saveScheduledRun(record: ScheduledRun): void
   getScheduledRun(id: string): ScheduledRun | null
+  /** Newest run that used this session (recovery ownership check). */
+  getScheduledRunBySession(sessionID: string): ScheduledRun | null
   /** Newest run of a task still in queued/firing/running, or null. */
   getActiveScheduledRun(taskId: string): ScheduledRun | null
   /** Every queued/firing/running run across tasks (boot reconcile, liveness). */
@@ -758,6 +794,7 @@ export function createSqliteStore(file: string): Store {
            history, error, awaiting_kind AS awaitingKind, awaiting_session_id AS awaitingSessionID,
            awaiting_assistant_id AS awaitingAssistantID, attempt, last_error AS lastError,
            paused_phase AS pausedPhase, prompt_serial AS promptSerial, nudged,
+           recovery_attempts AS recoveryAttempts,
            created_at AS createdAt, updated_at AS updatedAt
     FROM goal_runs
   `
@@ -780,12 +817,12 @@ export function createSqliteStore(file: string): Store {
       session_id, run_token, goal, state, round, max_rounds, main_model, critic_model, judge_model,
       critic_session_id, judge_session_id, last_report, last_critique, last_verdict,
       history, error, awaiting_kind, awaiting_session_id, awaiting_assistant_id, attempt,
-      last_error, paused_phase, prompt_serial, nudged, created_at, updated_at
+      last_error, paused_phase, prompt_serial, nudged, recovery_attempts, created_at, updated_at
     ) VALUES (
       @sessionID, @runToken, @goal, @state, @round, @maxRounds, @mainModel, @criticModel, @judgeModel,
       @criticSessionID, @judgeSessionID, @lastReport, @lastCritique, @lastVerdict,
       @history, @error, @awaitingKind, @awaitingSessionID, @awaitingAssistantID, @attempt,
-      @lastError, @pausedPhase, @promptSerial, @nudged, @createdAt, @updatedAt
+      @lastError, @pausedPhase, @promptSerial, @nudged, @recoveryAttempts, @createdAt, @updatedAt
     )
   `)
   const removeGoalRunStatement = db.prepare("DELETE FROM goal_runs WHERE session_id = ?")
@@ -796,6 +833,32 @@ export function createSqliteStore(file: string): Store {
     INSERT OR REPLACE INTO goal_settings (id, max_rounds, critic_model, judge_model)
     VALUES (1, @maxRounds, @criticModel, @judgeModel)
   `)
+
+  const turnColumns = `
+    SELECT session_id AS sessionID, workspace_path AS workspacePath,
+           started_at AS startedAt, last_event_at AS lastEventAt,
+           state, origin, reason, resume_attempts AS resumeAttempts,
+           last_resume_at AS lastResumeAt
+    FROM turn_journal
+  `
+  const getTurnStatement = db.prepare(`${turnColumns} WHERE session_id = ?`)
+  const listTurnsStatement = db.prepare(`${turnColumns} ORDER BY started_at DESC, session_id DESC LIMIT ?`)
+  const saveTurnStatement = db.prepare(`
+    INSERT OR REPLACE INTO turn_journal (
+      session_id, workspace_path, started_at, last_event_at, state, origin, reason,
+      resume_attempts, last_resume_at
+    ) VALUES (
+      @sessionID, @workspacePath, @startedAt, @lastEventAt, @state, @origin, @reason,
+      @resumeAttempts, @lastResumeAt
+    )
+  `)
+  const removeTurnStatement = db.prepare("DELETE FROM turn_journal WHERE session_id = ?")
+  const pruneTerminalTurnsStatement = db.prepare(
+    "DELETE FROM turn_journal WHERE state <> 'running' AND last_event_at < ?",
+  )
+  const pruneOpenTurnsStatement = db.prepare(
+    "DELETE FROM turn_journal WHERE state = 'running' AND last_event_at < ?",
+  )
 
   const boardColumnColumns = `
     SELECT id, workspace_id AS workspaceID, title, position,
@@ -889,6 +952,9 @@ export function createSqliteStore(file: string): Store {
      ORDER BY started_at DESC, rowid DESC LIMIT 1`,
   )
   const getScheduledRunStatement = db.prepare(`${scheduledRunColumns} WHERE id = ?`)
+  const getScheduledRunBySessionStatement = db.prepare(
+    `${scheduledRunColumns} WHERE session_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1`,
+  )
   const saveScheduledRunStatement = db.prepare(`
     INSERT OR REPLACE INTO scheduled_runs (id, task_id, session_id, status, source, error, started_at, ended_at)
     VALUES (@id, @taskId, @sessionID, @status, @source, @error, @startedAt, @endedAt)
@@ -980,6 +1046,7 @@ export function createSqliteStore(file: string): Store {
       ...(row as unknown as GoalRunRecord),
       runToken: typeof row.runToken === "string" ? row.runToken : "",
       nudged: row.nudged === 1,
+      recoveryAttempts: typeof row.recoveryAttempts === "number" ? row.recoveryAttempts : 0,
       lastReport: parseJson<GoalReport>(row.lastReport),
       lastCritique: parseJson<GoalCritique>(row.lastCritique),
       lastVerdict: parseJson<GoalVerdict>(row.lastVerdict),
@@ -1179,6 +1246,7 @@ export function createSqliteStore(file: string): Store {
       saveGoalRunStatement.run({
         ...record,
         nudged: record.nudged ? 1 : 0,
+        recoveryAttempts: record.recoveryAttempts ?? 0,
         lastReport: record.lastReport ? JSON.stringify(record.lastReport) : null,
         lastCritique: record.lastCritique ? JSON.stringify(record.lastCritique) : null,
         lastVerdict: record.lastVerdict ? JSON.stringify(record.lastVerdict) : null,
@@ -1207,6 +1275,33 @@ export function createSqliteStore(file: string): Store {
     },
     saveGoalSettings(settings) {
       saveGoalSettingsStatement.run(settings)
+    },
+    getTurn(sessionID) {
+      return (getTurnStatement.get(sessionID) as TurnRecord | undefined) ?? null
+    },
+    saveTurn(record) {
+      saveTurnStatement.run(record)
+    },
+    listTurns(states, limit = 200) {
+      const capped = Math.max(1, Math.min(limit, 1000))
+      if (!states || states.length === 0) {
+        return listTurnsStatement.all(capped) as TurnRecord[]
+      }
+      // Filter in SQL so a long-lived open turn cannot be hidden behind newer
+      // terminal rows; the statement is prepared per call (journal reads are
+      // rare: recovery passes, `/api/turns` and the status count).
+      const placeholders = states.map(() => "?").join(",")
+      const statement = db.prepare(
+        `${turnColumns} WHERE state IN (${placeholders}) ORDER BY started_at DESC, session_id DESC LIMIT ?`,
+      )
+      return statement.all(...states, capped) as TurnRecord[]
+    },
+    removeTurn(sessionID) {
+      removeTurnStatement.run(sessionID)
+    },
+    pruneTurns(terminalBefore, openBefore) {
+      pruneTerminalTurnsStatement.run(terminalBefore)
+      pruneOpenTurnsStatement.run(openBefore)
     },
     getBoard(workspaceID) {
       return readBoardSnapshot(workspaceID)
@@ -1442,6 +1537,10 @@ export function createSqliteStore(file: string): Store {
     },
     getScheduledRun(id) {
       const row = getScheduledRunStatement.get(id) as Record<string, unknown> | undefined
+      return row ? normalizeScheduledRun(row) : null
+    },
+    getScheduledRunBySession(sessionID) {
+      const row = getScheduledRunBySessionStatement.get(sessionID) as Record<string, unknown> | undefined
       return row ? normalizeScheduledRun(row) : null
     },
     getActiveScheduledRun(taskId) {

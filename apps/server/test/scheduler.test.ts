@@ -277,7 +277,9 @@ describe("scheduler tick overlap", () => {
       expect(debug).toHaveBeenCalledWith(expect.stringContaining("already running"))
       release()
       await Promise.all([first, second])
-      expect(activeCalls).toBe(1)
+      // One snapshot for the pass + one mid-pass revalidation; the skipped
+      // second tick never called upstream.
+      expect(activeCalls).toBe(2)
     } finally {
       debug.mockRestore()
     }

@@ -30,6 +30,8 @@ import { SessionToolbar } from "../components/SessionToolbar"
 import { SessionStats } from "../components/SessionStats"
 import { GoalReview } from "../components/GoalReview"
 import { GoalStrip } from "../components/GoalStrip"
+import { InterruptedTurnCard } from "../components/InterruptedTurnCard"
+import { EngineBanner } from "../components/EngineBanner"
 import { MessageBubble } from "../components/MessageBubble"
 import { PendingBubble } from "../components/PendingBubble"
 import { AuditModal } from "../components/AuditModal"
@@ -393,6 +395,7 @@ export function ChatScreen({
       ) : null}
 
       <View style={styles.listWrap}>
+        <EngineBanner client={client} />
         {messages.length === 0 ? (
           <View style={styles.listWrap}>
             {messagesQuery.isLoading ? (
@@ -474,7 +477,7 @@ export function ChatScreen({
       </View>
 
       <GoalStrip client={client} sessionID={sessionID} />
-
+      <InterruptedTurnCard client={client} sessionID={sessionID} />
       <Composer
         key={sessionID}
         ref={composerRef}

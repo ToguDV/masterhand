@@ -28,6 +28,7 @@
  * Build (see deploy/opencode.Dockerfile): gcc -O2 -Wall -Wextra agent-exec.c
  * Runtime drill: deploy/agent-exec-drill.sh (inside the opencode container).
  */
+#include <fcntl.h>
 #include <grp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +89,20 @@ static void close_inherited_fds(void) {
   for (int fd = 3; fd < limit; fd++) close(fd);
 }
 
+/**
+ * Agent processes are the memory hogs: raise their OOM score so a runaway
+ * build is killed before `opencode serve` (PID 1, kept at -500 by Compose).
+ * Raising the score is always allowed without privilege; lowering it is not.
+ */
+static void raise_oom_score(void) {
+  int fd = open("/proc/self/oom_score_adj", O_WRONLY);
+  if (fd < 0) return; /* older kernel or restricted proc: best effort */
+  const char value[] = "500";
+  ssize_t written = write(fd, value, sizeof(value) - 1);
+  (void)written;
+  close(fd);
+}
+
 int main(int argc, char **argv) {
   const int exec_mode = argc > 1 && strcmp(argv[1], "--exec") == 0;
   if (exec_mode && (argc < 3 || argv[2][0] == '\0')) {
@@ -122,6 +137,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   umask(002);
+  raise_oom_score();
 
   /* Minimal allowlist: nothing the engine inherited reaches agent code. */
   if (clearenv() != 0) {

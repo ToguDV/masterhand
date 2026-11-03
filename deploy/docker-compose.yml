@@ -16,6 +16,16 @@ services:
         MASTERHAND_VERSION: ${MASTERHAND_VERSION:-0.6.0}
         MASTERHAND_BUILD: ${MASTERHAND_BUILD:-dev}
     restart: unless-stopped
+    # Reap orphaned children (cloudflared/git/gh) instead of leaving zombies in
+    # a long-lived container; cap processes so a fork bomb cannot exhaust the
+    # host, and keep the BFF first in the OOM queue (agent shells are the
+    # workload that should be sacrificed first).
+    init: true
+    oom_score_adj: ${MASTERHAND_OOM_SCORE_ADJ:--500}
+    mem_swappiness: 0
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
     # Bound container logs: a long agent turn can produce gigabytes, and the
     # host disk is shared with SQLite and the workspaces.
     logging:
@@ -30,6 +40,7 @@ services:
         limits:
           cpus: "${MASTERHAND_CPUS_LIMIT:-1}"
           memory: "${MASTERHAND_MEMORY_LIMIT:-1g}"
+          pids: ${MASTERHAND_PIDS_LIMIT:-256}
     env_file:
       - .env
     environment:
@@ -37,6 +48,14 @@ services:
       OPENCODE_URL: http://opencode:4096
       DATA_DIR: /data
       WEB_DIST: apps/web/dist
+      # Resilience supervisor sidecar (status + manual controls). The token is
+      # shared only with the watchdog container; clients never see it. An empty
+      # token keeps automatic restarts but hides the status panel.
+      WATCHDOG_URL: http://watchdog:8080
+      WATCHDOG_TOKEN: ${WATCHDOG_TOKEN:-}
+      # Leave headroom for native buffers, SSE queues and upload copies below
+      # the cgroup limit; Node GCs before Docker's OOM killer arrives.
+      NODE_OPTIONS: --max-old-space-size=${MASTERHAND_HEAP_MB:-768}
       # Every workspace is a subfolder created here (same path opencode sees).
       WORKSPACES_ROOT: /workspace
       # Live previews: the tunnel targets the dev server inside the opencode
@@ -81,10 +100,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8787/api/health || exit 1"]
-      interval: 15s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 3
+      start_period: 30s
 
   opencode:
     build:
@@ -100,6 +119,14 @@ services:
         PLAYWRIGHT_BROWSERS: ${PLAYWRIGHT_BROWSERS:-auto}
         PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION:-1.64.1}
     restart: unless-stopped
+    # Agent builds are the memory/process hogs: reap orphans, cap processes,
+    # let the OOM killer pick an agent shell (score +500 set by agent-exec)
+    # before the engine (PID 1, -500), and keep a boot that takes longer than
+    # 15 s from being judged unhealthy.
+    init: true
+    oom_score_adj: ${OPENCODE_OOM_SCORE_ADJ:--500}
+    mem_swappiness: 0
+    stop_grace_period: 20s
     # Same log cap as the BFF: opencode and every agent shell write here.
     logging:
       driver: json-file
@@ -113,11 +140,15 @@ services:
         limits:
           cpus: "${OPENCODE_CPUS_LIMIT:-2}"
           memory: "${OPENCODE_MEMORY_LIMIT:-4g}"
+          pids: ${OPENCODE_PIDS_LIMIT:-1024}
     environment:
       # Only the opencode credentials are shared with this container; the BFF
       # secrets (MASTERHAND_PASSWORD, SESSION_SECRET) stay out of it.
       OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:?set it in deploy/.env}
       OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
+      # The engine keeps a bounded JS heap; the rest of the container budget is
+      # for the agent shells/builds (which run as a separate uid).
+      NODE_OPTIONS: --max-old-space-size=${OPENCODE_HEAP_MB:-2048}
       # Every agent shell command goes through the setuid dropper, so the shell
       # runs as `agent` (uid 1001) and never as the `node` user (uid 1000) that
       # runs the engine. Inline config wins over a workspace's opencode.json,
@@ -158,10 +189,58 @@ services:
           "CMD-SHELL",
           "curl -fsS -u \"$${OPENCODE_SERVER_USERNAME:-opencode}:$${OPENCODE_SERVER_PASSWORD}\" http://127.0.0.1:4096/api/info || exit 1",
         ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Resilience supervisor (default-on). It is the only always-on container with
+  # the Docker socket: it resolves `masterhand`/`opencode` by Compose labels and
+  # can only restart/stop those two services. The BFF talks to it with
+  # WATCHDOG_TOKEN; clients never see the token. See docs/runbooks/resilience.md.
+  watchdog:
+    image: ghcr.io/togudv/masterhand-watchdog:${MASTERHAND_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: watchdog.Dockerfile
+    restart: unless-stopped
+    init: true
+    pids_limit: 128
+    # The supervisor must survive a host-level OOM even if it has to stop a
+    # memory hog; the Docker socket is its only privilege.
+    oom_score_adj: -900
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PORT: "8080"
+      # Empty keeps automatic restarts but disables /status and the manual
+      # buttons (the BFF reports supervisor: false). Generate one with
+      # `openssl rand -hex 32` and set it in deploy/.env.
+      WATCHDOG_TOKEN: ${WATCHDOG_TOKEN:-}
+      WATCHDOG_PROJECT: masterhand
+      WATCHDOG_SERVICES: masterhand,opencode
+      WATCHDOG_STATE_FILE: /state/watchdog.json
+      WATCHDOG_POLL_MS: ${WATCHDOG_POLL_MS:-10000}
+      WATCHDOG_MAX_ATTEMPTS: ${WATCHDOG_MAX_ATTEMPTS:-3}
+      WATCHDOG_STABILITY_MS: ${WATCHDOG_STABILITY_MS:-300000}
+      WATCHDOG_STARTUP_GRACE_MS: ${WATCHDOG_STARTUP_GRACE_MS:-180000}
+      WATCHDOG_RESTART_COOLDOWN_MS: ${WATCHDOG_RESTART_COOLDOWN_MS:-30000}
+      WATCHDOG_UNHEALTHY_SAMPLES: ${WATCHDOG_UNHEALTHY_SAMPLES:-2}
+      WATCHDOG_MEMORY_SAMPLES: ${WATCHDOG_MEMORY_SAMPLES:-6}
+      WATCHDOG_MEMORY_PCT: ${WATCHDOG_MEMORY_PCT:-95}
+      WATCHDOG_STOP_ON_CIRCUIT: ${WATCHDOG_STOP_ON_CIRCUIT:-true}
+      # Optional external alert (ntfy/Slack/generic POST), best effort.
+      WATCHDOG_WEBHOOK_URL: ${WATCHDOG_WEBHOOK_URL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - watchdog_state:/state
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILES:-3}"
 
   # Opt-in one-click BFF updater (#134). Start it with:
   #   docker compose --profile updater up -d
@@ -178,6 +257,10 @@ services:
     image: ghcr.io/togudv/masterhand-updater:${MASTERHAND_VERSION:-latest}
     profiles: ["updater"]
     restart: unless-stopped
+    init: true
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
     environment:
       UPDATER_TOKEN: ${MASTERHAND_UPDATE_TOKEN:-}
       COMPOSE_FILE: /deploy/docker-compose.yml
@@ -204,3 +287,4 @@ volumes:
   opencode_config:
   opencode_data:
   agent_config:
+  watchdog_state:

@@ -30,3 +30,52 @@ test("the dev overlay tags its own image instead of the production tag", () => {
   assert.match(devCompose, /image:\s*\$\{MASTERHAND_DEV_IMAGE:-masterhand-dev:local\}/)
   assert.doesNotMatch(devCompose, /image:\s*ghcr\.io\/togudv\/masterhand:/)
 })
+
+test("the resilience watchdog is the only always-on Docker-socket consumer", () => {
+  assert.match(compose, /^ {2}watchdog:/m)
+  assert.match(compose, /ghcr\.io\/togudv\/masterhand-watchdog:/)
+  assert.match(compose, /WATCHDOG_SERVICES:\s*masterhand,opencode/)
+  assert.match(compose, /WATCHDOG_STOP_ON_CIRCUIT:/)
+  assert.match(compose, /watchdog_state:\/state/)
+  // The BFF and the engine must never see the socket.
+  const masterhandBlock = compose.slice(compose.indexOf("  masterhand:"), compose.indexOf("  opencode:"))
+  const opencodeBlock = compose.slice(compose.indexOf("  opencode:"), compose.indexOf("  watchdog:"))
+  assert.doesNotMatch(masterhandBlock, /docker\.sock/)
+  assert.doesNotMatch(opencodeBlock, /docker\.sock/)
+  assert.match(compose, /WATCHDOG_URL:\s*http:\/\/watchdog:8080/)
+  assert.match(compose, /WATCHDOG_TOKEN:/)
+})
+
+test("the watchdog has no published ports and a token-gated control surface", () => {
+  const block = compose.slice(compose.indexOf("  watchdog:"), compose.indexOf("  # Opt-in one-click BFF updater"))
+  assert.doesNotMatch(block, /ports:/)
+  assert.match(block, /security_opt:\s*\n\s*- no-new-privileges:true/)
+  // The BFF's env_file carries the token into the process, never into a client.
+  assert.doesNotMatch(block, /env_file:/)
+})
+
+test("container hardening is pinned (init, pids, OOM score, heap caps)", () => {
+  assert.match(compose, /init: true/)
+  assert.match(compose, /pids:\s*\$\{MASTERHAND_PIDS_LIMIT:-256\}/)
+  assert.match(compose, /pids:\s*\$\{OPENCODE_PIDS_LIMIT:-1024\}/)
+  assert.match(compose, /oom_score_adj:\s*\$\{MASTERHAND_OOM_SCORE_ADJ:--500\}/)
+  assert.match(compose, /oom_score_adj:\s*\$\{OPENCODE_OOM_SCORE_ADJ:--500\}/)
+  assert.match(compose, /NODE_OPTIONS:\s*--max-old-space-size=\$\{MASTERHAND_HEAP_MB:-768\}/)
+  assert.match(compose, /NODE_OPTIONS:\s*--max-old-space-size=\$\{OPENCODE_HEAP_MB:-2048\}/)
+  assert.match(compose, /stop_grace_period: 30s/)
+  assert.match(compose, /start_period: 60s/)
+})
+
+test("the release workflow publishes the watchdog image", () => {
+  const workflow = readFileSync(join(repoRoot, ".github", "workflows", "release.yml"), "utf8")
+  assert.match(workflow, /-watchdog:/)
+  assert.match(workflow, /deploy\/watchdog\.Dockerfile/)
+})
+
+test("the env example documents the resilience knobs", () => {
+  const example = readFileSync(join(repoRoot, "deploy", ".env.example"), "utf8")
+  assert.match(example, /WATCHDOG_TOKEN=/)
+  assert.match(example, /WATCHDOG_MAX_ATTEMPTS=3/)
+  assert.match(example, /RESILIENCE_AUTO_RESUME=true/)
+  assert.match(example, /RESILIENCE_AUTO_CONTINUE_CHATS=true/)
+})

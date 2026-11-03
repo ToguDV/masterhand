@@ -53,8 +53,12 @@ export const GOAL_INTERNAL_MARKER_KEY = "masterhand.goal.internal"
 export const MAX_GOAL_LENGTH = 4000
 /** How many times a failed phase is re-driven before the run errors out. */
 export const MAX_PHASE_RETRIES = 3
+/** Automatic crash recoveries per run before it pauses for a human decision. */
+export const DEFAULT_MAX_RECOVERY_ATTEMPTS = 2
 const PHASE_RETRY_BASE_MS = 2000
 const DEFAULT_WATCHDOG_MS = 30_000
+const RECOVERY_REASON =
+  "the agent engine restarted after a crash — check the state of what you already did and avoid re-running heavy work unchanged"
 
 export const GOAL_INSTRUCTION = `You are working in MasterHand Goal Mode: a main goal, an adversarial critic and an impartial judge.
 
@@ -297,6 +301,14 @@ export interface GoalManagerOptions {
   /** Watchdog interval for lost events; 0 disables it (tests drive `reconcile`). */
   watchdogMs?: number
   defaultMaxRounds?: number
+  /**
+   * Re-drive in-flight runs after a restart. Production enables it from
+   * `RESILIENCE_AUTO_RESUME`; the manager default stays off so unit tests and
+   * callers that want the old behavior are explicit.
+   */
+  autoResume?: boolean
+  /** Automatic crash recoveries allowed per run (default 2). */
+  maxRecoveryAttempts?: number
 }
 
 export interface GoalManager {
@@ -311,8 +323,20 @@ export interface GoalManager {
   handleEvent(event: unknown): void
   /** One watchdog pass over runs awaiting a session that looks idle. */
   reconcile(): Promise<void>
-  /** Marks in-flight runs paused after a BFF restart (never auto-resumes). */
-  reconcileOnBoot(): void
+  /**
+   * Boot pass: records in-flight runs after a restart. With `autoResume` they
+   * stay recoverable and `recoverInterrupted()` re-drives them once the engine
+   * answers; without it they are paused (the pre-resilience behavior).
+   */
+  reconcileOnBoot(options?: { autoResume?: boolean }): void
+  /**
+   * Re-drives runs that survived a restart: awaiting runs go through the
+   * watchdog reconciliation first (a prompt that landed is never replayed);
+   * runs caught between phases are re-driven from their persisted phase.
+   */
+  recoverInterrupted(): Promise<void>
+  /** Gives up on automatic recovery (the engine stayed down / circuit open). */
+  pauseInterrupted(reason: string): Promise<void>
   /** Waits for every queued transition (tests). */
   flush(): Promise<void>
   stop(): void
@@ -441,6 +465,8 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     jitter: options.retry?.jitter ?? true,
   }
   const defaultMaxRounds = options.defaultMaxRounds ?? DEFAULT_GOAL_MAX_ROUNDS
+  const autoResumeDefault = options.autoResume ?? false
+  const maxRecoveryAttempts = Math.max(0, options.maxRecoveryAttempts ?? DEFAULT_MAX_RECOVERY_ATTEMPTS)
 
   /** Per-run transition queue: events and watchdog passes never interleave. */
   const { enqueue, runExclusive, flush } = createEntityChain("goal")
@@ -735,6 +761,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
   async function settleRound(run: GoalRunRecord, verdict: GoalVerdict): Promise<void> {
     run.lastVerdict = verdict
     run.attempt = 0
+    run.recoveryAttempts = 0
     run.history = [...run.history, { round: run.round, critique: run.lastCritique, verdict }]
     if (verdict.approved) {
       run.state = "approved"
@@ -803,6 +830,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
 
     const kind = run.awaitingKind
     run.awaitingAssistantID = last.id
+    run.lastError = null
     persist(run)
 
     if (kind === "main") {
@@ -813,6 +841,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       }
       run.lastReport = report
       run.attempt = 0
+      run.recoveryAttempts = 0
       if (report.status === "blocked") {
         fail(run, `the agent reported the goal as blocked: ${report.reason ?? report.summary}`, "main")
         return true
@@ -829,6 +858,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       }
       run.lastCritique = critique
       run.attempt = 0
+      run.recoveryAttempts = 0
       await startJudge(run, critique)
       return true
     }
@@ -1004,6 +1034,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
         lastError: null,
         pausedPhase: null,
         promptSerial: 0,
+        recoveryAttempts: 0,
         createdAt: now(),
         updatedAt: now(),
       }
@@ -1076,6 +1107,7 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
       live.error = null
       live.lastError = null
       live.attempt = 0
+      live.recoveryAttempts = 0
 
       if (live.pausedPhase === "cap") {
         live.round += 1
@@ -1219,7 +1251,10 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
               return // leave it for the next pass; an outage must not fail it
             }
             if (!stillIdle) return
-            await retryPhase(current, kind, "the turn ended without a reply")
+            const retryReason = current.lastError?.startsWith("recovering")
+              ? RECOVERY_REASON
+              : "the turn ended without a reply"
+            await retryPhase(current, kind, retryReason)
           }
         })
       }
@@ -1229,19 +1264,127 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     }
   }
 
-  function reconcileOnBoot(): void {
+  /** The phase a persisted run state belongs to (for recovery re-drives). */
+  function phaseForState(state: GoalRunRecord["state"]): GoalPhase {
+    if (state === "critiquing") return "critic"
+    if (state === "judging") return "judge"
+    return "main"
+  }
+
+  function reconcileOnBoot(options: { autoResume?: boolean } = {}): void {
+    const autoResume = options.autoResume ?? autoResumeDefault
     for (const run of store.listGoalRuns()) {
       // Only in-flight phases are interrupted by a restart: runs already in
       // paused/error keep their own reason and verdict.
       if (run.state !== "running" && run.state !== "critiquing" && run.state !== "judging") continue
-      run.pausedPhase = run.pausedPhase ?? run.awaitingKind ?? "main"
-      run.state = "paused"
-      run.error = "The run was interrupted by a MasterHand restart — resume to continue."
-      run.lastError = null
-      run.attempt = 0
-      clearAwaiting(run)
+      if (!autoResume) {
+        run.pausedPhase = run.pausedPhase ?? run.awaitingKind ?? "main"
+        run.state = "paused"
+        run.error = "The run was interrupted by a MasterHand restart — resume to continue."
+        run.lastError = null
+        run.attempt = 0
+        clearAwaiting(run)
+        persist(run)
+        continue
+      }
+      // Keep the phase and the awaiting baseline: the recovery pass first
+      // reconciles the last assistant message through the watchdog, so a
+      // prompt that actually landed is never replayed. A run that keeps
+      // crashing the engine spends this bounded budget and pauses.
+      const attempts = (run.recoveryAttempts ?? 0) + 1
+      run.recoveryAttempts = attempts
+      if (attempts > maxRecoveryAttempts) {
+        run.pausedPhase = run.pausedPhase ?? run.awaitingKind ?? phaseForState(run.state)
+        run.state = "paused"
+        run.error = `The run was interrupted by ${attempts - 1} restarts in a row — resume it manually.`
+        run.lastError = null
+        run.attempt = 0
+        clearAwaiting(run)
+        persist(run)
+        continue
+      }
+      run.error = null
+      run.lastError = "recovering after a MasterHand restart"
       persist(run)
     }
+  }
+
+  /** Re-drives a run that was caught between phases (no awaiting baseline). */
+  async function redriveInterrupted(run: GoalRunRecord): Promise<void> {
+    // The boot pass already spent one recovery for this incident and marked
+    // it with `lastError`; a later reconnect spends another. A phase that
+    // advances resets the counter (processIdle/settleRound), so a healthy run
+    // gets a fresh budget while a loop exhausts it.
+    if (run.lastError !== "recovering after a MasterHand restart") {
+      const attempts = (run.recoveryAttempts ?? 0) + 1
+      run.recoveryAttempts = attempts
+      if (attempts > maxRecoveryAttempts) {
+        fail(run, "the run was interrupted too many times — resume it manually", "main")
+        return
+      }
+      persist(run)
+    }
+    const phase = run.pausedPhase ?? phaseForState(run.state)
+    if (phase === "critic" && run.lastReport) {
+      await startCritique(run, run.lastReport)
+      return
+    }
+    if (phase === "judge" && run.lastCritique) {
+      await startJudge(run, run.lastCritique)
+      return
+    }
+    if (phase === "main") {
+      run.state = "running"
+      run.pausedPhase = null
+      persist(run)
+      try {
+        await promptPhase(run, "main", mainContinuation(run, RECOVERY_REASON))
+      } catch (error) {
+        await handlePhaseError(run, "main", error, "the recovery prompt")
+      }
+      return
+    }
+    fail(run, "the interrupted phase cannot be recovered automatically — resume it manually", "main")
+  }
+
+  async function recoverInterrupted(): Promise<void> {
+    // Awaiting runs belong to the watchdog: `reconcile()` checks their last
+    // assistant message before `retryPhase`, so a landed prompt is not replayed.
+    // Run it FIRST, before any re-drive: a freshly prompted run must get a
+    // chance to answer instead of being classified as lost by the same pass.
+    await reconcile()
+    const pending = store
+      .listGoalRuns()
+      .filter((run) => !TERMINAL_STATES.has(run.state) && run.state !== "paused" && run.state !== "error")
+      .filter((run) => !run.awaitingSessionID || !run.awaitingKind)
+    for (const run of pending) {
+      await enqueue(run.sessionID, async () => {
+        const live = store.getGoalRun(run.sessionID)
+        if (!live || TERMINAL_STATES.has(live.state) || live.state === "paused" || live.state === "error") return
+        if (live.awaitingSessionID && live.awaitingKind) return
+        await redriveInterrupted(live)
+      })
+    }
+    await flush()
+  }
+
+  async function pauseInterrupted(reason: string): Promise<void> {
+    const runs = store
+      .listGoalRuns()
+      .filter((run) => !TERMINAL_STATES.has(run.state) && run.state !== "paused" && run.state !== "error")
+    for (const run of runs) {
+      await enqueue(run.sessionID, async () => {
+        const live = store.getGoalRun(run.sessionID)
+        if (!live || TERMINAL_STATES.has(live.state) || live.state === "paused" || live.state === "error") return
+        live.pausedPhase = live.pausedPhase ?? live.awaitingKind ?? phaseForState(live.state)
+        live.state = "paused"
+        live.error = reason
+        live.lastError = null
+        clearAwaiting(live)
+        persist(live)
+      })
+    }
+    await flush()
   }
 
   function getSettings(): GoalSettingsRecord {
@@ -1296,6 +1439,8 @@ export function createGoalManager(options: GoalManagerOptions): GoalManager {
     handleEvent,
     reconcile,
     reconcileOnBoot,
+    recoverInterrupted,
+    pauseInterrupted,
     flush,
     stop() {
       if (watchdog) clearInterval(watchdog)
