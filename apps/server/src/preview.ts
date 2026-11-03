@@ -29,8 +29,22 @@ export interface PreviewManager {
    * appears after the call is still killed) and drops the reserved port.
    */
   forget(sessionID: string): Promise<void>
-  /** Whether the `cloudflared` binary can be executed (cached, async probe). */
+  /**
+   * Whether the `cloudflared` binary can be executed. A success is cached for
+   * the life of the process; a failure is retried with backoff inside the check
+   * and, if it persists, cached for a short TTL only — a transient timeout (a
+   * starved CPU, a cold page cache) can never disable previews until a restart.
+   */
   available(): Promise<boolean>
+}
+
+/** Outcome of one `cloudflared --version` attempt. */
+interface BinaryProbeResult {
+  ok: boolean
+  /** Why the attempt failed; empty on success. */
+  detail: string
+  /** False when retrying cannot help (missing or non-executable binary). */
+  retryable: boolean
 }
 
 export class PreviewError extends Error {
@@ -52,6 +66,18 @@ export interface PreviewManagerDeps {
   probe?: (host: string, port: number, timeoutMs: number) => Promise<boolean>
   /** Overridable for tests: does the cloudflared binary exist? */
   availableImpl?: () => boolean | Promise<boolean>
+  /**
+   * Overridable for tests: binary-probe policy. Production values are tuned for
+   * a loaded single-core host — three attempts of five seconds, so a cold or
+   * CPU-starved `cloudflared --version` is not mistaken for a missing binary.
+   */
+  probePolicy?: {
+    attempts?: number
+    timeoutMs?: number
+    retryDelayMs?: number
+    unavailableTtlMs?: number
+    now?: () => number
+  }
   /** Overridable for tests: is the public URL reachable yet? */
   readinessImpl?: (url: string) => Promise<boolean>
   /** How long to wait for cloudflared to announce its public URL. */
@@ -62,11 +88,29 @@ export interface PreviewManagerDeps {
 }
 
 const URL_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
-const PROBE_TIMEOUT_MS = 1500
+const TCP_PROBE_TIMEOUT_MS = 1500
 const URL_TIMEOUT_MS = 30_000
 const READINESS_INTERVAL_MS = 1_500
 const READINESS_REQUEST_TIMEOUT_MS = 5_000
 const KILL_GRACE_MS = 3000
+/**
+ * Binary probe (#283): a single `cloudflared --version` on a starved single-core
+ * host can take seconds (measured 1.2 s with the CPU oversubscribed 5×, against
+ * 0.05 s idle), so the 3 s budget of the first implementation turned a busy
+ * moment into "cloudflared is not installed". Each attempt gets five seconds and
+ * three attempts run before the binary is declared unavailable.
+ */
+const BINARY_PROBE_ATTEMPTS = 3
+const BINARY_PROBE_TIMEOUT_MS = 5_000
+const BINARY_PROBE_RETRY_DELAY_MS = 1_000
+/**
+ * A failed probe is cached only this long: after this window the next status
+ * poll or Start probes again, so a transient failure heals itself instead of
+ * disabling previews until a restart.
+ */
+const BINARY_UNAVAILABLE_TTL_MS = 30_000
+/** Spawn errors that mean the binary will not appear until the image changes. */
+const DEFINITIVE_SPAWN_ERRORS = new Set(["ENOENT", "EACCES", "ENOTDIR", "EPERM"])
 /** Port-allocation retries on a UNIQUE(port) race before giving up. */
 const MAX_PORT_ATTEMPTS = 5
 /** Tunnel PIDs are operational state; keep them owner-only like the data dir. */
@@ -90,6 +134,68 @@ function probeTcp(host: string, port: number, timeoutMs: number): Promise<boolea
     socket.once("connect", () => done(true))
     socket.once("timeout", () => done(false))
     socket.once("error", () => done(false))
+  })
+}
+
+function delay(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function spawnErrorDetail(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  const message = error instanceof Error ? error.message : String(error)
+  return code ? `${code} (${message})` : message
+}
+
+/**
+ * One `cloudflared --version` attempt, killed when it overruns `timeoutMs` so a
+ * hung binary cannot hold the availability check open. Timeouts and non-zero
+ * exits are retryable (a starved CPU or a cold page cache explains both); a
+ * missing or non-executable binary is not.
+ */
+function probeBinaryOnce(
+  command: string,
+  timeoutMs: number,
+  spawner: typeof spawn = spawn,
+): Promise<BinaryProbeResult> {
+  return new Promise((resolve) => {
+    let settled = false
+    let timer: NodeJS.Timeout | undefined
+    const finish = (result: BinaryProbeResult): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      resolve(result)
+    }
+    let child: ChildProcess
+    try {
+      child = spawner(command, ["--version"], { stdio: "ignore" })
+    } catch (error) {
+      finish({ ok: false, detail: spawnErrorDetail(error), retryable: false })
+      return
+    }
+    timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL")
+      } catch {
+        // already gone
+      }
+      finish({ ok: false, detail: `timed out after ${timeoutMs} ms`, retryable: true })
+    }, timeoutMs)
+    child.once("error", (error) => {
+      const code = (error as NodeJS.ErrnoException).code
+      finish({ ok: false, detail: spawnErrorDetail(error), retryable: !code || !DEFINITIVE_SPAWN_ERRORS.has(code) })
+    })
+    child.once("close", (code, signal) => {
+      finish(
+        code === 0
+          ? { ok: true, detail: "", retryable: false }
+          : { ok: false, detail: `exited with ${signal ?? `code ${code ?? "unknown"}`}`, retryable: true },
+      )
+    })
   })
 }
 
@@ -271,6 +377,11 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const urlTimeoutMs = deps.urlTimeoutMs ?? URL_TIMEOUT_MS
   const readinessTimeoutMs = deps.readinessTimeoutMs ?? config.previewReadinessMs
   const readinessIntervalMs = deps.readinessIntervalMs ?? READINESS_INTERVAL_MS
+  const probeAttempts = Math.max(1, deps.probePolicy?.attempts ?? BINARY_PROBE_ATTEMPTS)
+  const probeTimeoutMs = deps.probePolicy?.timeoutMs ?? BINARY_PROBE_TIMEOUT_MS
+  const probeRetryDelayMs = deps.probePolicy?.retryDelayMs ?? BINARY_PROBE_RETRY_DELAY_MS
+  const unavailableTtlMs = deps.probePolicy?.unavailableTtlMs ?? BINARY_UNAVAILABLE_TTL_MS
+  const now = deps.probePolicy?.now ?? Date.now
   const running = new Map<string, RunningPreview>()
   const starting = new Map<string, Promise<PreviewState>>()
   /** Children spawned by an in-flight start, killable before readiness finishes. */
@@ -288,8 +399,13 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
   const failures = new Map<string, string>()
   /** Last URL announced by a tunnel; kept after stops and failures for support. */
   const lastUrls = new Map<string, string>()
-  let availableCache: boolean | null = null
+  /** `true` once the binary answered: a working binary does not disappear. */
+  let availableOk: boolean | null = null
+  /** When the cached negative result expires; a failure is never permanent. */
+  let unavailableUntil = 0
   let availableInFlight: Promise<boolean> | null = null
+  /** Last failure line logged, so repeated status polls do not flood the log. */
+  let lastProbeLog: string | null = null
   const pidFile = tunnelPidFile(config.dataDir)
   const pidStore = createPidFileStore(pidFile)
 
@@ -308,56 +424,63 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     return pidStore.remove(pid).catch(() => {})
   }
 
-  /** Async `spawn` probe with a kill timeout; never blocks the event loop. */
-  function probeBinary(command: string, binaryTimeoutMs = 3000): Promise<boolean> {
-    return new Promise((resolve) => {
-      let child: ChildProcess
+  /**
+   * Runs the binary probe with retries. Never throws and never reports a
+   * permanent failure: a definitive spawn error (missing binary) stops after the
+   * first attempt, while timeouts and non-zero exits get the full retry budget.
+   */
+  async function runBinaryProbe(): Promise<BinaryProbeResult> {
+    let result: BinaryProbeResult = { ok: false, detail: "no attempt ran", retryable: true }
+    for (let attempt = 1; attempt <= probeAttempts; attempt += 1) {
       try {
-        child = spawn(command, ["--version"], { stdio: "ignore" })
-      } catch {
-        resolve(false)
-        return
-      }
-      const timer = setTimeout(() => {
-        try {
-          child.kill("SIGKILL")
-        } catch {
-          // already gone
+        if (deps.availableImpl) {
+          const ok = Boolean(await deps.availableImpl())
+          result = { ok, detail: ok ? "" : "injected availability check returned false", retryable: true }
+        } else {
+          result = await probeBinaryOnce(config.cloudflaredBin, probeTimeoutMs, spawnImpl)
         }
-      }, binaryTimeoutMs)
-      const finish = (value: boolean): void => {
-        clearTimeout(timer)
-        resolve(value)
+      } catch (error) {
+        result = { ok: false, detail: spawnErrorDetail(error), retryable: false }
       }
-      child.once("error", () => finish(false))
-      child.once("close", (code) => finish(code === 0))
-    })
+      if (result.ok || !result.retryable) return result
+      if (attempt < probeAttempts) await delay(probeRetryDelayMs)
+    }
+    return result
+  }
+
+  /** One line per distinct failure, plus a recovery line: polling stays quiet. */
+  function logProbe(previous: boolean | null, result: BinaryProbeResult): void {
+    if (result.ok) {
+      if (previous === false) console.info("[preview] cloudflared is available again")
+      lastProbeLog = null
+      return
+    }
+    const line = `[preview] cloudflared unavailable: ${result.detail}`
+    if (lastProbeLog === line) return
+    lastProbeLog = line
+    console.warn(line)
   }
 
   function available(): Promise<boolean> {
-    if (availableCache !== null) return Promise.resolve(availableCache)
-    // Concurrent /api/status polls share one probe instead of spawning per call.
+    if (availableOk === true) return Promise.resolve(true)
+    if (availableOk === false && now() < unavailableUntil) return Promise.resolve(false)
+    // Concurrent /api/status polls share one probe (and its retries).
     if (availableInFlight) return availableInFlight
     const check = (async (): Promise<boolean> => {
-      try {
-        if (deps.availableImpl) return Boolean(await deps.availableImpl())
-        return await probeBinary(config.cloudflaredBin)
-      } catch {
-        return false
-      }
+      const result = await runBinaryProbe()
+      const previous = availableOk
+      availableOk = result.ok
+      unavailableUntil = result.ok ? 0 : now() + unavailableTtlMs
+      logProbe(previous, result)
+      return result.ok
     })()
-    availableInFlight = check.then(
-      (value) => {
-        availableCache = value
+    availableInFlight = check
+      // A probe that throws is still just "not available right now"; the next
+      // poll re-checks instead of turning it into a 500 on /api/status.
+      .catch(() => false)
+      .finally(() => {
         availableInFlight = null
-        return value
-      },
-      () => {
-        availableCache = false
-        availableInFlight = null
-        return false
-      },
-    )
+      })
     return availableInFlight
   }
 
@@ -499,7 +622,7 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
 
     try {
       const port = portFor(sessionID)
-      const reachable = await probe(config.previewOrigin, port, PROBE_TIMEOUT_MS)
+      const reachable = await probe(config.previewOrigin, port, TCP_PROBE_TIMEOUT_MS)
       abortIfStale()
       if (!reachable) {
         console.warn(`[preview] ${sessionID}: no server listening on ${config.previewOrigin}:${port}`)
