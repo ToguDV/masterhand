@@ -158,6 +158,12 @@ export const test = base.extend<{}, { harness: WorkerHarness }>({
           // The fake trycloudflare URL is not a real host, so the BFF must not
           // wait for it to become reachable.
           PREVIEW_READINESS_MS: "0",
+          // Resilience: make the reconnect/health windows instant so the E2E
+          // can observe the recovery pass deterministically.
+          RESILIENCE_RECOVERY_MIN_OUTAGE_MS: "0",
+          RESILIENCE_HEALTH_GRACE_MS: "0",
+          RESILIENCE_RESUME_GAP_MS: "0",
+          RESILIENCE_RECOVERY_TIMEOUT_MS: "5000",
           CLOUDFLARED_BIN: path.join(e2eDir, "fake-cloudflared.sh"),
           // Creating this file makes the fake tunnel exit on its own (#89).
           E2E_CLOUDFLARED_DIE_FILE: e2eDieFile(workerIndex),

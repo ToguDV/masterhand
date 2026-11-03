@@ -278,7 +278,11 @@ interface Harness {
   delays: number[]
 }
 
-function harness(options: { settings?: { maxRounds?: number; criticModel?: string | null; judgeModel?: string | null } } = {}): Harness {
+function harness(options: {
+  settings?: { maxRounds?: number; criticModel?: string | null; judgeModel?: string | null }
+  autoResume?: boolean
+  maxRecoveryAttempts?: number
+} = {}): Harness {
   const store = createSqliteStore(":memory:")
   const opencode = new FakeOpencode()
   const events: Harness["events"] = []
@@ -303,6 +307,8 @@ function harness(options: { settings?: { maxRounds?: number; criticModel?: strin
       },
     },
     watchdogMs: 0,
+    autoResume: options.autoResume,
+    maxRecoveryAttempts: options.maxRecoveryAttempts,
   })
   return { store, opencode, manager, events, delays }
 }
@@ -1361,5 +1367,78 @@ describe("goal manager reliability", () => {
     await expect(h.manager.start({ sessionID: "ses_main", goal: "x".repeat(4001) })).rejects.toMatchObject({
       code: "goal_too_long",
     })
+  })
+})
+
+describe("goal crash recovery", () => {
+  it("keeps an in-flight run recoverable on boot when auto-resume is enabled", async () => {
+    const h = harness({ autoResume: true })
+    await start(h)
+    h.manager.reconcileOnBoot()
+    const run = h.manager.status("ses_main")!
+    expect(run.state).toBe("running")
+    expect(run.recoveryAttempts).toBe(1)
+    expect(run.error).toBeNull()
+    expect(run.lastError).toContain("recovering")
+  })
+
+  it("re-drives an awaiting phase through the watchdog with the restart context", async () => {
+    const h = harness({ autoResume: true })
+    await start(h)
+    const before = h.opencode.prompts.length
+    h.manager.reconcileOnBoot()
+    await h.manager.recoverInterrupted()
+    expect(h.opencode.prompts.length).toBe(before + 1)
+    expect(h.opencode.prompts.at(-1)?.text).toContain("the agent engine restarted after a crash")
+    expect(h.manager.status("ses_main")?.state).toBe("running")
+  })
+
+  it("re-drives a run caught between phases", async () => {
+    const h = harness({ autoResume: true })
+    await start(h)
+    const live = h.store.getGoalRun("ses_main")!
+    h.store.saveGoalRun({
+      ...live,
+      state: "running",
+      awaitingKind: null,
+      awaitingSessionID: null,
+      awaitingAssistantID: null,
+      pausedPhase: "main",
+    })
+    const before = h.opencode.prompts.length
+    await h.manager.recoverInterrupted()
+    expect(h.opencode.prompts.length).toBe(before + 1)
+    expect(h.opencode.prompts.at(-1)?.text).toContain("the agent engine restarted after a crash")
+  })
+
+  it("pauses after the recovery budget is exhausted", async () => {
+    const h = harness({ autoResume: true, maxRecoveryAttempts: 1 })
+    await start(h)
+    const live = h.store.getGoalRun("ses_main")!
+    h.store.saveGoalRun({ ...live, recoveryAttempts: 1 })
+    h.manager.reconcileOnBoot()
+    const run = h.manager.status("ses_main")!
+    expect(run.state).toBe("paused")
+    expect(run.error).toContain("restarts in a row")
+  })
+
+  it("never resumes a user pause", async () => {
+    const h = harness({ autoResume: true })
+    await start(h)
+    await h.manager.pause("ses_main")
+    const before = h.opencode.prompts.length
+    h.manager.reconcileOnBoot()
+    await h.manager.recoverInterrupted()
+    expect(h.manager.status("ses_main")?.state).toBe("paused")
+    expect(h.opencode.prompts.length).toBe(before)
+  })
+
+  it("keeps the old paused behavior when auto-resume is disabled", async () => {
+    const h = harness({ autoResume: false })
+    await start(h)
+    h.manager.reconcileOnBoot()
+    const run = h.manager.status("ses_main")!
+    expect(run.state).toBe("paused")
+    expect(run.error).toContain("MasterHand restart")
   })
 })

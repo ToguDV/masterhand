@@ -166,6 +166,23 @@ describe("/api/status", () => {
       preview: { enabled: true, available: true, portRange: { min: 32900, max: 32999 } },
       storage: { ok: true, freeBytes: 10 * 1024 ** 3, low: false },
       updater: { enabled: false, tracksLatest: true, track: "latest" },
+      engine: {
+        supervisor: false,
+        healthy: true,
+        restarting: false,
+        circuitOpen: false,
+        state: "unknown",
+        memoryWarning: false,
+        attempts: 0,
+        maxAttempts: 3,
+        lastIncident: null,
+        memory: null,
+        serverIncident: null,
+        serverCircuitOpen: false,
+        interruptedTurns: 0,
+        autoResume: true,
+        autoContinueChats: true,
+      },
     })
   })
 

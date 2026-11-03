@@ -8,6 +8,7 @@ import {
 } from "./goal.js"
 import { UpstreamStatusError } from "./retry.js"
 import { SCHEDULER_MARKER_KEY, type ModelRef, type SchedulerOpencode } from "./scheduler.js"
+import { TURN_RESUME_MARKER_KEY } from "./journal.js"
 
 /**
  * opencode adapters for Goal Mode and the scheduler (issue #205). The two
@@ -139,6 +140,98 @@ async function listActiveSessions(call: OpencodeCall): Promise<string[]> {
   return Object.keys(body.data ?? {})
 }
 
+interface AssistantSnapshot {
+  id: string
+  text: string
+  /** True when opencode persisted `time.completed` (authoritative end of turn). */
+  completed: boolean
+  /** opencode's message creation timestamp (ms), when present. */
+  createdAt: number | null
+}
+
+/** Last assistant message with the completion metadata the recovery pass needs. */
+async function lastAssistantSnapshot(call: OpencodeCall, sessionID: string): Promise<AssistantSnapshot | null> {
+  const response = await call(`/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`, {
+    retry: false,
+  })
+  if (response.status === 404) return null
+  if (!response.ok) throw new UpstreamStatusError(response.status, response)
+  const body = (await response.json()) as {
+    data?: Array<{
+      id?: string
+      type?: string
+      content?: unknown
+      time?: { created?: unknown; completed?: unknown }
+    }>
+  }
+  for (const message of body.data ?? []) {
+    if (message.type !== "assistant" || !message.id) continue
+    return {
+      id: message.id,
+      text: assistantMessageText(message),
+      completed: typeof message.time?.completed === "number",
+      createdAt: typeof message.time?.created === "number" ? message.time.created : null,
+    }
+  }
+  return null
+}
+
+/**
+ * Generic session adapter for the resilience recovery pass (turn journal,
+ * auto-continuation). Only the fields the policy needs: ids, directory,
+ * parent, the last assistant snapshot and the marker-reconciled prompt.
+ */
+export interface TurnOpencode {
+  activeSessions(): Promise<string[]>
+  sessionInfo(
+    sessionID: string,
+  ): Promise<{ directory: string; parentID: string | null; metadata: Record<string, unknown> | null } | null>
+  lastAssistant(sessionID: string): Promise<AssistantSnapshot | null>
+  prompt(sessionID: string, text: string, marker: string): Promise<void>
+  promptLanded(sessionID: string, marker: string): Promise<boolean>
+}
+
+export function createTurnOpencode(deps: AdapterDeps): TurnOpencode {
+  const { call } = deps
+  return {
+    async activeSessions() {
+      return listActiveSessions(call)
+    },
+    async sessionInfo(sessionID) {
+      const response = await call(`/api/session/${encodeURIComponent(sessionID)}`, { retry: false })
+      if (response.status === 404) return null
+      if (!response.ok) throw new UpstreamStatusError(response.status, response)
+      const body = (await response.json()) as {
+        data?: {
+          location?: { directory?: string }
+          parentID?: string
+          metadata?: Record<string, unknown>
+        }
+      }
+      const directory = body.data?.location?.directory
+      if (!body.data || !directory) return null
+      return {
+        directory,
+        parentID: typeof body.data.parentID === "string" && body.data.parentID ? body.data.parentID : null,
+        metadata:
+          body.data.metadata && typeof body.data.metadata === "object" && !Array.isArray(body.data.metadata)
+            ? body.data.metadata
+            : null,
+      }
+    },
+    async lastAssistant(sessionID) {
+      return lastAssistantSnapshot(call, sessionID)
+    },
+    async prompt(sessionID, text, marker) {
+      return promptWithMarker(call, TURN_RESUME_MARKER_KEY, sessionID, text, marker)
+    },
+    async promptLanded(sessionID, marker) {
+      return promptLandedWithMarker(call, TURN_RESUME_MARKER_KEY, sessionID, marker)
+    },
+  }
+}
+
+
 /**
  * opencode adapter for Goal Mode. It translates HTTP outcomes into thrown
  * typed errors; the retry policy (bounded backoff, marker reconciliation for
@@ -244,17 +337,8 @@ export function createGoalOpencode(deps: AdapterDeps): GoalOpencode {
       if (!response.ok && response.status !== 404) throw new UpstreamStatusError(response.status, response)
     },
     async lastAssistant(sessionID) {
-      const response = await call(`/api/session/${encodeURIComponent(sessionID)}/message?limit=10&order=desc`, {
-        retry: false,
-      })
-      if (response.status === 404) return null
-      if (!response.ok) throw new UpstreamStatusError(response.status, response)
-      const body = (await response.json()) as { data?: Array<{ id?: string; type?: string; content?: unknown }> }
-      for (const message of body.data ?? []) {
-        if (message.type !== "assistant" || !message.id) continue
-        return { id: message.id, text: assistantMessageText(message) }
-      }
-      return null
+      const snapshot = await lastAssistantSnapshot(call, sessionID)
+      return snapshot ? { id: snapshot.id, text: snapshot.text } : null
     },
     async activeSessions() {
       return listActiveSessions(call)
@@ -309,6 +393,14 @@ export function createSchedulerOpencode(deps: AdapterDeps): SchedulerOpencode {
     async activeSessions() {
       // Same upstream call the goal watchdog uses to reconcile lost idle.
       return listActiveSessions(call)
+    },
+    async lastAssistant(sessionID) {
+      // Completion metadata lets the tick/recovery distinguish a finished
+      // turn from one that died with the engine (a bare idle is not proof).
+      const snapshot = await lastAssistantSnapshot(call, sessionID)
+      return snapshot
+        ? { id: snapshot.id, completed: snapshot.completed, createdAt: snapshot.createdAt }
+        : null
     },
     async deleteSession(sessionID) {
       // Scheduler retention (#197): drop one scheduler-owned session. A

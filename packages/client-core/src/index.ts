@@ -141,6 +141,8 @@ export {
   useAgents,
   useAudit,
   useBffStatus,
+  useInterruptedTurns,
+  useResumeTurn,
   useCommands,
   useCreateScheduledTask,
   useDeleteScheduledTask,

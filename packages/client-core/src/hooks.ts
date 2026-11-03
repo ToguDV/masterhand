@@ -25,6 +25,7 @@ import type { SessionListOptions } from "./sessions"
 import type {
   ChatMessage,
   FormInfo,
+  InterruptedTurn,
   Permission,
   PreviewStatus,
   RunStatus,
@@ -74,6 +75,8 @@ export const queryKeys = {
   websearch: ["websearch"] as const,
   /** Latest published release served by `GET /api/update` (#131). */
   update: ["update"] as const,
+  /** Interrupted chat turns (resilience recovery). */
+  turns: ["turns"] as const,
 }
 
 export function useBffStatus(client: Client, refetchInterval: number | false = false) {
@@ -82,6 +85,36 @@ export function useBffStatus(client: Client, refetchInterval: number | false = f
     queryFn: () => client.auth.status(),
     retry: false,
     refetchInterval,
+  })
+}
+
+/**
+ * Interrupted/ambiguous chat turns (resilience). Loaded on mount and after a
+ * reconnect or an `engine.updated`/`turn.interrupted` frame; the per-session
+ * "Continue" action sends the same marker-reconciled prompt as the automatic
+ * recovery pass.
+ */
+export function useInterruptedTurns(
+  client: Client,
+  refetchInterval: number | false = false,
+): UseQueryResult<InterruptedTurn[]> {
+  return useQuery({
+    queryKey: queryKeys.turns,
+    queryFn: () => client.api.turns(),
+    retry: false,
+    refetchInterval,
+  })
+}
+
+export function useResumeTurn(client: Client) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionID: string) => client.api.resumeTurn(sessionID),
+    onSuccess: (_result, sessionID) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.turns })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.messages(sessionID) })
+    },
   })
 }
 
@@ -627,6 +660,26 @@ export function createEventHandler(
   return (raw) => {
     if (!raw || typeof raw !== "object") return
     const type = (raw as { type?: unknown }).type
+    if (
+      type === "engine.updated" ||
+      type === "engine.recovered" ||
+      type === "engine.circuit_open"
+    ) {
+      // Resilience frames (BFF-synthesized): refresh the status banner and the
+      // interrupted-turn list without waiting for the next poll.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.turns })
+      return
+    }
+    if (type === "turn.interrupted" || type === "turn.resumed" || type === "turn.updated") {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.turns })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.status })
+      const data = (raw as { data?: { sessionID?: unknown } }).data
+      if (typeof data?.sessionID === "string" && data.sessionID) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.messages(data.sessionID) })
+      }
+      return
+    }
     if (type === "hub.connected" || type === "hub.disconnected") {
       // Synthetic frame from the BFF hub: it gained/lost its upstream
       // connection. Refresh the health status now instead of waiting for the

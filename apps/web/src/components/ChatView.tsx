@@ -3,8 +3,10 @@ import {
   conversationErrorMessage,
   sessionUsage,
   useGoalRun,
+  useInterruptedTurns,
   useMessages,
   usePendingSend,
+  useResumeTurn,
   type FormAnswer,
   type FormInfo,
   type Permission,
@@ -269,6 +271,7 @@ export function ChatView({
         </button>
       )}
       <GoalStrip sessionID={sessionID} />
+      <InterruptedTurnCard sessionID={sessionID} />
       <Composer
         ref={composerRef}
         sessionID={sessionID}
@@ -291,6 +294,41 @@ export function ChatView({
           />
         }
       />
+    </div>
+  )
+}
+
+/**
+ * One interrupted turn: shown above the composer after an engine/BFF restart.
+ * The manual action sends the same marker-reconciled continuation as the
+ * automatic recovery pass (never a blind replay of the old prompt).
+ */
+function InterruptedTurnCard({ sessionID }: { sessionID: string }) {
+  const turns = useInterruptedTurns(client)
+  const resume = useResumeTurn(client)
+  const turn = turns.data?.find((entry) => entry.sessionID === sessionID)
+  if (!turn) return null
+  return (
+    <div className="mh-banner mh-banner--warning" role="status">
+      <span className="min-w-0 flex-1">
+        This turn was interrupted by a restart.{" "}
+        {turn.state === "ambiguous"
+          ? "MasterHand could not confirm whether the continuation landed; review the session before continuing."
+          : "Continue and MasterHand will ask the agent to verify the current state and avoid re-running heavy work unchanged."}
+      </span>
+      <button
+        type="button"
+        className="mh-btn mh-btn--quiet"
+        disabled={resume.isPending}
+        onClick={() => resume.mutate(sessionID)}
+      >
+        {resume.isPending ? "Continuing…" : "Continue"}
+      </button>
+      {resume.error && (
+        <span className="min-w-0 text-[12px] text-danger" role="alert">
+          The continuation did not start. Check the session and try again.
+        </span>
+      )}
     </div>
   )
 }

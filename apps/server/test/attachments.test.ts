@@ -389,4 +389,49 @@ describe("attachment routes", () => {
     expect(blockedLink.status).toBe(400)
     expect(workspaceRoot).toBeTruthy()
   })
+
+  it("bounds concurrent uploads and answers 429 when the waiters are full", async () => {
+    const { workspacePath } = setupWorkspace()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let active = 0
+    let peak = 0
+    app = await startTestApp({
+      attachmentConcurrency: 1,
+      attachmentUpload: async (input) => {
+        active += 1
+        peak = Math.max(peak, active)
+        await gate
+        active -= 1
+        return {
+          id: input.attachmentID,
+          name: input.name,
+          mime: "text/plain",
+          size: input.bytes.byteLength,
+          path: `/tmp/${input.attachmentID}`,
+          uri: `file:///tmp/${input.attachmentID}`,
+          url: `/api/workspaces/${input.workspaceID}/attachments/${input.sessionID}/${input.attachmentID}`,
+          existed: false,
+        }
+      },
+    })
+    app.store.createWorkspace({ id: "ws_1", name: "app", path: workspacePath, createdAt: Date.now() })
+    const cookie = await login(app.url)
+    const upload = (id: string) =>
+      fetch(`${app!.url}/api/workspaces/ws_1/attachments`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(id, `${id}.txt`, "hello"),
+      })
+    const requests = Array.from({ length: 6 }, (_, index) => upload(`a${index}`))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    release()
+    const responses = await Promise.all(requests)
+    const statuses = responses.map((response) => response.status)
+    expect(statuses.filter((status) => status === 429)).toHaveLength(1)
+    expect(statuses.filter((status) => status === 201)).toHaveLength(5)
+    expect(peak).toBe(1)
+  })
 })

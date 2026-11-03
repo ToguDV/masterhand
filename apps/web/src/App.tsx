@@ -21,6 +21,7 @@ import {
   shouldAutoAccept,
   useBffStatus,
   useEventStream,
+  useInterruptedTurns,
   useSessions,
   useSessionStatuses,
   useWorkspaces,
@@ -170,6 +171,15 @@ function formatFreeBytes(bytes: number | null): string {
   if (bytes === null) return "unknown"
   const gb = bytes / 1024 ** 3
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(0, Math.round(bytes / 1024 ** 2))} MB`
+}
+
+/** Human wording for a supervisor incident reason. */
+function incidentReasonLabel(reason: string | null | undefined): string {
+  if (reason === "oom") return "running out of memory"
+  if (reason === "unhealthy") return "becoming unresponsive"
+  if (reason === "container_restarted") return "a crash"
+  if (reason?.startsWith("exit_")) return "a crash"
+  return reason ?? "a restart"
 }
 
 function connectErrorMessage(
@@ -1077,6 +1087,42 @@ function AuthenticatedApp({
   )
 
   const statusQuery = useBffStatus(client, 15_000)
+  // Interrupted turns (resilience): refreshed with the same cadence as the
+  // status and invalidated by the `turn.*`/`engine.*` frames.
+  const interruptedTurnsQuery = useInterruptedTurns(client, 15_000)
+  const [engineActionBusy, setEngineActionBusy] = useState(false)
+  const [engineActionError, setEngineActionError] = useState<string | null>(null)
+  const restartAgentEngine = useCallback(async () => {
+    setEngineActionBusy(true)
+    setEngineActionError(null)
+    try {
+      await client.api.restartEngine()
+      // The sidecar answers 202 before the restart completes: give it a moment
+      // and reconcile through the status instead of assuming success.
+      await new Promise((resolve) => setTimeout(resolve, 1_500))
+      await statusQuery.refetch()
+    } catch (error) {
+      setEngineActionError(
+        error instanceof RequestTimeoutError
+          ? "The restart was requested but did not answer; check the resilience banner in a moment."
+          : "Could not restart the agent engine. Check the server logs.",
+      )
+    } finally {
+      setEngineActionBusy(false)
+    }
+  }, [statusQuery])
+  const resetAgentEngine = useCallback(async () => {
+    setEngineActionBusy(true)
+    setEngineActionError(null)
+    try {
+      await client.api.resetEngine()
+      await statusQuery.refetch()
+    } catch {
+      setEngineActionError("Could not reset the restart budget. Check the server logs.")
+    } finally {
+      setEngineActionBusy(false)
+    }
+  }, [statusQuery])
   // Release manifest (#131): hourly poll plus refetch on window focus (see
   // `useUpdate`). Advisory only — an unknown upstream shows no notice.
   const updateQuery = useUpdate(client, true)
@@ -1726,6 +1772,21 @@ function AuthenticatedApp({
   // Rail and panel never render together: the section navigation lives in
   // exactly one place. Mobile never mounts either (the aside is `hidden`).
   const showRail = sidebarCollapsed
+  const engineStatus = statusQuery.data?.engine
+  const engineIncident = engineStatus?.lastIncident ?? null
+  const recentEngineIncident =
+    engineIncident && Date.now() - engineIncident.at < 10 * 60_000 ? engineIncident : null
+  const interruptedTurns = interruptedTurnsQuery.data ?? []
+  const engineIncidentLabel = incidentReasonLabel(engineIncident?.reason)
+  const serverIncident = engineStatus?.serverIncident ?? null
+  const recentServerIncident =
+    serverIncident && Date.now() - serverIncident.at < 10 * 60_000 ? serverIncident : null
+  const engineStopped =
+    engineStatus?.supervisor === true &&
+    !engineStatus.restarting &&
+    engineStatus.state !== "running" &&
+    engineStatus.state !== "restarting" &&
+    !engineStatus.circuitOpen
 
   return (
     <div className="flex h-dvh flex-col bg-canvas text-ink">
@@ -1859,6 +1920,96 @@ function AuthenticatedApp({
           the database and git may fail.
         </div>
       )}
+
+      {engineStatus?.restarting && (
+        <div className="mh-banner mh-banner--warning" role="status">
+          <span className="mh-spin" aria-hidden="true" />
+          <span className="min-w-0 flex-1">The agent engine is restarting…</span>
+        </div>
+      )}
+
+      {engineStatus?.circuitOpen && (
+        <div className="mh-banner mh-banner--danger" role="alert">
+          <span className="min-w-0 flex-1">
+            The agent engine was stopped after repeated crashes ({engineStatus.attempts}/{engineStatus.maxAttempts}).
+            Start it to reset the restart budget.
+          </span>
+          <button
+            type="button"
+            className="mh-btn mh-btn--quiet"
+            disabled={engineActionBusy}
+            onClick={() => void restartAgentEngine()}
+          >
+            {engineActionBusy ? "Starting…" : "Start engine"}
+          </button>
+          <button
+            type="button"
+            className="mh-btn mh-btn--quiet"
+            disabled={engineActionBusy}
+            onClick={() => void resetAgentEngine()}
+          >
+            Reset budget
+          </button>
+        </div>
+      )}
+
+      {recentEngineIncident && !engineStatus?.circuitOpen && (
+        <div className="mh-banner mh-banner--warning" role="status">
+          The agent engine restarted after {engineIncidentLabel} (attempt {recentEngineIncident.attempt} of{" "}
+          {engineStatus?.maxAttempts ?? 3}). Interrupted conversations can be continued from the chat.
+        </div>
+      )}
+
+      {engineStatus?.serverCircuitOpen && (
+        <div className="mh-banner mh-banner--danger" role="alert">
+          MasterHand hit the restart circuit after repeated crashes. The budget resets after 5 minutes of health; if
+          it stops again, start it with <code>docker compose start masterhand</code>.
+        </div>
+      )}
+
+      {engineStopped && (
+        <div className="mh-banner mh-banner--danger" role="alert">
+          <span className="min-w-0 flex-1">The agent engine is stopped (after a circuit reset or a manual stop).</span>
+          <button
+            type="button"
+            className="mh-btn mh-btn--quiet"
+            disabled={engineActionBusy}
+            onClick={() => void restartAgentEngine()}
+          >
+            {engineActionBusy ? "Starting…" : "Start engine"}
+          </button>
+        </div>
+      )}
+
+      {recentServerIncident && !engineStatus?.serverCircuitOpen && (
+        <div className="mh-banner mh-banner--warning" role="status">
+          MasterHand restarted after {incidentReasonLabel(recentServerIncident.reason)} (attempt{" "}
+          {recentServerIncident.attempt} of {engineStatus?.maxAttempts ?? 3}). Your work was recovered where possible.
+        </div>
+      )}
+
+      {engineStatus?.memoryWarning && !engineStatus?.restarting && !engineStatus?.circuitOpen && (
+        <div className="mh-banner mh-banner--warning" role="status">
+          The agent engine has been near its memory limit for over a minute. Avoid starting heavy work until it
+          settles.
+        </div>
+      )}
+
+      {engineActionError && <div className="mh-banner mh-banner--danger">{engineActionError}</div>}
+
+      {interruptedTurns.slice(0, 3).map((turn) => (
+        <button
+          key={turn.sessionID}
+          type="button"
+          onClick={() => openSessionInChat(turn.sessionID)}
+          className="mh-banner mh-banner--info"
+        >
+          <span className="min-w-0 flex-1 truncate">
+            A conversation was interrupted by a restart · Open to continue
+            {turn.state === "ambiguous" ? " (outcome unknown; review before continuing)" : ""}
+          </span>
+        </button>
+      ))}
 
       <UpdateNotices status={statusQuery.data} latest={updateQuery.data?.latest} />
 

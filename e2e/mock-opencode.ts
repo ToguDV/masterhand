@@ -99,6 +99,11 @@ const ptys = new Map<string, { id: string; title: string; status: string; pid: n
 // E2E control: makes the mock unreachable (503) and drops its SSE clients, so
 // the BFF hub retries and tests can cover the upstream reconnection recovery.
 let offline = false
+/** One prompt starts a turn that never replies (simulated engine death). */
+let hangNextPrompt = false
+let lastPromptText = ""
+/** Recent prompts by session (E2E: isolate the spec's session from others). */
+const promptRecords: Array<{ sessionID: string; text: string }> = []
 const catalogRequests = { agent: 0, model: 0 }
 
 // E2E control: holds prompt responses so a test can reproduce a stalled send
@@ -1061,7 +1066,15 @@ const server = createServer((req, res) => {
     // E2E control routes: simulate opencode going away and coming back.
     if (req.method === "POST" && (path === "/e2e/offline" || path === "/e2e/online")) {
       offline = path === "/e2e/offline"
-      if (offline) closeStreams()
+      if (offline) {
+        // The engine died: in-flight turns are gone with it.
+        activeRuns.clear()
+        closeStreams()
+      }
+      return empty(res, 204)
+    }
+    if (req.method === "POST" && path === "/e2e/hang-next-prompt") {
+      hangNextPrompt = true
       return empty(res, 204)
     }
     if (req.method === "POST" && path.startsWith("/e2e/stall")) {
@@ -1188,6 +1201,9 @@ const server = createServer((req, res) => {
         offline,
         stalled: heldPrompts.length,
         prompts: promptRequests,
+        lastPromptText,
+        lastPromptSessionID,
+        promptRecords: promptRecords.slice(-50),
         lastPromptFiles,
         failPrompts,
         permissionReplies: permissionReplyAttempts,
@@ -1467,6 +1483,9 @@ const server = createServer((req, res) => {
         // client's fetch stays pending exactly like a stalled network request.
         if (stallPrompts) await new Promise<void>((resolve) => heldPrompts.push(resolve))
         const text = typeof body.text === "string" ? body.text : ""
+        lastPromptText = text
+        promptRecords.push({ sessionID, text })
+        if (promptRecords.length > 200) promptRecords.splice(0, promptRecords.length - 200)
         const files = Array.isArray(body.files)
           ? body.files.flatMap((item) => {
               if (!item || typeof item !== "object") return []
@@ -1492,27 +1511,36 @@ const server = createServer((req, res) => {
           return json(res, 429, { error: "rate_limited" })
         }
         const message = appendUserMessage(sessionID, text, metadata, files)
-        // Scheduler fires (issue #147): an automated prompt carries the
-        // scheduler marker in its metadata, so the turn runs headlessly.
-        const schedulerFired = typeof metadata?.["masterhand.scheduler"] === "string"
-        // E2E helper: `/seed N` fills the conversation with N more messages and
-        // reports the session idle, so clients refetch the whole history.
-        const seed = /^\/seed (\d+)$/.exec(text.trim())
-        if (schedulerFired) {
-          void runSchedulerPrompt(sessionID)
-        } else if (seed) {
-          const count = Math.max(0, Math.min(Number(seed[1]), 1000))
-          for (let index = 1; index <= count; index += 1) {
-            appendUserMessage(sessionID, `Seed message ${index}`)
-          }
-          broadcast("session.idle", { sessionID }, session.location.directory)
-        } else if (session.fork) {
-          // `/btw` side questions answer immediately without a permission dance.
-          const assistant = appendAssistantMessage(sessionID)
-          assistant.content = [{ type: "text", text: `Side answer to: ${text}` }]
-          broadcast("session.idle", { sessionID }, session.location.directory)
+        // E2E control: start a turn and never reply. The test then takes the
+        // mock offline (clearing activeRuns), which is exactly the state the
+        // recovery pass sees after an engine crash.
+        if (hangNextPrompt) {
+          hangNextPrompt = false
+          activeRuns.add(sessionID)
+          broadcast("session.execution.started", { sessionID }, session.location.directory)
         } else {
-          void runPrompt(sessionID, text)
+          // Scheduler fires (issue #147): an automated prompt carries the
+          // scheduler marker in its metadata, so the turn runs headlessly.
+          const schedulerFired = typeof metadata?.["masterhand.scheduler"] === "string"
+          // E2E helper: `/seed N` fills the conversation with N more messages and
+          // reports the session idle, so clients refetch the whole history.
+          const seed = /^\/seed (\d+)$/.exec(text.trim())
+          if (schedulerFired) {
+            void runSchedulerPrompt(sessionID)
+          } else if (seed) {
+            const count = Math.max(0, Math.min(Number(seed[1]), 1000))
+            for (let index = 1; index <= count; index += 1) {
+              appendUserMessage(sessionID, `Seed message ${index}`)
+            }
+            broadcast("session.idle", { sessionID }, session.location.directory)
+          } else if (session.fork) {
+            // `/btw` side questions answer immediately without a permission dance.
+            const assistant = appendAssistantMessage(sessionID)
+            assistant.content = [{ type: "text", text: `Side answer to: ${text}` }]
+            broadcast("session.idle", { sessionID }, session.location.directory)
+          } else {
+            void runPrompt(sessionID, text)
+          }
         }
         // E2E control: hold after processing too — the agent's turn runs and
         // finishes, only the HTTP response is lost.

@@ -240,6 +240,34 @@ export const MIGRATIONS: readonly Migration[] = [
       `,
     ],
   },
+  {
+    version: 6,
+    description: "turn journal and goal recovery budget",
+    statements: [
+      // Durable record of an in-flight agent turn. opencode persists messages
+      // across restarts but not the process that was executing a turn, so the
+      // BFF needs its own journal to know which sessions were busy when the
+      // engine (or the BFF) died. One row per session; terminal events close
+      // it, and a missing terminal event is what the recovery pass looks for.
+      `
+        CREATE TABLE IF NOT EXISTS turn_journal (
+          session_id TEXT PRIMARY KEY,
+          workspace_path TEXT,
+          started_at INTEGER NOT NULL,
+          last_event_at INTEGER NOT NULL,
+          state TEXT NOT NULL,
+          origin TEXT NOT NULL DEFAULT 'chat',
+          reason TEXT,
+          resume_attempts INTEGER NOT NULL DEFAULT 0,
+          last_resume_at INTEGER
+        )
+      `,
+      "CREATE INDEX IF NOT EXISTS idx_turn_journal_state ON turn_journal (state, started_at)",
+      // Bounded automatic recovery: a run that keeps crashing the engine must
+      // not be re-driven forever. The counter resets when a phase advances.
+      "ALTER TABLE goal_runs ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0",
+    ],
+  },
 ]
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(

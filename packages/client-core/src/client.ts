@@ -14,6 +14,7 @@ import type {
   FormDetail,
   FormInfo,
   GitBranches,
+  InterruptedTurn,
   ModelsCatalog,
   Permission as PermissionType,
   PreviewStatus,
@@ -259,6 +260,14 @@ export interface Client {
     /** Runs one real search with the current selection (read-only probe). */
     testWebsearch(query: string, providerID?: string): Promise<WebsearchTestResult>
     statuses(): Promise<SessionStatuses>
+    /** Interrupted/ambiguous chat turns waiting for a continuation (resilience). */
+    turns(): Promise<InterruptedTurn[]>
+    /** Sends the marker-reconciled continuation prompt for one interrupted turn. */
+    resumeTurn(sessionID: string): Promise<void>
+    /** Restarts/starts the agent engine through the supervisor sidecar. */
+    restartEngine(): Promise<void>
+    /** Clears the supervisor restart budget without restarting. */
+    resetEngine(): Promise<void>
     /** Live preview (Cloudflare quick tunnel) for a session. */
     preview(sessionID: string): Promise<PreviewStatus>
     startPreview(sessionID: string): Promise<PreviewStatus>
@@ -808,6 +817,13 @@ export function createClient(options: ClientOptions = {}): Client {
             Object.keys(active ?? {}).map((sessionID) => [sessionID, { type: "busy" as const }]),
           ) as SessionStatuses
         }),
+      turns: () => request<{ turns: InterruptedTurn[] }>("/api/turns").then((response) => response.turns),
+      resumeTurn: (sessionID) =>
+        request<{ resumed?: boolean }>(`/api/sessions/${encodeURIComponent(sessionID)}/resume`, {
+          method: "POST",
+        }).then(() => undefined),
+      restartEngine: () => request<{ accepted?: boolean }>("/api/engine/restart", { method: "POST" }).then(() => undefined),
+      resetEngine: () => request<{ accepted?: boolean }>("/api/engine/reset", { method: "POST" }).then(() => undefined),
       preview: (sessionID) =>
         request<{ preview: PreviewStatus }>(`/api/sessions/${encodeURIComponent(sessionID)}/preview`).then(
           (response) => response.preview,

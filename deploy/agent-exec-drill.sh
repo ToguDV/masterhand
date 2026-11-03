@@ -53,6 +53,11 @@ if "$LAUNCHER" --exec "$PRINTENV" OPENCODE_SERVER_PASSWORD >/dev/null 2>&1; then
   fail "printenv found OPENCODE_SERVER_PASSWORD in the child environment"
 fi
 
+# (b2) Agent processes raise their OOM score so a runaway build is killed
+# before the engine (which Compose keeps at a negative score).
+oom=$("$LAUNCHER" --exec "$SH" -c 'cat /proc/self/oom_score_adj')
+[ "$oom" = "500" ] || fail "expected oom_score_adj 500, got '$oom'"
+
 # (c) A valid PORT is preserved; an invalid one is dropped.
 port=$(PORT=3210 "$LAUNCHER" --exec "$SH" -c 'printf %s "${PORT:-}"')
 [ "$port" = "3210" ] || fail "expected PORT=3210 to survive, got '$port'"

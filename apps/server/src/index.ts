@@ -100,6 +100,7 @@ void github.materialize().catch((error) => {
 // managers stop and drain on shutdown (issue #192).
 const scheduler = built.scheduler
 const goals = built.goals
+const engine = built.engine
 // In-flight finishes/releases settle against a live store while shutting down.
 const drainInFlight = built.drainInFlight
 
@@ -128,6 +129,11 @@ if (config.webDist && existsSync(config.webDist)) {
 }
 
 hub.start()
+// Resilience recovery: after the hub connects (boot or reconnect) the monitor
+// classifies journaled turns and re-drives goals/scheduled runs/chat turns
+// through their persisted markers. It never starts before the hub so an
+// unreachable engine cannot trigger a recovery storm.
+engine.start()
 
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`[masterhand] listening on :${info.port} → opencode ${config.opencodeUrl}`)
@@ -213,7 +219,7 @@ async function shutdown(code = 0): Promise<void> {
   // otherwise hold `server.close` open), then the managers drain against a
   // live store, and the store closes last. The forced-exit backstop installs
   // first so a stalled step can never hang a SIGTERM.
-  await shutdownServer({ scheduler, goals, preview, hub, store, server, lock: dataDirLock, drainInFlight })
+  await shutdownServer({ scheduler, goals, engine, preview, hub, store, server, lock: dataDirLock, drainInFlight })
 }
 
 let shuttingDown = false

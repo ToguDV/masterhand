@@ -85,6 +85,13 @@ export interface SchedulerOpencode {
   switchModel(sessionID: string, model: ModelRef): Promise<void>
   /** Same upstream call the goal watchdog uses to reconcile lost idle. */
   activeSessions(): Promise<string[]>
+  /**
+   * Last assistant snapshot (completion metadata) used by the recovery pass to
+   * distinguish "the turn finished while the BFF was down" from "the turn
+   * died". Optional so scripted fakes stay small; absent means the legacy
+   * idle→completed classification.
+   */
+  lastAssistant?(sessionID: string): Promise<{ id: string; completed: boolean; createdAt: number | null } | null>
   /** Optional catalog check for route-level model validation (goal parity). */
   modelExists?(model: ModelRef): Promise<boolean>
   /**
@@ -106,6 +113,10 @@ export interface SchedulerManagerOptions {
   tickMs?: number
   /** Retry tuning; the injected `sleep` hooks into every backoff. */
   retry?: { attempts?: number; baseDelayMs?: number; jitter?: boolean }
+  /** Gap between two scheduled-run re-fires in one recovery pass (default 30 s). */
+  recoveryGapMs?: number
+  /** Health window after an engine restart before a tick may re-fire (default 30 s). */
+  engineGraceMs?: number
 }
 
 /**
@@ -135,6 +146,14 @@ export interface SchedulerManager {
   resumeTask(taskId: string): Promise<ScheduledTask>
   /** Boot reconciliation: firing→interrupted, queued→skipped, recompute. */
   reconcileTasks(): void
+  /** Marks an engine restart so the tick defers re-fires until the health grace. */
+  engineRestarted(): void
+  /**
+   * Recovery after the engine restarted: a running run whose turn died is
+   * marked `interrupted` (never `completed`) and re-fired once when the task
+   * is still active. Called by the engine monitor, not by the tick.
+   */
+  recoverInterruptedRuns(): Promise<void>
   /** Waits for every queued transition (tests). */
   flush(): Promise<void>
   stop(): void
@@ -143,6 +162,13 @@ export interface SchedulerManager {
 const MINUTE_MS = 60_000
 /** Default loop cadence; every `nextRunAt` is minute-granular at best. */
 export const DEFAULT_TICK_MS = 20_000
+/** Prefix of a run re-fired after a turn ended without a completed reply. */
+const RECOVERY_PROMPT_NOTE =
+  "MasterHand restarted or your previous turn was interrupted before a completed reply. " +
+  "Before repeating anything, verify the current state of the files, commands and processes you touched, and " +
+  "avoid re-running heavy work unchanged; then complete the task below."
+const RECOVERY_RUN_REASON =
+  "the previous turn ended without a completed reply — the run was re-fired once"
 /** Bounds the look-ahead walk so garbage schedules can never stall a tick. */
 const MAX_SLOT_STEPS = 100_000
 /**
@@ -364,6 +390,9 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     baseDelayMs: options.retry?.baseDelayMs ?? 250,
     jitter: options.retry?.jitter ?? true,
   }
+  const recoveryGapMs = Math.max(0, options.recoveryGapMs ?? 30_000)
+  const engineGraceMs = Math.max(0, options.engineGraceMs ?? 30_000)
+  let engineRestartAt: number | null = null
 
   /** Per-task transition queue: events and tick passes never interleave. */
   const { enqueue, runExclusive, flush } = createEntityChain("scheduler")
@@ -487,6 +516,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     task: ScheduledTask,
     existing?: ScheduledRun,
     source: "schedule" | "manual" = "schedule",
+    recoveryNote?: string,
   ): Promise<ScheduledRun> {
     const current = iso()
     const run: ScheduledRun = existing
@@ -538,9 +568,10 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     }
 
     try {
+      const promptText = recoveryNote ? `${recoveryNote}\n\n${task.prompt}` : task.prompt
       await retryable(
         async () => {
-          await opencode.prompt(sessionID, task.prompt, promptMarker)
+          await opencode.prompt(sessionID, promptText, promptMarker)
           return true
         },
         {
@@ -564,7 +595,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
    */
   async function settleRun(
     run: ScheduledRun,
-    status: "completed" | "failed",
+    status: "completed" | "failed" | "interrupted",
     error?: string | null,
   ): Promise<ScheduledRun> {
     const live = store.getScheduledRun(run.id)
@@ -615,7 +646,7 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
 
   async function settleByRunId(
     runId: string,
-    status: "completed" | "failed",
+    status: "completed" | "failed" | "interrupted",
     error?: string | null,
   ): Promise<void> {
     const live = store.getScheduledRun(runId)
@@ -650,7 +681,41 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     await fire(task)
   }
 
-  async function reconcileRunningRuns(): Promise<void> {
+  /** True when `sessionID` produced a completed assistant turn after `since`. */
+  async function turnCompletedSince(sessionID: string, since: string): Promise<boolean> {
+    if (!opencode.lastAssistant) return true // legacy idle→completed (fakes without the hook)
+    const last = await retryable(() => opencode.lastAssistant!(sessionID), { includeTimeouts: true })
+    if (!last || !last.completed) return false
+    const started = Date.parse(since)
+    return Number.isNaN(started) || last.createdAt === null || last.createdAt >= started
+  }
+
+  /**
+   * One classification/recovery pass over every active scheduled turn. This is
+   * the SINGLE owner of the "idle but no terminal event" transition: the tick
+   * and the engine recovery call it, and the first in-flight pass is shared so
+   * a run cannot be marked interrupted by one pass while the other re-fires it.
+   *
+   * An idle session is not proof of success: after an engine restart the turn
+   * may have died before producing anything. Only a completed assistant message
+   * newer than the run closes it as `completed`; otherwise it is `interrupted`
+   * and re-fired ONCE (the same pass), with the crash-context prefix.
+   */
+  let classifyRunning: Promise<void> | null = null
+
+  function reconcileRunningRuns(): Promise<void> {
+    if (classifyRunning) return classifyRunning
+    classifyRunning = classifyAndRecover().finally(() => {
+      classifyRunning = null
+    })
+    return classifyRunning
+  }
+
+  async function classifyAndRecover(): Promise<void> {
+    // A freshly restarted engine gets the same stability window as chat
+    // continuations: classify later, never re-fire into a cold/thrashing
+    // engine. The next tick (or the engine's post-grace pass) picks it up.
+    if (engineRestartAt !== null && now() - engineRestartAt < engineGraceMs) return
     const running = store
       .listActiveScheduledRuns()
       .filter((run) => run.status === "running" && run.sessionID)
@@ -659,13 +724,63 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     try {
       active = await retryable(() => opencode.activeSessions(), { includeTimeouts: true })
     } catch {
-      return // leave the run for a later tick; an outage must not fail it
+      return // leave the run for a later pass; an outage must not fail it
     }
     const activeSet = new Set(active)
+    let recovered = 0
     for (const run of running) {
       if (activeSet.has(run.sessionID!)) continue
-      void enqueue(run.taskId, () => settleByRunId(run.id, "completed"))
+      let refired = false
+      await enqueue(run.taskId, async () => {
+        const live = store.getScheduledRun(run.id)
+        if (!live || live.status !== "running") return
+        // Revalidate immediately before the mutation: the snapshot may be
+        // stale after the per-run awaits, and a session that became active (or
+        // produced a completed reply) meanwhile must not be re-fired.
+        let activeNow: string[]
+        try {
+          activeNow = await retryable(() => opencode.activeSessions(), { includeTimeouts: true })
+        } catch {
+          return // upstream hiccup: keep the run for the next pass
+        }
+        if (activeNow.includes(run.sessionID!)) return
+        let completed: boolean
+        try {
+          completed = await turnCompletedSince(run.sessionID!, run.startedAt)
+        } catch {
+          return
+        }
+        if (completed) {
+          await settleRun(live, "completed")
+          return
+        }
+        await settleRun(live, "interrupted", RECOVERY_RUN_REASON)
+        const task = store.getScheduledTask(run.taskId)
+        if (!task || task.paused) return
+        if (pauseWithoutWorkspace(task)) return
+        // One re-fire per interrupted run: if a newer run was recorded while
+        // this pass was waiting, that run owns the task now.
+        const newest = store.listScheduledRuns(task.id, { limit: 1 })[0]
+        if (newest && newest.id !== live.id) return
+        await fire(task, undefined, "schedule", RECOVERY_PROMPT_NOTE)
+        refired = true
+      })
+      if (refired) {
+        recovered += 1
+        if (recoveryGapMs > 0) await sleep(recoveryGapMs)
+      }
     }
+  }
+
+  /**
+   * Recovery after the agent engine restarted. Delegates to the same
+   * single-flight classification the tick uses, so the two cannot race; the
+   * tick may already have marked/re-fired the run, and this pass then sees the
+   * new (active) run instead of double-driving the old one.
+   */
+  async function recoverInterruptedRuns(): Promise<void> {
+    await reconcileRunningRuns()
+    await flush()
   }
 
   /** Set while a tick pass runs; overlapping passes skip (issue #202). */
@@ -865,6 +980,10 @@ export function createScheduler(options: SchedulerManagerOptions): SchedulerMana
     pauseTask,
     resumeTask,
     reconcileTasks,
+    engineRestarted() {
+      engineRestartAt = now()
+    },
+    recoverInterruptedRuns,
     flush,
     stop(): void {
       if (timer) clearInterval(timer)

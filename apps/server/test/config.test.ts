@@ -336,4 +336,33 @@ describe("loadConfig", () => {
       ).toThrow(/MASTERHAND_UPDATE_TRACK/)
     })
   })
+
+  it("parses the resilience supervisor and recovery knobs", () => {
+    const config = loadConfig(
+      env({
+        WATCHDOG_URL: "http://watchdog:8080",
+        WATCHDOG_TOKEN: "token",
+        RESILIENCE_AUTO_RESUME: "false",
+        RESILIENCE_AUTO_CONTINUE_CHATS: "off",
+        RESILIENCE_MAX_CHAT_RESUMES: "10",
+        RESILIENCE_RESUME_GAP_MS: "0",
+        RESILIENCE_RECOVERY_TIMEOUT_MS: "1",
+        RESILIENCE_RECOVERY_MIN_OUTAGE_MS: "0",
+        RESILIENCE_HEALTH_GRACE_MS: "999999",
+      }),
+    )
+    expect(config).toMatchObject({
+      watchdogUrl: "http://watchdog:8080",
+      watchdogToken: "token",
+      resilienceAutoResume: false,
+      resilienceAutoContinueChats: false,
+      resilienceMaxChatResumes: 10,
+      resilienceResumeGapMs: 0,
+      resilienceRecoveryTimeoutMs: 5_000,
+      resilienceRecoveryMinOutageMs: 0,
+      resilienceHealthGraceMs: 300_000,
+    })
+    expect(loadConfig(env()).watchdogUrl).toBeNull()
+    expect(() => loadConfig(env({ RESILIENCE_AUTO_RESUME: "maybe" }))).toThrow(/RESILIENCE_AUTO_RESUME/)
+  })
 })
