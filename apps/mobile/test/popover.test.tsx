@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native"
+import { Dimensions, Keyboard, Pressable, StyleSheet, Text, View } from "react-native"
 import { act, fireEvent, render, screen } from "@testing-library/react-native"
 import { Popover, popoverLayout, usePopover, type PopoverAnchor } from "../src/components/Popover"
 
@@ -37,6 +37,25 @@ describe("Popover", () => {
     await render(<Harness anchorValue={null} />)
 
     expect(screen.getByText("menu item")).toBeOnTheScreen()
+  })
+
+  it("pins the overlay box to the frozen viewport", async () => {
+    // RN 0.88 lays out a Modal's content with the screen minus the system bar
+    // insets on the first frame (facebook/react-native#59353) and only then
+    // expands it to the full edge-to-edge window. The card is anchored to the
+    // bottom of this box, so the box must be pinned to the same viewport used
+    // by popoverLayout or the card is painted one inset too high and drops a
+    // frame later.
+    const { width, height } = Dimensions.get("window")
+    await render(<Harness placement="up" />)
+
+    expect(screen.getByTestId("popover-root")).toHaveStyle({
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width,
+      height,
+    })
   })
 })
 

@@ -7,6 +7,12 @@
 (27 issues) is merged: C15 (#131 #133), C18 residuals (#216–#219), C20–C22 and the client
 follow-ups (#164, #172).
 
+**Last updated:** 2026-11-02 — **C23 filed** from the mobile picker layout-shift diagnosis:
+#279 (web right-side menus overflow the mobile viewport), #280 (popover late/stale anchor
+recovery) and #281 (layout-stability coverage on web and real Android). The native jump itself
+is fixed in `fix/mobile-popover-first-frame`; these are the collateral findings, not regressions
+of that fix.
+
 **Last updated:** 2026-10-29 — **#134 landed** in the first-release session: the one-click BFF updater is a first-party opt-in sidecar (`deploy/updater/`), `POST /api/update/apply` writes a pre-update SQLite backup and triggers it, and web/desktop show **Update now** only when the deployment tracks `latest`. The same session shipped desktop installers + auto-update and the release pipeline (version preflight, desktop matrix, updater image, release runbook). Remaining: #211-step-2 (per-card board frames).
 
 **Last updated:** 2026-10-21 — **C19 has landed (8/8)**: [#221](https://github.com/ToguDV/masterhand/pull/221)
@@ -78,6 +84,7 @@ in the sessions options box per #136/#137).
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ✅ Merged 2026-10-29 — #226 (review hardening included; #208 approved breaking) |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ✅ Merged 2026-10-29 — #227 (transport) + #228 (data, review hardening included) |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ✅ Merged 2026-10-29 — #229 (review hardening included) |
+| C23 — Overlay layout follow-ups (web menu overflow, popover anchor recovery, device coverage) | #279 #280 #281 | ⬜ Open — filed 2026-11-02 |
 | C23 — Mobile board + scheduler parity | #164 #172 | ✅ Merged 2026-10-29 — #231 (review hardening included) |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6

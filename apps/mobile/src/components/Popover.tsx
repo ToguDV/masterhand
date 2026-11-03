@@ -230,6 +230,22 @@ export function Popover({
     keyboardInset,
   })
 
+  // A Modal's content is laid out with the screen minus the system bar insets
+  // on its first frame and only then expands to the full edge-to-edge window
+  // (facebook/react-native#59353). The card is anchored to the bottom of this
+  // box, so pin the box to the viewport `popoverLayout` already uses; otherwise
+  // the card is painted one status + navigation inset too high and drops a
+  // frame later, on every open.
+  const box = frozenSize
+    ? {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        width: frozenSize.width,
+        height: frozenSize.height,
+      }
+    : null
+
   useEffect(() => {
     if (!open) {
       setRevealed(false)
@@ -245,7 +261,12 @@ export function Popover({
 
   return (
     <Modal visible={open} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
-      <View style={styles.root} accessibilityViewIsModal onAccessibilityEscape={onClose}>
+      <View
+        testID="popover-root"
+        style={[styles.root, box]}
+        accessibilityViewIsModal
+        onAccessibilityEscape={onClose}
+      >
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={onClose}
