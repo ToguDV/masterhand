@@ -2,7 +2,7 @@
   "expo": {
     "name": "MasterHand",
     "slug": "masterhand",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "dev.togudv.masterhand",
-      "versionCode": 600
+      "versionCode": 700
     },
     "plugins": [
       [
