@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Pressable, StyleSheet, Text, View } from "react-native"
-import { useBffStatus, type Client } from "@masterhand/client-core"
+import { useBffStatus, engineAvailability, type Client } from "@masterhand/client-core"
 import { useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -18,12 +18,9 @@ export function EngineBanner({ client }: { client: Client }) {
   const recentIncident = incident && Date.now() - incident.at < 10 * 60_000 ? incident : null
   const serverIncident = engine.serverIncident
   const recentServer = serverIncident && Date.now() - serverIncident.at < 10 * 60_000 ? serverIncident : null
-  const engineStopped =
-    engine.supervisor &&
-    !engine.restarting &&
-    engine.state !== "running" &&
-    engine.state !== "restarting" &&
-    !engine.circuitOpen
+  const availability = engineAvailability(engine)
+  const engineStopped = availability === "stopped"
+  const engineUnseen = availability === "unknown"
   if (
     !engine.restarting &&
     !engine.circuitOpen &&
@@ -31,7 +28,8 @@ export function EngineBanner({ client }: { client: Client }) {
     !engine.serverCircuitOpen &&
     !recentServer &&
     !engine.memoryWarning &&
-    !engineStopped
+    !engineStopped &&
+    !engineUnseen
   ) {
     return null
   }
@@ -54,7 +52,9 @@ export function EngineBanner({ client }: { client: Client }) {
       ? "The agent engine stopped after repeated crashes. Start it to reset the restart budget."
       : engineStopped
         ? "The agent engine is stopped. Start it to continue working."
-        : recentIncident
+        : engineUnseen
+          ? "The server cannot see the agent engine — check the resilience supervisor (watchdog) on the server."
+          : recentIncident
           ? `The agent engine restarted (attempt ${recentIncident.attempt} of ${engine.maxAttempts}). Interrupted conversations can be continued from the chat.`
           : engine.serverCircuitOpen
             ? "MasterHand restarted after repeated crashes; the restart budget resets after 5 minutes of health."

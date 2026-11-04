@@ -72,6 +72,14 @@ describe("EngineBanner (mobile resilience)", () => {
     expect(screen.getByText("Start engine")).toBeTruthy()
   })
 
+  it("warns without a Start button when the supervisor cannot see the engine", async () => {
+    // Regression: `state: "unknown"` (wrong watchdog Compose project or an
+    // unreachable sidecar) was rendered as "stopped", and Start answered 404.
+    await setup({ ...HEALTHY, state: "unknown" })
+    expect(screen.getByText(/cannot see the agent engine/i)).toBeTruthy()
+    expect(screen.queryByText("Start engine")).toBeNull()
+  })
+
   it("surfaces the last incident, memory pressure and the BFF circuit", async () => {
     await setup({
       ...HEALTHY,

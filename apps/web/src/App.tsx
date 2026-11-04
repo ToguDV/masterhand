@@ -5,6 +5,7 @@ import {
   RequestTimeoutError,
   createEventHandler,
   createSessionMarker,
+  engineAvailability,
   formIsQuestion,
   invalidateOnReconnect,
   isAmbiguousError,
@@ -1105,7 +1106,9 @@ function AuthenticatedApp({
       setEngineActionError(
         error instanceof RequestTimeoutError
           ? "The restart was requested but did not answer; check the resilience banner in a moment."
-          : "Could not restart the agent engine. Check the server logs.",
+          : error instanceof ApiError && error.status === 404
+            ? "The supervisor cannot find the agent engine container — check the watchdog project configuration."
+            : "Could not restart the agent engine. Check the server logs.",
       )
     } finally {
       setEngineActionBusy(false)
@@ -1773,6 +1776,7 @@ function AuthenticatedApp({
   // exactly one place. Mobile never mounts either (the aside is `hidden`).
   const showRail = sidebarCollapsed
   const engineStatus = statusQuery.data?.engine
+  const engineAvailabilityState = engineAvailability(engineStatus)
   const engineIncident = engineStatus?.lastIncident ?? null
   const recentEngineIncident =
     engineIncident && Date.now() - engineIncident.at < 10 * 60_000 ? engineIncident : null
@@ -1781,12 +1785,8 @@ function AuthenticatedApp({
   const serverIncident = engineStatus?.serverIncident ?? null
   const recentServerIncident =
     serverIncident && Date.now() - serverIncident.at < 10 * 60_000 ? serverIncident : null
-  const engineStopped =
-    engineStatus?.supervisor === true &&
-    !engineStatus.restarting &&
-    engineStatus.state !== "running" &&
-    engineStatus.state !== "restarting" &&
-    !engineStatus.circuitOpen
+  const engineStopped = engineAvailabilityState === "stopped"
+  const engineUnseen = engineAvailabilityState === "unknown"
 
   return (
     <div className="flex h-dvh flex-col bg-canvas text-ink">
@@ -1978,6 +1978,14 @@ function AuthenticatedApp({
           >
             {engineActionBusy ? "Starting…" : "Start engine"}
           </button>
+        </div>
+      )}
+
+      {engineUnseen && (
+        <div className="mh-banner mh-banner--warning" role="status">
+          <span className="min-w-0 flex-1">
+            The server cannot see the agent engine — check the resilience supervisor (watchdog) on the server.
+          </span>
         </div>
       )}
 

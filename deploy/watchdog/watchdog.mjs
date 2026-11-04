@@ -236,6 +236,8 @@ export function createWatchdog(options) {
   let stopped = false
   let tickRunning = false
   const lastActionAt = new Map()
+  /** Services whose container could not be resolved (logged once per outage). */
+  const missing = new Set()
 
   function persist() {
     saveState(stateFile, state, log)
@@ -413,11 +415,22 @@ export function createWatchdog(options) {
       return
     }
     if (!id) {
+      // Silent before: a sidecar pointed at another Compose project reported
+      // `state: "unknown"` every tick and logged nothing, so the only symptom
+      // was a banner whose Start answered 404 not_found. Log the transition
+      // once (not every 10 s) so the cause is in the logs after a restart.
+      if (!missing.has(service)) {
+        missing.add(service)
+        log(
+          `[watchdog] ${service}: no container for Compose project "${project}" — check WATCHDOG_PROJECT (the stack may use a prefixed project name)`,
+        )
+      }
       entry.state = "unknown"
       entry.health = "none"
       persist()
       return
     }
+    missing.delete(service)
     // A new container id means Compose recreated the service (updater, manual
     // `up compose up`), not a restart: clear the budget instead of counting it.
     if (entry.containerID && entry.containerID !== id) {

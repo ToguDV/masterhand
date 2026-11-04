@@ -55,7 +55,7 @@ All values are optional; the defaults are the documented behavior.
 | Variable | Default | Meaning |
 |---|---|---|
 | `WATCHDOG_TOKEN` | empty | Shared BFF ↔ watchdog token (`openssl rand -hex 32`). Empty keeps automatic restarts but disables `/status` and the manual controls (`supervisor: false`). |
-| `WATCHDOG_PROJECT` | `masterhand` | Compose project whose labels are resolved. |
+| `WATCHDOG_PROJECT` | `masterhand` (follows `COMPOSE_PROJECT_NAME`) | Compose project whose labels are resolved. The Compose file interpolates it, so the sidecar follows the stack: a prefixed deployment (`masterhand-prod`) resolves its own containers, and the dev overlay (`masterhand-dev`) resolves the dev ones. |
 | `WATCHDOG_SERVICES` | `masterhand,opencode` | Allowlist. |
 | `WATCHDOG_MAX_ATTEMPTS` | `3` | Restarts before the circuit opens. |
 | `WATCHDOG_STABILITY_MS` | `300000` | Continuous health that resets the budget. |
@@ -131,7 +131,8 @@ docker compose -f deploy/docker-compose.yml exec masterhand sh -c \
    -H "content-type: application/json" -d "{\"service\":\"opencode\"}" \
    http://watchdog:8080/restart'
 
-# Inspect the persisted budget/incidents.
+# Inspect the persisted budget/incidents (prefix with your project name when
+# COMPOSE_PROJECT_NAME is not `masterhand`, e.g. `masterhand-prod_watchdog_state`).
 docker run --rm -v masterhand_watchdog_state:/state alpine cat /state/watchdog.json
 ```
 
@@ -173,6 +174,7 @@ touched.
 | Symptom | Check |
 |---|---|
 | Banner shows `supervisor: false` | `WATCHDOG_TOKEN` is empty or the watchdog is not running; automatic restarts still work. |
+| Banner says the engine is stopped while `docker compose ps` shows it running, or Start engine answers `404 not_found` | The watchdog resolved no container: check that its project matches the stack (`WATCHDOG_PROJECT` follows `COMPOSE_PROJECT_NAME`; production defaults to `masterhand`, dev to `masterhand-dev`) with `docker compose config`, then `docker compose logs watchdog` — it now logs `no container for Compose project …` once. |
 | `503 supervisor_unavailable` on Start engine | `docker compose ps watchdog`, `docker compose logs watchdog`, and the token match on both services. |
 | Engine stopped and the banner says the circuit is open | Start it from the banner or `docker compose start opencode`; the budget resets. |
 | A restarted engine lost a chat turn | The journal may still be `running`/`interrupted`; `/api/turns` and the chat's **Continue** action. If the turn is `ambiguous`, review the session before continuing. |

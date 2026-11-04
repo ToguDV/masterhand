@@ -1,4 +1,5 @@
 export * from "./types"
+export { engineAvailability, type EngineAvailability } from "./engine"
 export {
   DEFAULT_AGENT_ACTIVITY_PREFERENCES,
   agentActivityKindEnabled,
