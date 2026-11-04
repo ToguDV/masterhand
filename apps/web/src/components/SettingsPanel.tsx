@@ -75,6 +75,8 @@ export function SettingsDialog({
   onSelectPalette,
   notifications,
   onNotificationsChange,
+  updateChecks,
+  onUpdateChecksChange,
   onSignOut,
   onClose,
   initialModule,
@@ -87,6 +89,8 @@ export function SettingsDialog({
   onSelectPalette: (palette: PaletteID) => void
   notifications?: NotificationPreferences
   onNotificationsChange?: (preferences: NotificationPreferences) => void
+  updateChecks?: boolean
+  onUpdateChecksChange?: (enabled: boolean) => void
   /** Kept for the mobile settings list; the active server's Disconnect lives in Servers. */
   onSignOut: () => void
   onClose: () => void
@@ -206,7 +210,7 @@ export function SettingsDialog({
             ) : module === "websearch" ? (
               <WebSearchSection />
             ) : module === "about" ? (
-              <AboutSection />
+              <AboutSection checksEnabled={updateChecks} onToggleChecks={onUpdateChecksChange} />
             ) : (
               <ProvidersSection />
             )}

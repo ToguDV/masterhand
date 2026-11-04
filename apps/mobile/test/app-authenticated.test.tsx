@@ -56,6 +56,10 @@ jest.mock("../src/storage", () => ({
   saveAgentActivityPreferences: jest.fn(async () => {}),
   loadBusySnapshot: jest.fn(async () => ({})),
   saveBusySnapshot: jest.fn(async () => {}),
+  loadUpdateChecksEnabled: jest.fn(async () => true),
+  saveUpdateChecksEnabled: jest.fn(async () => {}),
+  loadDismissedUpdateTag: jest.fn(async () => null),
+  saveDismissedUpdateTag: jest.fn(async () => {}),
 }))
 
 jest.mock("@masterhand/client-core", () => {

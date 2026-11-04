@@ -17,6 +17,7 @@ import {
 } from "@masterhand/client-core"
 import { StatusDot } from "./tools/StatusDot"
 import { ExternalLinkIcon, XIcon } from "./icons"
+import { Toggle } from "./Toggle"
 
 /**
  * Inline card for the agent's `question` tool. While the form is pending it
@@ -576,19 +577,5 @@ function MultiInput({
 }
 
 function BooleanToggle({ checked, onChange }: { checked: boolean; onChange: (value: FormValue) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? "bg-accent" : "bg-hairline-strong"}`}
-    >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full transition-transform ${
-          checked ? "translate-x-4.5 bg-on-accent" : "translate-x-0.5 bg-surface"
-        }`}
-      />
-    </button>
-  )
+  return <Toggle checked={checked} onChange={onChange} />
 }

@@ -79,14 +79,18 @@ import {
   loadAgentActivityPreferences,
   loadAutoAcceptSessionsFor,
   loadBusySnapshot,
+  loadDismissedUpdateTag,
   loadNotificationsEnabled,
   loadServerRegistry,
   loadServerToken,
+  loadUpdateChecksEnabled,
   newServerID,
   saveAutoAcceptSessionsFor,
   saveBusySnapshot,
+  saveDismissedUpdateTag,
   saveServerRegistry,
   saveServerToken,
+  saveUpdateChecksEnabled,
   type ServerRegistry,
   type StoredServerProfile,
 } from "./src/storage"
@@ -764,6 +768,11 @@ function AuthenticatedApp({
   // App-level settings modal (Servers, Appearance, Providers, Account).
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<"servers" | null>(null)
+  // Release checks: `null` until the stored choice is read (no fetch before
+  // knowing whether the user turned them off). `undefined` dismissed tag means
+  // the stored one has not loaded yet, so the popup must not flash.
+  const [updateChecks, setUpdateChecks] = useState<boolean | null>(null)
+  const [dismissedUpdateTag, setDismissedUpdateTag] = useState<string | null | undefined>(undefined)
   // Home section (Sessions/Scheduler), mirroring the web sidebar rail. The
   // chat takes over the screen while a session is open; backing out returns
   // to the selected section.
@@ -785,6 +794,39 @@ function AuthenticatedApp({
     if (!autoAcceptLoaded.current) return
     void saveAutoAcceptSessionsFor(profile.id, autoAcceptSessions).catch(() => {})
   }, [autoAcceptSessions, profile.id])
+
+  // Release check preferences: automatic checks default to on; the dismissed
+  // tag silences one release until a newer one appears.
+  useEffect(() => {
+    let cancelled = false
+    void loadUpdateChecksEnabled()
+      .then((value) => {
+        if (!cancelled) setUpdateChecks(value)
+      })
+      .catch(() => {
+        if (!cancelled) setUpdateChecks(true)
+      })
+    void loadDismissedUpdateTag()
+      .then((tag) => {
+        if (!cancelled) setDismissedUpdateTag(tag)
+      })
+      .catch(() => {
+        if (!cancelled) setDismissedUpdateTag(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const toggleUpdateChecks = useCallback((enabled: boolean) => {
+    setUpdateChecks(enabled)
+    void saveUpdateChecksEnabled(enabled).catch(() => {})
+  }, [])
+
+  const dismissUpdate = useCallback((tag: string) => {
+    setDismissedUpdateTag(tag)
+    void saveDismissedUpdateTag(tag).catch(() => {})
+  }, [])
 
   useEffect(() => {
     onProfileState({ lastSessionID: sessionID })
@@ -1436,9 +1478,16 @@ function AuthenticatedApp({
 
   return (
     <>
-      {/* Release update banner (#133): BFF manifest first, F-Droid index as
-          fallback; the only action deep-links into F-Droid. */}
-      <UpdateBanner client={client} />
+      {/* Release update notice (#133): a dismissible popup fed by the BFF
+          manifest first and the F-Droid index as fallback. Automatic checks
+          can be turned off in Settings > About. */}
+      <UpdateBanner
+        client={client}
+        enabled={updateChecks === true}
+        dismissedTag={dismissedUpdateTag ?? null}
+        onDismiss={dismissUpdate}
+        suppressed={settingsOpen || dismissedUpdateTag === undefined}
+      />
       {sessionID ? (
         <View style={styles.screenWrap}>
           {banner ? (
@@ -1526,6 +1575,8 @@ function AuthenticatedApp({
         palette={palette}
         onSelectPalette={setPalette}
         initialSection={settingsSection}
+        updateChecks={updateChecks === true}
+        onUpdateChecksChange={toggleUpdateChecks}
         onNotificationsEnabledChange={(value) => {
           notificationsEnabledRef.current = value
         }}

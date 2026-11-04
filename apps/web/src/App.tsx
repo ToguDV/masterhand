@@ -105,6 +105,7 @@ import {
   type ServerRegistry,
 } from "./servers"
 import { isBundledDesktop } from "./platform"
+import { loadUpdateChecksEnabled, saveUpdateChecksEnabled } from "./update-checks"
 
 const AUTO_ACCEPT_KEY = "masterhand.autoAcceptSessions"
 const SIDEBAR_COLLAPSED_KEY = "mh-sidebar-collapsed"
@@ -937,6 +938,11 @@ function AuthenticatedApp({
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
     () => loadNotificationPreferences(),
   )
+  const [updateChecks, setUpdateChecks] = useState<boolean>(loadUpdateChecksEnabled)
+  const updateUpdateChecks = useCallback((enabled: boolean) => {
+    setUpdateChecks(enabled)
+    saveUpdateChecksEnabled(enabled)
+  }, [])
   const [menuOpen, setMenuOpen] = useState(false)
   // Mobile shell (<768px): bottom nav instead of the sidebar drawer. The two
   // shells mount different panels, so the split is JS-driven; mounting both
@@ -1127,8 +1133,9 @@ function AuthenticatedApp({
     }
   }, [statusQuery])
   // Release manifest (#131): hourly poll plus refetch on window focus (see
-  // `useUpdate`). Advisory only — an unknown upstream shows no notice.
-  const updateQuery = useUpdate(client, true)
+  // `useUpdate`). Advisory only — an unknown upstream shows no notice. The
+  // automatic check can be disabled in Settings > About.
+  const updateQuery = useUpdate(client, updateChecks)
 
   useEffect(() => {
     if (statusQuery.isSuccess) return
@@ -1936,7 +1943,7 @@ function AuthenticatedApp({
           </span>
           <button
             type="button"
-            className="mh-btn mh-btn--quiet"
+            className="mh-btn mh-btn--sm mh-btn--ghost"
             disabled={engineActionBusy}
             onClick={() => void restartAgentEngine()}
           >
@@ -1944,7 +1951,7 @@ function AuthenticatedApp({
           </button>
           <button
             type="button"
-            className="mh-btn mh-btn--quiet"
+            className="mh-btn mh-btn--sm mh-btn--ghost"
             disabled={engineActionBusy}
             onClick={() => void resetAgentEngine()}
           >
@@ -1963,7 +1970,7 @@ function AuthenticatedApp({
       {engineStatus?.serverCircuitOpen && (
         <div className="mh-banner mh-banner--danger" role="alert">
           MasterHand hit the restart circuit after repeated crashes. The budget resets after 5 minutes of health; if
-          it stops again, start it with <code>docker compose start masterhand</code>.
+          it stops again, start it from your deployment.
         </div>
       )}
 
@@ -1972,7 +1979,7 @@ function AuthenticatedApp({
           <span className="min-w-0 flex-1">The agent engine is stopped (after a circuit reset or a manual stop).</span>
           <button
             type="button"
-            className="mh-btn mh-btn--quiet"
+            className="mh-btn mh-btn--sm mh-btn--ghost"
             disabled={engineActionBusy}
             onClick={() => void restartAgentEngine()}
           >
@@ -2019,7 +2026,11 @@ function AuthenticatedApp({
         </button>
       ))}
 
-      <UpdateNotices status={statusQuery.data} latest={updateQuery.data?.latest} />
+      <UpdateNotices
+        status={statusQuery.data}
+        latest={updateChecks ? updateQuery.data?.latest : undefined}
+        checksEnabled={updateChecks}
+      />
 
       {choiceForm ? null : waitingForm ? (
         <button
@@ -2434,6 +2445,8 @@ function AuthenticatedApp({
           onSelectPalette={themeMode.setPalette}
           notifications={notificationPreferences}
           onNotificationsChange={updateNotificationPreferences}
+          updateChecks={updateChecks}
+          onUpdateChecksChange={updateUpdateChecks}
           onSignOut={() => void handleLogout()}
           onClose={() => setPanel(null)}
           initialModule={settingsModule}

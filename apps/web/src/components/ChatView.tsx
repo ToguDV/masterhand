@@ -318,7 +318,7 @@ function InterruptedTurnCard({ sessionID }: { sessionID: string }) {
       </span>
       <button
         type="button"
-        className="mh-btn mh-btn--quiet"
+        className="mh-btn mh-btn--sm mh-btn--ghost"
         disabled={resume.isPending}
         onClick={() => resume.mutate(sessionID)}
       >
