@@ -51,6 +51,8 @@ const PALETTE_KEY = "masterhand.palette"
 const NOTIFICATIONS_ENABLED_KEY = "masterhand.notifications.enabled"
 const NOTIFICATION_KINDS_KEY = "masterhand.notifications.kinds"
 const NOTIFY_BUSY_PREFIX = "masterhand.notifyBusy."
+const UPDATE_CHECKS_KEY = "masterhand.updateChecks"
+const DISMISSED_UPDATE_KEY = "masterhand.dismissedUpdate"
 
 /** Named differently from the legacy single-server keys so migration is unambiguous. */
 const SERVERS_KEY = "masterhand.servers.v2"
@@ -405,6 +407,28 @@ export async function loadNotificationsEnabled(): Promise<boolean> {
 
 export function saveNotificationsEnabled(enabled: boolean): Promise<void> {
   return SecureStore.setItemAsync(NOTIFICATIONS_ENABLED_KEY, enabled ? "1" : "0")
+}
+
+/** Automatic release checks: on by default, off keeps manual checks available. */
+export async function loadUpdateChecksEnabled(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(UPDATE_CHECKS_KEY)) !== "0"
+  } catch {
+    return true
+  }
+}
+
+export function saveUpdateChecksEnabled(enabled: boolean): Promise<void> {
+  return SecureStore.setItemAsync(UPDATE_CHECKS_KEY, enabled ? "1" : "0")
+}
+
+/** Tag of the release the user chose to stop hearing about. */
+export function loadDismissedUpdateTag(): Promise<string | null> {
+  return SecureStore.getItemAsync(DISMISSED_UPDATE_KEY)
+}
+
+export function saveDismissedUpdateTag(tag: string): Promise<void> {
+  return SecureStore.setItemAsync(DISMISSED_UPDATE_KEY, tag)
 }
 
 /** Per-event switches; missing or malformed storage means everything on. */

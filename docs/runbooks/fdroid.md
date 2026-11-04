@@ -1,6 +1,6 @@
 # Runbook — Self-hosted F-Droid repo and Android updates
 
-MasterHand ships Android builds through a self-hosted F-Droid repository (#133): every `v*` tag builds a signed release APK, attaches it to the GitHub release, and refreshes the repo on the `fdroid` branch. The Android app shows a "New version available — Open F-Droid" banner (BFF manifest first, F-Droid index as fallback) and a Settings > About section.
+MasterHand ships Android builds through a self-hosted F-Droid repository (#133): every `v*` tag builds a signed release APK, attaches it to the GitHub release, and refreshes the repo on the `fdroid` branch. The Android app shows a dismissible "update available" popup (**Open F-Droid**, **Later**, **Don't show again**) — BFF manifest first, F-Droid index as fallback — and a Settings > About section with the automatic-check switch.
 
 The stable repo URL (added in F-Droid → Settings → Repositories) is:
 
@@ -108,9 +108,10 @@ gh run watch -R ToguDV/masterhand
 
 ## 4. Client behavior
 
-- The banner compares the **installed** build (`expo-application`: `nativeApplicationVersion`/`nativeBuildVersion`) against the BFF's `GET /api/update` first; when the BFF is unreachable or predates the route it fetches `index-v2.json` from `.../fdroid/repo/` and compares `versionCode` (then semver on ties). Every failure is "no notice", never an error.
-- The only action is **Open F-Droid**: a `market://details?id=dev.togudv.masterhand` intent (handled by `org.fdroid.fdroid`), falling back to the landing page `.../masterhand/`. Explicit non-goals: no `REQUEST_INSTALL_PACKAGES`, no APK-installer intent, no `expo-updates` — the user installs through F-Droid, where signatures are verified.
-- Settings > About shows the installed version/build, the latest known release, the last check, and the same F-Droid entry points.
+- The popup compares the **installed** build (`expo-application`: `nativeApplicationVersion`/`nativeBuildVersion`) against the BFF's `GET /api/update` first; when the BFF is unreachable or predates the route it fetches `index-v2.json` from `.../fdroid/repo/` and compares `versionCode` (then semver on ties). Every failure is "no notice", never an error.
+- The only install action is **Open F-Droid**: a `market://details?id=dev.togudv.masterhand` intent (handled by `org.fdroid.fdroid`), falling back to the landing page `.../masterhand/`. Explicit non-goals: no `REQUEST_INSTALL_PACKAGES`, no APK-installer intent, no `expo-updates` — the user installs through F-Droid, where signatures are verified.
+- **Later** hides the popup for the session; **Don't show again** persists the dismissed tag (secure storage), so the next release still announces itself. Automatic checks are on by default and can be turned off in Settings > About; the manual **Check for updates** keeps working when they are off.
+- Settings > About shows the installed version/build, the automatic-check switch, the latest known release, the last check, and the same F-Droid entry points.
 
 ## 5. Privacy
 
@@ -124,4 +125,4 @@ Like the server update check, no device contacts GitHub for the happy path: the 
 - **`apksigner not found`:** the `publish` and `fdroid.yml` jobs install the Android build-tools with `android-actions/setup-android@v4`; a local run needs the SDK build-tools on `PATH`/`ANDROID_HOME`.
 - **The manual workflow cannot find the APK:** from v0.2.1 the GitHub asset is `MasterHand-<version>.apk`; `scripts/fdroid-repo.sh` falls back to `app-release.apk` for v0.1.0/v0.2.0. A missing asset is a published-release problem, not a reason to move the tag.
 - **`fdroid update` signs with the wrong key:** the branch's `config.yml` must keep `keystore = "repo.keystore"` and the release alias; the script overwrites both every run. If a foreign index was ever pushed, clients pin the first key they saw — re-adding the repo may be required.
-- **Banner never appears:** check `GET /api/update` on the BFF (server log + `UPDATE_MANIFEST_URL`), then the index (`curl …/fdroid/repo/index-v2.json`). The banner needs a strictly newer `versionCode`/version than the installed build.
+- **Popup never appears:** check `GET /api/update` on the BFF (server log + `UPDATE_MANIFEST_URL`), then the index (`curl …/fdroid/repo/index-v2.json`). The popup needs a strictly newer `versionCode`/version than the installed build, automatic checks enabled (Settings > About), and a tag that was not dismissed with **Don't show again**.

@@ -81,6 +81,8 @@ export function SettingsModal({
   initialSection = null,
   onNotificationsEnabledChange,
   onNotificationPreferencesChange,
+  updateChecks = true,
+  onUpdateChecksChange,
   servers,
 }: {
   visible: boolean
@@ -96,6 +98,9 @@ export function SettingsModal({
   /** Keeps App's notification refs in sync without a foreground round-trip. */
   onNotificationsEnabledChange?: (enabled: boolean) => void
   onNotificationPreferencesChange?: (preferences: AgentActivityPreferences) => void
+  /** Automatic release checks (persisted in App). */
+  updateChecks?: boolean
+  onUpdateChecksChange?: (enabled: boolean) => void
   servers: {
     profiles: StoredServerProfile[]
     activeID: string | null
@@ -267,7 +272,13 @@ export function SettingsModal({
               onPreferencesChange={onNotificationPreferencesChange}
             />
           )}
-          {section === "about" && <AboutSection client={client} />}
+          {section === "about" && (
+            <AboutSection
+              client={client}
+              checksEnabled={updateChecks}
+              onToggleChecks={onUpdateChecksChange}
+            />
+          )}
           </ScrollView>
         )}
       </Screen>

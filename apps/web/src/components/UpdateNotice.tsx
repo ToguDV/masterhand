@@ -44,9 +44,6 @@ function releaseNotesUrl(tag: string): string {
   return `https://github.com/togudv/masterhand/releases/tag/${encodeURIComponent(tag)}`
 }
 
-const UPGRADE_COMMAND =
-  "docker compose -f deploy/docker-compose.yml pull && docker compose -f deploy/docker-compose.yml up -d"
-
 function apiErrorCode(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null
   try {
@@ -159,13 +156,22 @@ function ActionMessage({ message, phase }: { message: string | null; phase: Upda
  *   BFF's — a redeploy happened under this tab. Reload picks it up (hashed
  *   assets mean no aggressive HTML caching to fight).
  * - upstream release: the BFF's manifest reports a strictly newer version.
- *   With the opt-in updater it shows "Update now"; otherwise it shows the
- *   copyable `pull && up -d` command. A skipped tag (persisted) stays hidden;
+ *   With the opt-in updater it shows "Update now"; otherwise it points at the
+ *   deployment's own update procedure (never a hard-coded command, which
+ *   depends on how each host deploys). A skipped tag (persisted) stays hidden;
  *   an unknown upstream (`latest: null`, old BFF included) shows nothing.
+ *   Automatic checks can be turned off in Settings > About.
  */
-export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?: VersionRelease | null }) {
+export function UpdateNotices({
+  status,
+  latest,
+  checksEnabled = true,
+}: {
+  status?: BffStatus
+  latest?: VersionRelease | null
+  checksEnabled?: boolean
+}) {
   const [skippedTag, skipVersion] = useSkippedTag()
-  const [copied, setCopied] = useState(false)
   const action = useUpdateAction(latest ?? null, status)
 
   const serverBuild = status?.build
@@ -175,19 +181,9 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
 
   const current = status?.version ?? CLIENT_VERSION
   const updateAvailable =
-    Boolean(latest && isNewerVersion(current, latest.version)) && skippedTag !== latest?.tag
+    checksEnabled && Boolean(latest && isNewerVersion(current, latest.version)) && skippedTag !== latest?.tag
 
   if (!staleBundle && !updateAvailable && action.phase !== "updated") return null
-
-  async function copyUpgradeCommand(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(UPGRADE_COMMAND)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard unavailable: the command stays selectable as plain text.
-    }
-  }
 
   const updater = status?.updater
 
@@ -212,10 +208,18 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
               <a href={releaseNotesUrl(latest.tag)} target="_blank" rel="noreferrer">
                 Release notes
               </a>
+              {!action.supported && (
+                <>
+                  {" "}
+                  {updater?.enabled
+                    ? `One-click updates need a floating image tag; this server tracks ${updater.track ?? "a pinned tag"}. Update it with your usual deployment procedure.`
+                    : "This server does not support one-click updates. Update it with your usual deployment procedure."}
+                </>
+              )}
             </span>
             <ActionMessage message={action.message} phase={action.phase} />
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              {action.supported ? (
+              {action.supported && (
                 <button
                   type="button"
                   className="mh-btn mh-btn--sm mh-btn--primary"
@@ -224,27 +228,15 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
                 >
                   {action.busy ? "Updating…" : "Update now"}
                 </button>
-              ) : (
-                <>
-                  <code className="mh-code">{UPGRADE_COMMAND}</code>
-                  <button type="button" className="mh-btn mh-btn--sm mh-btn--quiet" onClick={copyUpgradeCommand}>
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </>
               )}
               <button
                 type="button"
-                className="mh-btn mh-btn--sm mh-btn--quiet"
+                className="mh-btn mh-btn--sm mh-btn--ghost"
                 onClick={() => skipVersion(latest.tag)}
               >
                 Skip this version
               </button>
             </div>
-            {updater?.enabled && !updater.tracksLatest && (
-              <p className="mh-body-sm mh-muted mt-1">
-                One-click updates need a floating image tag; this server tracks {updater.track ?? "a pinned tag"}.
-              </p>
-            )}
           </div>
         </div>
       )}
@@ -262,28 +254,42 @@ export function UpdateNotices({ status, latest }: { status?: BffStatus; latest?:
 
 /**
  * Settings > About (#131): running version/build, the latest known upstream
- * release, a manual Check for updates, the last-checked time and the persisted
- * skip. Desktop shows this same section: it serves the web build unchanged.
+ * release, the automatic-check switch, a manual Check for updates, the
+ * last-checked time and the persisted skip. Desktop shows this same section:
+ * it serves the web build unchanged.
  */
-export function AboutSection() {
+export function AboutSection({
+  checksEnabled = true,
+  onToggleChecks,
+}: {
+  checksEnabled?: boolean
+  onToggleChecks?: (enabled: boolean) => void
+}) {
   const queryClient = useQueryClient()
   const status = useBffStatus(client)
-  const update = useUpdate(client)
+  const update = useUpdate(client, checksEnabled)
   const [skippedTag, skipLatestTag] = useSkippedTag()
 
   const version = status.data?.version ?? CLIENT_VERSION
   const build = status.data?.build ?? CLIENT_BUILD
   const latest = update.data?.latest ?? null
   const current = status.data?.version ?? CLIENT_VERSION
-  const updateAvailable = Boolean(latest && isNewerVersion(current, latest.version))
+  const updateAvailable = checksEnabled && Boolean(latest && isNewerVersion(current, latest.version))
   const action = useUpdateAction(latest, status.data)
   const updater = status.data?.updater
 
   async function checkNow(): Promise<void> {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.update }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.status }),
-    ])
+    try {
+      // One-shot fetch: works even when automatic checks are off.
+      await queryClient.fetchQuery({
+        queryKey: queryKeys.update,
+        queryFn: () => client.api.update.check(),
+        staleTime: 0,
+      })
+    } catch {
+      // The update hook maps failures to an unknown upstream; no banner.
+    }
+    void queryClient.invalidateQueries({ queryKey: queryKeys.status })
   }
 
   function skipLatest(): void {
@@ -300,6 +306,30 @@ export function AboutSection() {
         About
       </h3>
       <p className="mh-settings__desc">Release identity and updates.</p>
+      <div className="mt-4 flex items-center justify-between gap-4 border-b border-hairline py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">Check for updates automatically</p>
+          <p className="mh-caption mh-muted mt-0.5">
+            Looks for a newer release at most once an hour and on window focus.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checksEnabled}
+          aria-label="Check for updates automatically"
+          onClick={() => onToggleChecks?.(!checksEnabled)}
+          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+            checksEnabled ? "bg-accent" : "bg-hairline-strong"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full transition-transform ${
+              checksEnabled ? "translate-x-4.5 bg-on-accent" : "translate-x-0.5 bg-surface"
+            }`}
+          />
+        </button>
+      </div>
       <dl className="mt-4 flex flex-col gap-1 mh-body-sm">
         <div className="flex gap-2">
           <dt className="mh-muted">Version</dt>
@@ -312,11 +342,13 @@ export function AboutSection() {
         <div className="flex gap-2">
           <dt className="mh-muted">Latest release</dt>
           <dd>
-            {update.isPending
+            {update.isPending && checksEnabled
               ? "checking…"
               : latest
                 ? `${latest.version} (${latest.tag})`
-                : "unknown"}
+                : checksEnabled
+                  ? "unknown"
+                  : "not checked"}
           </dd>
         </div>
         <div className="flex gap-2">
@@ -333,11 +365,13 @@ export function AboutSection() {
         </p>
       ) : (
         <p className="mh-body-sm mh-muted mt-2">
-          {!latest
-            ? "No update information (the server could not reach the release manifest)."
-            : skippedTag === latest.tag
-              ? `Skipped ${latest.version}.`
-              : "You are up to date."}
+          {!checksEnabled
+            ? "Automatic update checks are off. Check manually whenever you like."
+            : !latest
+              ? "No update information (the server could not reach the release manifest)."
+              : skippedTag === latest.tag
+                ? `Skipped ${latest.version}.`
+                : "You are up to date."}
         </p>
       )}
       <ActionMessage message={action.message} phase={action.phase} />
@@ -345,7 +379,7 @@ export function AboutSection() {
         <button
           type="button"
           className="mh-btn mh-btn--sm"
-          onClick={checkNow}
+          onClick={() => void checkNow()}
           disabled={update.isFetching}
         >
           {update.isFetching ? "Checking…" : "Check for updates"}
@@ -373,8 +407,8 @@ export function AboutSection() {
       )}
       {updateAvailable && !updater?.enabled && (
         <p className="mh-body-sm mh-muted mt-2">
-          One-click updates are not enabled on this server. Use the command shown in the update banner, or enable
-          the updater sidecar (see the deployment runbook).
+          One-click updates are not enabled on this server. Update it with your usual deployment procedure, or
+          enable the updater sidecar (see the deployment runbook).
         </p>
       )}
     </section>

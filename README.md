@@ -30,10 +30,12 @@ Captured from the E2E harness (mocked opencode) at 1600×1000 and 390×844; no i
   the self-hosted F-Droid repo `https://togudv.github.io/masterhand/fdroid/repo/`.
 
 Updating: the desktop app checks every 6 hours and prompts to restart; Android
-notifies through F-Droid; the server shows an update banner and, when the
+shows a dismissible update popup (checks can be turned off in Settings → About);
+the server shows an update banner and, when the
 [one-click updater](docs/runbooks/release.md#6-one-click-bff-updater-opt-in) is
-enabled, an **Update now** button. A pinned `MASTERHAND_VERSION` keeps the
-manual `docker compose pull && up -d` flow.
+enabled, an **Update now** button. The banner never hard-codes a command:
+deployments differ, so it points at your own update procedure. A pinned
+`MASTERHAND_VERSION` keeps the manual `docker compose pull && up -d` flow.
 
 ## How it works
 

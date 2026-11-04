@@ -8,7 +8,7 @@ import { login } from "./helpers"
  * route-level mocks — no GitHub access from the test.
  */
 
-test("a newer upstream release shows the update notice with notes and upgrade command", async ({ page }) => {
+test("a newer upstream release shows the update notice with notes and deployment guidance", async ({ page }) => {
   await page.route("**/api/update", async (route) => {
     await route.fulfill({
       status: 200,
@@ -30,7 +30,10 @@ test("a newer upstream release shows the update notice with notes and upgrade co
     "href",
     "https://github.com/togudv/masterhand/releases/tag/v9.9.9",
   )
-  await expect(page.getByText("docker compose -f deploy/docker-compose.yml pull")).toBeVisible()
+  // Deployment commands differ per host: the banner never hard-codes one.
+  await expect(page.getByText(/usual deployment procedure/)).toBeVisible()
+  await expect(page.getByText(/docker compose/)).toBeHidden()
+  await expect(page.getByRole("button", { name: "Copy" })).toBeHidden()
 })
 
 test("the opt-in updater applies the release and reports the new running version", async ({ page }) => {
@@ -67,7 +70,7 @@ test("the opt-in updater applies the release and reports the new running version
   await login(page)
   const updateNow = page.getByRole("button", { name: "Update now" })
   await expect(updateNow).toBeVisible()
-  await expect(page.getByText("docker compose -f deploy/docker-compose.yml pull")).toBeHidden()
+  await expect(page.getByText(/usual deployment procedure/)).toBeHidden()
 
   await updateNow.click()
   await expect(page.getByText("Updating MasterHand… the server will restart.")).toBeVisible()
@@ -119,7 +122,7 @@ test("a failed update trigger surfaces the typed error and keeps the notice", as
   await expect(page.getByRole("button", { name: "Update now" })).toBeEnabled()
 })
 
-test("a pinned image tag keeps the manual command with an explanation", async ({ page }) => {
+test("a pinned image tag explains why one-click updates are unavailable", async ({ page }) => {
   await page.route("**/api/update", async (route) => {
     await route.fulfill({
       status: 200,
@@ -142,8 +145,8 @@ test("a pinned image tag keeps the manual command with an explanation", async ({
   })
 
   await login(page)
-  await expect(page.getByText("docker compose -f deploy/docker-compose.yml pull")).toBeVisible()
   await expect(page.getByText(/One-click updates need a floating image tag/)).toBeVisible()
+  await expect(page.getByText(/docker compose/)).toBeHidden()
   await expect(page.getByRole("button", { name: "Update now" })).toBeHidden()
 })
 
