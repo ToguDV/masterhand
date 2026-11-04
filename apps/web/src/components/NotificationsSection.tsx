@@ -7,6 +7,7 @@ import {
   sendTestNotification,
   type NotificationPreferences,
 } from "../notifications"
+import { Toggle } from "./Toggle"
 
 const KINDS: Array<{
   kind: AgentActivityKind
@@ -213,23 +214,7 @@ function NotificationSwitch({
         <p className="text-sm font-medium text-ink">{label}</p>
         <p className="mh-caption mh-muted mt-0.5">{description}</p>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-          checked ? "bg-accent" : "bg-hairline-strong"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full transition-transform ${
-            checked ? "translate-x-4.5 bg-on-accent" : "translate-x-0.5 bg-surface"
-          }`}
-        />
-      </button>
+      <Toggle checked={checked} onChange={onChange} label={label} disabled={disabled} />
     </div>
   )
 }

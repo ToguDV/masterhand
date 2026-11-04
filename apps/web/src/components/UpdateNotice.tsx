@@ -12,6 +12,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query"
 import { client } from "../client"
 import { isBundledDesktop } from "../platform"
+import { Toggle } from "./Toggle"
 import { CLIENT_BUILD, CLIENT_VERSION } from "../version"
 
 const SKIPPED_UPDATE_KEY = "masterhand.skippedUpdate"
@@ -313,22 +314,11 @@ export function AboutSection({
             Looks for a newer release at most once an hour and on window focus.
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checksEnabled}
-          aria-label="Check for updates automatically"
-          onClick={() => onToggleChecks?.(!checksEnabled)}
-          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-            checksEnabled ? "bg-accent" : "bg-hairline-strong"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-4 w-4 rounded-full transition-transform ${
-              checksEnabled ? "translate-x-4.5 bg-on-accent" : "translate-x-0.5 bg-surface"
-            }`}
-          />
-        </button>
+        <Toggle
+          checked={checksEnabled}
+          onChange={(value) => onToggleChecks?.(value)}
+          label="Check for updates automatically"
+        />
       </div>
       <dl className="mt-4 flex flex-col gap-1 mh-body-sm">
         <div className="flex gap-2">
