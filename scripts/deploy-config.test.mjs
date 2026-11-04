@@ -31,6 +31,29 @@ test("the dev overlay tags its own image instead of the production tag", () => {
   assert.doesNotMatch(devCompose, /image:\s*ghcr\.io\/togudv\/masterhand:/)
 })
 
+test("the opencode service keeps the engine kill capability (#307)", () => {
+  // ADR-54: the engine binary carries cap_kill=ep, and the capability must be
+  // in the service's bounding set even when a runtime drops defaults. The
+  // setuid dropper needs SETUID/SETGID; no-new-privileges would disable both
+  // the file capability and the dropper.
+  // Match the service header exactly: `  opencode:` also appears as a
+  // `depends_on` key with deeper indentation inside the BFF service.
+  const opencodeStart = compose.indexOf("\n  opencode:\n")
+  assert.ok(opencodeStart >= 0, "missing opencode service")
+  const opencodeBlock = compose.slice(opencodeStart, compose.indexOf("\n  watchdog:\n", opencodeStart))
+  assert.match(opencodeBlock, /cap_add:\s*\n\s*-\s*KILL/)
+  assert.match(opencodeBlock, /-\s*SETFCAP/)
+  assert.doesNotMatch(opencodeBlock, /-\s*SETPCAP/)
+  assert.match(opencodeBlock, /-\s*SETUID/)
+  assert.match(opencodeBlock, /-\s*SETGID/)
+  assert.doesNotMatch(opencodeBlock, /no-new-privileges:\s*true/)
+  // Least privilege: the BFF never gets CAP_KILL.
+  const masterhandStart = compose.indexOf("\n  masterhand:\n")
+  assert.ok(masterhandStart >= 0, "missing masterhand service")
+  const masterhandBlock = compose.slice(masterhandStart, opencodeStart)
+  assert.doesNotMatch(masterhandBlock, /-\s*KILL/)
+})
+
 test("the resilience watchdog is the only always-on Docker-socket consumer", () => {
   assert.match(compose, /^ {2}watchdog:/m)
   assert.match(compose, /ghcr\.io\/togudv\/masterhand-watchdog:/)

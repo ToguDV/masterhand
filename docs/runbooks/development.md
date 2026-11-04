@@ -13,14 +13,14 @@ network and paths. In Docker both run the **same** image and topology:
 
 | Aspect | Development (Docker) | Production |
 |---|---|---|
-| opencode image | `deploy/opencode.Dockerfile` (pinned, `agent-exec` sandbox, ADR-22) | same |
+| opencode image | `deploy/opencode.Dockerfile` (pinned, `agent-exec` sandbox, engine `CAP_KILL`, ADR-22/54) | same |
 | Network | `opencode:4096` on the internal network | same |
 | Paths | `/data`, `/workspace` | same |
 | Env contract | same variable names | same |
 | Previews | bundled `cloudflared`, `PREVIEW_ORIGIN=opencode` | same |
-| Managed runs | `agent-exec --exec` as `agent` (uid 1001), scrubbed env | same |
+| Managed runs | `agent-exec --exec` as `agent` (uid 1001), scrubbed env; engine `CAP_KILL` reaps the group on Stop | same |
 | Agent toolbox | `AGENT_TOOLBOX` tier baked into the image (compiler, Python, DB clients, pnpm/yarn, optional Chromium) | same |
-| Runtime user | `node` (uid 1000) with `umask 002` | same |
+| Runtime user | the opencode entrypoint starts as root only to apply the engine file capability/ACL and drops to `node` (uid 1000, `umask 002`); `docker exec` defaults root, the engine and agent stay unprivileged | same |
 | BFF | **`tsx watch` from source** (dev only) | compiled `dist/` |
 | Web | **Vite dev server + HMR on `:5173`** (dev only) | static build served by the BFF |
 
@@ -175,7 +175,7 @@ production):
 
 ```bash
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
-  --env-file deploy/.env.dev run --rm opencode auth login
+  --env-file deploy/.env.dev run --rm opencode opencode auth login
 ```
 
 ## 7. Verify the parity
@@ -185,11 +185,14 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
   --env-file deploy/.env.dev ps
 
-# The agent runs sandboxed as `agent` (uid 1001), like production
+# The engine runs as `node` (uid 1000); the agent shell as `agent` (uid 1001)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
-  --env-file deploy/.env.dev exec opencode id
+  --env-file deploy/.env.dev exec --user root opencode su node -s /bin/sh -c id
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
+  --env-file deploy/.env.dev exec --user root opencode /usr/local/bin/agent-exec -c id
 
-# Managed-run helper: uid drop, env scrub, PORT allowlist, exit codes
+# Sandbox + process boundary: uid drop, env scrub, PORT allowlist, exit codes,
+# OOM score, and engine→agent kill / agent→engine EPERM on timeout and Stop
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml \
   --env-file deploy/.env.dev exec -T --user root opencode \
   sh -s < deploy/agent-exec-drill.sh
@@ -206,10 +209,14 @@ curl -fsS http://localhost:8787/api/health
 Then open `http://localhost:5173`, log in with `MASTERHAND_PASSWORD`, and edit a
 file under `apps/server/src` or `apps/web/src` to confirm the hot reload.
 
-The `agent-exec` helper and the engine-permission changes live in the image:
-`npm run dev` rebuilds the stack, while `npm run dev:restart` reuses the existing
-container and will not pick them up. After pulling, rebuild once with
-`npm run dev`.
+The `agent-exec` helper, the root entrypoint's file `cap_kill`/ACL and the Compose
+`cap_add` live in the image and service definition: `npm run dev` rebuilds and
+recreates them, while `npm run dev:restart` reuses the existing container and
+will not pick them up. After pulling, rebuild once with `npm run dev`. The
+drill failing at `expected oom_score_adj 500, got '0'`, `engine binary is
+missing the node read/execute ACL` or `the running engine must have exactly CAP_KILL
+effective/permitted` means the container is still on the old image (or was not
+recreated).
 
 ## 8. Troubleshooting
 

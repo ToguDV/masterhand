@@ -9,6 +9,14 @@
  * process boundary behind `ARCHITECTURE.md` ADR-22 (and the storage/runtime
  * half of ADR-37: credentials the engine holds must not leak into agent code).
  *
+ * The reverse direction is not this helper's job: the engine (node) owns the
+ * timeout/Stop kill, so `opencode-entrypoint.sh` applies a file capability
+ * (`cap_kill=ep`) and a `node` read/execute ACL to the root-owned engine binary
+ * at container start and drops to `node` before exec'ing it. The engine's
+ * non-setuid children lose the capability on exec, and this setuid exec drops
+ * every capability before exec'ing the target, so the agent cannot acquire
+ * CAP_KILL. See ADR-54 and issue #307.
+ *
  * Invocations:
  *   agent-exec -c <command>           opencode's `shell` setting: execs bash.
  *   agent-exec --exec <cmd> [args...] managed runs (BFF `MANAGED_RUN_LAUNCHER`):
@@ -92,7 +100,11 @@ static void close_inherited_fds(void) {
 /**
  * Agent processes are the memory hogs: raise their OOM score so a runaway
  * build is killed before `opencode serve` (PID 1, kept at -500 by Compose).
- * Raising the score is always allowed without privilege; lowering it is not.
+ * Raise it while the setuid helper still runs as root: after setuid() the
+ * process is no longer dumpable, so `/proc/self/oom_score_adj` is root-owned
+ * and the agent uid cannot open it (the score is inherited by the exec'd
+ * child either way). Raising the score is always allowed; lowering it needs
+ * CAP_SYS_RESOURCE, which the agent never gets.
  */
 static void raise_oom_score(void) {
   int fd = open("/proc/self/oom_score_adj", O_WRONLY);
@@ -123,6 +135,9 @@ int main(int argc, char **argv) {
     }
   }
 
+  /* Raise the OOM score before dropping privileges (see raise_oom_score). */
+  raise_oom_score();
+
   /* Drop every supplementary group first: the agent must not inherit node's. */
   if (setgroups(0, NULL) != 0) {
     perror("agent-exec: setgroups");
@@ -137,7 +152,6 @@ int main(int argc, char **argv) {
     return 1;
   }
   umask(002);
-  raise_oom_score();
 
   /* Minimal allowlist: nothing the engine inherited reaches agent code. */
   if (clearenv() != 0) {

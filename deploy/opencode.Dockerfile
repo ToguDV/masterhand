@@ -31,9 +31,11 @@ ARG PLAYWRIGHT_BROWSERS=auto
 ARG PLAYWRIGHT_VERSION=1.64.1
 
 # Base tools every deployment needs, independent of the toolbox. Kept in its own
-# layer so bumping OPENCODE_VERSION does not reinstall them.
+# layer so bumping OPENCODE_VERSION does not reinstall them. `libcap2-bin`
+# provides setcap/getcap/capsh, `acl` setfacl/getfacl and `util-linux` setpriv
+# for the engine file capability set at container start (ADR-54).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl git ripgrep unzip xz-utils \
+  && apt-get install -y --no-install-recommends acl ca-certificates curl git libcap2-bin ripgrep unzip util-linux xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
 # Agent toolbox. `minimal` keeps the image as it was; unknown values fail the
@@ -70,6 +72,25 @@ RUN npm install -g @opencode/cli@${OPENCODE_VERSION} \
   && [ -z "$(find /usr/local/lib/node_modules/@opencode/cli/node_modules/@opencode -maxdepth 1 -name '*-musl' -print -quit)" ] \
   && opencode --version \
   && rm -rf /root/.config /root/.cache /root/.local
+
+# ADR-54 / #307: the uid split must be two-way. `opencode serve` runs as `node`
+# and spawns agent shells and PTYs as `agent` (ADR-22), so the engine needs
+# CAP_KILL to terminate those process groups on shell timeout and Stop. A Compose
+# `cap_add` alone leaves a non-root user's effective set empty; the entrypoint
+# applies a file capability to the root-owned engine binary at container start
+# (a build-time POSIX ACL does not survive the image export, verified) and
+# leaves it `0700` with an ACL that gives `node` only read/execute. The engine's
+# children lose the capability on exec, and the agent cannot read/execute the
+# binary or acquire it. This layer proves the binary is a native ELF the engine
+# user can execute and that the entrypoint's tools exist.
+RUN set -eux; \
+  engine="$(readlink -f "$(command -v opencode)")"; \
+  [ "$(stat -c '%U:%G' "$engine")" = "root:root" ]; \
+  [ "$(head -c 4 "$engine" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]; \
+  su node -s /bin/sh -c 'opencode --version >/dev/null'; \
+  command -v setpriv >/dev/null; \
+  command -v setfacl >/dev/null; \
+  command -v setcap >/dev/null
 
 # GitHub CLI for the agent shell (Settings > GitHub). Agents run through
 # agent-exec with HOME=/home/agent, so gh reads the BFF-written hosts.yml.
@@ -143,6 +164,26 @@ COPY --from=agent-exec /agent-exec /usr/local/bin/agent-exec
 RUN chown root:root /usr/local/bin/agent-exec \
   && chmod 4755 /usr/local/bin/agent-exec
 
+# Entrypoint: applies CAP_KILL as a file capability and a node read/execute ACL
+# to the engine binary, hardens the engine-owned paths as `node`, then drops to
+# `node` before exec'ing the engine.
+COPY opencode-entrypoint.sh /usr/local/bin/opencode-entrypoint.sh
+RUN chown root:root /usr/local/bin/opencode-entrypoint.sh \
+  && chmod 0755 /usr/local/bin/opencode-entrypoint.sh
+
+# Fail closed if a later layer ever resets the engine binary, the setuid dropper
+# or the entrypoint, or if upstream starts shipping a non-ELF launcher (the
+# engine must stay a native binary; the entrypoint execs it as node).
+RUN set -eux; \
+  engine="$(readlink -f /usr/local/bin/opencode)"; \
+  [ "$(stat -c '%U:%G' "$engine")" = "root:root" ]; \
+  [ "$(head -c 4 "$engine" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]; \
+  [ -u /usr/local/bin/agent-exec ]; \
+  test -x /usr/local/bin/opencode-entrypoint.sh; \
+  command -v setpriv >/dev/null; \
+  command -v setfacl >/dev/null; \
+  command -v setcap >/dev/null
+
 # Build metadata read by deploy/agent-exec-drill.sh. It lives after the layers
 # that consume the toolbox args so changing a tier does not invalidate them;
 # agent-exec clears the environment, so agent code never sees these values.
@@ -150,17 +191,13 @@ ENV AGENT_TOOLBOX=${AGENT_TOOLBOX} \
     PLAYWRIGHT_BROWSERS=${PLAYWRIGHT_BROWSERS} \
     PLAYWRIGHT_VERSION=${PLAYWRIGHT_VERSION}
 
-USER node
+# The entrypoint starts as root only to apply the engine file capability/ACL
+# and drops to `node` before the engine (the drill proves the engine uid is
+# 1000). The entrypoint's last action is the setpriv drop; interactive execs and
+# the healthcheck still default to root (use --user node for engine-shell
+# checks). The setuid agent-exec dropper handles every agent shell.
+USER root
 WORKDIR /workspace
 
 EXPOSE 4096
-# umask 002 keeps everything opencode creates group-writable, so the agent can
-# edit files made by the engine and vice versa.
-#
-# Harden the engine-owned paths at every start: named volumes are pre-existing
-# in deployments, so a build-time chmod is not enough. The credential store
-# (opencode.db; credentials moved there from auth.json in 2.0.6), its WAL
-# sidecars and the engine log must not be readable/writable by the `agent` uid,
-# and the config dir (which carries provider definitions) is owner-only. The
-# BFF shares the config volume as `node`, so it can still write providers.
-CMD ["sh", "-c", "set -e; umask 002; data=/home/node/.local/share/opencode; mkdir -p \"$data/log\"; chmod 700 \"$data/log\"; if [ ! -e \"$data/opencode.db\" ]; then : > \"$data/opencode.db\"; fi; chmod 600 \"$data/opencode.db\"; for f in \"$data/opencode.db-wal\" \"$data/opencode.db-shm\"; do if [ -e \"$f\" ]; then chmod 600 \"$f\"; fi; done; chmod 700 /home/node/.config/opencode; for f in \"$data/auth.json\" /home/node/.config/opencode/auth.json; do if [ -e \"$f\" ]; then chmod 600 \"$f\"; fi; done; exec opencode serve --hostname 0.0.0.0 --port 4096"]
+ENTRYPOINT ["/usr/local/bin/opencode-entrypoint.sh"]

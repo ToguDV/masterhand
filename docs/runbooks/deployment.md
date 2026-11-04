@@ -46,7 +46,7 @@ Fill in `deploy/.env`:
 > sudo chgrp -R 1000 /path/to/workspace && sudo chmod -R g+ws /path/to/workspace
 > ```
 >
-> This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine. A new PTY or child-process path that bypasses `agent-exec` would run as the engine uid — use the helper for every execution path. Run `deploy/agent-exec-drill.sh` inside the container after an image change to prove the uid drop, env scrub and `PORT` allowlist (§6 has the command).
+> This is what lets a broad kill from the agent (`pkill node`, `killall`, …) fail with `EPERM` instead of taking down the engine. A new PTY or child-process path that bypasses `agent-exec` would run as the engine uid — use the helper for every execution path. **The boundary is two-way:** the engine must also be able to terminate the agent-owned shells and PTYs it spawns (shell timeout, Stop). `opencode-entrypoint.sh` starts as root, applies `cap_kill=ep` and a `node` read/execute ACL to the root-owned engine binary at container start (a build-time ACL does not survive the image export), hardens the engine-owned paths as `node`, and drops to `node` before exec'ing the engine with `umask 002`; the binary stays root-owned and non-writable, its non-setuid children lose the file capability on exec (including the first `/api/shell` call, #308), Compose keeps `KILL`/`SETFCAP`/`SETUID`/`SETGID` in the service's bounding set, and the setuid dropper drops it before exec'ing the agent. `cap_add` alone does **not** work for a non-root `USER`: the engine's effective set stays empty without the file capability applied at container start. Do not add `no-new-privileges` to the `opencode` service — it disables both the file capability and the setuid helper. `agent-exec` raises the agent OOM score before dropping uid (after the drop the setuid process is not dumpable, so its `/proc/self/oom_score_adj` is root-owned). See ADR-54 and issue #307. Run `deploy/agent-exec-drill.sh` inside the container after an image change to prove the uid drop, env scrub, `PORT` allowlist, both kill directions and the SIGTERM escalation (§6 has the command).
 >
 > **Engine data permissions:** at every start the opencode image hardens the engine-owned paths: `opencode.db` is pre-created `0600` (WAL/SHM inherit), `log/` and `/home/node/.config/opencode` are `0700`, and `auth.json` is `0600` when present (opencode 2.0.6 keeps credentials in `opencode.db`, not `auth.json`; the container fails closed if an existing engine file cannot be corrected). The BFF (same `node` uid) writes `masterhand-providers.json` `0600`. The `agent` uid can neither read nor write those stores, the config or the logs; `shell/` and `snapshot/` intentionally remain accessible to agent shells.
 >
@@ -108,7 +108,7 @@ The `opencode` image is built locally (`docker compose … build`, or `up -d --b
 ## 4. Authenticate providers (one-time)
 
 ```bash
-docker compose -f deploy/docker-compose.yml run --rm opencode auth login
+docker compose -f deploy/docker-compose.yml run --rm opencode opencode auth login
 ```
 
 Credentials persist in `opencode.db` inside the `opencode_data` volume (2.0.6 has no `auth.json`).
@@ -189,7 +189,7 @@ docker compose -f deploy/docker-compose.yml exec -T opencode sh -c \
   'stat -c "%a %U:%G %n" /home/node/.local/share/opencode/opencode.db /home/node/.local/share/opencode/log /home/node/.config/opencode'
 ```
 
-- The drill must print `agent-exec drill: OK` with the expected `toolbox=<tier>/<browsers>` and pass its tool assertions (venv, `g++`, Chromium screenshot) and negative checks (no `sudo`, non-writable global npm prefix); the DB must be `600`, `log/` and the config dir `700`. `shell/` and `snapshot/` are expected to stay readable by the `agent` shells. Run these after `docker compose … up -d --build` (or any image upgrade): an existing container keeps the previous entrypoint and permissions until it is recreated.
+- The drill must print `agent-exec drill: OK` with the expected `toolbox=<tier>/<browsers>` and pass its tool assertions (venv, `g++`, Chromium screenshot) and negative checks (no `sudo`, non-writable global npm prefix); the DB must be `600`, `log/` and the config dir `700`. `shell/` and `snapshot/` are expected to stay readable by the `agent` shells. It also proves the two-way kill boundary: the engine reaps an agent-owned shell on timeout/Stop (including the SIGTERM→SIGKILL escalation, a foreground server freeing its port and a PTY), and the agent still cannot acquire the capability or signal the engine. Run these after `docker compose … up -d --build` (or any image upgrade): an existing container keeps the previous entrypoint and permissions until it is recreated. If the drill fails at `expected oom_score_adj 500, got '0'`, `engine binary is missing the node read/execute ACL` or `the running engine must have exactly CAP_KILL effective/permitted`, the container is still on the old image (or was not recreated): rebuild and recreate it (a restart is not enough).
 
 ## 7. Upgrade and backups
 
@@ -209,6 +209,8 @@ curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/experi
 ```
 
 `GET /api/experimental/migration/v1` returns the migration status (`required`, `running`, `done`, …). Sessions and history appear in MasterHand once it reports done; check `docker compose logs opencode` if it fails.
+
+> **The `opencode` image is built locally and never published.** `docker compose pull` updates the BFF images but leaves it on the old build. Any change to `deploy/opencode.Dockerfile`, `deploy/agent-exec.c` or the opencode service's capabilities needs `docker compose build opencode` plus a recreate (`docker compose up -d --force-recreate opencode`); a plain restart keeps the old binary, mode and capabilities. The `agent-exec` drill (§6) is the acceptance check.
 
 Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading).
 
