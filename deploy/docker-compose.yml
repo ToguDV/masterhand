@@ -124,6 +124,18 @@ services:
     # before the engine (PID 1, -500), and keep a boot that takes longer than
     # 15 s from being judged unhealthy.
     init: true
+    # ADR-54 / #307: the engine must be able to kill the agent-owned process
+    # groups it spawns (shell timeout and Stop), while ADR-22 keeps the reverse
+    # direction EPERM. The image's root entrypoint applies `cap_kill=ep` to the
+    # engine binary (`SETFCAP` is required for setcap) and immediately drops to
+    # `node`; `KILL` must stay in the bounding set, and SETUID/SETGID keep the
+    # setuid `agent-exec` dropper working under the same hardening. Never add
+    # no-new-privileges here: it disables both.
+    cap_add:
+      - KILL
+      - SETFCAP
+      - SETUID
+      - SETGID
     oom_score_adj: ${OPENCODE_OOM_SCORE_ADJ:--500}
     mem_swappiness: 0
     stop_grace_period: 20s

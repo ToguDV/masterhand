@@ -50,7 +50,16 @@ Everything lives under `/api/*`. The BFF proxy strips its own `/api/oc` prefix, 
 |---|---|---|
 | `POST` | `/api/pty` | Create a process; body `{ command, args?, cwd?, title?, env? }`; responds `{ location, data: { id, pid, status, … } }`. MasterHand starts the workspace's dev server with it (title `masterhand:<sessionID>`, `{port}` substituted in `args`, `PORT` in `env`). With `MANAGED_RUN_LAUNCHER` (Compose) the command is wrapped as `agent-exec --exec <command> <args>`, so the process drops to uid 1001 with a scrubbed environment instead of running as the engine; the client proxy does **not** expose `/api/pty`. Verified against 2.0.21: `env` and `cwd` are honored and the command is spawned without a shell |
 | `GET` | `/api/pty` | List PTYs of a location (`?location[directory]=…`), with `id`, `title`, `status`, `pid`. Used to adopt a still-running dev server after a BFF restart |
-| `DELETE` | `/api/pty/:ptyID` | Terminate the process; `204`. Verified: kills the whole process tree (children included), so a dev server started through `npm`/`bash` dies completely |
+| `DELETE` | `/api/pty/:ptyID` | Terminate the process; `204`. Verified: kills the whole process tree (children included), so a dev server started through `npm`/`bash` dies completely. The child is `agent`-owned (uid 1001), so the kill needs the engine's `CAP_KILL` (ADR-54); without it the signal fails with `EPERM` and the process survives (#307) |
+
+### Shell commands (internal, not proxied)
+
+| Method | Route | Usage in MasterHand |
+|---|---|---|
+| `POST` | `/api/shell` | Run one non-interactive shell command; body `{ command, cwd?, timeout?, metadata? }`; responds `{ location, data: { id, status, pid, file, … } }`. The configured shell (`OPENCODE_CONFIG_CONTENT`) is `agent-exec`, so once the config plugin has applied the child is uid 1001. **The first call after a location loads can still run as the engine (the default `/bin/sh`/`/usr/bin/bash`, uid 1000, with the engine environment) until the plugin applies (#308); it does not inherit the engine's file capability (the drill checks its `CapEff=0`), but the uid/env boundary is bypassed for that call. The drill warms up and refuses an unsandboxed shell.** The BFF does not expose this route. `timeout` (ms) records `status: "timeout"` and kills the process group with `SIGTERM`, escalating to `SIGKILL` after 3 s. The group is `agent`-owned, so the engine needs `CAP_KILL` (ADR-54); without it the status flips but the command survives until it exits on its own (#307). The client proxy does **not** expose this route. Verified against 2.0.6: timeout, SIGTERM escalation, Stop and port release |
+| `GET` | `/api/shell/:id` | Command status (`running`/`exited`/`timeout`/`killed`), exit code, signal and pid |
+| `GET` | `/api/shell/:id/output` | Captured combined stdout/stderr by absolute byte cursor |
+| `DELETE` | `/api/shell/:id` | Terminate and remove the command; releasing its scope kills the process group (`SIGTERM`→`SIGKILL` after 3 s) |
 
 ### Permissions
 

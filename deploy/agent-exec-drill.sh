@@ -10,8 +10,11 @@
 # It proves what the unit tests cannot: the real setuid binary drops to uid
 # 1001 with no supplementary groups, scrubs the engine environment
 # (OPENCODE_SERVER_PASSWORD), preserves a valid PORT, closes inherited file
-# descriptors and propagates the command's exit code. Exits non-zero on the
-# first failed assertion, so it is scriptable.
+# descriptors and propagates the command's exit code. It also proves the
+# two-way process boundary: the engine can kill agent-owned process groups on
+# shell timeout and Stop, while the agent still cannot signal the engine
+# (ADR-54 / #307). Exits non-zero on the first failed assertion, so it is
+# scriptable.
 
 # Commands passed to agent-exec are single-quoted on purpose: they must expand
 # in the child shell (HOME, PORT, /proc are the child's), not in this script.
@@ -84,7 +87,276 @@ rc=0
 "$LAUNCHER" --exec >/dev/null 2>&1 || rc=$?
 [ "$rc" = "127" ] || fail "expected 127 for a missing --exec command, got $rc"
 
-# (f) Agent toolbox. The tier is baked into the image as build metadata for this
+# (f) Two-way process boundary (#307). ADR-22's uid split stops agent -> engine
+# signals, but it also blocks the engine's own `process.kill(-pid)` from
+# opencode's shell timeout/Stop path: the kernel answers EPERM and opencode
+# waits for stdout until the command exits by itself. `opencode-entrypoint.sh`
+# applies `cap_kill=ep` to the engine binary at container start (ADR-54); this
+# section proves the running
+# engine carries it, that it actually reaps agent-owned process groups on
+# timeout and Stop (including the SIGTERM -> SIGKILL escalation), and that the
+# reverse direction is still denied.
+engine=$(readlink -f /usr/local/bin/opencode)
+[ -e "$engine" ] || fail "opencode binary not found"
+# The engine binary stays root-owned and non-writable so the engine's own
+# write/edit tools cannot alter it; `opencode-entrypoint.sh` applies a file
+# capability and a node read/execute ACL at container start (a build-time ACL is lost on image
+# export). The engine's children lose the capability on exec, so the first
+# `/api/shell` call (#308) and the agent never receive it.
+[ "$("$STAT" -c '%U:%G' "$engine")" = "root:root" ] ||
+  fail "engine binary must be owned by root:root, got $("$STAT" -c '%U:%G' "$engine")"
+getfacl -c "$engine" 2>/dev/null | grep -q '^user:node:r-x' ||
+  fail "engine binary is missing the node read/execute ACL"
+getfacl -c "$engine" 2>/dev/null | grep -q '^mask::r-x' ||
+  fail "engine binary ACL mask does not grant read/execute"
+getfacl -c "$engine" 2>/dev/null | grep -q '^other::---' ||
+  fail "engine binary ACL must not grant other users access"
+engine_cap=$(su node -s /bin/sh -c "getcap '$engine'") || fail "cannot read the engine binary capabilities"
+case "$engine_cap" in
+  *"cap_kill=ep"*) ;;
+  *) fail "engine binary is missing cap_kill=ep; rebuild and recreate the opencode image (ADR-54)" ;;
+esac
+[ "$(head -c 4 "$engine" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] ||
+  fail "engine binary is not a native ELF launcher"
+command -v setpriv >/dev/null || fail "setpriv is missing from the image"
+
+engine_pid=
+for proc in /proc/[0-9]*; do
+  proc_pid=${proc#/proc/}
+  proc_argv=$(tr '\0' '\n' < "$proc/cmdline" 2>/dev/null || true)
+  proc_arg0=$(printf '%s\n' "$proc_argv" | sed -n '1p')
+  proc_arg1=$(printf '%s\n' "$proc_argv" | sed -n '2p')
+  [ "$(basename "$proc_arg0")" = "opencode" ] || continue
+  [ "$proc_arg1" = "serve" ] || continue
+  engine_pid=$proc_pid
+  break
+done
+[ -n "$engine_pid" ] || fail "opencode serve process not found"
+engine_uid=$(grep '^Uid:' "/proc/$engine_pid/status" | cut -f2)
+[ "$engine_uid" = "1000" ] || fail "opencode serve must run as node (uid 1000), got $engine_uid"
+engine_caps=$(grep '^CapEff:' "/proc/$engine_pid/status" | cut -f2)
+engine_permitted=$(grep '^CapPrm:' "/proc/$engine_pid/status" | cut -f2)
+engine_inheritable=$(grep '^CapInh:' "/proc/$engine_pid/status" | cut -f2)
+engine_ambient=$(grep '^CapAmb:' "/proc/$engine_pid/status" | cut -f2)
+[ "$engine_caps" = "0000000000000020" ] && [ "$engine_permitted" = "0000000000000020" ] ||
+  fail "the running engine must have exactly CAP_KILL effective/permitted (CapEff=$engine_caps CapPrm=$engine_permitted)"
+[ "$engine_inheritable" = "0000000000000000" ] && [ "$engine_ambient" = "0000000000000000" ] ||
+  fail "the engine must not have an inheritable/ambient capability set (CapInh=$engine_inheritable CapAmb=$engine_ambient)"
+engine_umask=$(grep '^Umask:' "/proc/$engine_pid/status" | cut -f2)
+[ "$engine_umask" = "0002" ] || fail "engine umask must be 0002, got $engine_umask"
+
+# The agent must not inherit the capability from the bounding set, execute/read
+# the root-owned engine binary, or signal the engine.
+agent_caps=$("$LAUNCHER" --exec "$SH" -c 'grep -E "^Cap(Prm|Eff|Amb):" /proc/self/status | cut -f2')
+[ "$agent_caps" = "0000000000000000
+0000000000000000
+0000000000000000" ] || fail "the agent inherited capabilities (CapPrm/Eff/Amb: $agent_caps)"
+if "$LAUNCHER" --exec "$SH" -c "test -x '$engine'"; then
+  fail "the agent can execute the capped engine binary"
+fi
+if "$LAUNCHER" --exec "$SH" -c "cat '$engine' >/dev/null 2>&1"; then
+  fail "the agent can read the capped engine binary"
+fi
+rc=0
+"$LAUNCHER" -c "kill -0 $engine_pid" >/dev/null 2>&1 || rc=$?
+[ "$rc" -ne 0 ] || fail "the agent can signal the engine"
+
+# The engine's HTTP shell route is the same service the shell tool uses. The
+# first call after a location loads can race the config plugin and run as the
+# engine uid; warm it up until the configured dropper is in effect, then refuse
+# to test an unsandboxed shell.
+BASE_URL=http://127.0.0.1:4096
+LOCATION='location%5Bdirectory%5D=%2Fworkspace'
+AUTH="${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}"
+cleanup_pids=
+http_file=
+cleanup() {
+  for cleanup_pid in $cleanup_pids; do
+    kill -s KILL -- "-$cleanup_pid" 2>/dev/null || true
+  done
+  if [ -n "$http_file" ]; then rm -f "$http_file"; fi
+}
+trap cleanup EXIT
+
+json_field() {
+  node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let v=JSON.parse(s);for(const k of process.argv[1].split("."))v=v[k];process.stdout.write(v===undefined?"":String(v))})' "$1"
+}
+api_get() { curl -fsS -u "$AUTH" "$BASE_URL$1"; }
+api_post() { curl -fsS -u "$AUTH" -H 'content-type: application/json' -X POST "$BASE_URL$1" -d "$2"; }
+api_delete() { curl -fsS -u "$AUTH" -X DELETE "$BASE_URL$1"; }
+
+wait_shell_status() {
+  wait_id=$1
+  wait_want=$2
+  wait_info=
+  wait_status=
+  wait_i=0
+  while [ "$wait_i" -lt 20 ]; do
+    wait_info=$(api_get "/api/shell/$wait_id?$LOCATION") || fail "cannot read shell $wait_id"
+    wait_status=$(printf %s "$wait_info" | json_field data.status)
+    if [ "$wait_status" = "$wait_want" ]; then
+      printf %s "$wait_info"
+      return 0
+    fi
+    wait_i=$((wait_i + 1))
+    sleep 0.5
+  done
+  fail "shell $wait_id did not reach '$wait_want' (last status: ${wait_status:-unknown})"
+}
+
+# A process group is gone when no live member is left. Zombies do not count:
+# without an init/reaper (a bare `docker run` drill) a killed child can stay in
+# state Z until the container exits, and `kill(0)` would still find the group.
+group_alive() {
+  alive_pid=$1
+  for proc in /proc/[0-9]*; do
+    stat_line=$(cat "$proc/stat" 2>/dev/null) || continue
+    rest=${stat_line##*) }
+    set -- $rest
+    [ "$#" -ge 3 ] || continue
+    [ "$3" = "$alive_pid" ] || continue
+    [ "$1" = "Z" ] && continue
+    return 0
+  done
+  return 1
+}
+
+assert_group_gone() {
+  gone_pid=$1
+  gone_label=$2
+  gone_i=0
+  while [ "$gone_i" -lt 8 ]; do
+    if ! group_alive "$gone_pid"; then
+      return 0
+    fi
+    gone_i=$((gone_i + 1))
+    sleep 0.5
+  done
+  fail "$gone_label process group $gone_pid survived"
+}
+
+configured=
+warm_i=0
+while [ "$warm_i" -lt 6 ]; do
+  warm=$(api_post "/api/shell?$LOCATION" '{"command":"grep CapEff /proc/self/status","timeout":1000}') ||
+    fail "could not create the shell config warm-up"
+  warm_id=$(printf %s "$warm" | json_field data.id)
+  configured=$(printf %s "$warm" | json_field data.shell)
+  sleep 0.5
+  warm_out=$(api_get "/api/shell/$warm_id/output?$LOCATION" | json_field data.output)
+  case "$warm_out" in
+    *0000000000000000*) ;;
+    "") fail "warm-up shell output unavailable (shell=$configured)" ;;
+    *) fail "a warm-up shell has a non-zero capability (shell=$configured, output=$warm_out)" ;;
+  esac
+  api_delete "/api/shell/$warm_id?$LOCATION" >/dev/null 2>&1 || true
+  [ "$configured" = "$LAUNCHER" ] && break
+  warm_i=$((warm_i + 1))
+  sleep 0.5
+done
+[ "$configured" = "$LAUNCHER" ] ||
+  fail "the shell config did not switch to $LAUNCHER (got '${configured:-none}'); refusing to test an unsandboxed shell"
+
+# A 2 s timeout must kill the agent-owned process group and release the tool.
+timeout_probe=$(api_post "/api/shell?$LOCATION" '{"command":"sleep 307","timeout":2000}') ||
+  fail "could not create the timeout probe shell"
+timeout_id=$(printf %s "$timeout_probe" | json_field data.id)
+timeout_pid=$(printf %s "$timeout_probe" | json_field data.pid)
+timeout_shell=$(printf %s "$timeout_probe" | json_field data.shell)
+[ "$timeout_shell" = "$LAUNCHER" ] ||
+  fail "timeout probe did not run through $LAUNCHER (got '$timeout_shell')"
+case "$timeout_pid" in
+  ''|0|1) fail "timeout probe has no usable pid (got '$timeout_pid')" ;;
+esac
+cleanup_pids="$cleanup_pids $timeout_pid"
+wait_shell_status "$timeout_id" timeout >/dev/null
+sleep 1
+assert_group_gone "$timeout_pid" "timeout"
+api_delete "/api/shell/$timeout_id?$LOCATION" >/dev/null 2>&1 || true
+
+# A command that ignores SIGTERM must be escalated to SIGKILL (opencode's
+# 3 s force-kill window) instead of surviving forever.
+escalate_probe=$(api_post "/api/shell?$LOCATION" '{"command":"trap \"\" TERM; sleep 307","timeout":2000}') ||
+  fail "could not create the SIGTERM probe shell"
+escalate_id=$(printf %s "$escalate_probe" | json_field data.id)
+escalate_pid=$(printf %s "$escalate_probe" | json_field data.pid)
+case "$escalate_pid" in
+  ''|0|1) fail "SIGTERM probe has no usable pid (got '$escalate_pid')" ;;
+esac
+cleanup_pids="$cleanup_pids $escalate_pid"
+wait_shell_status "$escalate_id" timeout >/dev/null
+sleep 6
+assert_group_gone "$escalate_pid" "SIGTERM-ignoring timeout"
+api_delete "/api/shell/$escalate_id?$LOCATION" >/dev/null 2>&1 || true
+
+# Stop/interrupt (shell removal) must reap the whole foreground tree.
+stop_probe=$(api_post "/api/shell?$LOCATION" '{"command":"sleep 307 & wait"}') ||
+  fail "could not create the Stop probe shell"
+stop_id=$(printf %s "$stop_probe" | json_field data.id)
+stop_pid=$(printf %s "$stop_probe" | json_field data.pid)
+case "$stop_pid" in
+  ''|0|1) fail "Stop probe has no usable pid (got '$stop_pid')" ;;
+esac
+cleanup_pids="$cleanup_pids $stop_pid"
+sleep 1
+api_delete "/api/shell/$stop_id?$LOCATION" >/dev/null ||
+  fail "could not remove the Stop probe shell"
+assert_group_gone "$stop_pid" "Stop"
+
+# A foreground server must free its port when the shell is stopped.
+port_probe=$((3900 + ($$ % 90)))
+http_file=$(mktemp /tmp/masterhand-drill-http.XXXXXX) ||
+  fail "could not create the foreground-server probe file"
+chmod 0644 "$http_file"
+printf 'require("http").createServer((req,res)=>res.end("ok")).listen(%s,"127.0.0.1")\n' "$port_probe" > "$http_file"
+server_body=$(printf '{"command":"node %s"}' "$http_file")
+server_probe=$(api_post "/api/shell?$LOCATION" "$server_body") ||
+  fail "could not create the foreground-server probe shell"
+server_id=$(printf %s "$server_probe" | json_field data.id)
+server_pid=$(printf %s "$server_probe" | json_field data.pid)
+case "$server_pid" in
+  ''|0|1) fail "foreground-server probe has no usable pid (got '$server_pid')" ;;
+esac
+cleanup_pids="$cleanup_pids $server_pid"
+server_up=0
+server_i=0
+while [ "$server_i" -lt 20 ]; do
+  if curl -fsS --max-time 1 "http://127.0.0.1:$port_probe" >/dev/null 2>&1; then
+    server_up=1
+    break
+  fi
+  server_i=$((server_i + 1))
+  sleep 0.25
+done
+[ "$server_up" = "1" ] || fail "the foreground HTTP server did not start on port $port_probe"
+api_delete "/api/shell/$server_id?$LOCATION" >/dev/null ||
+  fail "could not remove the foreground-server probe shell"
+assert_group_gone "$server_pid" "foreground-server Stop"
+if curl -fsS --max-time 1 "http://127.0.0.1:$port_probe" >/dev/null 2>&1; then
+  fail "port $port_probe is still serving after Stop"
+fi
+
+# The BFF-managed run path stops through opencode's PTY API; it must reap the
+# same tree.
+pty_probe=$(curl -fsS -u "$AUTH" -H 'content-type: application/json' -X POST "$BASE_URL/api/pty?$LOCATION" \
+  -d '{"command":"/usr/local/bin/agent-exec","args":["--exec","sh","-c","sleep 307 & wait"],"cwd":"/workspace"}') ||
+  fail "could not create the PTY probe"
+pty_id=$(printf %s "$pty_probe" | json_field data.id)
+pty_pid=$(printf %s "$pty_probe" | json_field data.pid)
+case "$pty_pid" in
+  ''|0|1) fail "PTY probe has no usable pid (got '$pty_pid')" ;;
+esac
+cleanup_pids="$cleanup_pids $pty_pid"
+sleep 1
+api_delete "/api/pty/$pty_id?$LOCATION" >/dev/null ||
+  fail "could not remove the PTY probe"
+assert_group_gone "$pty_pid" "PTY Stop"
+
+cleanup
+trap - EXIT
+echo "engine kill: timeout, SIGTERM escalation, Stop, PTY and port checks passed; agent cannot acquire the capability or signal the engine"
+
+# (g) Agent toolbox. The tier is baked into the image as build metadata for this
 # drill only; agent-exec clears the environment, so agent code never sees it.
 #
 # Run this on a freshly created container: the agent can write
@@ -169,4 +441,4 @@ if "$LAUNCHER" --exec "$SH" -c "test -w '$global_prefix'"; then
 fi
 if probe 'test -w /usr/local/bin'; then fail "the agent can write to /usr/local/bin"; fi
 
-echo "agent-exec drill: OK (uid 1001, gid 1000 only, env scrubbed, PORT allowlisted, fds closed, exit codes propagated, toolbox=${toolbox}/${browsers})"
+echo "agent-exec drill: OK (uid 1001, gid 1000 only, env scrubbed, PORT allowlisted, fds closed, exit codes propagated, engine can kill agent groups on timeout/Stop, agent cannot acquire the capability or signal the engine, toolbox=${toolbox}/${browsers})"
