@@ -39,6 +39,7 @@ import { RunPreviewModal } from "../components/RunPreviewModal"
 import { Screen } from "../components/Screen"
 import { Deco } from "../components/Deco"
 import { ArrowDownIcon, ArrowUpIcon, PlayIcon } from "../components/icons"
+import { Skeleton, SkeletonStatus } from "../components/Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /** Newest messages rendered when a session opens. */
@@ -399,7 +400,22 @@ export function ChatScreen({
         {messages.length === 0 ? (
           <View style={styles.listWrap}>
             {messagesQuery.isLoading ? (
-              <Text style={styles.empty}>Loading conversation…</Text>
+              <View style={styles.chatSkeleton} testID="chat-skeleton">
+                <SkeletonStatus label="Loading conversation…" />
+                <View style={[styles.skeletonBubble, styles.skeletonBubbleUser]}>
+                  <Skeleton width="90%" height={12} />
+                  <Skeleton width="60%" height={12} style={styles.skeletonLine} />
+                </View>
+                <View style={styles.skeletonBubble}>
+                  <Skeleton width="95%" height={12} />
+                  <Skeleton width="80%" height={12} style={styles.skeletonLine} />
+                  <Skeleton width="55%" height={12} style={styles.skeletonLine} />
+                </View>
+                <View style={styles.skeletonBubble}>
+                  <Skeleton width="85%" height={12} />
+                  <Skeleton width="60%" height={12} style={styles.skeletonLine} />
+                </View>
+              </View>
             ) : (
               <View style={styles.emptyWrap}>
                 <Deco variant="dots" style={styles.emptyDeco} />
@@ -640,6 +656,27 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingHorizontal: 14,
       paddingVertical: 16,
     },
+    chatSkeleton: {
+      gap: 16,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+    },
+    skeletonBubble: {
+      alignSelf: "flex-start",
+      width: "82%",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 12,
+    },
+    skeletonBubbleUser: {
+      alignSelf: "flex-end",
+      width: "60%",
+      borderColor: colors.surfaceMuted,
+      backgroundColor: colors.surfaceMuted,
+    },
+    skeletonLine: { marginTop: 8 },
     empty: {
       color: colors.textMuted,
       fontFamily: fonts.ui,

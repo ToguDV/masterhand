@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { useQueryClient } from "@tanstack/react-query"
 import { formatRelative, queryKeys, useAudit, type Client } from "@masterhand/client-core"
 import { CloseIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -56,9 +57,25 @@ export function AuditModal({ client, onClose }: { client: Client; onClose: () =>
           keyExtractor={(event) => String(event.id)}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.empty}>
-              Nothing blocked yet. Dangerous process commands an agent tries to run show up here.
-            </Text>
+            auditQuery.isPending ? (
+              <View style={styles.list} testID="audit-skeleton">
+                <SkeletonStatus label="Loading activity…" />
+                {[0, 1, 2].map((row) => (
+                  <View key={row} style={styles.card}>
+                    <View style={styles.meta}>
+                      <Skeleton width={112} height={20} radius={999} />
+                      <Skeleton width={64} height={12} />
+                    </View>
+                    <Skeleton width="90%" height={12} style={{ marginTop: 8 }} />
+                    <Skeleton width="65%" height={12} style={{ marginTop: 6 }} />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.empty}>
+                Nothing blocked yet. Dangerous process commands an agent tries to run show up here.
+              </Text>
+            )
           }
           renderItem={({ item }) => (
             <View style={styles.card}>

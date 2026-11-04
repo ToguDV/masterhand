@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { client } from "../client"
 import { isBundledDesktop } from "../platform"
 import { Toggle } from "./Toggle"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { CLIENT_BUILD, CLIENT_VERSION } from "../version"
 
 const SKIPPED_UPDATE_KEY = "masterhand.skippedUpdate"
@@ -167,10 +168,13 @@ export function UpdateNotices({
   status,
   latest,
   checksEnabled = true,
+  floating = false,
 }: {
   status?: BffStatus
   latest?: VersionRelease | null
   checksEnabled?: boolean
+  /** Render as a fixed notice that never reflows the authenticated shell. */
+  floating?: boolean
 }) {
   const [skippedTag, skipVersion] = useSkippedTag()
   const action = useUpdateAction(latest ?? null, status)
@@ -188,7 +192,7 @@ export function UpdateNotices({
 
   const updater = status?.updater
 
-  return (
+  const content = (
     <>
       {staleBundle && (
         <div className="mh-banner mh-banner--info" role="status">
@@ -250,6 +254,14 @@ export function UpdateNotices({
         </div>
       )}
     </>
+  )
+
+  if (!floating) return content
+
+  return (
+    <div className="mh-update-overlay pointer-events-none fixed inset-x-3 bottom-[calc(52px+env(safe-area-inset-bottom)+12px)] z-40 flex justify-center md:inset-x-auto md:bottom-4 md:right-4 md:justify-end">
+      <div className="w-full max-w-md overflow-hidden rounded-md border border-hairline shadow-elev3">{content}</div>
+    </div>
   )
 }
 
@@ -332,9 +344,12 @@ export function AboutSection({
         <div className="flex gap-2">
           <dt className="mh-muted">Latest release</dt>
           <dd>
-            {update.isPending && checksEnabled
-              ? "checking…"
-              : latest
+            {update.isPending && checksEnabled ? (
+              <>
+                <SkeletonStatus label="Checking for updates…" />
+                <Skeleton className="inline-block h-3.5 w-28 align-middle" />
+              </>
+            ) : latest
                 ? `${latest.version} (${latest.tag})`
                 : checksEnabled
                   ? "unknown"

@@ -1,10 +1,23 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { Client, GithubStatus } from "@masterhand/client-core"
 import { GithubSection } from "../src/components/GithubSection"
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  window.localStorage.clear()
+})
+
+function renderSection(client: Client) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <GithubSection client={client} />
+    </QueryClientProvider>,
+  )
+}
 
 const DISCONNECTED: GithubStatus = {
   connected: false,
@@ -40,7 +53,7 @@ function fakeClient(overrides: Partial<Record<"status" | "connect" | "disconnect
 describe("GithubSection", () => {
   it("connects a token and shows the account", async () => {
     const { client, github } = fakeClient()
-    render(<GithubSection client={client} />)
+    renderSection(client)
     expect(await screen.findByText("Connect GitHub")).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText("Fine-grained personal access token"), {
@@ -59,7 +72,7 @@ describe("GithubSection", () => {
         throw new Error("nope")
       }),
     })
-    render(<GithubSection client={client} />)
+    renderSection(client)
     fireEvent.change(await screen.findByLabelText("Fine-grained personal access token"), {
       target: { value: "github_pat_abcdefghijklmnopqrstuvwxyz" },
     })
@@ -70,7 +83,7 @@ describe("GithubSection", () => {
 
   it("disconnects the account", async () => {
     const { client, github } = fakeClient({ status: vi.fn(async () => CONNECTED) })
-    render(<GithubSection client={client} />)
+    renderSection(client)
     expect(await screen.findByText("Octo Cat")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }))
     await waitFor(() => expect(github.disconnect).toHaveBeenCalled())

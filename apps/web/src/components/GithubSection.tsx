@@ -1,6 +1,15 @@
-import { useEffect, useState } from "react"
-import { ApiError, RequestTimeoutError, type Client, type GithubStatus } from "@masterhand/client-core"
+import { useEffect, useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import {
+  ApiError,
+  RequestTimeoutError,
+  queryKeys,
+  useGithubStatus,
+  type Client,
+  type GithubStatus,
+} from "@masterhand/client-core"
 import { ExternalLinkIcon, GithubIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 function errorCode(error: ApiError): string | null {
   try {
@@ -34,36 +43,97 @@ function shortDate(value: string | null): string {
 }
 
 /**
+ * Remember whether the last known status was connected so the first render
+ * after a reload can reserve the right shape (account card vs token form).
+ * A stale hint only picks the wrong skeleton once; the status overwrites it.
+ */
+const GITHUB_HINT_PREFIX = "masterhand.github.connected."
+
+function githubHintKey(baseUrl: string): string {
+  return `${GITHUB_HINT_PREFIX}${baseUrl || "same-origin"}`
+}
+
+function readGithubHint(baseUrl: string): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(githubHintKey(baseUrl))
+    return raw === null ? null : raw === "1"
+  } catch {
+    return null
+  }
+}
+
+function writeGithubHint(baseUrl: string, connected: boolean): void {
+  try {
+    window.localStorage.setItem(githubHintKey(baseUrl), connected ? "1" : "0")
+  } catch {
+    // Private mode / storage disabled: the form-shaped default still works.
+  }
+}
+
+/** Reserves the height of the connected account card (~108px). */
+function GithubCardSkeleton() {
+  return (
+    <div className="mt-4 rounded-md border border-hairline bg-surface-muted p-3" data-testid="github-skeleton">
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <Skeleton className="h-3.5 w-32" />
+          <Skeleton className="h-3 w-48" />
+        </div>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Skeleton className="h-9 w-28" />
+        <Skeleton className="h-9 w-24" />
+      </div>
+    </div>
+  )
+}
+
+/** Reserves the height of the token form (~148px) for a fresh/disconnected account. */
+function GithubFormSkeleton() {
+  return (
+    <div className="mt-4" data-testid="github-skeleton">
+      <Skeleton className="h-3 w-52" />
+      <Skeleton className="mt-1 h-11 w-full" />
+      <Skeleton className="mt-2 h-3 w-full" />
+      <Skeleton className="mt-1.5 h-3 w-3/4" />
+      <div className="mt-3 flex items-center gap-2">
+        <Skeleton className="h-9 w-32" />
+        <Skeleton className="ml-auto h-3 w-24" />
+      </div>
+    </div>
+  )
+}
+
+/**
  * Settings > GitHub. A single server-wide fine-grained PAT lets agents use
  * `git` and `gh` inside the agent container. The token is write-only: the
  * status only carries the account identity and whether the container received
  * the credential files.
  */
 export function GithubSection({ client }: { client: Client }) {
-  const [status, setStatus] = useState<GithubStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const statusQuery = useGithubStatus(client)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [token, setToken] = useState("")
   const [replacing, setReplacing] = useState(false)
+  const connectedHint = useMemo(() => readGithubHint(client.baseUrl), [client.baseUrl])
+
+  const status = statusQuery.data ?? null
+  const loading = statusQuery.isPending
+  const fetchError = statusQuery.isError && !status ? githubErrorMessage(statusQuery.error) : null
 
   useEffect(() => {
-    let cancelled = false
-    client.github
-      .status()
-      .then((next) => {
-        if (!cancelled) setStatus(next)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(githubErrorMessage(err))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [client])
+    if (statusQuery.data) writeGithubHint(client.baseUrl, statusQuery.data.connected)
+  }, [client.baseUrl, statusQuery.data])
+
+  async function applyStatus(next: GithubStatus): Promise<void> {
+    // A background refetch started before the mutation must not overwrite the
+    // fresher status this request just returned.
+    await queryClient.cancelQueries({ queryKey: queryKeys.github })
+    queryClient.setQueryData(queryKeys.github, next)
+  }
 
   async function connect(): Promise<void> {
     const value = token.trim()
@@ -71,7 +141,7 @@ export function GithubSection({ client }: { client: Client }) {
     setBusy(true)
     setError(null)
     try {
-      setStatus(await client.github.connect(value))
+      await applyStatus(await client.github.connect(value))
       setToken("")
       setReplacing(false)
     } catch (err) {
@@ -79,7 +149,7 @@ export function GithubSection({ client }: { client: Client }) {
         // The write is idempotent; a lost response may still have landed.
         const reconciled = await client.github.status().catch(() => null)
         if (reconciled?.connected) {
-          setStatus(reconciled)
+          await applyStatus(reconciled)
           setToken("")
           setReplacing(false)
           return
@@ -96,7 +166,7 @@ export function GithubSection({ client }: { client: Client }) {
     setBusy(true)
     setError(null)
     try {
-      setStatus(await client.github.disconnect())
+      await applyStatus(await client.github.disconnect())
       setToken("")
       setReplacing(false)
     } catch (err) {
@@ -123,8 +193,13 @@ export function GithubSection({ client }: { client: Client }) {
         container.
       </p>
 
-      {loading && <p className="mt-4 text-xs text-ink-muted">Loading…</p>}
-      {error && <p className="mt-4 text-xs text-danger">{error}</p>}
+      {loading && (
+        <>
+          <SkeletonStatus label="Loading GitHub status…" />
+          {connectedHint === true ? <GithubCardSkeleton /> : <GithubFormSkeleton />}
+        </>
+      )}
+      {(error ?? fetchError) && <p className="mt-4 text-xs text-danger">{error ?? fetchError}</p>}
       {!connected && status?.agentConfigError && (
         <p className="mt-4 rounded-sm border border-warning-line bg-warning-soft px-2 py-1.5 text-xs text-ink-soft">
           Credential cleanup failed: {status.agentConfigError}

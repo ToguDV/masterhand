@@ -17,6 +17,7 @@ import {
 import { ChoiceModal } from "../components/ChoiceModal"
 import { WorkspacePicker } from "../components/WorkspacePicker"
 import { CheckIcon, CloseIcon, PlusIcon, TrashIcon } from "../components/icons"
+import { Skeleton, SkeletonStatus } from "../components/Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -475,6 +476,7 @@ export function BoardScreen({
   client,
   workspaceID,
   workspaces,
+  workspacesLoading = false,
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
@@ -482,6 +484,8 @@ export function BoardScreen({
   client: Client
   workspaceID: string | null
   workspaces: WorkspaceRecord[]
+  /** Workspaces still resolving: reserve the board instead of a false empty state. */
+  workspacesLoading?: boolean
   onSelectWorkspace: (id: string) => void
   onAddWorkspace: (input: CreateWorkspaceInput) => Promise<void>
   onRemoveWorkspace: (id: string, options: { deleteFiles: boolean }) => void
@@ -876,10 +880,14 @@ export function BoardScreen({
     return (
       <View style={styles.section}>
         {workspaceBar}
-        <View style={styles.centerBox}>
-          <Text style={styles.title}>Board</Text>
-          <Text style={styles.muted}>Add a workspace first — each workspace has its own board.</Text>
-        </View>
+        {workspacesLoading ? (
+          <BoardSkeleton />
+        ) : (
+          <View style={styles.centerBox}>
+            <Text style={styles.title}>Board</Text>
+            <Text style={styles.muted}>Add a workspace first — each workspace has its own board.</Text>
+          </View>
+        )}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     )
@@ -889,7 +897,7 @@ export function BoardScreen({
     return (
       <View style={styles.section}>
         {workspaceBar}
-        <Text style={styles.muted}>Loading board…</Text>
+        <BoardSkeleton />
       </View>
     )
   }
@@ -1136,6 +1144,33 @@ export function BoardScreen({
         />
       ) : null}
     </View>
+  )
+}
+
+/** Reserves the column geometry while the workspace or board snapshot loads. */
+function BoardSkeleton() {
+  const styles = useThemedStyles(createStyles)
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.columnsRow}
+      testID="board-skeleton"
+    >
+      <SkeletonStatus label="Loading board…" />
+      {[0, 1].map((column) => (
+        <View key={column} style={styles.column}>
+          <View style={styles.columnHeader}>
+            <Skeleton width={120} height={16} />
+            <Skeleton width={20} height={16} style={{ marginLeft: "auto" }} />
+          </View>
+          {[0, 1, 2, 3].map((card) => (
+            <Skeleton key={card} width="100%" height={64} radius={12} />
+          ))}
+          <Skeleton width="100%" height={40} radius={8} />
+        </View>
+      ))}
+    </ScrollView>
   )
 }
 

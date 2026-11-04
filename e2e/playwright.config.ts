@@ -16,6 +16,7 @@ const SMOKE_SPECS = [
   "**/workspaces.spec.ts",
   "**/design.spec.ts",
   "**/mobile-nav.spec.ts",
+  "**/layout-stability.spec.ts",
 ]
 
 export default defineConfig({

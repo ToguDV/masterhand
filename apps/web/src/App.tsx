@@ -63,6 +63,7 @@ import { RunPreviewSheet, RunPreviewTrigger } from "./components/RunPreviewPanel
 import { RemoveSessionDialog } from "./components/RemoveSessionDialog"
 import { RemoveWorkspaceDialog } from "./components/RemoveWorkspaceDialog"
 import { SchedulerPanel } from "./components/SchedulerPanel"
+import { Skeleton, SkeletonStatus } from "./components/Skeleton"
 import { ServerSwitcher } from "./components/ServerSwitcher"
 import { ServersScreen, type ConnectingServer } from "./components/ServersScreen"
 import { SessionList } from "./components/SessionList"
@@ -789,8 +790,46 @@ export default function App() {
 
   if (phase === "loading") {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-canvas">
-        <p className="animate-pulse text-sm text-ink-muted">Loading…</p>
+      <main className="flex min-h-dvh flex-col bg-canvas" aria-busy="true">
+        <SkeletonStatus label="Loading MasterHand…" />
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
+          <Skeleton className="h-7 w-7 rounded-md" />
+          <Skeleton className="h-4 w-32" />
+          <div className="ml-auto flex items-center gap-2">
+            <Skeleton className="h-6 w-24 rounded-full" />
+            <Skeleton className="h-6 w-6 rounded-full" />
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1">
+          {registry.profiles.length > 0 && (
+            <aside className="hidden w-[272px] shrink-0 border-r border-hairline p-2 md:block">
+              {Array.from({ length: 6 }, (_, index) => (
+                <div key={index} className="mh-session-item">
+                  <span className="mh-session-item__top">
+                    <Skeleton className="h-4 w-3/4" />
+                  </span>
+                  <Skeleton className="mt-1.5 h-3 w-1/2" />
+                </div>
+              ))}
+            </aside>
+          )}
+          <section className="flex min-w-0 flex-1 items-center justify-center p-6">
+            {registry.profiles.length > 0 ? (
+              <div className="w-full max-w-3xl space-y-4">
+                <Skeleton className="ml-auto h-16 w-2/3 rounded-lg" />
+                <Skeleton className="h-24 w-5/6 rounded-lg" />
+                <Skeleton className="h-16 w-3/4 rounded-lg" />
+              </div>
+            ) : (
+              <div className="mh-login-card w-full max-w-sm space-y-3">
+                <Skeleton className="mx-auto h-8 w-40" />
+                <Skeleton className="h-11 w-full" />
+                <Skeleton className="h-11 w-full" />
+                <Skeleton className="h-11 w-full" />
+              </div>
+            )}
+          </section>
+        </div>
       </main>
     )
   }
@@ -2026,7 +2065,12 @@ function AuthenticatedApp({
         </button>
       ))}
 
+      {/* Floating, not in-flow: a release check resolving after first paint
+          must never push the authenticated shell down (measured CLS 0.057
+          desktop / 0.31 mobile), and it must not cover the critical banner
+          stack under the header. */}
       <UpdateNotices
+        floating
         status={statusQuery.data}
         latest={updateChecks ? updateQuery.data?.latest : undefined}
         checksEnabled={updateChecks}
@@ -2178,6 +2222,7 @@ function AuthenticatedApp({
                     onCreateSession={() => void createSession()}
                     creating={creating}
                     serverID={profile.id}
+                    loading={workspacesQuery.isLoading || sessionsQuery.isLoading}
                   />
                 ) : activeSection === "scheduler" ? (
                   <SchedulerPanel onOpenSession={openSessionInChat} />
@@ -2272,6 +2317,7 @@ function AuthenticatedApp({
             <BoardView
               workspaceID={workspaceID}
               workspaces={workspaces}
+              workspacesLoading={workspacesQuery.isLoading}
               onSelectWorkspace={switchWorkspace}
               onAddWorkspace={() => setAddingWorkspace(true)}
               onRemoveWorkspace={setRemoveWorkspaceID}
@@ -2350,6 +2396,7 @@ function AuthenticatedApp({
                     onCreateSession={() => void createSession()}
                     creating={creating}
                     serverID={profile.id}
+                    loading={workspacesQuery.isLoading || sessionsQuery.isLoading}
                   />
                 </div>
               )}

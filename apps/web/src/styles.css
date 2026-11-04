@@ -644,8 +644,20 @@ body {
   animation: mh-reveal 160ms ease-out;
 }
 
+/* Loading placeholders: reserve the final geometry, never carry semantics.
+   Layered so Tailwind utilities (h-*, w-*, rounded-full) can override it. */
+@layer components {
+  .mh-skeleton {
+    display: block;
+    border-radius: var(--r-sm);
+    background: var(--mh-surface-muted);
+    animation: mh-pulse 1.6s ease-in-out infinite;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .mh-reveal {
+  .mh-reveal,
+  .mh-skeleton {
     animation: none;
   }
 
@@ -1804,6 +1816,13 @@ textarea.mh-textarea {
   text-align: left;
 }
 
+/* The update notice floats so it never reflows the shell; only its controls
+   take pointer events, so the content underneath stays usable. */
+.mh-update-overlay button,
+.mh-update-overlay a {
+  pointer-events: auto;
+}
+
 .mh-banner--warning {
   background: var(--mh-surface-muted);
   border-bottom-color: var(--mh-hairline);
@@ -2073,6 +2092,8 @@ textarea.mh-textarea {
   min-width: 0;
   padding: 24px;
   overflow-y: auto;
+  /* Keep the content width stable when a module first overflows. */
+  scrollbar-gutter: stable;
 }
 
 .mh-settings__title {

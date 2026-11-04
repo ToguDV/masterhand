@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { queryKeys, type Client } from "@masterhand/client-core"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import {
   FDROID_WEBSITE_URL,
   checkMobileUpdate,
@@ -201,9 +202,14 @@ export function AboutSection({
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Latest release</Text>
-          <Text style={styles.value}>
-            {query.isPending && checksEnabled ? "checking…" : update ? update.version : "not checked"}
-          </Text>
+          {query.isPending && checksEnabled ? (
+            <>
+              <SkeletonStatus label="Checking for updates…" />
+              <Skeleton width={84} height={12} />
+            </>
+          ) : (
+            <Text style={styles.value}>{update ? update.version : "not checked"}</Text>
+          )}
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>Last checked</Text>

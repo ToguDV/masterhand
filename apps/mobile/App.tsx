@@ -53,9 +53,10 @@ import { SettingsModal } from "./src/components/SettingsModal"
 import { ServerSwitcher } from "./src/components/ServerSwitcher"
 import { UpdateBanner } from "./src/components/UpdateNotice"
 import { Screen } from "./src/components/Screen"
+import { Skeleton, SkeletonStatus } from "./src/components/Skeleton"
 import { ThemedSystemBars } from "./src/components/SystemBars"
 import { nativeUpload } from "./src/upload"
-import { ActivityIndicator, Text } from "react-native"
+import { Text } from "react-native"
 import * as SystemNotifications from "expo-notifications"
 import {
   dismissSessionNotifications,
@@ -661,8 +662,17 @@ function Root() {
 
   if (!ready) {
     return (
-      <Screen style={styles.centered}>
-        <ActivityIndicator color={colors.accent} />
+      <Screen style={styles.bootSkeleton}>
+        <SkeletonStatus label="Loading MasterHand…" />
+        <View style={styles.bootHeader}>
+          <Skeleton width={28} height={28} radius={6} />
+          <Skeleton width={120} height={14} />
+        </View>
+        <View style={styles.bootBody}>
+          <Skeleton width="100%" height={64} radius={12} />
+          <Skeleton width="85%" height={96} radius={12} />
+          <Skeleton width="70%" height={64} radius={12} />
+        </View>
       </Screen>
     )
   }
@@ -1526,7 +1536,7 @@ function AuthenticatedApp({
       ) : (
         <SessionsScreen
           sessions={sessions}
-          loading={sessionsQuery.isLoading}
+          loading={workspacesQuery.isLoading || sessionsQuery.isLoading}
           statuses={statuses}
           connected={connected}
           creating={creating}
@@ -1558,6 +1568,7 @@ function AuthenticatedApp({
               client={client}
               workspaceID={workspaceID}
               workspaces={workspaces}
+              workspacesLoading={workspacesQuery.isLoading}
               onSelectWorkspace={switchBoardWorkspace}
               onAddWorkspace={addWorkspace}
               onRemoveWorkspace={(id, options) => void removeWorkspace(id, options)}
@@ -1617,9 +1628,22 @@ function AuthenticatedApp({
 
 function createStyles(colors: Palette, fonts: Fonts) {
   return StyleSheet.create({
-    centered: {
+    bootSkeleton: {
+      flex: 1,
+    },
+    bootHeader: {
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.hairline,
+    },
+    bootBody: {
+      flex: 1,
+      gap: 16,
+      padding: 16,
     },
     screenWrap: {
       flex: 1,

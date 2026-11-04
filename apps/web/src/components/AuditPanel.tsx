@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { formatRelative, queryKeys, useAudit } from "@masterhand/client-core"
 import { client } from "../client"
 import { SidePanel } from "./SidePanel"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /**
  * Visible log of blocked actions: commands denied by the session permission
@@ -55,7 +56,23 @@ export function AuditSheet({ onClose }: { onClose: () => void }) {
         ) : undefined
       }
     >
-      {events.length === 0 ? (
+      {auditQuery.isPending ? (
+        <div className="flex flex-col gap-2 p-3" data-testid="audit-skeleton">
+          <SkeletonStatus label="Loading activity…" />
+          <div aria-hidden="true" className="flex flex-col gap-2">
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="rounded-md border border-hairline bg-surface px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-5 w-28 rounded-full" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="mt-2 h-3 w-4/5" />
+                <Skeleton className="mt-1.5 h-3 w-3/5" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : events.length === 0 ? (
         <p className="px-3 py-10 text-center text-sm text-ink-muted">
           Nothing blocked yet. Dangerous process commands an agent tries to run show up here.
         </p>

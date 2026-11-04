@@ -554,6 +554,11 @@ components:
     textColor: "{colors.text}"
     typography: "{typography.heading-3}"
     geometry: "primary action pinned above the section in normal flow (e.g. Add provider); wraps on narrow widths"
+  skeleton:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "n/a (aria-hidden; one live-region label per loading region)"
+    rounded: "{rounded.sm}"
+    geometry: "non-interactive bars/blocks that reserve the final geometry of async content; pulse 1.6s, disabled under reduced motion; mobile renders the same blocks static"
   theme-swatches:
     backgroundColor: "transparent"
     textColor: "{colors.text-soft}"
@@ -896,7 +901,9 @@ The scale is soft but not playful: controls and cards use the same 12–16px fam
 
 **`toast`** — inverted ink pill for confirmations ("Copied", "Session deleted"), `{rounded.md}`, overlay shadow, auto-dismiss.
 
-**`empty-state`** — the decoration showcase: a `{components.deco-blob}` plus `{components.deco-dots}` at low opacity behind a `{typography.heading-2}` line, one `{typography.body-md}` sentence and at most one button. Used for: no sessions, no workspace, no messages yet, empty panel.
+**`empty-state`** — the decoration showcase: a `{components.deco-blob}` plus `{components.deco-dots}` at low opacity behind a `{typography.heading-2}` line, one `{typography.body-md}` sentence and at most one button. Used for: no sessions, no workspace, no messages yet, empty panel. It is only valid for a **settled** empty result, never as a loading state.
+
+**`skeleton`** — loading placeholder (`{components.skeleton}`): muted `{colors.surface-muted}` bars, circles or card shells that reserve the **final geometry** of the content that replaces them. It carries no text, role, label or fake control: the wrapper is `aria-hidden` / `accessibilityElementsHidden`, the surrounding region keeps one real status label, and nothing animates under `prefers-reduced-motion` (mobile blocks are static, matching the tool-card pending bars). Size placeholders from the real component's geometry (session rows, provider cards, source cards, composer pills), never from an arbitrary generic bar; if the final state can be wider or taller, reserve the larger shape. Skeleton is for first paint / cache misses; cached data renders its final state immediately. It is not used for user-triggered dialogs, route transitions or the update banner (that is an overlay so it never reflows).
 
 ### Overlays
 

@@ -91,7 +91,24 @@ const markdownComponents: Components = {
   ),
   td: ({ node, ...props }) => <td className="border border-hairline px-2 py-1 align-top" {...props} />,
   hr: ({ node, ...props }) => <hr className="my-4 border-hairline" {...props} />,
-  img: ({ node, ...props }) => <img className="my-2 max-w-full rounded-md" {...props} />,
+  img: ({ node, width, height, ...props }) => {
+    const w = Number(width)
+    const h = Number(height)
+    // Reserve the intrinsic ratio when the author declared it; unlabelled
+    // images keep the old flow (there is no safe ratio to guess).
+    const ratio = w > 0 && h > 0 ? `${w} / ${h}` : undefined
+    return (
+      <img
+        className="my-2 max-w-full rounded-md"
+        width={width}
+        height={height}
+        loading="lazy"
+        decoding="async"
+        style={ratio ? { aspectRatio: ratio, height: "auto" } : undefined}
+        {...props}
+      />
+    )
+  },
   input: ({ node, ...props }) => <input className="mr-1.5 accent-[var(--mh-accent)]" {...props} />,
 }
 

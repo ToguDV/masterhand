@@ -35,6 +35,7 @@ import {
   type Integration,
 } from "@masterhand/client-core"
 import { CheckIcon, CloseIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /** Providers shown before the "Show all" affordance. */
@@ -75,6 +76,9 @@ export function ProvidersSection({ client }: { client: Client }) {
       return `${integration.name} ${integration.id}`.toLowerCase().includes(needle)
     })
   const visible = showAll ? filtered : filtered.slice(0, PROVIDER_PAGE_SIZE)
+  // Credentials feed the Connected chips; wait for both to avoid a second
+  // resize wave after the cards were painted.
+  const catalogLoading = integrationsQuery.isPending || credentialsQuery.isPending
   const credentials = credentialsQuery.data ?? []
   const customProviders = customQuery.data ?? []
   const integrationByID = useMemo(
@@ -245,7 +249,6 @@ export function ProvidersSection({ client }: { client: Client }) {
       </Pressable>
 
       {customQuery.error ? <Text style={styles.error}>Could not load the custom providers.</Text> : null}
-      {customQuery.isLoading ? <Text style={styles.hint}>Loading custom providers…</Text> : null}
 
       {customProviders.length > 0 ? (
         <>
@@ -330,11 +333,10 @@ export function ProvidersSection({ client }: { client: Client }) {
       ) : null}
 
       <Text style={styles.groupLabel}>Catalog</Text>
-      {integrationsQuery.isLoading && <Text style={styles.hint}>Loading providers…</Text>}
       {integrationsQuery.error ? (
         <Text style={styles.error}>Could not load the provider catalog.</Text>
       ) : null}
-      {!integrationsQuery.isLoading && filtered.length === 0 && !integrationsQuery.error ? (
+      {!catalogLoading && filtered.length === 0 && !integrationsQuery.error ? (
         <Text style={styles.hint}>
           {search.trim() ? "No provider matches that search." : "No provider integrations available."}
         </Text>
@@ -355,7 +357,10 @@ export function ProvidersSection({ client }: { client: Client }) {
         testID="provider-search"
       />
 
-      {visible.map((integration) => {
+      {catalogLoading ? <SkeletonStatus label="Loading providers…" /> : null}
+      {catalogLoading
+        ? Array.from({ length: 5 }, (_, index) => <ProviderCardSkeleton key={index} />)
+        : visible.map((integration) => {
         const keyMethod = integration.methods.find((method) => method.type === "key")
         const credentialConnections = integration.connections.filter(
           (connection) => connection.type === "credential" && connection.credentialID,
@@ -440,7 +445,7 @@ export function ProvidersSection({ client }: { client: Client }) {
         )
       })}
 
-      {!showAll && filtered.length > PROVIDER_PAGE_SIZE ? (
+      {!catalogLoading && !showAll && filtered.length > PROVIDER_PAGE_SIZE ? (
         <Pressable
           onPress={() => setShowAll(true)}
           accessibilityRole="button"
@@ -470,6 +475,21 @@ export function ProvidersSection({ client }: { client: Client }) {
           }}
         />
       ) : null}
+    </View>
+  )
+}
+
+/** Reserves the final catalog-card height while providers and credentials load. */
+function ProviderCardSkeleton() {
+  const styles = useThemedStyles(createStyles)
+  return (
+    <View style={styles.card} testID="provider-skeleton">
+      <View style={styles.cardHeader}>
+        <Skeleton width={28} height={28} radius={8} />
+        <Skeleton width={150} height={14} />
+        <Skeleton width={64} height={20} radius={999} />
+      </View>
+      <Skeleton width={88} height={44} radius={12} style={{ marginTop: 10 }} />
     </View>
   )
 }

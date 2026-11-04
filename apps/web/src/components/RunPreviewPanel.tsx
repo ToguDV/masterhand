@@ -15,6 +15,7 @@ import {
 import { client } from "../client"
 import { SidePanel } from "./SidePanel"
 import { ExternalLinkIcon, PlayIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 const STOPPED_RUN: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
 const STOPPED_PREVIEW: PreviewStatus = { status: "stopped", url: null, port: null, error: null }
@@ -486,7 +487,14 @@ export function RunPreviewSheet({
         )}
 
         <div className="flex flex-col gap-3 p-3 text-sm">
-          {shownCommand ? (
+          {configQuery.isPending ? (
+            <div className="mh-code" data-testid="run-config-skeleton">
+              <SkeletonStatus label="Loading run configuration…" />
+              <div aria-hidden="true" className="px-3 py-2">
+                <Skeleton className="h-3 w-2/3" />
+              </div>
+            </div>
+          ) : shownCommand ? (
             <div className="mh-code">
               <p className="break-all px-3 py-2 font-mono text-xs text-code-text">
                 {shownCommand} {args.join(" ")}

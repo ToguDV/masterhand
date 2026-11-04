@@ -19,6 +19,7 @@ import {
 import { client } from "../client"
 import { ConnectKeyDialog } from "./ConnectKeyDialog"
 import { ExternalLinkIcon, SearchIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /**
  * Settings > Web search: pick the default source opencode uses for agent web
@@ -47,6 +48,9 @@ export function WebSearchSection() {
   const selection = settingsQuery.data ?? null
   const sources = sourcesQuery.data ?? []
   const credentials = credentialsQuery.data ?? []
+  // Keep the skeleton until the cards can render their final connected state;
+  // otherwise credentials arriving later resize every card in a second wave.
+  const sourcesLoading = sourcesQuery.isPending || integrationsQuery.isPending || credentialsQuery.isPending
   const integrationByID = useMemo(
     () => new Map((integrationsQuery.data ?? []).map((integration) => [integration.id, integration])),
     [integrationsQuery.data],
@@ -170,26 +174,31 @@ export function WebSearchSection() {
         the keyless default.
       </p>
 
-      {settingsQuery.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading…</p>}
-      {settingsQuery.error && <p className="mt-4 text-xs text-danger">Could not load the default source.</p>}
-      {settingsQuery.data !== undefined && selection === null && (
-        <p className="mt-3 text-xs text-ink-muted">
-          No default source is set — opencode would ask per search, which MasterHand cannot show. Pick one below.
-        </p>
-      )}
-      {settingsQuery.data === false && (
-        <p className="mt-3 text-xs text-ink-muted">
-          Web search is disabled in opencode&apos;s config (websearch: false). Pick a source to enable it.
-        </p>
-      )}
+      {/* One-line slot: a skeleton while loading, then either a notice or
+          nothing, without pulling the Sources list up when the request lands. */}
+      <div className="mt-3 min-h-[36px] md:min-h-[18px]">
+        {settingsQuery.isPending ? (
+          <Skeleton className="h-3 w-56" />
+        ) : settingsQuery.error ? (
+          <p className="text-xs text-danger">Could not load the default source.</p>
+        ) : settingsQuery.data !== undefined && selection === null ? (
+          <p className="text-xs text-ink-muted">
+            No default source is set — opencode would ask per search, which MasterHand cannot show. Pick one below.
+          </p>
+        ) : settingsQuery.data === false ? (
+          <p className="text-xs text-ink-muted">
+            Web search is disabled in opencode&apos;s config (websearch: false). Pick a source to enable it.
+          </p>
+        ) : null}
+      </div>
 
-      {sourcesQuery.isLoading && <p className="mt-3 text-xs text-ink-muted">Loading sources…</p>}
       {sourcesQuery.error && (
         <p className="mt-3 text-xs text-danger">Could not load the web search sources from opencode.</p>
       )}
 
       <p className="mh-caption mh-muted mt-4">Sources</p>
       <div role="radiogroup" aria-label="Default web search source" className="mt-2">
+        {sourcesLoading && <SkeletonStatus label="Loading web search sources…" />}
         <ul className="flex flex-col gap-2">
           <li className={cardClass(selection === "random")} data-testid="websearch-source-automatic">
             <button
@@ -214,7 +223,9 @@ export function WebSearchSection() {
             </button>
           </li>
 
-          {sources.map((source) => {
+          {sourcesLoading
+            ? Array.from({ length: 5 }, (_, index) => <WebsearchCardSkeleton key={index} />)
+            : sources.map((source) => {
             const integration = integrationByID.get(source.id)
             const credentialConnections = (integration?.connections ?? []).filter(
               (connection) => connection.type === "credential" && connection.credentialID,
@@ -335,6 +346,25 @@ export function WebSearchSection() {
         />
       )}
     </section>
+  )
+}
+
+/** Reserves the final source-card height while the list and credentials load. */
+function WebsearchCardSkeleton() {
+  return (
+    <li
+      className="rounded-md border border-hairline bg-surface p-3"
+      data-testid="websearch-skeleton"
+      aria-hidden="true"
+    >
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-4 w-4 rounded-full" />
+        <Skeleton className="h-7 w-7 rounded-md" />
+        <Skeleton className="h-3.5 w-32" />
+        <Skeleton className="ml-auto h-5 w-16" />
+      </div>
+      <Skeleton className="mt-2 h-9 w-24" />
+    </li>
   )
 }
 

@@ -1,6 +1,7 @@
 import { useMessages } from "@masterhand/client-core"
 import { client } from "../client"
 import { AssistantBlock } from "./MessageContent"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /**
  * Temporary `/btw` side question: shows the answer streaming from a forked
@@ -34,7 +35,22 @@ export function SideQuestionPanel({
         </button>
       </div>
       <div className="scroll-thin max-h-64 overflow-y-auto">
-        {reply ? <AssistantBlock entry={reply} /> : <p className="text-sm text-ink-muted">Thinking…</p>}
+        {reply ? (
+          <AssistantBlock entry={reply} />
+        ) : (
+          <>
+            <SkeletonStatus label="Waiting for the side answer…" />
+            <div
+              className="flex min-h-[72px] flex-col gap-2 py-1"
+              data-testid="side-question-skeleton"
+              aria-hidden="true"
+            >
+              <Skeleton className="h-3.5 w-11/12" />
+              <Skeleton className="h-3.5 w-4/5" />
+              <Skeleton className="h-3.5 w-2/3" />
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

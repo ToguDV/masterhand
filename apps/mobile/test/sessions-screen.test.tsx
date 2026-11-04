@@ -111,7 +111,7 @@ describe("SessionsScreen", () => {
   it("shows a loading placeholder while sessions load", async () => {
     await setup({ sessions: [], loading: true })
 
-    expect(screen.getByText("Loading…")).toBeOnTheScreen()
+    expect(screen.getByTestId("session-list-skeleton")).toBeOnTheScreen()
   })
 
   it("explains an empty session list", async () => {

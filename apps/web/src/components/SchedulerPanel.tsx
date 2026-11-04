@@ -25,6 +25,7 @@ import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect, type SearchSelectOption } from "./SearchSelect"
 import { useModalFocus } from "./useModalFocus"
 import { CheckIcon, ChevronDownIcon, ClockIcon, PauseIcon, PlayIcon, TrashIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /**
  * Sidebar "Scheduler" section (issue #147): scheduled prompts the BFF fires
@@ -220,7 +221,22 @@ function RunHistory({
   const runs = runsQuery.data ?? []
 
   if (runsQuery.isPending) {
-    return <p className="px-1 pb-3 pt-1 text-xs text-ink-muted">Loading run history…</p>
+    return (
+      <>
+        <SkeletonStatus label="Loading run history…" />
+        <ul className="flex flex-col gap-2 px-1 pb-3 pt-1" data-testid="run-history-skeleton" aria-hidden="true">
+        {[0, 1].map((row) => (
+          <li key={row} className="rounded-md border border-hairline bg-surface px-3 py-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          </li>
+          ))}
+        </ul>
+      </>
+    )
   }
   if (runsQuery.isError) {
     return <p className="px-1 pb-3 pt-1 text-xs text-danger">Could not load the run history.</p>
@@ -817,7 +833,26 @@ export function SchedulerPanel({ onOpenSession }: { onOpenSession: (sessionID: s
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 px-2 py-3">
-        {tasksQuery.isPending && <p className="mh-body-sm text-ink-muted">Loading tasks…</p>}
+        {tasksQuery.isPending && <SkeletonStatus label="Loading scheduled tasks…" />}
+        {tasksQuery.isPending && (
+          <div className="flex flex-col gap-2" data-testid="scheduler-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((card) => (
+              <div key={card} className="rounded-md border border-hairline bg-surface px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                </div>
+                <Skeleton className="mt-2 h-3 w-3/4" />
+                <Skeleton className="mt-1.5 h-3 w-2/3" />
+                <div className="mt-3 flex gap-2 border-t border-hairline pt-2">
+                  <Skeleton className="h-7 w-16" />
+                  <Skeleton className="h-7 w-16" />
+                  <Skeleton className="h-7 w-14" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         {tasksQuery.isError && (
           <div>
             <p className="mh-body-sm text-ink-muted">Could not load the scheduler.</p>

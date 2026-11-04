@@ -843,6 +843,8 @@ export function Composer({
               onChange={setAgent}
               ariaLabel="Agent"
               placeholder="agent…"
+              loading={agentsQuery.isPending}
+              triggerClassName="min-w-[6rem]"
             />
             <SearchSelect
               compact
@@ -865,6 +867,8 @@ export function Composer({
               title={selectedModel?.label}
               ariaLabel="Model"
               placeholder="model…"
+              loading={modelsQuery.isPending}
+              triggerClassName="min-w-[8rem]"
             />
             {variants.length > 0 && (
               <SearchSelect

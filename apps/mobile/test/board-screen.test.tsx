@@ -127,7 +127,7 @@ describe("BoardScreen states (#164)", () => {
       c.api.board.get.mockImplementation(() => new Promise(() => {}))
     })
 
-    expect(screen.getByText("Loading board…")).toBeOnTheScreen()
+    expect(screen.getByTestId("board-skeleton")).toBeOnTheScreen()
   })
 
   it("shows an error with a retry that reloads the board", async () => {
