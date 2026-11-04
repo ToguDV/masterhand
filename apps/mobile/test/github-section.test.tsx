@@ -1,7 +1,17 @@
 import { Linking } from "react-native"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ApiError, RequestTimeoutError, type Client, type GithubStatus } from "@masterhand/client-core"
 import { GithubSection, githubErrorMessage } from "../src/components/GithubSection"
+
+function renderSection(client: Client) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <GithubSection client={client} />
+    </QueryClientProvider>,
+  )
+}
 
 const DISCONNECTED: GithubStatus = {
   connected: false,
@@ -36,7 +46,7 @@ function fakeClient(overrides: Partial<Record<"status" | "connect" | "disconnect
 describe("GithubSection", () => {
   it("connects a token and shows the account", async () => {
     const { client, github } = fakeClient()
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     const input = await screen.findByLabelText("Fine-grained personal access token")
     await fireEvent.changeText(input, "github_pat_abcdefghijklmnopqrstuvwxyz")
     await fireEvent.press(screen.getByLabelText("Connect GitHub"))
@@ -48,7 +58,7 @@ describe("GithubSection", () => {
 
   it("disconnects the account", async () => {
     const { client, github } = fakeClient({ status: jest.fn(async () => CONNECTED) })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     expect(await screen.findByText("Octo Cat")).toBeOnTheScreen()
     await fireEvent.press(screen.getByLabelText("Disconnect GitHub"))
     await waitFor(() => expect(github.disconnect).toHaveBeenCalled())
@@ -68,7 +78,7 @@ describe("GithubSection states", () => {
 
   it("shows a load error without hiding the form", async () => {
     const { client } = fakeClient({ status: jest.fn(async () => { throw new ApiError(404, "missing") }) })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     expect(await screen.findByText(/does not support GitHub integration/)).toBeOnTheScreen()
   })
 
@@ -76,7 +86,7 @@ describe("GithubSection states", () => {
     const { client } = fakeClient({
       status: jest.fn(async () => ({ ...DISCONNECTED, agentConfigError: "EACCES" })),
     })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     expect(await screen.findByText(/Credential cleanup failed: EACCES/)).toBeOnTheScreen()
   })
 
@@ -89,7 +99,7 @@ describe("GithubSection states", () => {
         agentConfigError: "AGENT_CONFIG_DIR is not configured",
       })),
     })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     expect(await screen.findByText(/agent container has not received it/)).toBeOnTheScreen()
     expect(screen.getByText(/connected just now/)).toBeOnTheScreen()
   })
@@ -102,7 +112,7 @@ describe("GithubSection states", () => {
         throw new RequestTimeoutError()
       }),
     })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     await fireEvent.changeText(await screen.findByLabelText("Fine-grained personal access token"), "github_pat_abcdefghijklmnopqrstuvwxyz")
     await fireEvent.press(screen.getByLabelText("Connect GitHub"))
     expect(await screen.findByText("Octo Cat")).toBeOnTheScreen()
@@ -112,7 +122,7 @@ describe("GithubSection states", () => {
   it("replaces or cancels the token and opens the token page", async () => {
     const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined)
     const { client } = fakeClient({ status: jest.fn(async () => CONNECTED) })
-    await render(<GithubSection client={client} />)
+    await renderSection(client)
     await fireEvent.press(await screen.findByLabelText("Replace GitHub token"))
     expect(screen.getByText("Cancel")).toBeOnTheScreen()
     await fireEvent.press(screen.getByText("Cancel"))

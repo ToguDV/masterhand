@@ -1654,6 +1654,14 @@ textarea.mh-textarea {
   margin-top: var(--sp-sm);
 }
 
+/* Loading placeholders reserve the final geometry and carry no semantics. */
+.mh-skeleton {
+  display: block;
+  border-radius: var(--r-sm);
+  background: var(--mh-surface-muted);
+  animation: mh-pulse 1.6s ease-in-out infinite;
+}
+
 /* --------------------------------------------------------------------------
    13. Overlays
    -------------------------------------------------------------------------- */
@@ -3211,7 +3219,8 @@ textarea.mh-textarea {
     scroll-behavior: auto;
   }
 
-  .mh-dot--busy {
+  .mh-dot--busy,
+  .mh-skeleton {
     animation: none;
   }
 

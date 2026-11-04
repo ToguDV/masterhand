@@ -42,6 +42,7 @@ import { backdropDismiss } from "./backdrop"
 import { useDismissable } from "./useDismissable"
 import { useModalFocus } from "./useModalFocus"
 import { CheckIcon, EllipsisIcon, PlusIcon, TrashIcon, XIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 function newID(prefix: string): string {
   const uuid = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -492,12 +493,15 @@ function EditCardDialog({
 export function BoardView({
   workspaceID,
   workspaces,
+  workspacesLoading = false,
   onSelectWorkspace,
   onAddWorkspace,
   onRemoveWorkspace,
 }: {
   workspaceID: string | null
   workspaces: WorkspaceRecord[]
+  /** Workspaces still resolving: reserve the board instead of a false empty state. */
+  workspacesLoading?: boolean
   onSelectWorkspace: (id: string | null) => void
   onAddWorkspace: () => void
   onRemoveWorkspace: (id: string) => void
@@ -799,12 +803,16 @@ export function BoardView({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <WorkspacePicker workspaces={workspaces} selectedID={workspaceID} onSelect={onSelectWorkspace} onAdd={onAddWorkspace} onDelete={onRemoveWorkspace} />
         </div>
-        <div className="mh-empty relative flex-1">
-          <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
-          <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
-          <h3 className="mh-heading-2">Board</h3>
-          <p className="mh-empty__body mh-body-sm">Add a workspace first — each workspace has its own board.</p>
-        </div>
+        {workspacesLoading ? (
+          <BoardSkeleton />
+        ) : (
+          <div className="mh-empty relative flex-1">
+            <Deco variant="blob" style={{ top: -80, right: -80, width: 280, height: 260 }} />
+            <Deco variant="dots" style={{ bottom: -12, left: -20 }} />
+            <h3 className="mh-heading-2">Board</h3>
+            <p className="mh-empty__body mh-body-sm">Add a workspace first — each workspace has its own board.</p>
+          </div>
+        )}
       </div>
     )
   }
@@ -815,7 +823,7 @@ export function BoardView({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <WorkspacePicker workspaces={workspaces} selectedID={workspaceID} onSelect={onSelectWorkspace} onAdd={onAddWorkspace} onDelete={onRemoveWorkspace} />
         </div>
-        <p className="animate-pulse text-sm text-ink-muted">Loading board…</p>
+        <BoardSkeleton />
       </div>
     )
   }
@@ -976,6 +984,43 @@ export function BoardView({
   )
 }
 
+/** Reserves the column geometry while the workspace or board snapshot loads. */
+function BoardSkeleton() {
+  return (
+    <>
+      <SkeletonStatus label="Loading board…" />
+      <div
+        className="scroll-thin flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2"
+        data-testid="board-skeleton"
+        aria-hidden="true"
+      >
+        {[0, 1, 2].map((column) => (
+          <div
+            key={column}
+            className="flex w-72 max-w-[85vw] shrink-0 flex-col gap-2 rounded-lg border border-hairline bg-surface p-2"
+          >
+            <div className="flex items-center justify-between px-1 py-1">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-5 w-6" />
+            </div>
+            {[0, 1, 2].map((card) => (
+              <div key={card} className="rounded-md border border-hairline bg-surface p-2.5">
+                <Skeleton className="h-3.5 w-4/5" />
+                <Skeleton className="mt-2 h-3 w-1/2" />
+              </div>
+            ))}
+            <Skeleton className="mt-1 h-9 w-full" />
+          </div>
+        ))}
+        <div className="flex w-72 max-w-[85vw] shrink-0 flex-col gap-2 rounded-lg border border-dashed border-hairline p-3">
+          <Skeleton className="h-3.5 w-20" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      </div>
+    </>
+  )
+}
+
 /** Compact sidebar panel for the Board section (replaces the "coming soon" text). */
 export function BoardPanel({ workspaceID }: { workspaceID: string | null }) {
   const boardQuery = useBoard(client, workspaceID)
@@ -989,8 +1034,15 @@ export function BoardPanel({ workspaceID }: { workspaceID: string | null }) {
   }
   if (boardQuery.isPending) {
     return (
-      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <p className="mh-body-sm animate-pulse text-ink-muted">Loading board…</p>
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3" data-testid="board-panel-skeleton">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="mh-session-item">
+            <span className="mh-session-item__top">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-3 w-6" />
+            </span>
+          </div>
+        ))}
       </div>
     )
   }

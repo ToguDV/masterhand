@@ -21,6 +21,7 @@ import {
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 import { SearchIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /**
  * Settings > Web search: pick the default source opencode uses for agent web
@@ -53,6 +54,9 @@ export function WebSearchSection({ client }: { client: Client }) {
   const selection = settingsQuery.data ?? null
   const sources = sourcesQuery.data ?? []
   const credentials = credentialsQuery.data ?? []
+  // Wait for credentials too: connected chips and credential rows appear in a
+  // second wave otherwise, resizing every card after it was painted.
+  const sourcesLoading = sourcesQuery.isPending || integrationsQuery.isPending || credentialsQuery.isPending
   const integrationByID = useMemo(
     () => new Map((integrationsQuery.data ?? []).map((integration) => [integration.id, integration])),
     [integrationsQuery.data],
@@ -213,23 +217,27 @@ export function WebSearchSection({ client }: { client: Client }) {
         the keyless default.
       </Text>
 
-      {settingsQuery.isLoading ? <Text style={styles.hint}>Loading…</Text> : null}
-      {settingsQuery.error ? <Text style={styles.error}>Could not load the default source.</Text> : null}
-      {settingsQuery.data !== undefined && selection === null ? (
-        <Text style={styles.hint}>
-          No default source is set — opencode would ask per search, which MasterHand cannot show. Pick one below.
-        </Text>
-      ) : null}
-      {settingsQuery.data === false ? (
-        <Text style={styles.hint}>
-          Web search is disabled in opencode&apos;s config (websearch: false). Pick a source to enable it.
-        </Text>
-      ) : null}
+      <View style={styles.statusSlot}>
+        {settingsQuery.isPending ? (
+          <Skeleton width={220} height={12} />
+        ) : settingsQuery.error ? (
+          <Text style={styles.statusError}>Could not load the default source.</Text>
+        ) : settingsQuery.data !== undefined && selection === null ? (
+          <Text style={styles.statusHint}>
+            No default source is set — opencode would ask per search, which MasterHand cannot show. Pick one below.
+          </Text>
+        ) : settingsQuery.data === false ? (
+          <Text style={styles.statusHint}>
+            Web search is disabled in opencode&apos;s config (websearch: false). Pick a source to enable it.
+          </Text>
+        ) : null}
+      </View>
       {sourcesQuery.error ? (
         <Text style={styles.error}>Could not load the web search sources from opencode.</Text>
       ) : null}
 
       <Text style={styles.groupLabel}>Sources</Text>
+      {sourcesLoading ? <SkeletonStatus label="Loading web search sources…" /> : null}
       <View style={styles.list}>
         <View style={[styles.card, selection === "random" && styles.cardSelected]}>
           <Pressable
@@ -252,7 +260,9 @@ export function WebSearchSection({ client }: { client: Client }) {
           </Pressable>
         </View>
 
-        {sources.map((source) => {
+        {sourcesLoading
+          ? Array.from({ length: 5 }, (_, index) => <WebsearchCardSkeleton key={index} />)
+          : sources.map((source) => {
           const integration = integrationByID.get(source.id)
           const credentialConnections = (integration?.connections ?? []).filter(
             (connection) => connection.type === "credential" && connection.credentialID,
@@ -391,6 +401,21 @@ export function WebSearchSection({ client }: { client: Client }) {
   )
 }
 
+/** Reserves the final card height while sources and credentials load. */
+function WebsearchCardSkeleton() {
+  const styles = useThemedStyles(createStyles)
+  return (
+    <View style={styles.card} testID="websearch-skeleton">
+      <View style={styles.cardHeader}>
+        <Skeleton width={16} height={16} radius={8} />
+        <Skeleton width={28} height={28} radius={8} />
+        <Skeleton width={120} height={14} />
+      </View>
+      <Skeleton width={88} height={44} radius={12} style={{ marginTop: 10 }} />
+    </View>
+  )
+}
+
 function SourceAvatar({
   integration,
   name,
@@ -453,6 +478,21 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontFamily: fonts.ui,
       fontSize: 12,
       marginTop: 8,
+    },
+    statusSlot: {
+      minHeight: 36,
+      marginTop: 8,
+      justifyContent: "center",
+    },
+    statusHint: {
+      color: colors.textMuted,
+      fontFamily: fonts.ui,
+      fontSize: 12,
+    },
+    statusError: {
+      color: colors.danger,
+      fontFamily: fonts.ui,
+      fontSize: 12,
     },
     error: {
       color: colors.danger,

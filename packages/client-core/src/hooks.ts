@@ -36,6 +36,8 @@ import type {
 
 export const queryKeys = {
   status: ["status"] as const,
+  /** GitHub account integration (Settings > GitHub); cached across mounts. */
+  github: ["github"] as const,
   sessions: ["sessions"] as const,
   statuses: ["statuses"] as const,
   messages: (sessionID: string) => ["messages", sessionID] as const,
@@ -85,6 +87,19 @@ export function useBffStatus(client: Client, refetchInterval: number | false = f
     queryFn: () => client.auth.status(),
     retry: false,
     refetchInterval,
+  })
+}
+
+/**
+ * GitHub integration status (Settings > GitHub). Cached for a minute so
+ * re-opening the module renders the last known card/form immediately instead
+ * of flashing a loader and moving the content below it.
+ */
+export function useGithubStatus(client: Client) {
+  return useQuery({
+    queryKey: queryKeys.github,
+    queryFn: () => client.github.status(),
+    staleTime: 60_000,
   })
 }
 

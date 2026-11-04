@@ -766,6 +766,7 @@ export function Composer({
             ariaLabel="Agent"
             placeholder="agent…"
             disabled={agentChoices.length === 0}
+            loading={agentsQuery.isPending}
           />
           <SearchSelect
             value={model}
@@ -782,6 +783,7 @@ export function Composer({
             ariaLabel="Model"
             placeholder="model…"
             disabled={modelChoices.length === 0}
+            loading={modelsQuery.isPending}
           />
           {variants.length > 0 && (
             <SearchSelect

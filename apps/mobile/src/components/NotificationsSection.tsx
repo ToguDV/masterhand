@@ -6,6 +6,7 @@ import {
   type AgentActivityPreferences,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import {
   loadAgentActivityPreferences,
   loadNotificationsEnabled,
@@ -66,6 +67,7 @@ export function NotificationsSection({
 } = {}) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
+  const [loaded, setLoaded] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [granted, setGranted] = useState(false)
   const [preferences, setPreferences] = useState<AgentActivityPreferences>(
@@ -86,6 +88,7 @@ export function NotificationsSection({
       setEnabled(stored)
       setGranted(permission)
       setPreferences(kinds)
+      setLoaded(true)
     })()
     return () => {
       cancelled = true
@@ -209,9 +212,16 @@ export function NotificationsSection({
         </View>
       ))}
 
-      {!enabled ? (
-        <Text style={styles.hint}>Turn on Agent activity to use these switches.</Text>
-      ) : null}
+      {/* Fixed one-line slot: the hint disappearing after the stored
+          preference loads must not pull the actions up. */}
+      <View style={styles.hintSlot}>
+        {!loaded ? <SkeletonStatus label="Loading notification preferences…" /> : null}
+        {!loaded ? (
+          <Skeleton width={220} height={10} />
+        ) : !enabled ? (
+          <Text style={styles.hintInline}>Turn on Agent activity to use these switches.</Text>
+        ) : null}
+      </View>
 
       {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
@@ -287,6 +297,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       justifyContent: "center",
     },
     buttonText: { color: colors.text, fontFamily: fonts.ui, fontSize: 13, fontWeight: "600" },
+    hintSlot: { minHeight: 17, marginTop: 12, justifyContent: "center" },
+    hintInline: { color: colors.textFaint, fontFamily: fonts.ui, fontSize: 12 },
     hint: { color: colors.textFaint, fontFamily: fonts.ui, fontSize: 12, marginTop: 12 },
   })
 }

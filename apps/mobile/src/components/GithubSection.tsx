@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react"
-import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { useQueryClient } from "@tanstack/react-query"
+import { Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import {
   ApiError,
   RequestTimeoutError,
+  queryKeys,
+  useGithubStatus,
   type Client,
   type GithubStatus,
 } from "@masterhand/client-core"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 import { ExternalLinkIcon, GithubIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 function errorCode(error: ApiError): string | null {
   try {
@@ -40,6 +44,45 @@ function shortDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? "just now" : date.toLocaleDateString()
 }
 
+/** Last known status per client for this process; picks the card vs form skeleton. */
+const connectedHints = new WeakMap<Client, boolean>()
+
+function GithubSkeleton({ connected }: { connected: boolean }) {
+  const styles = useThemedStyles(createStyles)
+  if (connected) {
+    return (
+      <View style={styles.card} testID="github-skeleton">
+        <View style={styles.accountRow}>
+          <Skeleton width={40} height={40} radius={20} />
+          <View style={styles.accountText}>
+            <Skeleton width={120} height={14} />
+            <Skeleton width={180} height={12} style={{ marginTop: 6 }} />
+          </View>
+        </View>
+        <View style={styles.actions}>
+          <Skeleton width={110} height={44} radius={8} />
+          <Skeleton width={96} height={44} radius={8} />
+        </View>
+      </View>
+    )
+  }
+  return (
+    <View style={styles.skeletonForm} testID="github-skeleton">
+      <Skeleton width={160} height={12} />
+      <Skeleton width="100%" height={44} radius={6} style={{ marginTop: 4 }} />
+      <Skeleton width="100%" height={12} style={{ marginTop: 10 }} />
+      <Skeleton width="80%" height={12} style={{ marginTop: 6 }} />
+      <View style={styles.actions}>
+        <Skeleton width={120} height={44} radius={8} />
+        <Skeleton width={90} height={12} />
+      </View>
+      <View style={styles.skeletonLink}>
+        <Skeleton width={100} height={12} />
+      </View>
+    </View>
+  )
+}
+
 /**
  * Settings > GitHub. The token is write-only; the status only carries the
  * account identity and whether the agent container received the credential
@@ -48,30 +91,28 @@ function shortDate(value: string | null): string {
 export function GithubSection({ client }: { client: Client }) {
   const styles = useThemedStyles(createStyles)
   const { colors } = useTheme()
-  const [status, setStatus] = useState<GithubStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const statusQuery = useGithubStatus(client)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [token, setToken] = useState("")
   const [replacing, setReplacing] = useState(false)
 
+  const status = statusQuery.data ?? null
+  const loading = statusQuery.isPending
+  const fetchError = statusQuery.isError && !status ? githubErrorMessage(statusQuery.error) : null
+  const connectedHint = connectedHints.get(client)
+
   useEffect(() => {
-    let cancelled = false
-    client.github
-      .status()
-      .then((next) => {
-        if (!cancelled) setStatus(next)
-      })
-      .catch((err) => {
-        if (!cancelled) setError(githubErrorMessage(err))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [client])
+    if (statusQuery.data) connectedHints.set(client, statusQuery.data.connected)
+  }, [client, statusQuery.data])
+
+  async function applyStatus(next: GithubStatus): Promise<void> {
+    // A background refetch started before the mutation must not overwrite the
+    // fresher status this request just returned.
+    await queryClient.cancelQueries({ queryKey: queryKeys.github })
+    queryClient.setQueryData(queryKeys.github, next)
+  }
 
   async function connect(): Promise<void> {
     const value = token.trim()
@@ -79,14 +120,14 @@ export function GithubSection({ client }: { client: Client }) {
     setBusy(true)
     setError(null)
     try {
-      setStatus(await client.github.connect(value))
+      await applyStatus(await client.github.connect(value))
       setToken("")
       setReplacing(false)
     } catch (err) {
       if (err instanceof RequestTimeoutError) {
         const reconciled = await client.github.status().catch(() => null)
         if (reconciled?.connected) {
-          setStatus(reconciled)
+          await applyStatus(reconciled)
           setToken("")
           setReplacing(false)
           return
@@ -103,7 +144,7 @@ export function GithubSection({ client }: { client: Client }) {
     setBusy(true)
     setError(null)
     try {
-      setStatus(await client.github.disconnect())
+      await applyStatus(await client.github.disconnect())
       setToken("")
       setReplacing(false)
     } catch (err) {
@@ -127,8 +168,9 @@ export function GithubSection({ client }: { client: Client }) {
         inside the agent container.
       </Text>
 
-      {loading ? <ActivityIndicator color={colors.textMuted} style={styles.loading} /> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {loading ? <SkeletonStatus label="Loading GitHub status…" /> : null}
+      {loading ? <GithubSkeleton connected={connectedHint === true} /> : null}
+      {error ?? fetchError ? <Text style={styles.error}>{error ?? fetchError}</Text> : null}
       {!connected && status?.agentConfigError ? (
         <Text style={styles.warning}>Credential cleanup failed: {status.agentConfigError}</Text>
       ) : null}
@@ -253,7 +295,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
     titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
     sectionTitle: { color: colors.text, fontFamily: fonts.ui, fontSize: 16, fontWeight: "600" },
     desc: { color: colors.textMuted, fontFamily: fonts.ui, fontSize: 13, marginTop: 6, marginBottom: 12 },
-    loading: { alignSelf: "flex-start", marginVertical: 12 },
+    skeletonForm: { marginTop: 12, marginBottom: 12 },
+    skeletonLink: { minHeight: 32, marginTop: 12, justifyContent: "center" },
     error: { color: colors.danger, fontFamily: fonts.ui, fontSize: 12, marginBottom: 10 },
     card: {
       borderWidth: StyleSheet.hairlineWidth,

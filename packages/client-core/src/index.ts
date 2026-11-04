@@ -151,6 +151,7 @@ export {
   useBranches,
   useIntegrations,
   useCustomProviders,
+  useGithubStatus,
   useGoalRun,
   useGoalSettings,
   useBoard,

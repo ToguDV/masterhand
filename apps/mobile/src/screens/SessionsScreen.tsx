@@ -18,6 +18,7 @@ import { BottomNav, type HomeSection } from "../components/BottomNav"
 import { NewSessionMenu } from "../components/NewSessionMenu"
 import { WorkspacePicker } from "../components/WorkspacePicker"
 import { Deco } from "../components/Deco"
+import { Skeleton, SkeletonStatus } from "../components/Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export type { HomeSection }
@@ -142,16 +143,29 @@ export function SessionsScreen({
         keyExtractor={(session) => session.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            {!loading ? <Deco variant="blob" style={styles.emptyBlob} /> : null}
-            <Text style={loading ? styles.emptyLoading : styles.emptyTitle}>
-              {loading
-                ? "Loading…"
-                : canCreate
-                  ? "No sessions yet."
-                  : "Add a workspace to start working on a project."}
-            </Text>
-          </View>
+          loading ? (
+            <View style={styles.skeletonList} testID="session-list-skeleton">
+              <SkeletonStatus label="Loading sessions…" />
+              {Array.from({ length: 6 }, (_, index) => (
+                <View key={index} style={styles.row}>
+                  <View style={styles.rowMain}>
+                    <View style={styles.rowHeader}>
+                      <Skeleton width={8} height={8} radius={4} />
+                      <Skeleton width="65%" height={15} />
+                    </View>
+                    <Skeleton width="45%" height={10} style={styles.skeletonMeta} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Deco variant="blob" style={styles.emptyBlob} />
+              <Text style={styles.emptyTitle}>
+                {canCreate ? "No sessions yet." : "Add a workspace to start working on a project."}
+              </Text>
+            </View>
+          )
         }
         renderItem={({ item }) => (
           <SessionRow
@@ -280,6 +294,8 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingBottom: 24,
       gap: 8,
     },
+    skeletonList: { gap: 8 },
+    skeletonMeta: { marginLeft: 16, marginTop: 4 },
     empty: {
       alignItems: "center",
       justifyContent: "center",
@@ -299,12 +315,6 @@ function createStyles(colors: Palette, fonts: Fonts) {
       fontSize: 26,
       fontWeight: "500",
       lineHeight: 31,
-      textAlign: "center",
-    },
-    emptyLoading: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 14,
       textAlign: "center",
     },
     row: {

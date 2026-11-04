@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react"
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
 import { Popover, usePopover } from "./Popover"
 import { ChevronDownIcon } from "./icons"
+import { Skeleton } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 export interface SearchSelectOption {
@@ -29,6 +30,7 @@ export function SearchSelect({
   icon,
   placement = "up",
   testID,
+  loading = false,
 }: {
   value: string
   options: SearchSelectOption[]
@@ -42,6 +44,8 @@ export function SearchSelect({
   icon?: ReactNode
   placement?: "up" | "down"
   testID?: string
+  /** Show a fixed-size bar inside the trigger while options load. */
+  loading?: boolean
 }) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState(false)
@@ -90,12 +94,16 @@ export function SearchSelect({
       >
         <View style={styles.labelRow}>
           {icon}
-          <Text
-            style={[styles.triggerText, selected ? styles.triggerTextSelected : styles.triggerTextEmpty]}
-            numberOfLines={1}
-          >
-            {selected?.triggerLabel ?? selected?.label ?? placeholder}
-          </Text>
+          {loading ? (
+            <Skeleton width={80} height={12} />
+          ) : (
+            <Text
+              style={[styles.triggerText, selected ? styles.triggerTextSelected : styles.triggerTextEmpty]}
+              numberOfLines={1}
+            >
+              {selected?.triggerLabel ?? selected?.label ?? placeholder}
+            </Text>
+          )}
         </View>
         <ChevronDownIcon size={14} color={colors.textMuted} />
       </Pressable>

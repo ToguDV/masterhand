@@ -84,7 +84,7 @@ in the sessions options box per #136/#137).
 | C20 — Long-operation and shutdown reliability | #192 #194 #204 #208 | ✅ Merged 2026-10-29 — #226 (review hardening included; #208 approved breaking) |
 | C21 — Transport, memory and growth | #190 #196 #197 #198 #199 #200 #201 #202 #203 #211 | ✅ Merged 2026-10-29 — #227 (transport) + #228 (data, review hardening included) |
 | C22 — Architecture and test debt | #205 #206 #207 #212 | ✅ Merged 2026-10-29 — #229 (review hardening included) |
-| C23 — Overlay layout follow-ups (web menu overflow, popover anchor recovery, device coverage) | #279 #280 #281 | ⬜ Open — filed 2026-11-02 |
+| C23 — Overlay layout follow-ups (web menu overflow, popover anchor recovery, device coverage) | #279 #280 #281 | 🟡 In progress — #281 skeleton/layout-stability coverage in review (2026-11-04); #279/#280 open |
 | C23 — Mobile board + scheduler parity | #164 #172 | ✅ Merged 2026-10-29 — #231 (review hardening included) |
 
 **All previous chunks (C1–C9) are closed**: the remaining-issues session batch finished C6

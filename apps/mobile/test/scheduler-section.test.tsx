@@ -85,7 +85,7 @@ describe("SchedulerSection loading and error states (#172)", () => {
       c.api.scheduler.list.mockImplementation(() => new Promise(() => {}))
     })
 
-    expect(screen.getByText("Loading tasks…")).toBeOnTheScreen()
+    expect(screen.getByTestId("scheduler-skeleton")).toBeOnTheScreen()
   })
 
   it("shows an error with a retry that reloads the list", async () => {

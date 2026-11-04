@@ -24,6 +24,7 @@ import { SessionStats } from "./SessionStats"
 import { SessionToolbar } from "./SessionToolbar"
 import { Deco } from "./Deco"
 import { ArrowDownIcon, PaperclipIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
@@ -197,7 +198,12 @@ export function ChatView({
               ? "A permission request is pending. The agent is waiting for your approval."
               : ""}
           </p>
-          {messagesQuery.isLoading && <p className="text-center text-sm text-ink-muted">Loading conversation…</p>}
+          {messagesQuery.isLoading && (
+            <>
+              <SkeletonStatus label="Loading conversation…" />
+              <ChatSkeleton />
+            </>
+          )}
           {messagesQuery.error && (
             <p className="text-center text-sm text-danger">{conversationErrorMessage(messagesQuery.error)}</p>
           )}
@@ -294,6 +300,27 @@ export function ChatView({
           />
         }
       />
+    </div>
+  )
+}
+
+/** Reserves a plausible transcript while the session history loads. */
+function ChatSkeleton() {
+  return (
+    <div className="flex flex-col gap-3" data-testid="chat-skeleton" aria-hidden="true">
+      <div className="ml-auto w-2/3 rounded-lg bg-surface-muted p-3">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="mt-2 h-3 w-4/5" />
+      </div>
+      <div className="w-5/6 rounded-lg border border-hairline bg-surface p-3">
+        <Skeleton className="h-3 w-11/12" />
+        <Skeleton className="mt-2 h-3 w-4/5" />
+        <Skeleton className="mt-2 h-3 w-2/3" />
+      </div>
+      <div className="w-full rounded-lg border border-hairline bg-surface p-3">
+        <Skeleton className="h-3 w-3/4" />
+        <Skeleton className="mt-2 h-3 w-1/2" />
+      </div>
     </div>
   )
 }

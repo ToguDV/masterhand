@@ -12,6 +12,7 @@ import {
 import { ChoiceModal, type ChoiceOption } from "./ChoiceModal"
 import { ChevronDownIcon } from "./icons"
 import { ProviderGlyph } from "./ProviderGlyph"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -132,9 +133,9 @@ export function GoalReviewSection({ client }: { client: Client }) {
         use the session&apos;s own model. Changes save automatically.
       </Text>
 
-      {settings.isLoading ? <Text style={styles.hint}>Loading goal settings…</Text> : null}
       {settings.error ? <Text style={styles.error}>Could not load the goal settings.</Text> : null}
 
+      {models.isPending ? <SkeletonStatus label="Loading models…" /> : null}
       <Text style={styles.groupLabel}>Models</Text>
       <View style={styles.card}>
         <Text style={[styles.label, styles.labelFirst]}>Critic model</Text>
@@ -144,10 +145,16 @@ export function GoalReviewSection({ client }: { client: Client }) {
           accessibilityLabel="Critic model"
           style={styles.select}
         >
-          {criticOption ? <ProviderGlyph providerID={criticOption.providerID} name={criticOption.provider} /> : null}
-          <Text style={[styles.selectText, !criticModel && styles.selectPlaceholder]} numberOfLines={1}>
-            {triggerShortLabel(criticModel)}
-          </Text>
+          {models.isPending ? (
+            <Skeleton width={150} height={14} />
+          ) : (
+            <>
+              {criticOption ? <ProviderGlyph providerID={criticOption.providerID} name={criticOption.provider} /> : null}
+              <Text style={[styles.selectText, !criticModel && styles.selectPlaceholder]} numberOfLines={1}>
+                {triggerShortLabel(criticModel)}
+              </Text>
+            </>
+          )}
           <ChevronDownIcon size={14} color={colors.textMuted} />
         </Pressable>
 
@@ -158,10 +165,16 @@ export function GoalReviewSection({ client }: { client: Client }) {
           accessibilityLabel="Judge model"
           style={styles.select}
         >
-          {judgeOption ? <ProviderGlyph providerID={judgeOption.providerID} name={judgeOption.provider} /> : null}
-          <Text style={[styles.selectText, !judgeModel && styles.selectPlaceholder]} numberOfLines={1}>
-            {triggerShortLabel(judgeModel)}
-          </Text>
+          {models.isPending ? (
+            <Skeleton width={150} height={14} />
+          ) : (
+            <>
+              {judgeOption ? <ProviderGlyph providerID={judgeOption.providerID} name={judgeOption.provider} /> : null}
+              <Text style={[styles.selectText, !judgeModel && styles.selectPlaceholder]} numberOfLines={1}>
+                {triggerShortLabel(judgeModel)}
+              </Text>
+            </>
+          )}
           <ChevronDownIcon size={14} color={colors.textMuted} />
         </Pressable>
         <Text style={styles.cardHint}>Empty = the session model.</Text>

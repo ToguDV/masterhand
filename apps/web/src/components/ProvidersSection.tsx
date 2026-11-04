@@ -26,6 +26,7 @@ import { ConnectKeyDialog } from "./ConnectKeyDialog"
 import { DialogClose } from "./DialogClose"
 import { useModalFocus } from "./useModalFocus"
 import { CheckIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /** Providers shown before the "Show all" affordance. */
 const PROVIDER_PAGE_SIZE = 5
@@ -63,6 +64,9 @@ export function ProvidersSection() {
     return sorted.filter((integration) => `${integration.name} ${integration.id}`.toLowerCase().includes(needle))
   }, [integrationsQuery.data, search])
   const visible = showAll ? filtered : filtered.slice(0, PROVIDER_PAGE_SIZE)
+  // Credentials feed the Connected chips; keeping the skeleton until both
+  // resolve avoids a second resize wave on every card.
+  const catalogLoading = integrationsQuery.isPending || credentialsQuery.isPending
   const credentials = credentialsQuery.data ?? []
   const customProviders = customQuery.data ?? []
   const integrationByID = useMemo(
@@ -196,7 +200,6 @@ export function ProvidersSection() {
         </button>
       </div>
 
-      {customQuery.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading custom providers…</p>}
       {customQuery.error && (
         <p className="mt-4 text-xs text-danger">Could not load the custom providers.</p>
       )}
@@ -282,11 +285,10 @@ export function ProvidersSection() {
       )}
 
       <p className="mh-caption mh-muted mt-4">Catalog</p>
-      {integrationsQuery.isLoading && <p className="mt-2 text-xs text-ink-muted">Loading providers…</p>}
       {integrationsQuery.error && (
         <p className="mt-2 text-xs text-danger">Could not load the provider catalog.</p>
       )}
-      {!integrationsQuery.isLoading && filtered.length === 0 && !integrationsQuery.error && (
+      {!catalogLoading && filtered.length === 0 && !integrationsQuery.error && (
         <p className="mt-2 text-xs text-ink-muted">
           {search.trim() ? "No provider matches that search." : "No provider integrations available."}
         </p>
@@ -304,57 +306,62 @@ export function ProvidersSection() {
         className="mh-input mt-2 mb-2 w-full"
       />
 
+      {catalogLoading && <SkeletonStatus label="Loading providers…" />}
       <ul className="flex flex-col gap-2">
-        {visible.map((integration) => {
-          const keyMethod = integration.methods.find((method) => method.type === "key")
-          const credentialConnections = integration.connections.filter(
-            (connection) => connection.type === "credential" && connection.credentialID,
-          )
-          const connected = integration.connections.length > 0
-          return (
-            <li
-              key={integration.id}
-              className="rounded-md border border-hairline bg-surface p-3"
-              data-testid={`integration-${integration.id}`}
-            >
-              <div className="flex items-center gap-2">
-                <ProviderAvatar integration={integration} />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{integration.name}</span>
-                {connected && (
-                  <span className="mh-chip mh-chip--accent shrink-0">
-                    Connected
-                  </span>
-                )}
-              </div>
-
-              {credentialConnections.length > 0 && (
-                <ul className="mt-2 flex flex-col gap-1">
-                  {credentialConnections.map((connection) => credentialRow(integration.id, integration.name, connection))}
-                </ul>
-              )}
-
-              {keyMethod && credentialConnections.length === 0 && (
-                <button
-                  type="button"
-                  className="mh-btn mh-btn--secondary mh-btn--sm mt-2"
-                  onClick={() => setConnecting(integration)}
+        {catalogLoading
+          ? Array.from({ length: 5 }, (_, index) => <ProviderCardSkeleton key={index} />)
+          : visible.map((integration) => {
+              const keyMethod = integration.methods.find((method) => method.type === "key")
+              const credentialConnections = integration.connections.filter(
+                (connection) => connection.type === "credential" && connection.credentialID,
+              )
+              const connected = integration.connections.length > 0
+              return (
+                <li
+                  key={integration.id}
+                  className="rounded-md border border-hairline bg-surface p-3"
+                  data-testid={`integration-${integration.id}`}
                 >
-                  Connect
-                </button>
-              )}
-              {!keyMethod && (
-                <p className="mt-1 text-[11px] text-ink-muted">
-                  {integration.methods.some((method) => method.type === "oauth")
-                    ? "Connect this provider from the opencode CLI/TUI for now."
-                    : "Set this provider's environment variable on the host for now."}
-                </p>
-              )}
-            </li>
-          )
-        })}
+                  <div className="flex items-center gap-2">
+                    <ProviderAvatar integration={integration} />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">{integration.name}</span>
+                    {connected && (
+                      <span className="mh-chip mh-chip--accent shrink-0">
+                        Connected
+                      </span>
+                    )}
+                  </div>
+
+                  {credentialConnections.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {credentialConnections.map((connection) =>
+                        credentialRow(integration.id, integration.name, connection),
+                      )}
+                    </ul>
+                  )}
+
+                  {keyMethod && credentialConnections.length === 0 && (
+                    <button
+                      type="button"
+                      className="mh-btn mh-btn--secondary mh-btn--sm mt-2"
+                      onClick={() => setConnecting(integration)}
+                    >
+                      Connect
+                    </button>
+                  )}
+                  {!keyMethod && (
+                    <p className="mt-1 text-[11px] text-ink-muted">
+                      {integration.methods.some((method) => method.type === "oauth")
+                        ? "Connect this provider from the opencode CLI/TUI for now."
+                        : "Set this provider's environment variable on the host for now."}
+                    </p>
+                  )}
+                </li>
+              )
+            })}
       </ul>
 
-      {!showAll && filtered.length > PROVIDER_PAGE_SIZE && (
+      {!catalogLoading && !showAll && filtered.length > PROVIDER_PAGE_SIZE && (
         <button
           type="button"
           className="mh-btn mh-btn--ghost mh-btn--sm mt-2 w-full justify-start"
@@ -405,6 +412,24 @@ export function ProvidersSection() {
         />
       )}
     </section>
+  )
+}
+
+/** Reserves the final catalog-card height while providers and credentials load. */
+function ProviderCardSkeleton() {
+  return (
+    <li
+      className="rounded-md border border-hairline bg-surface p-3"
+      data-testid="provider-skeleton"
+      aria-hidden="true"
+    >
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-7 w-7 rounded-md" />
+        <Skeleton className="h-3.5 w-40" />
+        <Skeleton className="ml-auto h-5 w-16" />
+      </div>
+      <Skeleton className="mt-2 h-9 w-24" />
+    </li>
   )
 }
 

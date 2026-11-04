@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useDismissable } from "./useDismissable"
 import { ChevronDownIcon } from "./icons"
+import { Skeleton } from "./Skeleton"
 
 export interface SearchSelectOption {
   value: string
@@ -20,6 +21,8 @@ export function SearchSelect({
   ghost = false,
   icon,
   title,
+  loading = false,
+  triggerClassName = "",
 }: {
   value: string
   options: SearchSelectOption[]
@@ -34,6 +37,10 @@ export function SearchSelect({
   /** Optional leading glyph (kept out of the accessible name). */
   icon?: ReactNode
   title?: string
+  /** Keep the trigger height and show a placeholder bar while options load. */
+  loading?: boolean
+  /** Extra classes for the trigger button (fixed/min widths in the composer). */
+  triggerClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -77,16 +84,20 @@ export function SearchSelect({
           }
         }}
         title={title ?? ariaLabel}
-        className={ghost ? ghostTriggerClass : compact ? compactTriggerClass : triggerClass}
+        className={`${ghost ? ghostTriggerClass : compact ? compactTriggerClass : triggerClass} ${triggerClassName}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {icon}
-          <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
-            {selected?.triggerLabel ?? selected?.label ?? placeholder}
-          </span>
+          {loading ? (
+            <Skeleton className={compact || ghost ? "h-3 w-16" : "h-3.5 w-32"} />
+          ) : (
+            <span className={`truncate ${selected ? "text-ink" : "text-ink-muted"}`}>
+              {selected?.triggerLabel ?? selected?.label ?? placeholder}
+            </span>
+          )}
         </span>
         <ChevronDownIcon size={14} className="shrink-0 text-ink-muted" />
       </button>

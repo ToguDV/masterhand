@@ -1,6 +1,7 @@
 import { useMessages, type Client } from "@masterhand/client-core"
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { MessageBubble } from "./MessageBubble"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -43,7 +44,16 @@ export function SideQuestionPanel({
         </Pressable>
       </View>
       <ScrollView style={styles.body} nestedScrollEnabled>
-        {reply ? <MessageBubble entry={reply} /> : <Text style={styles.thinking}>Thinking…</Text>}
+        {reply ? (
+          <MessageBubble entry={reply} />
+        ) : (
+          <View style={styles.thinkingSkeleton} testID="side-question-skeleton">
+            <SkeletonStatus label="Waiting for the side answer…" />
+            <Skeleton width="92%" height={12} />
+            <Skeleton width="84%" height={12} />
+            <Skeleton width="55%" height={12} />
+          </View>
+        )}
       </ScrollView>
     </View>
   )
@@ -93,11 +103,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
     },
     body: {
       maxHeight: 220,
+      minHeight: 64,
     },
-    thinking: {
-      color: colors.textMuted,
-      fontFamily: fonts.ui,
-      fontSize: 13,
+    thinkingSkeleton: {
+      gap: 8,
       paddingVertical: 4,
     },
   })

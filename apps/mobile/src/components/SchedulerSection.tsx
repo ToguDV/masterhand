@@ -25,6 +25,7 @@ import {
 import { ChoiceModal } from "./ChoiceModal"
 import { CheckIcon, ChevronDownIcon, CloseIcon, PauseIcon, PlayIcon, PlusIcon, TrashIcon } from "./icons"
 import { ProviderGlyph } from "./ProviderGlyph"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 /**
@@ -236,7 +237,20 @@ function RunHistory({
   const runs = runsQuery.data ?? []
 
   if (runsQuery.isPending) {
-    return <Text style={styles.muted}>Loading run history…</Text>
+    return (
+      <View style={styles.historyList} testID="run-history-skeleton">
+        <SkeletonStatus label="Loading run history…" />
+        {[0, 1].map((row) => (
+          <View key={row} style={styles.runRow}>
+            <View style={styles.runTop}>
+              <Skeleton width={80} height={20} radius={999} />
+              <Skeleton width={64} height={20} radius={999} />
+            </View>
+            <Skeleton width={180} height={12} style={{ marginTop: 8 }} />
+          </View>
+        ))}
+      </View>
+    )
   }
   if (runsQuery.isError) {
     return <Text style={styles.error}>Could not load the run history.</Text>
@@ -906,7 +920,26 @@ export function SchedulerSection({
         </Pressable>
       </View>
 
-      {tasksQuery.isPending ? <Text style={styles.muted}>Loading tasks…</Text> : null}
+      {tasksQuery.isPending ? (
+        <View style={styles.taskSkeleton} testID="scheduler-skeleton">
+          <SkeletonStatus label="Loading scheduled tasks…" />
+          {[0, 1, 2].map((card) => (
+            <View key={card} style={styles.card}>
+              <View style={styles.cardTop}>
+                <Skeleton width="55%" height={16} />
+                <Skeleton width={56} height={20} radius={999} />
+              </View>
+              <Skeleton width="80%" height={12} style={{ marginTop: 10 }} />
+              <Skeleton width="65%" height={12} style={{ marginTop: 6 }} />
+              <View style={styles.actions}>
+                <Skeleton width={64} height={36} radius={8} />
+                <Skeleton width={64} height={36} radius={8} />
+                <Skeleton width={56} height={36} radius={8} />
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {tasksQuery.isError ? (
         <View style={styles.centerBox}>
           <Text style={styles.muted}>Could not load the scheduler.</Text>
@@ -1004,6 +1037,7 @@ function createStyles(colors: Palette, fonts: Fonts) {
       paddingVertical: 32,
       paddingHorizontal: 24,
     },
+    taskSkeleton: { gap: 10 },
     card: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.hairline,

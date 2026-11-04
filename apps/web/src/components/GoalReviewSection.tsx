@@ -10,6 +10,7 @@ import {
 import { client } from "../client"
 import { ProviderGlyph } from "./ProviderGlyph"
 import { SearchSelect } from "./SearchSelect"
+import { SkeletonStatus } from "./Skeleton"
 
 /**
  * Settings > Goal review: which models run the adversarial critic and the
@@ -126,9 +127,9 @@ export function GoalReviewSection() {
         use the session&apos;s own model. Changes save automatically.
       </p>
 
-      {settings.isLoading && <p className="mt-4 text-xs text-ink-muted">Loading goal settings…</p>}
       {settings.error && <p className="mt-4 text-xs text-danger">Could not load the goal settings.</p>}
 
+      {models.isPending && <SkeletonStatus label="Loading models…" />}
       <p className="mh-caption mh-muted mt-4">Models</p>
       <div className="mt-2 rounded-md border border-hairline bg-surface p-3">
         <p className="mh-caption mh-muted">Critic model</p>
@@ -147,6 +148,7 @@ export function GoalReviewSection() {
             title={criticFlat?.label}
             ariaLabel="Critic model"
             placeholder="Use the session model"
+            loading={models.isPending}
           />
         </div>
         <p className="mh-caption mh-muted mt-3">Judge model</p>
@@ -165,6 +167,7 @@ export function GoalReviewSection() {
             title={judgeFlat?.label}
             ariaLabel="Judge model"
             placeholder="Use the session model"
+            loading={models.isPending}
           />
         </div>
         <p className="mt-2 text-[11px] text-ink-muted">Empty = the session model.</p>

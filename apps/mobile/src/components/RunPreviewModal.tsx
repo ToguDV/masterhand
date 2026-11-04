@@ -28,6 +28,7 @@ import {
   type RunStatus,
 } from "@masterhand/client-core"
 import { CloseIcon } from "./icons"
+import { Skeleton, SkeletonStatus } from "./Skeleton"
 import { useTheme, useThemedStyles, type Fonts, type Palette } from "../theme"
 
 const STOPPED_RUN: RunStatus = { status: "stopped", command: null, args: [], port: null, pid: null, error: null }
@@ -510,7 +511,12 @@ export function RunPreviewModal({
             ) : null}
 
             <ScrollView contentContainerStyle={styles.body}>
-              {shownCommand ? (
+              {configQuery.isPending ? (
+                <View style={styles.runSkeleton} testID="run-config-skeleton">
+                  <SkeletonStatus label="Loading run configuration…" />
+                  <Skeleton width="70%" height={12} />
+                </View>
+              ) : shownCommand ? (
                 <Text style={styles.command}>
                   {shownCommand} {shownArgs.join(" ")}
                 </Text>
@@ -862,6 +868,10 @@ function createStyles(colors: Palette, fonts: Fonts) {
       color: colors.text,
       fontFamily: fonts.mono,
       fontSize: 12,
+    },
+    runSkeleton: {
+      minHeight: 20,
+      justifyContent: "center",
     },
     placeholderText: {
       color: colors.textMuted,
