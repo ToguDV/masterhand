@@ -140,9 +140,21 @@ that file for the full list. The most relevant ones:
 - **Workspaces** → `./workspace` (bind mount; each workspace you add is a
   subfolder). Legacy `.worktrees/` folders from the removed isolated-session
   feature may still exist; they are not used and can be deleted manually.
-- **opencode config/data** → named volumes `masterhand_opencode_config` and
-  `masterhand_opencode_data`, exactly like production, so `auth login` persists
-  across restarts and `docker compose down` does not wipe it.
+- **opencode config/data** → named volumes `masterhand-dev_opencode_config`
+  and `masterhand-dev_opencode_data`, exactly like production, so `auth login`
+  persists across restarts and `docker compose down` does not wipe it.
+- **Separate Compose project** → the overlay sets `name: masterhand-dev`, so a
+  production stack (`masterhand`, or a custom `COMPOSE_PROJECT_NAME`) and
+  `npm run dev` coexist on one host: containers, network and named volumes
+  never collide, and the watchdog resolves the dev containers because
+  `WATCHDOG_PROJECT` follows the project. After upgrading from a release that
+  used `masterhand` for dev, stop the old stack first (`npm run dev:stop` on
+  the old checkout, or `docker compose … -p masterhand down`) and run
+  `opencode auth login` once in the new dev stack: the SQLite in `./data/dev`
+  and the `workspace/` bind mount are untouched, but the dev credentials now
+  live in `masterhand-dev_opencode_data`. If this host only ever ran dev, the
+  old `masterhand_*` volumes can be removed after re-authenticating; if it also
+  runs production under `masterhand`, they belong to production — keep them.
 - **Source** → `apps/server/src`, `apps/web/src`, `apps/web/index.html`,
   `apps/web/vite.config.ts` and `packages/client-core/src` are bind-mounted on
   top of the image. `tsx watch` and Vite reload on save; dependencies stay in

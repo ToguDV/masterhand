@@ -293,6 +293,24 @@ test("a manual restart clears the open circuit", async () => {
   assert.equal(h.watchdog.status().services.opencode.attempts, 0)
 })
 
+test("logs an unresolved service once and never reports it as running", async () => {
+  // Regression: a watchdog pointed at the wrong Compose project (prod runs as
+  // `masterhand-prod`, the sidecar looked for `masterhand`) found no container,
+  // reported `state: unknown` and logged nothing at all, so the only symptom
+  // was a banner whose Start button answered 404 not_found.
+  const fake = fakeDocker()
+  delete fake.containers.opencode
+  const logs = []
+  const h = makeWatchdog(fake, { log: (message) => logs.push(message) })
+  await h.watchdog.tick()
+  await h.watchdog.tick()
+  assert.equal(h.watchdog.status().services.opencode.state, "unknown")
+  const missing = logs.filter((line) => line.includes("masterhand"))
+  assert.equal(missing.length, 1)
+  assert.match(missing[0], /no container/i)
+  assert.match(missing[0], /WATCHDOG_PROJECT/)
+})
+
 test("persists the restart budget across supervisor restarts", async () => {
   const dir = mkdtempSync(join(tmpdir(), "masterhand-watchdog-"))
   const stateFile = join(dir, "watchdog.json")

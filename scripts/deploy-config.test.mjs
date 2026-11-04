@@ -69,6 +69,21 @@ test("the resilience watchdog is the only always-on Docker-socket consumer", () 
   assert.match(compose, /WATCHDOG_TOKEN:/)
 })
 
+test("the supervised sidecars follow the Compose project", () => {
+  // The project name prefixes the named volumes, so a deployment that renames
+  // it (dev + prod on one host) must not leave the watchdog looking for
+  // `masterhand` and reporting `state: unknown` while the engine is running.
+  assert.match(compose, /^name: masterhand$/m)
+  assert.match(compose, /WATCHDOG_PROJECT:\s*\$\{COMPOSE_PROJECT_NAME:-masterhand\}/)
+  assert.match(compose, /COMPOSE_PROJECT:\s*\$\{COMPOSE_PROJECT_NAME:-masterhand\}/)
+})
+
+test("the dev overlay owns its own Compose project", () => {
+  // Dev and production coexist without configuration: the overlay overrides
+  // the base project name and therefore gets its own containers and volumes.
+  assert.match(devCompose, /^name: masterhand-dev$/m)
+})
+
 test("the watchdog has no published ports and a token-gated control surface", () => {
   const block = compose.slice(compose.indexOf("  watchdog:"), compose.indexOf("  # Opt-in one-click BFF updater"))
   assert.doesNotMatch(block, /ports:/)

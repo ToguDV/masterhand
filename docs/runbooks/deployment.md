@@ -79,6 +79,17 @@ docker compose -f deploy/docker-compose.yml ps
 > If the output shows `scripts/dev.mjs`, `pull` the published runtime image or
 > rebuild with `up -d --build`; a plain `up -d` keeps reusing the stale tag.
 
+> **Project name and coexistence with development.** Compose prefixes the
+> containers, the network and every named volume with the project name. The
+> base file keeps the production default `masterhand` (`name:`); the dev overlay
+> (`npm run dev`) uses `masterhand-dev`, so both stacks run on one host without
+> renaming anything. Set `COMPOSE_PROJECT_NAME` in `deploy/.env` only when you
+> need another name (for example `masterhand-prod` for more than one production
+> stack): the watchdog and the updater follow it automatically, and
+> `docker compose config` prints the resolved project. Changing an existing
+> deployment's project name points it at **new, empty volumes** — keep the old
+> name or copy the volumes first (see §7).
+
 The BFF is published on a host port (default `8787`, configurable with `MASTERHAND_PORT`/`MASTERHAND_BIND`). opencode stays on the internal network and publishes no ports.
 
 ### Agent image contents (`AGENT_TOOLBOX`)
@@ -215,6 +226,26 @@ curl -s -u "opencode:$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/api/experi
 Back up the volumes `masterhand_data`, `opencode_data` and `opencode_config` regularly (not only when upgrading).
 
 Only one BFF may own a data directory: a second instance refuses to boot with `another instance owns <dataDir>` (exit 1). Never delete `masterhand.lock` by hand while an instance might be alive — a crashed holder's lock is reclaimed automatically on the next boot.
+
+> **Renaming the Compose project is a data operation.** `COMPOSE_PROJECT_NAME`
+> (or the `name:` in a Compose file) prefixes the named volumes. A new name
+> starts with fresh, empty volumes: the old database, provider credentials and
+> GitHub config stay on disk under the old prefix, but the app no longer sees
+> them. Either keep the old name, or stop the stack and copy every old volume to
+> `<new>_*` before the first boot:
+>
+> ```bash
+> # containers stopped; adjust the target prefix
+> for v in masterhand_data opencode_config opencode_data agent_config watchdog_state; do
+>   docker volume create "masterhand-prod_$v"
+>   docker run --rm -v "masterhand_$v:/from" -v "masterhand-prod_$v:/to" alpine \
+>     sh -c 'cd /from && cp -a . /to'
+> done
+> ```
+>
+> Keep the old volumes until the new stack answers `/api/health` and the sessions
+> are visible. The production default stays `masterhand`; this is only needed
+> when you choose a different name on purpose.
 
 ### Releases and in-app updates (#131)
 

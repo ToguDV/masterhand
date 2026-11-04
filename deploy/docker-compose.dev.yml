@@ -12,6 +12,13 @@
 #
 # (Or just `npm run dev` / `dev:web`, which wraps exactly that command. On
 # Windows, Git Bash/WSL is required for the bind mounts.)
+#
+# Its own Compose project (`masterhand-dev`) gives the dev stack its own
+# containers, network and named volumes, so `npm run dev` and a production
+# `docker compose up -d` coexist on one host without configuring anything.
+# The base file keeps `masterhand` for production; a deployer can still pick
+# another name with COMPOSE_PROJECT_NAME (it wins over this `name`).
+name: masterhand-dev
 services:
   masterhand:
     # Never reuse the production tag: this stage is hot-reloading dev code with
