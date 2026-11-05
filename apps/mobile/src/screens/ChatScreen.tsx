@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -152,16 +151,20 @@ export function ChatScreen({
     sessionID: string
     hidden: number | null
     showJump: boolean
+    following: boolean
     overflows: boolean | null
-  }>(() => ({ sessionID, hidden: null, showJump: false, overflows: null }))
+  }>(() => ({ sessionID, hidden: null, showJump: false, following: true, overflows: null }))
   if (view.sessionID !== sessionID) {
     // Render-phase reset (documented "adjust state on prop change" pattern):
     // the derived values below already fall back to the new session's defaults,
     // and React re-renders before committing children.
-    setView({ sessionID, hidden: null, showJump: false, overflows: null })
+    setView({ sessionID, hidden: null, showJump: false, following: true, overflows: null })
   }
   const hidden = view.sessionID === sessionID ? view.hidden : null
   const showJump = view.sessionID === sessionID ? view.showJump : false
+  // The native list anchors the bottom-most visible row only while the reader
+  // is away from the bottom; see the FlatList prop below.
+  const following = view.sessionID === sessionID ? view.following : true
   const contentOverflows = view.sessionID === sessionID ? view.overflows : null
 
   const totalRef = useRef(0)
@@ -228,8 +231,14 @@ export function ChatScreen({
         const nextHidden = atBottom
           ? null
           : (prev.hidden ?? Math.max(0, totalRef.current - INITIAL_VISIBLE))
-        if (prev.showJump === nextShowJump && prev.hidden === nextHidden) return prev
-        return { ...prev, showJump: nextShowJump, hidden: nextHidden }
+        if (
+          prev.showJump === nextShowJump &&
+          prev.hidden === nextHidden &&
+          prev.following === atBottom
+        ) {
+          return prev
+        }
+        return { ...prev, showJump: nextShowJump, hidden: nextHidden, following: atBottom }
       })
     },
     [sessionID],
@@ -273,7 +282,9 @@ export function ChatScreen({
   const scrollToBottom = useCallback(() => {
     followRef.current = true
     setView((prev) =>
-      prev.sessionID === sessionID ? { ...prev, hidden: null, showJump: false } : prev,
+      prev.sessionID === sessionID
+        ? { ...prev, hidden: null, showJump: false, following: true }
+        : prev,
     )
     // Instant by design: the shortcut is "get me there now", not a ride.
     listRef.current?.scrollToOffset({ offset: 0, animated: false })
@@ -453,7 +464,15 @@ export function ChatScreen({
             onMomentumScrollEnd={handleScrollEnd}
             onContentSizeChange={handleContentSizeChange}
             onLayout={handleListLayout}
-            {...(Platform.OS === "ios" ? { maintainVisibleContentPosition: { minIndexForVisible: 0 } } : {})}
+            // Native anchor, only while the reader is away from the bottom: on
+            // an inverted list the content grows at the native head (new
+            // messages and streaming text), so a fixed content offset shifts
+            // the whole viewport under the reader even though no JS scroll is
+            // issued. While following, the instant follow above owns the case;
+            // the anchor would emit a scroll that flips the follow flag.
+            maintainVisibleContentPosition={
+              following ? undefined : { minIndexForVisible: 0 }
+            }
             // Inverted: the header renders at the visual bottom, under the
             // newest message, so the goal review and pending ghost stay there.
             ListHeaderComponent={listFooter}

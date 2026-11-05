@@ -28,6 +28,10 @@ import { Skeleton, SkeletonStatus } from "./Skeleton"
 
 /** Messages rendered at once; older ones load on demand (no virtualization). */
 const MESSAGE_PAGE_SIZE = 200
+/** Distance from the bottom (px) that still counts as "following". */
+const FOLLOW_THRESHOLD = 12
+/** Distance from the bottom that reveals the jump-to-latest shortcut. */
+const JUMP_THRESHOLD = 120
 
 export function ChatView({
   sessionID,
@@ -134,9 +138,13 @@ export function ChatView({
   function handleScroll() {
     const element = scrollRef.current
     if (!element) return
-    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 120
-    stickToBottom.current = nearBottom
-    setShowJump(!nearBottom)
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight
+    // Follow only when the reader is truly at the bottom (a few px of
+    // tolerance). The jump shortcut keeps its own, wider threshold so a reader
+    // parked 100 px away is never snapped back by streaming output.
+    const atBottom = distance < FOLLOW_THRESHOLD
+    stickToBottom.current = atBottom
+    setShowJump((previous) => (previous ? !atBottom : distance > JUMP_THRESHOLD))
   }
 
   function scrollToBottom() {
